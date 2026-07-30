@@ -1,0 +1,46 @@
+from django.urls import path
+from .views import (
+    auth_views,
+    wallet_views,
+    deposit_views,
+    settings_views,
+    topup_views,
+    bank_transfer_views,
+)
+
+urlpatterns = [
+    # Authentication endpoints
+    path('api/auth/register/', auth_views.register, name='register'),
+    path('api/auth/login/', auth_views.login, name='login'),
+    path('api/auth/logout/', auth_views.logout, name='logout'),
+    path('api/auth/profile/', auth_views.profile, name='profile'),
+    path('api/auth/change-password/', auth_views.change_password, name='change_password'),
+    path('api/auth/change-phone/', auth_views.change_phone, name='change_phone'),
+
+    # Wallet endpoints
+    path('api/wallet/balance/', wallet_views.get_wallet_balance, name='wallet_balance'),
+    path('api/wallet/transactions/', wallet_views.get_transaction_history, name='transaction_history'),
+
+    # Deposit endpoints
+    path('api/deposit/create/', deposit_views.create_deposit, name='create_deposit'),
+    path('api/deposit/list/', deposit_views.list_deposits, name='list_deposits'),
+    path('api/deposit/<int:deposit_id>/', deposit_views.get_deposit, name='get_deposit'),
+
+    # Settings endpoints
+    path('api/settings/', settings_views.get_settings, name='get_settings'),
+
+    # Topup endpoints (HimalPay NTC / NCELL)
+    path('api/topup/ntc/', topup_views.topup_ntc, name='topup_ntc'),
+    path('api/topup/ncell/', topup_views.topup_ncell, name='topup_ncell'),
+    path('api/topup/history/', topup_views.topup_history, name='topup_history'),
+    path('api/topup/calculate-charge/', topup_views.calculate_charge, name='topup_calculate_charge'),
+    path('api/topup/status/', topup_views.check_transaction_status, name='topup_status'),
+
+    # Bank Transfer endpoints (HimalPay)
+    path('api/bank-transfer/banks/', bank_transfer_views.list_banks, name='bank_transfer_banks'),
+    path('api/bank-transfer/verify/', bank_transfer_views.verify_account, name='bank_transfer_verify'),
+    path('api/bank-transfer/calculate/', bank_transfer_views.calculate_transfer_charge, name='bank_transfer_calculate'),
+    path('api/bank-transfer/create/', bank_transfer_views.create_bank_transfer, name='bank_transfer_create'),
+    path('api/bank-transfer/history/', bank_transfer_views.bank_transfer_history, name='bank_transfer_history'),
+    path('api/bank-transfer/status/', bank_transfer_views.bank_transfer_status, name='bank_transfer_status'),
+]

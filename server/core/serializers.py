@@ -1,0 +1,340 @@
+"""
+DRF Serializers for all models
+"""
+from rest_framework import serializers
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth import get_user_model
+from .models import Wallet, Deposit, Settings, TopupTransaction, BankTransferTransaction
+
+User = get_user_model()
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """User serializer for registration and profile - phone number as username"""
+    password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
+    password2 = serializers.CharField(write_only=True, required=True, label="Confirm Password")
+
+    class Meta:
+        model = User
+        fields = ('id', 'phone', 'email', 'first_name', 'last_name', 'password', 'password2')
+        extra_kwargs = {
+            'phone': {'required': True},
+            'email': {'required': False},
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+        }
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['password2']:
+            raise serializers.ValidationError({"password": "Password fields didn't match."})
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('password2')
+        phone = validated_data.pop('phone')
+        # create_user() uses USERNAME_FIELD (phone), so pass phone as the first positional argument
+        user = User.objects.create_user(
+            phone,  # This maps to USERNAME_FIELD which is 'phone'
+            email=validated_data.get('email', ''),
+            password=validated_data['password'],
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
+        )
+        # Wallet will be created automatically via signal
+        return user
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    """User profile serializer for reading profile information (no password fields)"""
+    avatar_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ('id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url')
+        read_only_fields = ('id', 'phone', 'avatar')
+
+    def get_avatar_url(self, obj):
+        if not obj.avatar:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.avatar.url)
+        return obj.avatar.url
+
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    """User profile update serializer (email, name, avatar)"""
+
+    class Meta:
+        model = User
+        fields = ('email', 'first_name', 'last_name', 'avatar')
+        extra_kwargs = {
+            'email': {'required': False, 'allow_blank': True},
+            'first_name': {'required': False, 'allow_blank': True},
+            'last_name': {'required': False, 'allow_blank': True},
+            'avatar': {'required': False},
+        }
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """Change password serializer — matches app rules (min 8 chars, must match)."""
+    current_password = serializers.CharField(required=True, write_only=True)
+    new_password = serializers.CharField(required=True, write_only=True, min_length=8)
+    confirm_password = serializers.CharField(required=True, write_only=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['confirm_password']:
+            raise serializers.ValidationError(
+                {'confirm_password': 'Passwords do not match.'}
+            )
+        return attrs
+
+
+class ChangePhoneSerializer(serializers.Serializer):
+    """Change phone number serializer — requires current password"""
+    new_phone = serializers.CharField(required=True, max_length=50)
+    current_password = serializers.CharField(required=True, write_only=True)
+
+    def validate_new_phone(self, value):
+        phone = value.strip()
+        if not phone:
+            raise serializers.ValidationError('Phone number is required.')
+        user = self.context['request'].user
+        if phone == user.phone:
+            raise serializers.ValidationError('This is already your current phone number.')
+        if User.objects.filter(phone=phone).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError('This phone number is already registered.')
+        return phone
+
+
+class WalletSerializer(serializers.ModelSerializer):
+    """Wallet serializer"""
+    user = serializers.StringRelatedField(read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+
+    class Meta:
+        model = Wallet
+        fields = ('id', 'user', 'phone', 'balance', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'user', 'balance', 'created_at', 'updated_at')
+
+
+class DepositSerializer(serializers.ModelSerializer):
+    """Deposit request serializer"""
+    user = serializers.StringRelatedField(read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = Deposit
+        fields = ('id', 'user', 'phone', 'amount', 'status', 'status_display', 
+                  'screenshot_proof', 'note', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'user', 'status', 'created_at', 'updated_at')
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        return value
+
+
+class DepositCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating deposit requests"""
+    
+    class Meta:
+        model = Deposit
+        fields = ('amount', 'screenshot_proof', 'note')
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        if value < 100:
+            raise serializers.ValidationError("Minimum deposit amount is Rs. 100.")
+        return value
+
+
+class SettingsSerializer(serializers.ModelSerializer):
+    """Settings serializer"""
+    qr_code_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Settings
+        fields = ('id', 'qr_code', 'qr_code_url', 'bank_details', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'created_at', 'updated_at')
+
+    def get_qr_code_url(self, obj):
+        if obj.qr_code:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.qr_code.url)
+            return obj.qr_code.url
+        return None
+
+
+class TopupTransactionSerializer(serializers.ModelSerializer):
+    """Topup transaction serializer"""
+    user = serializers.StringRelatedField(read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    product_name = serializers.CharField(source='get_product_id_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = TopupTransaction
+        fields = (
+            'id', 'user', 'phone', 'mobile_number', 'amount', 'product_id',
+            'product_name', 'status', 'status_display', 'service_hub_txn_id',
+            'merchant_txn_id', 'charge', 'cashback', 'total_debited',
+            'reference_id', 'created_at', 'updated_at',
+        )
+        read_only_fields = (
+            'id', 'user', 'status', 'service_hub_txn_id', 'merchant_txn_id',
+            'charge', 'cashback', 'total_debited', 'reference_id',
+            'created_at', 'updated_at',
+        )
+
+    def validate_mobile_number(self, value):
+        if not value or value.strip() == '':
+            raise serializers.ValidationError("Mobile number is required.")
+        return value.strip()
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        if value < 10:
+            raise serializers.ValidationError("Minimum topup amount is Rs. 10.")
+        return value
+
+
+class TopupCreateSerializer(serializers.Serializer):
+    """Serializer for creating topup requests"""
+    mobile_number = serializers.CharField(max_length=50, required=True)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
+    product_id = serializers.IntegerField(required=True)
+
+    def validate_mobile_number(self, value):
+        if not value or value.strip() == '':
+            raise serializers.ValidationError("Mobile number is required.")
+        digits = ''.join(ch for ch in value.strip() if ch.isdigit())
+        if len(digits) < 10:
+            raise serializers.ValidationError("Enter a valid mobile number (at least 10 digits).")
+        return digits
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        if value < 10:
+            raise serializers.ValidationError("Minimum topup amount is Rs. 10.")
+        return value
+
+    def validate(self, attrs):
+        product_id = attrs.get('product_id')
+        mobile = attrs.get('mobile_number', '')
+        if product_id == 1 and not mobile.startswith(('984', '985', '986', '974', '975', '976')):
+            raise serializers.ValidationError({
+                'mobile_number': 'NTC numbers typically start with 984, 985, 986, 974, 975, or 976.',
+            })
+        if product_id == 2 and not mobile.startswith(('980', '981', '982', '970')):
+            raise serializers.ValidationError({
+                'mobile_number': 'NCELL numbers typically start with 980, 981, 982, or 970.',
+            })
+        return attrs
+
+    def validate_product_id(self, value):
+        if value not in [1, 2]:
+            raise serializers.ValidationError("Product ID must be 1 (NTC) or 2 (NCELL).")
+        return value
+
+
+class BankTransferTransactionSerializer(serializers.ModelSerializer):
+    """Bank transfer transaction serializer"""
+    user = serializers.StringRelatedField(read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = BankTransferTransaction
+        fields = (
+            'id', 'user', 'phone', 'amount', 'destination_bank', 'destination_bank_name',
+            'destination_acc_no', 'destination_acc_name', 'is_destination_mobile',
+            'transaction_remarks', 'transaction_remarks_2', 'transaction_remarks_3',
+            'status', 'status_display', 'merchant_txn_id', 'provider_txn_id',
+            'reference_id', 'charge', 'cashback', 'total_debited', 'verified',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+
+class BankAccountVerifySerializer(serializers.Serializer):
+    """Verify destination bank account before transfer"""
+    bank_code = serializers.CharField(max_length=50, required=True)
+    account_name = serializers.CharField(max_length=150, required=True)
+    account_number = serializers.CharField(max_length=50, required=True)
+    is_mobile = serializers.BooleanField(required=False, default=False)
+    merchant_txn_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
+
+    def validate_bank_code(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Bank code is required.")
+        return value.strip().upper()
+
+    def validate_account_name(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Account name is required.")
+        return value.strip()
+
+    def validate_account_number(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Account number is required.")
+        return value.strip()
+
+
+class BankTransferCreateSerializer(serializers.Serializer):
+    """Create / process bank transfer"""
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
+    destination_bank = serializers.CharField(max_length=50, required=True)
+    destination_bank_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
+    destination_acc_no = serializers.CharField(max_length=50, required=True)
+    destination_acc_name = serializers.CharField(max_length=150, required=True)
+    is_destination_mobile = serializers.BooleanField(required=False, default=False)
+    transaction_remarks = serializers.CharField(max_length=255, required=False, default='Fund Transfer')
+    transaction_remarks_2 = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    transaction_remarks_3 = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    merchant_txn_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        if value < 10:
+            raise serializers.ValidationError("Minimum transfer amount is Rs. 10.")
+        return value
+
+    def validate_destination_bank(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Destination bank code is required.")
+        return value.strip().upper()
+
+    def validate_destination_acc_no(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Destination account number is required.")
+        return value.strip()
+
+    def validate_destination_acc_name(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Destination account name is required.")
+        return value.strip()
+
+
+class CalculateChargeSerializer(serializers.Serializer):
+    """Calculate HimalPay charge/cashback for a service"""
+    wallet_service_name = serializers.ChoiceField(
+        choices=['NTC', 'NCELL', 'BANK_TRANSFER'],
+        required=True,
+    )
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        return value
+
+
+class TransactionStatusSerializer(serializers.Serializer):
+    merchant_transaction_id = serializers.CharField(max_length=100, required=True)
