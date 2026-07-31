@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Mysewa</string>
+	<string>MySewa</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -66,5 +66,20 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>MySewa needs camera access to upload payment screenshots and profile photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MySewa needs photo library access to upload images.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MySewa needs microphone access for media features on the site.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>MySewa may use your location when the website requests it.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+	</dict>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<true/>
 </dict>
 </plist>

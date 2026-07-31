@@ -78,7 +78,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" },
       { title: "MySewa — Nepal Digital Wallet, Remittance & Top-Up" },
       { name: "description", content: "MySewa is a Nepal digital wallet: load remittance into your wallet, send bank transfers and recharge NTC or NCELL in seconds." },
       { name: "author", content: "Lovable" },
