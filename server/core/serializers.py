@@ -50,8 +50,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url')
-        read_only_fields = ('id', 'phone', 'avatar')
+        fields = (
+            'id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url',
+            'is_active', 'is_staff', 'is_superuser', 'date_joined', 'last_login',
+        )
+        read_only_fields = (
+            'id', 'phone', 'avatar', 'is_active', 'is_staff', 'is_superuser',
+            'date_joined', 'last_login',
+        )
 
     def get_avatar_url(self, obj):
         if not obj.avatar:
@@ -60,6 +66,53 @@ class UserProfileSerializer(serializers.ModelSerializer):
         if request:
             return request.build_absolute_uri(obj.avatar.url)
         return obj.avatar.url
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    """Admin user list with wallet balance"""
+    avatar_url = serializers.SerializerMethodField()
+    wallet_balance = serializers.SerializerMethodField()
+    wallet_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = (
+            'id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url',
+            'is_active', 'is_staff', 'is_superuser', 'date_joined', 'last_login',
+            'wallet_id', 'wallet_balance',
+        )
+
+    def get_avatar_url(self, obj):
+        if not obj.avatar:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.avatar.url)
+        return obj.avatar.url
+
+    def get_wallet_balance(self, obj):
+        wallet = getattr(obj, 'wallet', None)
+        if wallet is None:
+            return '0.00'
+        return str(wallet.balance)
+
+    def get_wallet_id(self, obj):
+        wallet = getattr(obj, 'wallet', None)
+        return wallet.id if wallet else None
+
+
+class AdminWalletSerializer(serializers.ModelSerializer):
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+
+    class Meta:
+        model = Wallet
+        fields = (
+            'id', 'user_id', 'phone', 'first_name', 'last_name',
+            'balance', 'created_at', 'updated_at',
+        )
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):

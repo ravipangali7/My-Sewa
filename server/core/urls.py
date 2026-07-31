@@ -6,6 +6,7 @@ from .views import (
     settings_views,
     topup_views,
     bank_transfer_views,
+    admin_views,
 )
 
 urlpatterns = [
@@ -43,4 +44,15 @@ urlpatterns = [
     path('api/bank-transfer/create/', bank_transfer_views.create_bank_transfer, name='bank_transfer_create'),
     path('api/bank-transfer/history/', bank_transfer_views.bank_transfer_history, name='bank_transfer_history'),
     path('api/bank-transfer/status/', bank_transfer_views.bank_transfer_status, name='bank_transfer_status'),
+
+    # Admin / staff console
+    path('api/admin/dashboard/', admin_views.admin_dashboard, name='admin_dashboard'),
+    path('api/admin/users/', admin_views.admin_list_users, name='admin_list_users'),
+    path('api/admin/wallets/', admin_views.admin_list_wallets, name='admin_list_wallets'),
+    path('api/admin/deposits/', admin_views.admin_list_deposits, name='admin_list_deposits'),
+    path('api/admin/deposits/<int:deposit_id>/approve/', admin_views.admin_approve_deposit, name='admin_approve_deposit'),
+    path('api/admin/deposits/<int:deposit_id>/reject/', admin_views.admin_reject_deposit, name='admin_reject_deposit'),
+    path('api/admin/topups/', admin_views.admin_list_topups, name='admin_list_topups'),
+    path('api/admin/transfers/', admin_views.admin_list_transfers, name='admin_list_transfers'),
+    path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
 ]

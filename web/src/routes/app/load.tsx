@@ -1,0 +1,202 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { Upload, QrCode } from "lucide-react";
+import { toast } from "sonner";
+import { UserShell } from "@/components/layout/UserShell";
+import { StatusChip } from "@/components/StatusChip";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { apiClient, ApiError } from "@/lib/api";
+import { formatNPR, formatDateTime } from "@/lib/format";
+
+export const Route = createFileRoute("/app/load")({
+  head: () => ({
+    meta: [
+      { title: "Load Wallet — MySewa Remittance Deposit" },
+      {
+        name: "description",
+        content:
+          "Fund your MySewa wallet: scan the company QR or transfer to the bank account, then submit your deposit with screenshot proof.",
+      },
+      { property: "og:title", content: "Load Wallet — MySewa" },
+      {
+        property: "og:description",
+        content: "Submit a remittance deposit with proof and track approval status.",
+      },
+    ],
+  }),
+  component: LoadWallet,
+});
+
+function LoadWallet() {
+  const queryClient = useQueryClient();
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+
+  const settingsQuery = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => apiClient.settings(),
+  });
+
+  const depositsQuery = useQuery({
+    queryKey: ["deposits"],
+    queryFn: () => apiClient.listDeposits(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      if (!file) throw new Error("Screenshot proof is required");
+      const fd = new FormData();
+      fd.append("amount", amount);
+      if (note.trim()) fd.append("note", note.trim());
+      fd.append("screenshot_proof", file);
+      return apiClient.createDeposit(fd);
+    },
+    onSuccess: () => {
+      toast.success("Deposit submitted", { description: "Status: pending admin approval" });
+      setAmount("");
+      setNote("");
+      setFile(null);
+      queryClient.invalidateQueries({ queryKey: ["deposits"] });
+      queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError || err instanceof Error ? err.message : "Submit failed");
+    },
+  });
+
+  const bank = settingsQuery.data?.bank_details ?? {};
+  const bankEntries = Object.entries(bank).filter(([, v]) => v);
+
+  return (
+    <UserShell title="Load Wallet" back="/app">
+      <div className="grid gap-5 lg:grid-cols-2">
+        <section className="inset-group p-4">
+          <h2 className="text-[15px] font-semibold">Pay to MySewa</h2>
+          <div className="mt-3 flex gap-4">
+            <div className="flex size-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-muted text-muted-foreground">
+              {settingsQuery.data?.qr_code_url ? (
+                <img
+                  src={settingsQuery.data.qr_code_url}
+                  alt="Deposit QR"
+                  className="size-full object-contain"
+                />
+              ) : (
+                <QrCode className="size-12" />
+              )}
+            </div>
+            <dl className="flex-1 space-y-1.5 text-[14px]">
+              {settingsQuery.isLoading ? (
+                <p className="text-muted-foreground">Loading bank details…</p>
+              ) : bankEntries.length === 0 ? (
+                <p className="text-muted-foreground">Bank details not configured yet.</p>
+              ) : (
+                bankEntries.map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground capitalize">{k.replace(/_/g, " ")}</dt>
+                    <dd className="text-right font-medium">{v}</dd>
+                  </div>
+                ))
+              )}
+            </dl>
+          </div>
+        </section>
+
+        <section className="inset-group p-4">
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMutation.mutate();
+            }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="amount">Amount (NPR)</Label>
+              <Input
+                id="amount"
+                inputMode="decimal"
+                placeholder="0.00"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="tabular h-12 rounded-xl text-[22px] font-semibold"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="note">Note (optional)</Label>
+              <Textarea
+                id="note"
+                rows={2}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                className="rounded-xl"
+                placeholder="e.g. Remittance from Qatar"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="proof">Screenshot proof</Label>
+              <label
+                htmlFor="proof"
+                className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
+              >
+                <Upload className="size-5" />
+                {file?.name ?? "Upload payment screenshot"}
+              </label>
+              <input
+                id="proof"
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                required
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={createMutation.isPending}
+              className="h-12 w-full rounded-xl text-[17px]"
+            >
+              {createMutation.isPending ? "Submitting…" : "Submit deposit"}
+            </Button>
+          </form>
+        </section>
+
+        <section className="lg:col-span-2">
+          <h2 className="mb-2 px-1 text-[17px] font-semibold">My deposits</h2>
+          {depositsQuery.isLoading ? (
+            <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
+              Loading…
+            </div>
+          ) : !depositsQuery.data?.length ? (
+            <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
+              No deposits yet.
+            </div>
+          ) : (
+            <ul className="inset-group divide-y divide-border">
+              {depositsQuery.data.map((d) => (
+                <li key={d.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[15px] font-medium">
+                      {formatNPR(d.amount)}{" "}
+                      <span className="text-[13px] font-normal text-muted-foreground">
+                        · #{d.id}
+                      </span>
+                    </p>
+                    <p className="truncate text-[13px] text-muted-foreground">
+                      {d.note ?? "No note"} · {formatDateTime(d.created_at)}
+                    </p>
+                  </div>
+                  <StatusChip status={d.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </UserShell>
+  );
+}

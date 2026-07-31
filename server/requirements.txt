@@ -9,3 +9,4 @@ sqlparse==0.5.5
 tzdata==2025.3
 requests==2.31.0
 cryptography==42.0.5
+python-dotenv==1.0.1

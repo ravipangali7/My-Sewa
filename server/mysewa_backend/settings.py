@@ -16,6 +16,13 @@ import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load environment variables from server/.env
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / '.env')
+except ImportError:
+    pass
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -163,13 +170,13 @@ SERVICE_HUB_API_PASSWORD = 'Sajilo#121'  # Set your Service Hub API password her
 SERVICE_HUB_PRIVATE_KEY_PATH = os.path.join(BASE_DIR, 'service_private_key.txt')  # Optional: custom path to private key file
 SERVICE_HUB_BYPASS_API = True  # Set to True to bypass API calls and return mock success (for testing/development)
 
-# HimalPay Reseller API Configuration
+# HimalPay Reseller API Configuration (loaded from .env)
 HIMALPAY_BASE_URL = os.environ.get(
     'HIMALPAY_BASE_URL',
     'https://uatapi.himalpay.com.np/api/v1',
 )
-HIMALPAY_API_KEY = os.environ.get('HIMALPAY_API_KEY', '')  # Set via env or replace here
-HIMALPAY_BYPASS_API = os.environ.get('HIMALPAY_BYPASS_API', 'true').lower() in ('1', 'true', 'yes')
+HIMALPAY_API_KEY = os.environ.get('HIMALPAY_API_KEY', '').strip()
+HIMALPAY_BYPASS_API = os.environ.get('HIMALPAY_BYPASS_API', 'false').lower() in ('1', 'true', 'yes')
 HIMALPAY_TIMEOUT = int(os.environ.get('HIMALPAY_TIMEOUT', '60'))
 # Key loading priority (in order):
 # 1. service hub api/Private key.txt (workspace root) - PRIMARY LOCATION for updated keys

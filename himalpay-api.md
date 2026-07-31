@@ -1,14 +1,20 @@
 # HimalPay Reseller API — Integration Guide
 
 > Source: [https://uat.himalpay.com.np/docs/reseller](https://uat.himalpay.com.np/docs/reseller)  
+> Captured: 2026-07-31  
 > Environment: **UAT**  
 > Base URL: `https://uatapi.himalpay.com.np/api/v1`
 
-This document captures the Digital Wallet Reseller API for integrating HimalPay / N-Cash wallet services (top-up, ISP, utilities, insurance, bank transfer, voting, etc.).
+This document is the Digital Wallet Reseller API reference for integrating HimalPay wallet services (top-up, ISP, utilities, insurance, bank transfer, voting, remittance, etc.).
+
+**Quick notes for integrators**
+- Authenticate every request with header `X-API-Key: YOUR_API_KEY`.
+- All money fields (`amount`, `charge`, `cashback`, `total_debited`, `total_credited`) are integers in **paisa** (`10000` = Rs. 100.00), unless a vendor nested field explicitly says otherwise.
+- Your server IPs must be allowlisted; only Reseller accounts can call these endpoints.
+- Keep `merchant_transaction_id` unique across all your transactions; use it to poll status.
+- Most flows debit via `POST /payments/wallet-service-reseller-payment`. Samsara remittance payout is a **credit/load** via `POST /loads/wallet-service-reseller-load`.
 
 ---
-
-# Reseller API Documentation
 
 Welcome to the Digital Wallet Reseller API. This documentation provides the necessary information for resellers to integrate our wallet services into their own applications.
 
@@ -16,6 +22,7 @@ Welcome to the Digital Wallet Reseller API. This documentation provides the nece
 
 ```
 base_url = https://uatapi.himalpay.com.np/api/v1
+
 ```
 
 All API requests should be made to `https://uatapi.himalpay.com.np/api/v1`. Update the variable above if the base URL changes.
@@ -24,65 +31,71 @@ All API requests should be made to `https://uatapi.himalpay.com.np/api/v1`. Upda
 
 Authentication is handled via an API Key. You must include your API key in every request through one of the following methods:
 
-1.  **HTTP Header**: `X-API-Key: YOUR_API_KEY`
+1. **HTTP Header**: `X-API-Key: YOUR_API_KEY`
 
 > [!IMPORTANT]
-> - **Currency Amounts**: All currency fields (e.g., `amount`, `charge`, `cashback`, `total_debited`) are represented in **paisa** as integers. (e.g., `10000` = Rs. 100.00).
-> - Access is restricted to authorized IP addresses only. Please provide your server's IP addresses to our support team for allowlisting.
-> - Only accounts with "Reseller" status can use these endpoints.
+> 
+> * **Currency Amounts**: All currency fields (e.g., `amount`, `charge`, `cashback`, `total_debited`, `total_credited`) are represented in **paisa** as integers. (e.g., `10000` = Rs. 100.00).
+> * Access is restricted to authorized IP addresses only. Please provide your server's IP addresses to our support team for allowlisting.
+> * Only accounts with "Reseller" status can use these endpoints.
 
 ---
 
 ## API Endpoints
 
 ### 1. List Available Services
+
 Retrieve a list of all wallet services available for your account. Use the `name` field from the response as the `wallet_service_name` in payment and detail requests.
 
-*   **URL**: `/details/my-reseller-services`
-*   **Method**: `GET`
-*   **Response Body**:
-    *   `id` (int): Unique identifier for the service.
-    *   `name` (string): Unique name of the service.
-    *   `logo_image_url` (string, optional): URL to the service's logo image.
+* **URL**: `/details/my-reseller-services`
+* **Method**: `GET`
+* **Response Body**:  
+   * `id` (int): Unique identifier for the service.  
+   * `name` (string): Unique name of the service.  
+   * `logo_image_url` (string, optional): URL to the service's logo image.
 
 ### 2. Process Payment
+
 Process a payment for a specific wallet service (e.g., NTC, NCELL, Worldlink).
 
-*   **URL**: `/payments/wallet-service-reseller-payment`
-*   **Method**: `POST`
-*   **Request Body**:
-    *   `wallet_service_name` (string, required): The unique name of the service.
-    *   `amount` (int, required): The transaction amount in paisa (e.g., 10000 = Rs. 100).
-    *   `merchant_transaction_id` (string, required): A unique identifier from your system for this transaction. **Must be unique across all your transactions.**
-    *   `meta_data` (array, optional): Additional information for display or processing.
-    *   `data` (object, required): Service-specific input data (e.g., mobile number).
+* **URL**: `/payments/wallet-service-reseller-payment`
+* **Method**: `POST`
+* **Request Body**:  
+   * `wallet_service_name` (string, required): The unique name of the service.  
+   * `amount` (int, required): The transaction amount in paisa (e.g., 10000 = Rs. 100).  
+   * `merchant_transaction_id` (string, required): A unique identifier from your system for this transaction. **Must be unique across all your transactions.**  
+   * `meta_data` (array, optional): Additional information for display or processing.  
+   * `data` (object, required): Service-specific input data (e.g., mobile number).
 
 ### 3. Fetch Service Details
+
 Fetch details or validate information before processing a payment (Required for some services like Worldlink).
 
-*   **URL**: `/details/wallet-service-reseller-detail`
-*   **Method**: `POST`
-*   **Request Body**:
-    *   `wallet_service_name` (string, required): Use the lookup service name (e.g., `WLINK_GET`).
-    *   `data` (object, required): Query parameters (e.g., username).
+* **URL**: `/details/wallet-service-reseller-detail`
+* **Method**: `POST`
+* **Request Body**:  
+   * `wallet_service_name` (string, required): Use the lookup service name (e.g., `WLINK_GET`).  
+   * `data` (object, required): Query parameters (e.g., username).
 
 ### 4. Calculate Cashback and Charge
+
 Calculate the expected charge and cashback for a given wallet service and amount before processing a payment. Use this to display fee breakdowns to customers prior to confirming a transaction.
 
-*   **URL**: `/details/reseller-calculate-cashback-and-charge`
-*   **Method**: `POST`
-*   **Request Body**:
-    *   `wallet_service_name` (string, required): The unique name of the service (e.g., `NTC`, `BANK_TRANSFER`).
-    *   `amount` (number, required): The intended transaction amount in paisa.
-*   **Response Body**:
-    *   `charge` (int): Applicable fee in paisa.
-    *   `cashback` (int): Applicable cashback in paisa.
-    *   `total_debited` (int): Net amount that would be deducted (`amount + charge - cashback`) in paisa.
+* **URL**: `/details/reseller-calculate-cashback-and-charge`
+* **Method**: `POST`
+* **Request Body**:  
+   * `wallet_service_name` (string, required): The unique name of the service (e.g., `NTC`, `BANK_TRANSFER`).  
+   * `amount` (number, required): The intended transaction amount in paisa.
+* **Response Body**:  
+   * `charge` (int): Applicable fee in paisa.  
+   * `cashback` (int): Applicable cashback in paisa.  
+   * `total_debited` (int): Net amount that would be deducted (`amount + charge - cashback`) in paisa.
 
 #### Calculate Cashback and Charge Example
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/reseller-calculate-cashback-and-charge \
   --header 'content-type: application/json' \
@@ -91,10 +104,12 @@ curl --request POST \
   "wallet_service_name": "BANK_TRANSFER",
   "amount": 10000
 }'
+
 ```
 
 **Response (Amounts in paisa):**
-```json
+
+```
 {
   "wallet_service_name": "BANK_TRANSFER",
   "amount": 1000,
@@ -103,29 +118,32 @@ curl --request POST \
   "net_amount": 1500,
   "message": "Rules calculated successfully"
 }
+
 ```
 
 ### 5. Check Transaction Status
+
 Check the status of a transaction using your `merchant_transaction_id`.
 
-*   **URL**: `/transactions/wallet-service-reseller-status`
-*   **Method**: `POST`
-*   **Request Body**:
-    *   `merchant_transaction_id` (string, required): The unique identifier you provided during payment.
-*   **Response Body**:
-    *   `status` (string): Transaction status (`SUCCESS`, `FAILED`, `UNKNOWN`).
-    *   `amount` (int): Transaction amount **in paisa**.
-    *   `charge` (int): Fees charged **in paisa**.
-    *   `cashback` (int): Cashback earned **in paisa**.
-    *   `total_debited` (int): Total amount deducted from your balance **in paisa**.
-    *   `transaction_id` (string): Internal transaction identifier.
-    *   `reference_id` (string): External operator reference (if available).
-    *   `created_at` (string): Timestamp of the transaction.
+* **URL**: `/transactions/wallet-service-reseller-status`
+* **Method**: `POST`
+* **Request Body**:  
+   * `merchant_transaction_id` (string, required): The unique identifier you provided during payment.
+* **Response Body**:  
+   * `status` (string): Transaction status (`SUCCESS`, `FAILED`, `UNKNOWN`).  
+   * `amount` (int): Transaction amount **in paisa**.  
+   * `charge` (int): Fees charged **in paisa**.  
+   * `cashback` (int): Cashback earned **in paisa**.  
+   * `total_debited` (int): Total amount deducted from your balance **in paisa**.  
+   * `transaction_id` (string): Internal transaction identifier.  
+   * `reference_id` (string): External operator reference (if available).  
+   * `created_at` (string): Timestamp of the transaction.
 
 #### Check Transaction Status Example
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/transactions/wallet-service-reseller-status \
   --header 'content-type: application/json' \
@@ -133,10 +151,12 @@ curl --request POST \
   --data '{
   "merchant_transaction_id": "ABC-12345"
 }'
+
 ```
 
 **Response (Amounts in paisa):**
-```json
+
+```
 {
   "merchant_transaction_id": "ABC-12345",
   "transaction_id": "TXN-789-XYZ",
@@ -148,9 +168,8 @@ curl --request POST \
   "reference_id": "REF123",
   "created_at": "2026-03-22T19:41:32Z"
 }
+
 ```
-
-
 
 ---
 
@@ -159,14 +178,17 @@ curl --request POST \
 ### List Services
 
 **Request:**
-```bash
+
+```
 curl --request GET \
   --url https://uatapi.himalpay.com.np/api/v1/details/my-reseller-services \
   --header 'x-api-key: YOUR_API_KEY'
+
 ```
 
 **Response:**
-```json
+
+```
 [
   {
     "id": 1,
@@ -179,13 +201,14 @@ curl --request GET \
     "logo_image_url": "https://example.com/ncell_logo.png"
   }
 ]
-```
 
+```
 
 ### NTC Top-up
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -198,12 +221,14 @@ curl --request POST \
     "number": "9841XXXXXX"
   }
 }'
+
 ```
 
 ### NCELL Top-up
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -216,15 +241,18 @@ curl --request POST \
     "number": "9802XXXXXX"
   }
 }'
+
 ```
 
 ### Worldlink (Two-Step Payment)
 
 #### Step 1: Fetch Account Details
+
 Retrieve package information and `session_id`.
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -235,13 +263,16 @@ curl --request POST \
     "username": "online_renew"
   }
 }'
+
 ```
 
 #### Step 2: Process Payment
+
 Use the `package_id` and `session_id` from Step 1.
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -256,6 +287,7 @@ curl --request POST \
     "username": "online_renew"
   }
 }'
+
 ```
 
 ### NTC Data Pack (Two-Step Payment)
@@ -265,7 +297,8 @@ NTC data pack subscription requires fetching available packages first.
 #### Step 1: Fetch Available Packages
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -274,6 +307,7 @@ curl --request POST \
   "wallet_service_name": "NTC_DATA_PACK_GET",
   "data": {}
 }'
+
 ```
 
 #### Step 2: Process Payment
@@ -281,7 +315,8 @@ curl --request POST \
 Use the `package_id` and `product_code` from Step 1.
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -296,12 +331,14 @@ curl --request POST \
     "product_code": 20
   }
 }'
+
 ```
 
 **`data` fields:**
-- `number` (string): Subscriber mobile number.
-- `package_id` (int): Package ID from Step 1.
-- `product_code` (int): Product code from Step 1.
+
+* `number` (string): Subscriber mobile number.
+* `package_id` (int): Package ID from Step 1.
+* `product_code` (int): Product code from Step 1.
 
 ### NCELL Data Pack (Two-Step Payment)
 
@@ -310,7 +347,8 @@ NCELL data pack subscription requires fetching available packages first.
 #### Step 1: Fetch Available Packages
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -319,6 +357,7 @@ curl --request POST \
   "wallet_service_name": "NCELL_DATA_PACK_GET",
   "data": {}
 }'
+
 ```
 
 #### Step 2: Process Payment
@@ -326,7 +365,8 @@ curl --request POST \
 Use the `product_code` from Step 1.
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -340,18 +380,21 @@ curl --request POST \
     "product_code": "1_day_10min_India"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `number` (string): Subscriber mobile number.
-- `product_code` (string): Product code from Step 1.
+
+* `number` (string): Subscriber mobile number.
+* `product_code` (string): Product code from Step 1.
 
 ### ADSL (Direct Payment)
 
 Supports two ADSL service variants: unlimited (`ADSLUL`) and volume-based (`ADSLVB`).
 
 **Request — ADSL Unlimited (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -364,10 +407,12 @@ curl --request POST \
     "number": "014XXXXXXX"
   }
 }'
+
 ```
 
 **Request — ADSL Volume-Based (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -380,10 +425,12 @@ curl --request POST \
     "number": "014XXXXXXX"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `number` (string): ADSL landline number.
+
+* `number` (string): ADSL landline number.
 
 ### NEA Electricity (Three-Step Payment)
 
@@ -392,7 +439,8 @@ NEA electricity bill payment requires fetching the office counter, then account 
 #### Step 1: Get Office Counters
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -401,6 +449,7 @@ curl --request POST \
   "wallet_service_name": "NEA_GET_COUNTER",
   "data": {}
 }'
+
 ```
 
 The response contains a list of office counters with their `office_code` values.
@@ -410,7 +459,8 @@ The response contains a list of office counters with their `office_code` values.
 Use the `office_code` from Step 1.
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -423,19 +473,22 @@ curl --request POST \
     "consumer_id": "333"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `sc_no` (string): Service connection number.
-- `office_code` (string): Office code from Step 1.
-- `consumer_id` (string): Consumer ID.
+
+* `sc_no` (string): Service connection number.
+* `office_code` (string): Office code from Step 1.
+* `consumer_id` (string): Consumer ID.
 
 The response contains bill details and a `session_id`.
 
 #### Step 3: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -449,11 +502,13 @@ curl --request POST \
     "consumer_id": "3042"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `session_id` (int): Session ID from Step 2.
-- `consumer_id` (string): Consumer ID from Step 2.
+
+* `session_id` (int): Session ID from Step 2.
+* `consumer_id` (string): Consumer ID from Step 2.
 
 ### KUKL Water (Three-Step Payment)
 
@@ -462,7 +517,8 @@ KUKL water bill payment requires fetching the payment counter, then account deta
 #### Step 1: Get Counters
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -471,6 +527,7 @@ curl --request POST \
   "wallet_service_name": "KUKL_GET_COUNTER",
   "data": {}
 }'
+
 ```
 
 The response contains a list of counters with their `counter` codes.
@@ -480,7 +537,8 @@ The response contains a list of counters with their `counter` codes.
 Use the `counter` value from Step 1.
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -493,19 +551,22 @@ curl --request POST \
     "customer_code": 1114003014
   }
 }'
+
 ```
 
 **`data` fields:**
-- `connection_no` (int): KUKL connection number.
-- `counter` (string): Counter code from Step 1.
-- `customer_code` (int): Customer code.
+
+* `connection_no` (int): KUKL connection number.
+* `counter` (string): Counter code from Step 1.
+* `customer_code` (int): Customer code.
 
 The response contains bill details and a `session_id`.
 
 #### Step 3: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -519,18 +580,21 @@ curl --request POST \
     "session_id": 50054
   }
 }'
+
 ```
 
 **`data` fields:**
-- `payment_type` (string): Payment type (e.g., `"Bill Payment"`).
-- `session_id` (int): Session ID from Step 2.
+
+* `payment_type` (string): Payment type (e.g., `"Bill Payment"`).
+* `session_id` (int): Session ID from Step 2.
 
 ### Community Electricity — Himchuli (Two-Step Payment)
 
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -542,18 +606,21 @@ curl --request POST \
     "service_slug": "himchuli"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `customer_number` (string): Customer number.
-- `service_slug` (string): Service slug for the provider.
+
+* `customer_number` (string): Customer number.
+* `service_slug` (string): Service slug for the provider.
 
 The response contains bill details and a `session_id`.
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -566,6 +633,7 @@ curl --request POST \
     "session_id": "50078"
   }
 }'
+
 ```
 
 ### Community Electricity — Watermark (Three-Step Payment)
@@ -573,7 +641,8 @@ curl --request POST \
 #### Step 1: Fetch Service Slugs
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -585,12 +654,14 @@ curl --request POST \
     "service_slug": "shree-shiv-shaktiman-gramin-vidhut"
   }
 }'
+
 ```
 
 #### Step 2: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -602,18 +673,21 @@ curl --request POST \
     "service_slug": "shree-shiv-shaktiman-gramin-vidhut"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `customer_code` (string): Customer code.
-- `service_slug` (string): Provider slug from Step 1.
+
+* `customer_code` (string): Customer code.
+* `service_slug` (string): Provider slug from Step 1.
 
 The response contains bill details and a `session_id`.
 
 #### Step 3: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -626,6 +700,7 @@ curl --request POST \
     "session_id": "50078"
   }
 }'
+
 ```
 
 ### Community Electricity — Dreamer (Two-Step Payment)
@@ -633,7 +708,8 @@ curl --request POST \
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -645,18 +721,21 @@ curl --request POST \
     "service_slug": "khamari-khola-electricity"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `customer_no` (string): Customer number.
-- `service_slug` (string): Provider slug.
+
+* `customer_no` (string): Customer number.
+* `service_slug` (string): Provider slug.
 
 The response contains bill details and a `session_id`.
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -669,6 +748,7 @@ curl --request POST \
     "session_id": 245
   }
 }'
+
 ```
 
 ### Community Electricity — Softlab (Two-Step Payment)
@@ -676,7 +756,8 @@ curl --request POST \
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -689,19 +770,22 @@ curl --request POST \
     "service_slug": "badagaun-electricity"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `customer_code` (string): Customer code.
-- `month` (int): Number of months (0 for current dues).
-- `service_slug` (string): Provider slug.
+
+* `customer_code` (string): Customer code.
+* `month` (int): Number of months (0 for current dues).
+* `service_slug` (string): Provider slug.
 
 The response contains bill details and a `session_id`.
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -714,6 +798,7 @@ curl --request POST \
     "session_id": 494
   }
 }'
+
 ```
 
 ### Community Electricity — BPC (Three-Step Payment)
@@ -721,7 +806,8 @@ curl --request POST \
 #### Step 1: Get Counters
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -730,6 +816,7 @@ curl --request POST \
   "wallet_service_name": "BPC_GET_COUNTER",
   "data": {}
 }'
+
 ```
 
 The response contains a list of counters with their `counter_code` values.
@@ -737,7 +824,8 @@ The response contains a list of counters with their `counter_code` values.
 #### Step 2: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -750,19 +838,22 @@ curl --request POST \
     "counter_code": "1:bpc-waling"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `consumer_id` (int): Consumer ID.
-- `consumer_no` (string): Consumer number.
-- `counter_code` (string): Counter code from Step 1.
+
+* `consumer_id` (int): Consumer ID.
+* `consumer_no` (string): Consumer number.
+* `counter_code` (string): Counter code from Step 1.
 
 The response contains bill details and a `session_id`.
 
 #### Step 3: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -775,6 +866,7 @@ curl --request POST \
     "session_id": "717"
   }
 }'
+
 ```
 
 ### eChelan Government Payment (Two-Step Payment)
@@ -782,7 +874,8 @@ curl --request POST \
 #### Step 1: Fetch Chelan Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -798,22 +891,25 @@ curl --request POST \
     "service": "echalan"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `app_id` (string): Application identifier.
-- `voucher_no` (string): eChelan voucher number.
-- `district_code` (int): District code.
-- `fiscal_year` (int): Fiscal year.
-- `province_code` (int): Province code.
-- `service` (string): Service type (e.g., `"echalan"`).
+
+* `app_id` (string): Application identifier.
+* `voucher_no` (string): eChelan voucher number.
+* `district_code` (int): District code.
+* `fiscal_year` (int): Fiscal year.
+* `province_code` (int): Province code.
+* `service` (string): Service type (e.g., `"echalan"`).
 
 The response contains chelan details and a `session_id`.
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -827,18 +923,21 @@ curl --request POST \
     "voucher_no": "2078-232544"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `session_id` (int): Session ID from Step 1.
-- `voucher_no` (string): eChelan voucher number.
+
+* `session_id` (int): Session ID from Step 1.
+* `voucher_no` (string): eChelan voucher number.
 
 ### Government Payment (Two-Step Payment)
 
 #### Step 1: Fetch Payment Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -851,19 +950,22 @@ curl --request POST \
     "amount": 50000
   }
 }'
+
 ```
 
 **`data` fields:**
-- `app_id` (string): Application identifier.
-- `voucher_no` (string): Voucher number.
-- `amount` (int): Expected payment amount in paisa.
+
+* `app_id` (string): Application identifier.
+* `voucher_no` (string): Voucher number.
+* `amount` (int): Expected payment amount in paisa.
 
 The response contains payment details and a `session_id`.
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -877,6 +979,7 @@ curl --request POST \
     "voucher_no": "2078-232544"
   }
 }'
+
 ```
 
 ### Meroshare (Three-Step Payment)
@@ -886,7 +989,8 @@ Meroshare renewal requires fetching the DP (Depository Participant) counter, the
 #### Step 1: Get DP Counters
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -895,6 +999,7 @@ curl --request POST \
   "wallet_service_name": "MEROSHARE_GET_COUNTER",
   "data": {}
 }'
+
 ```
 
 The response contains a list of DPs with their `service_slug` values.
@@ -904,7 +1009,8 @@ The response contains a list of DPs with their `service_slug` values.
 Use the `service_slug` from Step 1.
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -917,19 +1023,22 @@ curl --request POST \
     "service_slug": "nibl-ace-capital-limited"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `client_code` (string): Client/BOID code.
-- `payment_type` (string): Type of renewal — `"Meroshare"`, `"DEMAT"`, or `"Both"`.
-- `service_slug` (string): DP slug from Step 1.
+
+* `client_code` (string): Client/BOID code.
+* `payment_type` (string): Type of renewal — `"Meroshare"`, `"DEMAT"`, or `"Both"`.
+* `service_slug` (string): DP slug from Step 1.
 
 The response contains renewal options and a `session_id`.
 
 #### Step 3: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -944,19 +1053,22 @@ curl --request POST \
     "session_id": 50096
   }
 }'
+
 ```
 
 **`data` fields:**
-- `demat_renew_year` (int): Number of years to renew DEMAT (0 if not renewing).
-- `meroshare_renew_year` (int): Number of years to renew Meroshare (0 if not renewing).
-- `session_id` (int): Session ID from Step 2.
+
+* `demat_renew_year` (int): Number of years to renew DEMAT (0 if not renewing).
+* `meroshare_renew_year` (int): Number of years to renew Meroshare (0 if not renewing).
+* `session_id` (int): Session ID from Step 2.
 
 ### Broadlink Internet (Two-Step Payment)
 
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -967,6 +1079,7 @@ curl --request POST \
     "customer_id": "53905"
   }
 }'
+
 ```
 
 The response contains plan information and a `session_id`.
@@ -974,7 +1087,8 @@ The response contains plan information and a `session_id`.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -989,6 +1103,7 @@ curl --request POST \
     "username": "online_renew"
   }
 }'
+
 ```
 
 ### Chitrawan Internet (Two-Step Payment)
@@ -996,7 +1111,8 @@ curl --request POST \
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1008,6 +1124,7 @@ curl --request POST \
     "request_id": "khalti_test"
   }
 }'
+
 ```
 
 The response contains plan information and a `session_id`.
@@ -1015,7 +1132,8 @@ The response contains plan information and a `session_id`.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1028,6 +1146,7 @@ curl --request POST \
     "session_id": 31094
   }
 }'
+
 ```
 
 ### Arrownet Internet (Two-Step Payment)
@@ -1035,7 +1154,8 @@ curl --request POST \
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1046,12 +1166,14 @@ curl --request POST \
     "username": "username"
   }
 }'
+
 ```
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1065,18 +1187,21 @@ curl --request POST \
     "username": "username"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `duration` (int): Renewal duration in months.
-- `username` (string): Account username.
+
+* `duration` (int): Renewal duration in months.
+* `username` (string): Account username.
 
 ### Vianet Internet (Two-Step Payment)
 
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1087,6 +1212,7 @@ curl --request POST \
     "customer_id": "110871"
   }
 }'
+
 ```
 
 The response contains plan and payment details including a `payment_id` and `session_id`.
@@ -1094,7 +1220,8 @@ The response contains plan and payment details including a `payment_id` and `ses
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1109,19 +1236,22 @@ curl --request POST \
     "customer_id": "110871"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `payment_id` (string): Payment ID from Step 1.
-- `session_id` (int): Session ID from Step 1.
-- `customer_id` (string): Customer ID.
+
+* `payment_id` (string): Payment ID from Step 1.
+* `session_id` (int): Session ID from Step 1.
+* `customer_id` (string): Customer ID.
 
 ### Dishhome Internet (Two-Step Payment)
 
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1132,6 +1262,7 @@ curl --request POST \
     "customer_id": "71909771942"
   }
 }'
+
 ```
 
 The response contains available packages and a `session_id`.
@@ -1139,7 +1270,8 @@ The response contains available packages and a `session_id`.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1153,18 +1285,21 @@ curl --request POST \
     "session_id": 50053
   }
 }'
+
 ```
 
 **`data` fields:**
-- `package_id` (string): Package ID from Step 1.
-- `session_id` (int): Session ID from Step 1.
+
+* `package_id` (string): Package ID from Step 1.
+* `session_id` (int): Session ID from Step 1.
 
 ### Subisu Internet (Two-Step Payment)
 
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1175,6 +1310,7 @@ curl --request POST \
     "username": "username"
   }
 }'
+
 ```
 
 The response contains account and plan details with a `session_id`.
@@ -1182,7 +1318,8 @@ The response contains account and plan details with a `session_id`.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1197,12 +1334,14 @@ curl --request POST \
     "account": "username"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `session_id` (string): Session ID from Step 1.
-- `renew_type` (string): Renewal type (e.g., `"outstanding_payment"`).
-- `account` (string): Account username.
+
+* `session_id` (string): Session ID from Step 1.
+* `renew_type` (string): Renewal type (e.g., `"outstanding_payment"`).
+* `account` (string): Account username.
 
 ### Nijgad TV & Internet (Two-Step Payment)
 
@@ -1211,7 +1350,8 @@ Nijgad supports both TV and Internet payments using the same `NIJGADH_PAY` servi
 #### Step 1: Fetch Available Packages
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1222,15 +1362,18 @@ curl --request POST \
     "type": "tv"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `type` (string): Service type — `"tv"` or `"internet"`.
+
+* `type` (string): Service type — `"tv"` or `"internet"`.
 
 #### Step 2: Process TV Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1247,19 +1390,22 @@ curl --request POST \
     "tv_identifier": "132465"
   }
 }'
+
 ```
 
 **`data` fields (TV):**
-- `username` (string): Account username.
-- `full_name` (string): Account holder name.
-- `mobile_number` (string): Contact number.
-- `package` (string): Package name from Step 1.
-- `tv_identifier` (string): CAS ID (6 digits) or box number (10 digits).
+
+* `username` (string): Account username.
+* `full_name` (string): Account holder name.
+* `mobile_number` (string): Contact number.
+* `package` (string): Package name from Step 1.
+* `tv_identifier` (string): CAS ID (6 digits) or box number (10 digits).
 
 #### Step 2 (Alternative): Process Internet Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1275,6 +1421,7 @@ curl --request POST \
     "package": "Internet Package - 12Month 75Mbps"
   }
 }'
+
 ```
 
 ### Rapid Unique Internet (Two-Step Payment)
@@ -1282,7 +1429,8 @@ curl --request POST \
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1293,6 +1441,7 @@ curl --request POST \
     "username": "username"
   }
 }'
+
 ```
 
 The response contains account details and a `session_id`.
@@ -1300,7 +1449,8 @@ The response contains account details and a `session_id`.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1313,6 +1463,7 @@ curl --request POST \
     "session_id": "50544"
   }
 }'
+
 ```
 
 ### GRS Internet (Two-Step Payment)
@@ -1320,7 +1471,8 @@ curl --request POST \
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1331,6 +1483,7 @@ curl --request POST \
     "username": "username"
   }
 }'
+
 ```
 
 The response contains package information and a `session_id`.
@@ -1338,7 +1491,8 @@ The response contains package information and a `session_id`.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1352,6 +1506,7 @@ curl --request POST \
     "session_id": "50545"
   }
 }'
+
 ```
 
 ### Merosoft Internet (Two-Step Payment)
@@ -1359,7 +1514,8 @@ curl --request POST \
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1371,18 +1527,21 @@ curl --request POST \
     "service_slug": "metalink"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `Username` (string): Account username (case-sensitive key).
-- `service_slug` (string): ISP slug under the Merosoft platform.
+
+* `Username` (string): Account username (case-sensitive key).
+* `service_slug` (string): ISP slug under the Merosoft platform.
 
 The response contains package information and a `session_id`.
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1396,6 +1555,7 @@ curl --request POST \
     "session_id": "50545"
   }
 }'
+
 ```
 
 ### 3G Vision Internet (Two-Step Payment)
@@ -1403,7 +1563,8 @@ curl --request POST \
 #### Step 1: Fetch Available Packages
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1412,12 +1573,14 @@ curl --request POST \
   "wallet_service_name": "3G_VISION_GET",
   "data": {}
 }'
+
 ```
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1434,19 +1597,22 @@ curl --request POST \
     "remarks": "optional remarks"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `name` (string): Account holder name.
-- `contact_number` (string): Contact number.
-- `user_id` (string): User identifier.
-- `package` (string): Package name from Step 1.
-- `remarks` (string, optional): Payment remarks.
+
+* `name` (string): Account holder name.
+* `contact_number` (string): Contact number.
+* `user_id` (string): User identifier.
+* `package` (string): Package name from Step 1.
+* `remarks` (string, optional): Payment remarks.
 
 ### NT-FTTH Internet (Direct Payment)
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1459,15 +1625,18 @@ curl --request POST \
     "number": "10000141001060"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `number` (string): NT-FTTH account number.
+
+* `number` (string): NT-FTTH account number.
 
 ### Virtual Network Internet (Direct Payment)
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1481,12 +1650,14 @@ curl --request POST \
     "mobile_number": "9818XXXXXX"
   }
 }'
+
 ```
 
 ### Royal Network Internet (Direct Payment)
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1500,12 +1671,14 @@ curl --request POST \
     "mobile_number": "9818XXXXXX"
   }
 }'
+
 ```
 
 ### Metrolink Internet (Direct Payment)
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1521,12 +1694,14 @@ curl --request POST \
     "address": "Banepa"
   }
 }'
+
 ```
 
 ### InfoNet Communication Internet (Direct Payment)
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1541,12 +1716,14 @@ curl --request POST \
     "address": "Kathmandu"
   }
 }'
+
 ```
 
 ### Pokhara Internet (Direct Payment)
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1561,12 +1738,14 @@ curl --request POST \
     "address": "Amarsingh"
   }
 }'
+
 ```
 
 ### Fibertel Internet (Direct Payment)
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1582,18 +1761,21 @@ curl --request POST \
     "remarks": "optional remarks"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `username` (string): Account username.
-- `contact_number` (string): Contact number.
-- `package` (string): Package name.
-- `remarks` (string, optional): Payment remarks.
+
+* `username` (string): Account username.
+* `contact_number` (string): Contact number.
+* `package` (string): Package name.
+* `remarks` (string, optional): Payment remarks.
 
 ### Kriti Darshan Internet (Direct Payment)
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1608,12 +1790,14 @@ curl --request POST \
     "mobile_number": "016XXXXXXX"
   }
 }'
+
 ```
 
 ### Airlink Internet (Direct Payment)
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1628,12 +1812,14 @@ curl --request POST \
     "address": "Bhaktapur"
   }
 }'
+
 ```
 
 ### EastLink Internet (Direct Payment)
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1647,6 +1833,7 @@ curl --request POST \
     "mobile_number": "9818XXXXXX"
   }
 }'
+
 ```
 
 ### Dishhome TV (Two-Step Payment)
@@ -1656,7 +1843,8 @@ Dishhome TV uses the same service names as Dishhome Internet (`DISHHOME_GET` / `
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1667,12 +1855,14 @@ curl --request POST \
     "customer_id": "71909771942"
   }
 }'
+
 ```
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1686,6 +1876,7 @@ curl --request POST \
     "session_id": 50053
   }
 }'
+
 ```
 
 ### MaxTV (Two-Step Payment)
@@ -1693,7 +1884,8 @@ curl --request POST \
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1704,6 +1896,7 @@ curl --request POST \
     "customer_id": "1000159157"
   }
 }'
+
 ```
 
 The response contains account details and a `session_id`.
@@ -1711,7 +1904,8 @@ The response contains account details and a `session_id`.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1725,6 +1919,7 @@ curl --request POST \
     "session_id": 2519
   }
 }'
+
 ```
 
 ### PrabhuTV (Two-Step Payment)
@@ -1732,7 +1927,8 @@ curl --request POST \
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1743,6 +1939,7 @@ curl --request POST \
     "cas_id": "01234567891"
   }
 }'
+
 ```
 
 The response contains account details and a `session_id`.
@@ -1750,7 +1947,8 @@ The response contains account details and a `session_id`.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1764,6 +1962,7 @@ curl --request POST \
     "session_id": 3483
   }
 }'
+
 ```
 
 ### SIMTV (Two-Step Payment)
@@ -1771,7 +1970,8 @@ curl --request POST \
 #### Step 1: Fetch Account Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1782,6 +1982,7 @@ curl --request POST \
     "customer_id": "1000159157"
   }
 }'
+
 ```
 
 The response contains account details and a `session_id`.
@@ -1789,7 +1990,8 @@ The response contains account details and a `session_id`.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1804,6 +2006,7 @@ curl --request POST \
     "session_id": 50050
   }
 }'
+
 ```
 
 ### Net TV (Three-Step Payment)
@@ -1813,7 +2016,8 @@ Net TV requires fetching the device serial number, then available packages, befo
 #### Step 1: Fetch Account by Username
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1824,6 +2028,7 @@ curl --request POST \
     "username": "username"
   }
 }'
+
 ```
 
 The response contains the device `serial_no` and a `session_id`.
@@ -1833,7 +2038,8 @@ The response contains the device `serial_no` and a `session_id`.
 Use the `serial_no` and `session_id` from Step 1.
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1845,6 +2051,7 @@ curl --request POST \
     "session_id": 50527
   }
 }'
+
 ```
 
 The response contains available packages with their `package_sales_id`.
@@ -1852,7 +2059,8 @@ The response contains available packages with their `package_sales_id`.
 #### Step 3: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1867,19 +2075,22 @@ curl --request POST \
     "username": "username"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `package_sales_id` (int): Package sales ID from Step 2.
-- `session_id` (int): Session ID from Step 2.
-- `username` (string): Account username.
+
+* `package_sales_id` (int): Package sales ID from Step 2.
+* `session_id` (int): Session ID from Step 2.
+* `username` (string): Account username.
 
 ### NLG Insurance / Arhant (Two-Step Payment)
 
 #### Step 1: Fetch Policy Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1891,18 +2102,21 @@ curl --request POST \
     "service_slug": "nlg-insurance"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `proforma_no` (string): Proforma/debit note number.
-- `service_slug` (string): Insurance provider slug.
+
+* `proforma_no` (string): Proforma/debit note number.
+* `service_slug` (string): Insurance provider slug.
 
 The response contains policy details and a `session_id`.
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1915,6 +2129,7 @@ curl --request POST \
     "session_id": 31094
   }
 }'
+
 ```
 
 ### Prudential Non-Life Insurance (Two-Step Payment)
@@ -1922,7 +2137,8 @@ curl --request POST \
 #### Step 1: Fetch Branch List
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1931,6 +2147,7 @@ curl --request POST \
   "wallet_service_name": "PRUDENTIAL_GET",
   "data": {}
 }'
+
 ```
 
 The response contains a list of branches.
@@ -1938,7 +2155,8 @@ The response contains a list of branches.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -1955,21 +2173,24 @@ curl --request POST \
     "debit_note_or_bill_number": "123456"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `issue_branch` (string): Branch name from Step 1.
-- `customer_name` (string): Policy holder name.
-- `mobile_number` (string): Contact number.
-- `email` (string): Email address.
-- `debit_note_or_bill_number` (string): Debit note or bill number.
+
+* `issue_branch` (string): Branch name from Step 1.
+* `customer_name` (string): Policy holder name.
+* `mobile_number` (string): Contact number.
+* `email` (string): Email address.
+* `debit_note_or_bill_number` (string): Debit note or bill number.
 
 ### Neco Non-Life Insurance (Two-Step Payment)
 
 #### Step 1: Fetch Available Providers
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -1980,12 +2201,14 @@ curl --request POST \
     "insurance_slug": "neco-insurance"
   }
 }'
+
 ```
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2005,24 +2228,27 @@ curl --request POST \
     "insurance_slug": "neco-insurance"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `policy_type` (string): `"Fresh"` or `"Renew"`.
-- `customer_name` (string): Policy holder name.
-- `policy_category` (string): Insurance category (e.g., `"Engineering"`, `"Motor"`).
-- `reference` (string): Unique reference ID for this request.
-- `policy_number` (string, optional): Existing policy number for renewals.
-- `mobile_number` (string): Contact number.
-- `service_name` (string): Insurance provider name slug.
-- `insurance_slug` (string): Insurance provider slug.
+
+* `policy_type` (string): `"Fresh"` or `"Renew"`.
+* `customer_name` (string): Policy holder name.
+* `policy_category` (string): Insurance category (e.g., `"Engineering"`, `"Motor"`).
+* `reference` (string): Unique reference ID for this request.
+* `policy_number` (string, optional): Existing policy number for renewals.
+* `mobile_number` (string): Contact number.
+* `service_name` (string): Insurance provider name slug.
+* `insurance_slug` (string): Insurance provider slug.
 
 ### Sagarmatha Lumbini Non-Life Insurance (Two-Step Payment)
 
 #### Step 1: Fetch Policy Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2033,6 +2259,7 @@ curl --request POST \
     "debit_note_no": "198500779"
   }
 }'
+
 ```
 
 The response contains policy details including `payable_amount` and a `session_id`.
@@ -2042,7 +2269,8 @@ The response contains policy details including `payable_amount` and a `session_i
 Use the `payable_amount` from Step 1 as the `amount`.
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2055,6 +2283,7 @@ curl --request POST \
     "session_id": "1414"
   }
 }'
+
 ```
 
 ### Sun Life Insurance (Two-Step Payment)
@@ -2062,7 +2291,8 @@ curl --request POST \
 #### Step 1: Fetch Policy Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2074,11 +2304,13 @@ curl --request POST \
     "dob": "1968-06-01"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `policy_no` (string): Policy number.
-- `dob` (string): Date of birth in `YYYY-MM-DD` format.
+
+* `policy_no` (string): Policy number.
+* `dob` (string): Date of birth in `YYYY-MM-DD` format.
 
 The response contains premium details including `total_amount` and a `session_id`.
 
@@ -2087,7 +2319,8 @@ The response contains premium details including `total_amount` and a `session_id
 Use the `total_amount` from Step 1 as the `amount`.
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2100,6 +2333,7 @@ curl --request POST \
     "session_id": "3965"
   }
 }'
+
 ```
 
 ### Rastriya Beema Life Insurance (Two-Step Payment)
@@ -2107,7 +2341,8 @@ curl --request POST \
 #### Step 1: Fetch Policy Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2119,18 +2354,21 @@ curl --request POST \
     "dob": "1962-08-10"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `policy_no` (string): Policy number.
-- `dob` (string): Date of birth in `YYYY-MM-DD` format.
+
+* `policy_no` (string): Policy number.
+* `dob` (string): Date of birth in `YYYY-MM-DD` format.
 
 The response contains premium details and a `session_id`.
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2143,6 +2381,7 @@ curl --request POST \
     "session_id": "1414"
   }
 }'
+
 ```
 
 ### Reliable Life Insurance (Two-Step Payment)
@@ -2150,7 +2389,8 @@ curl --request POST \
 #### Step 1: Fetch Policy Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2162,6 +2402,7 @@ curl --request POST \
     "dob": "2018-09-26"
   }
 }'
+
 ```
 
 The response contains premium details including `total_amount` and a `session_id`.
@@ -2169,7 +2410,8 @@ The response contains premium details including `total_amount` and a `session_id
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2182,6 +2424,7 @@ curl --request POST \
     "session_id": "3966"
   }
 }'
+
 ```
 
 ### Citizen Life Insurance (Two-Step Payment)
@@ -2189,7 +2432,8 @@ curl --request POST \
 #### Step 1: Fetch Policy Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2201,6 +2445,7 @@ curl --request POST \
     "dob": "1976-09-22"
   }
 }'
+
 ```
 
 The response contains premium details including `total_amount` and a `session_id`.
@@ -2208,7 +2453,8 @@ The response contains premium details including `total_amount` and a `session_id
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2221,6 +2467,7 @@ curl --request POST \
     "session_id": "3967"
   }
 }'
+
 ```
 
 ### Surya Life Insurance (Two-Step Payment)
@@ -2228,7 +2475,8 @@ curl --request POST \
 #### Step 1: Fetch Policy Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2242,20 +2490,23 @@ curl --request POST \
     "service_slug": "surya-life-insurance"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `policy_number` (string): Policy number.
-- `dob` (string): Date of birth in `YYYY-MM-DD` format.
-- `date_type` (string): Calendar type — `"AD"` (Gregorian) or `"BS"` (Bikram Sambat).
-- `service_slug` (string): Insurance provider slug.
+
+* `policy_number` (string): Policy number.
+* `dob` (string): Date of birth in `YYYY-MM-DD` format.
+* `date_type` (string): Calendar type — `"AD"` (Gregorian) or `"BS"` (Bikram Sambat).
+* `service_slug` (string): Insurance provider slug.
 
 The response contains premium details and a `session_id`.
 
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2268,6 +2519,7 @@ curl --request POST \
     "session_id": "1414"
   }
 }'
+
 ```
 
 ### IME General Insurance (Two-Step Payment)
@@ -2275,7 +2527,8 @@ curl --request POST \
 #### Step 1: Fetch Branch List
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2284,6 +2537,7 @@ curl --request POST \
   "wallet_service_name": "IMEGENERAL_GET",
   "data": {}
 }'
+
 ```
 
 The response contains a list of branches and insurance types.
@@ -2291,7 +2545,8 @@ The response contains a list of branches and insurance types.
 #### Step 2: Process Payment
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2313,26 +2568,29 @@ curl --request POST \
     "email": "customer@example.com"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `policy_type` (string): Policy type (e.g., `"Endorsement"`, `"Fresh"`, `"Renew"`).
-- `insurance_type` (string): Type of insurance from Step 1.
-- `branch` (string): Branch name from Step 1.
-- `full_name` (string): Policy holder name.
-- `address` (string): Policy holder address.
-- `mobile_number` (string): Contact number.
-- `policy_description` (string): Policy description.
-- `debit_note_no` (string): Debit note number.
-- `bill_no` (string): Bill number.
-- `email` (string): Email address.
+
+* `policy_type` (string): Policy type (e.g., `"Endorsement"`, `"Fresh"`, `"Renew"`).
+* `insurance_type` (string): Type of insurance from Step 1.
+* `branch` (string): Branch name from Step 1.
+* `full_name` (string): Policy holder name.
+* `address` (string): Policy holder address.
+* `mobile_number` (string): Contact number.
+* `policy_description` (string): Policy description.
+* `debit_note_no` (string): Debit note number.
+* `bill_no` (string): Bill number.
+* `email` (string): Email address.
 
 ### Nepal Life Insurance (Two-Step Payment)
 
 #### Step 1: Fetch Policy Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2344,11 +2602,13 @@ curl --request POST \
     "dob": "2008-03-20"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `policy_no` (string): Policy number.
-- `dob` (string): Date of birth in `YYYY-MM-DD` format.
+
+* `policy_no` (string): Policy number.
+* `dob` (string): Date of birth in `YYYY-MM-DD` format.
 
 The response contains premium details including `amount` and a `session_id`.
 
@@ -2357,7 +2617,8 @@ The response contains premium details including `amount` and a `session_id`.
 Use the `amount` from Step 1.
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2370,6 +2631,7 @@ curl --request POST \
     "session_id": "3743"
   }
 }'
+
 ```
 
 ### Voting (Multi-Step Payment)
@@ -2379,7 +2641,8 @@ Voting payments follow a multi-step flow: list events → fetch episodes → lis
 #### Step 1: List Voting Events
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2388,6 +2651,7 @@ curl --request POST \
   "wallet_service_name": "VOTING_EVENTS",
   "data": {}
 }'
+
 ```
 
 The response contains a list of events under `data.events`. Each event has an `id`, `name`, `description`, `status`, `logo`, `banners`, `dates`, and `organizer`.
@@ -2395,7 +2659,8 @@ The response contains a list of events under `data.events`. Each event has an `i
 #### Step 2: Fetch Event Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2406,17 +2671,20 @@ curl --request POST \
     "event_id": 1
   }
 }'
+
 ```
 
 **`data` fields:**
-- `event_id` (int): The event ID from Step 1.
+
+* `event_id` (int): The event ID from Step 1.
 
 The response contains a single event object under `data.event`.
 
 #### Step 3: Fetch Episodes for an Event
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2427,17 +2695,20 @@ curl --request POST \
     "event_id": 1
   }
 }'
+
 ```
 
 **`data` fields:**
-- `event_id` (int): The event ID.
+
+* `event_id` (int): The event ID.
 
 The response contains a list of episodes under `data.episodes`. Each episode has an `id`, `title`, `episodeNumber`, `status`, `episodeDate`, `isFinale`, `votingWindow` (`startTime`, `endTime`), and `banner`.
 
 #### Step 4: Fetch Episode Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2448,17 +2719,20 @@ curl --request POST \
     "episode_id": 10
   }
 }'
+
 ```
 
 **`data` fields:**
-- `episode_id` (int): The episode ID from Step 3.
+
+* `episode_id` (int): The episode ID from Step 3.
 
 The response contains a single episode object under `data.episode`.
 
 #### Step 5: List Participants for an Episode
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2469,17 +2743,20 @@ curl --request POST \
     "episode_id": 10
   }
 }'
+
 ```
 
 **`data` fields:**
-- `episode_id` (int): The episode ID.
+
+* `episode_id` (int): The episode ID.
 
 The response contains a list of participants under `data.participants`. Each participant has an `id`, `code`, `name`, `image`, `shortDesc`, and `status`.
 
 #### Step 6: Fetch Participant Details
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2490,10 +2767,12 @@ curl --request POST \
     "code": "P-001"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `code` (string): The participant code from Step 5.
+
+* `code` (string): The participant code from Step 5.
 
 The response contains a single participant object under `data.participant`.
 
@@ -2502,7 +2781,8 @@ The response contains a single participant object under `data.participant`.
 Returns the available vote packages (free, paid package, custom amount) for a contestant in the current voting window.
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2514,27 +2794,31 @@ curl --request POST \
     "voterId": "9841XXXXXX"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `contestantCode` (string): Participant code from Step 5.
-- `voterId` (string): Voter's mobile number.
+
+* `contestantCode` (string): Participant code from Step 5.
+* `voterId` (string): Voter's mobile number.
 
 The response contains a list of options under `data.options`. Each option has:
-- `type` (string): `"free"`, `"package"`, or `"custom"`.
-- `qty` (int, optional): Number of votes for package options.
-- `amount` (int, optional): Amount in paisa for package options.
-- `label` (string, optional): Display label.
-- `schemeId` (int, optional): Scheme identifier required when paying for a package.
-- `isRecommended` (bool, optional): Whether this is the recommended option.
-- `baseRate` (int, optional): Per-vote rate in paisa for custom options.
+
+* `type` (string): `"free"`, `"package"`, or `"custom"`.
+* `qty` (int, optional): Number of votes for package options.
+* `amount` (int, optional): Amount in paisa for package options.
+* `label` (string, optional): Display label.
+* `schemeId` (int, optional): Scheme identifier required when paying for a package.
+* `isRecommended` (bool, optional): Whether this is the recommended option.
+* `baseRate` (int, optional): Per-vote rate in paisa for custom options.
 
 #### Step 8a: Cast a Free Vote
 
 Free votes are submitted via the detail endpoint (no payment is deducted).
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2547,19 +2831,22 @@ curl --request POST \
     "amount": 0
   }
 }'
+
 ```
 
 **`data` fields:**
-- `contestantCode` (string): Participant code.
-- `voterId` (string): Voter's mobile number.
-- `amount` (int): Must be `0`.
+
+* `contestantCode` (string): Participant code.
+* `voterId` (string): Voter's mobile number.
+* `amount` (int): Must be `0`.
 
 #### Step 8b: Cast a Paid Vote — Package
 
 Use when the voter selects a predefined vote package from Step 7. The `amount` is taken directly from the selected option's `amount` field.
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2576,21 +2863,24 @@ curl --request POST \
     "schemeId": "12"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `contestantCode` (string): Participant code.
-- `type` (string): Must be `"package"`.
-- `voterId` (string): Voter's mobile number.
-- `amount` (int): Amount in paisa — use the `amount` value from the selected option in Step 7.
-- `schemeId` (string): Scheme ID from the selected option in Step 7.
+
+* `contestantCode` (string): Participant code.
+* `type` (string): Must be `"package"`.
+* `voterId` (string): Voter's mobile number.
+* `amount` (int): Amount in paisa — use the `amount` value from the selected option in Step 7.
+* `schemeId` (string): Scheme ID from the selected option in Step 7.
 
 #### Step 8c: Cast a Paid Vote — Custom Amount
 
 Use when the voter selects the `"custom"` option from Step 7 and enters their own amount. The `baseRate` from the option is the per-vote rate in paisa; the voter enters a total amount which determines how many votes they get.
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2606,13 +2896,15 @@ curl --request POST \
     "amount": 30000
   }
 }'
+
 ```
 
 **`data` fields:**
-- `contestantCode` (string): Participant code.
-- `type` (string): Must be `"amount"`.
-- `voterId` (string): Voter's mobile number.
-- `amount` (int): Voter-entered amount in paisa. Do not include `schemeId` for custom votes.
+
+* `contestantCode` (string): Participant code.
+* `type` (string): Must be `"amount"`.
+* `voterId` (string): Voter's mobile number.
+* `amount` (int): Voter-entered amount in paisa. Do not include `schemeId` for custom votes.
 
 ---
 
@@ -2625,7 +2917,8 @@ Coupons are purchased upfront and can later be redeemed to cast votes for any pa
 ##### Step 1: Fetch Coupon Schemes
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2636,17 +2929,20 @@ curl --request POST \
     "eventId": 1
   }
 }'
+
 ```
 
 **`data` fields:**
-- `eventId` (int): The event ID.
+
+* `eventId` (int): The event ID.
 
 The response contains a list of schemes under `data.schemes`. Each scheme has a `schemeId`, `label`, `amount` (in paisa), `voteCount`, and `isRecommended`.
 
 ##### Step 2: Purchase Coupons
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2663,21 +2959,24 @@ curl --request POST \
     "eventId": 1
   }
 }'
+
 ```
 
 **`data` fields:**
-- `voterId` (string): Voter's mobile number.
-- `schemeId` (int): Scheme ID from Step 1.
-- `quantity` (int): Number of coupon packs to purchase.
-- `amount` (int): Total amount in paisa (`scheme.amount × quantity`).
-- `eventId` (int): The event ID.
+
+* `voterId` (string): Voter's mobile number.
+* `schemeId` (int): Scheme ID from Step 1.
+* `quantity` (int): Number of coupon packs to purchase.
+* `amount` (int): Total amount in paisa (`scheme.amount × quantity`).
+* `eventId` (int): The event ID.
 
 #### Redeem a Coupon
 
 Redeem a purchased coupon code to cast votes for a participant. Submitted via the detail endpoint (no additional payment).
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2690,19 +2989,22 @@ curl --request POST \
     "couponCode": "COUP-XXXX"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `voterId` (string): Voter's mobile number.
-- `contestantCode` (string): Participant code to vote for.
-- `couponCode` (string): The coupon code to redeem.
+
+* `voterId` (string): Voter's mobile number.
+* `contestantCode` (string): Participant code to vote for.
+* `couponCode` (string): The coupon code to redeem.
 
 #### Fetch My Coupons
 
 Can be filtered by event or by the transaction that purchased them.
 
 **Request — by event:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2714,10 +3016,12 @@ curl --request POST \
     "eventId": 1
   }
 }'
+
 ```
 
 **Request — by purchase transaction:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2729,12 +3033,14 @@ curl --request POST \
     "coreTransactionId": "TXN-UUID-HERE"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `voterId` (string): Voter's mobile number.
-- `eventId` (int, optional): Filter coupons by event.
-- `coreTransactionId` (string, optional): Filter coupons by the transaction UUID that purchased them.
+
+* `voterId` (string): Voter's mobile number.
+* `eventId` (int, optional): Filter coupons by event.
+* `coreTransactionId` (string, optional): Filter coupons by the transaction UUID that purchased them.
 
 The response contains a list of coupons under `data.coupons`. Each coupon has `id`, `code`, `amount`, `voteValue`, `status` (`active`, `redeemed`, `expired`), `purchasedAt`, `expiresAt`, `redeemedAt`, `redeemedBy`, `redeemedContestant`, `redeemedEpisode`, `scheme`, `event`, and `coreTransactionId`.
 
@@ -2743,7 +3049,8 @@ The response contains a list of coupons under `data.coupons`. Each coupon has `i
 Generate a downloadable PDF of all coupons from a specific purchase transaction.
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2755,11 +3062,13 @@ curl --request POST \
     "coreTransactionId": "TXN-UUID-HERE"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `purchasedBy` (string): Voter's mobile number.
-- `coreTransactionId` (string): The transaction UUID from the coupon purchase.
+
+* `purchasedBy` (string): Voter's mobile number.
+* `coreTransactionId` (string): The transaction UUID from the coupon purchase.
 
 The response contains `data.url` (the PDF download URL) and `data.filename`.
 
@@ -2774,7 +3083,8 @@ Bank transfers require three steps: list available banks, verify the destination
 Retrieve a list of supported banks and their codes.
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2782,6 +3092,7 @@ curl --request POST \
   --data '{
   "wallet_service_name": "BANK_TRANSFER_LIST"
 }'
+
 ```
 
 #### Step 2: Verify Account
@@ -2789,7 +3100,8 @@ curl --request POST \
 Verify the destination bank account before processing the transfer.
 
 **Request:**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
   --header 'content-type: application/json' \
@@ -2804,19 +3116,22 @@ curl --request POST \
     "is_mobile": "n"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `bank_code` (string): Bank identifier code from the list in Step 1.
-- `account_name` (string): Account holder name.
-- `account_number` (string): Destination account number.
-- `merchant_txn_id` (string): Your unique transaction identifier.
-- `is_mobile` (string): `"y"` if the account number is a mobile wallet number, `"n"` otherwise.
+
+* `bank_code` (string): Bank identifier code from the list in Step 1.
+* `account_name` (string): Account holder name.
+* `account_number` (string): Destination account number.
+* `merchant_txn_id` (string): Your unique transaction identifier.
+* `is_mobile` (string): `"y"` if the account number is a mobile wallet number, `"n"` otherwise.
 
 #### Step 3: Process Bank Transfer
 
 **Request (Amount in paisa):**
-```bash
+
+```
 curl --request POST \
   --url https://uatapi.himalpay.com.np/api/v1/payments/wallet-service-reseller-payment \
   --header 'content-type: application/json' \
@@ -2835,17 +3150,181 @@ curl --request POST \
     "transaction_remarks_3": "Remarks line 3"
   }
 }'
+
 ```
 
 **`data` fields:**
-- `amount` (int): Transfer amount in paisa.
-- `destination_bank` (string): Bank code from Step 1.
-- `destination_acc_no` (string): Destination account number.
-- `destination_acc_name` (string): Destination account holder name.
-- `is_destination_mobile` (string): `"y"` if destination is a mobile wallet, `"n"` otherwise.
-- `transaction_remarks` (string): Primary transfer remark/narration.
-- `transaction_remarks_2` (string, optional): Secondary remark.
-- `transaction_remarks_3` (string, optional): Tertiary remark.
+
+* `amount` (int): Transfer amount in paisa.
+* `destination_bank` (string): Bank code from Step 1.
+* `destination_acc_no` (string): Destination account number.
+* `destination_acc_name` (string): Destination account holder name.
+* `is_destination_mobile` (string): `"y"` if destination is a mobile wallet, `"n"` otherwise.
+* `transaction_remarks` (string): Primary transfer remark/narration.
+* `transaction_remarks_2` (string, optional): Secondary remark.
+* `transaction_remarks_3` (string, optional): Tertiary remark.
+
+---
+
+### Remittance Payout — Samsara (Two-Step Load)
+
+> [!NOTE] This is the only **load (credit)** flow in this document — every other example above is a debit. Step 2 posts to `/loads/wallet-service-reseller-load` (not `/payments/...`), and the response returns **`total_credited`** instead of `total_debited`. The `reference_id` in the response is the remittance `ref_no` returned by the vendor.
+
+#### Step 1: Fetch Remittance Details
+
+Look up a remittance by its reference number to retrieve sender/receiver details and the link ID required for Step 2.
+
+**Request:**
+
+```
+curl --request POST \
+  --url https://uatapi.himalpay.com.np/api/v1/details/wallet-service-reseller-detail \
+  --header 'content-type: application/json' \
+  --header 'x-api-key: YOUR_API_KEY' \
+  --data '{
+  "wallet_service_name": "SAMSARA_GET",
+  "data": {
+    "ref_no": "S1001227917"
+  }
+}'
+
+```
+
+**Response:**
+
+```
+{
+  "status": "SUCCESS",
+  "data": {
+    "core_transaction_id": "ab2c7695fc4c80a88549f45993fb5024",
+    "core_transaction_uuid": "ab2c7695fc4c80a88549f45993fb5024",
+    "data": {
+      "agent_session_id": "9779841247293",
+      "bank_name": "",
+      "pay_token_id": "279606",
+      "payment_type": "Cash Pay",
+      "payout_amt": "50.0000",
+      "payout_currency": "NPR",
+      "process_id": "",
+      "receiver_address": "",
+      "receiver_city": "",
+      "receiver_country": "NEPAL",
+      "receiver_name": "SANATAN SHRESTHA",
+      "receiver_phone": "9779841247293",
+      "ref_no": "S1001194927",
+      "send_agent": "",
+      "sender_address": "testaddress",
+      "sender_city": "testcity",
+      "sender_country": "NEPAL",
+      "sender_id_exp_date": "",
+      "sender_id_no": "",
+      "sender_id_type": "",
+      "sender_mobile": "",
+      "sender_name": "HARSAD JOSHI",
+      "tran_no": "",
+      "trans_mode": "",
+      "txn_date": "3/29/2026 4:25:17 PM"
+    },
+    "microservice_transaction_id": "2",
+    "ms_status": "SUCCESS",
+    "reference_id": "S1001194927",
+    "status": "SUCCESS",
+    "vendor_state": "",
+    "vendor_status": "0"
+  }
+}
+
+```
+
+Pass `data.core_transaction_uuid` from this response as `samsara_link_id` in Step 2.
+
+> [!IMPORTANT]`data.data.payout_amt` is a vendor field expressed in **rupees** (`"50.0000"` = Rs. 50). The `amount` you send in Step 2 must be in **paisa** (`5000`).
+
+#### Step 2: Process Payout Load
+
+**Request (Amount in paisa):**
+
+```
+curl --request POST \
+  --url https://uatapi.himalpay.com.np/api/v1/loads/wallet-service-reseller-load \
+  --header 'content-type: application/json' \
+  --header 'x-api-key: YOUR_API_KEY' \
+  --data '{
+  "wallet_service_name": "SAMSARA_PAY",
+  "amount": 5000,
+  "merchant_transaction_id": "YOUR_MERCHANT_TXN_ID",
+  "meta_data": [
+    {
+      "title": "Payment Details",
+      "details": [
+        {
+          "receiver_country": "NEPAL",
+          "receiver_name": "SANATAN SHRESTHA",
+          "receiver_phone": "9779841247293",
+          "ref_no": "S1001194927",
+          "send_agent": "",
+          "sender_address": "testaddress",
+          "sender_city": "testcity",
+          "sender_country": "NEPAL"
+        }
+      ]
+    }
+  ],
+  "data": {
+    "samsara_link_id": "ab2c7695fc4c80a88549f45993fb5024",
+    "payout_location_name": "Kathmandu Branch",
+    "payout_agent_state": "Bagmati",
+    "payout_agent_district": "Kathmandu",
+    "payout_agent_municipality": "Kathmandu, Metropolitan City",
+    "payout_agent_ward_number": "10",
+    "payout_agent_pan_number": "123456789",
+    "teller_contact": "9811111111",
+    "beneficiary_gender": "Male",
+    "beneficiary_nationality": "Nepali",
+    "beneficiary_state": "Bagmati",
+    "beneficiary_district": "Kathmandu",
+    "beneficiary_municipality": "Kathmandu Metropolitan City",
+    "beneficiary_ward_number": "10",
+    "beneficiary_city": "",
+    "beneficiary_address": "Thamel, Kathmandu",
+    "beneficiary_relation": "SELF",
+    "beneficiary_occupation": "STUDENT",
+    "beneficiary_citizenship_number": "12-34-567890",
+    "beneficiary_citizenship_issuing_district": "Kathmandu",
+    "beneficiary_id_type": "Citizenship",
+    "beneficiary_id_number": "12-34-567890",
+    "beneficiary_id_issue_date": "2010-01-01",
+    "beneficiary_id_issue_by": "Kathmandu",
+    "beneficiary_mobile_no": "9800000000",
+    "beneficiary_dob": "1990-01-01",
+    "payout_payment_type": "Cash",
+    "payout_payment_number": "234234",
+    "payout_payment_bank_name": "LAXMI BANK LIMITED",
+    "payout_payment_bank_branch": "KALIMATI",
+    "remittance_purpose": "FAMILY_SUPPORT"
+  }
+}'
+
+```
+
+> [!IMPORTANT]`merchant_transaction_id` is **required** for resellers on this endpoint, just as it is for payments, and must be unique across all your transactions. Use it later with `/transactions/wallet-service-reseller-status` to check the load's status.
+
+**Response (Amounts in paisa):**
+
+```
+{
+  "transaction_id": "e9799f70acf715357b18e2661ca6264f",
+  "status": "SUCCESS",
+  "amount": 5000,
+  "charge": 0,
+  "cashback": 0,
+  "total_credited": 5000,
+  "reference_id": "S1001194927",
+  "message": "Load processed successfully",
+  "created_at": "2026-05-08T12:04:15.360188+05:45"
+}
+
+```
 
 ---
 
@@ -2853,9 +3332,9 @@ curl --request POST \
 
 For all payment requests, the `status` field in the response (or via callback/webhook) is the final source of truth.
 
-- **SUCCESS**: The transaction was processed successfully.
-- **FAILED**: The transaction failed. You may retry or check the error details.
-- **UNKNOWN**: The transaction is in a pending or indeterminate state. **Do not assume success or failure.** You should poll the status or wait for a final notification.
+* **SUCCESS**: The transaction was processed successfully.
+* **FAILED**: The transaction failed. You may retry or check the error details.
+* **UNKNOWN**: The transaction is in a pending or indeterminate state. **Do not assume success or failure.** You should poll the status or wait for a final notification.
 
 ---
 
@@ -2863,86 +3342,87 @@ For all payment requests, the `status` field in the response (or via callback/we
 
 The API returns standard HTTP status codes:
 
-- **200 OK**: Request was successful.
-- **400 Bad Request**: Missing required parameters or invalid input.
-- **401 Unauthorized**: Missing or invalid API Key.
-- **403 Forbidden**: Access denied (e.g., IP not allowlisted, not a reseller, or service not allowed).
-- **500 Internal Server Error**: An unexpected error occurred on the server.
+* **200 OK**: Request was successful.
+* **400 Bad Request**: Missing required parameters or invalid input.
+* **401 Unauthorized**: Missing or invalid API Key.
+* **403 Forbidden**: Access denied (e.g., IP not allowlisted, not a reseller, or service not allowed).
+* **500 Internal Server Error**: An unexpected error occurred on the server.
 
 Error responses include a machine-readable `error_code` and `error_type` alongside the human-readable `error` message:
 
-```json
+```
 {
   "error": "wallet service not found",
   "error_code": 7002,
   "error_type": "ServiceLevel.WalletServiceNotFound"
 }
+
 ```
 
 ### Error Codes
 
 #### Authentication (1XXX)
 
-| Code | Type | Message |
-|------|------|---------|
-| 1000 | `Auth.MissingAuthHeader` | authorization header is missing |
-| 1001 | `Auth.InvalidAuthToken` | invalid or expired authentication token |
-| 1002 | `Auth.UserUnauthenticated` | user is not authenticated |
-| 1003 | `Auth.UnknownUserType` | user type is unknown or invalid |
-| 1004 | `Auth.UnverifiedUser` | user is not verified |
-| 1005 | `Auth.MissingDeviceHeaders` | X-Device-ID and X-Device-Name headers are required |
-| 1006 | `Auth.DeviceNotTrusted` | device is not trusted for this user |
-| 1007 | `Auth.DeviceVerificationFailed` | failed to validate device trust status |
-| 1008 | `Auth.PasswordChangeRequired` | user is required to change password |
-| 1009 | `Auth.UserDeactivated` | user account has been deactivated |
-| 1010 | `Auth.TooManyFailedLoginAttempts` | too many failed login attempts, account is temporarily locked |
-| 1011 | `Auth.UserWalletHold` | user's wallet is on hold, transactions are not allowed |
+| Code | Type                            | Message                                                       |
+| ---- | ------------------------------- | ------------------------------------------------------------- |
+| 1000 | Auth.MissingAuthHeader          | authorization header is missing                               |
+| 1001 | Auth.InvalidAuthToken           | invalid or expired authentication token                       |
+| 1002 | Auth.UserUnauthenticated        | user is not authenticated                                     |
+| 1003 | Auth.UnknownUserType            | user type is unknown or invalid                               |
+| 1004 | Auth.UnverifiedUser             | user is not verified                                          |
+| 1005 | Auth.MissingDeviceHeaders       | X-Device-ID and X-Device-Name headers are required            |
+| 1006 | Auth.DeviceNotTrusted           | device is not trusted for this user                           |
+| 1007 | Auth.DeviceVerificationFailed   | failed to validate device trust status                        |
+| 1008 | Auth.PasswordChangeRequired     | user is required to change password                           |
+| 1009 | Auth.UserDeactivated            | user account has been deactivated                             |
+| 1010 | Auth.TooManyFailedLoginAttempts | too many failed login attempts, account is temporarily locked |
+| 1011 | Auth.UserWalletHold             | user's wallet is on hold, transactions are not allowed        |
 
 #### JSON Schema (2XXX)
 
-| Code | Type | Message |
-|------|------|---------|
-| 2000 | `JSONSchema.InvalidRequestBody` | request body does not match expected schema |
-| 2001 | `JSONSchema.JSONSchemaValidationFailed` | JSON schema validation failed |
+| Code | Type                                  | Message                                     |
+| ---- | ------------------------------------- | ------------------------------------------- |
+| 2000 | JSONSchema.InvalidRequestBody         | request body does not match expected schema |
+| 2001 | JSONSchema.JSONSchemaValidationFailed | JSON schema validation failed               |
 
 #### Limit (3XXX)
 
-| Code | Type | Message |
-|------|------|---------|
-| 3000 | `Limit.LimitVerificationFailed` | failed to check transaction limit |
-| 3001 | `Limit.LimitExceeded` | transaction limit exceeded |
+| Code | Type                          | Message                           |
+| ---- | ----------------------------- | --------------------------------- |
+| 3000 | Limit.LimitVerificationFailed | failed to check transaction limit |
+| 3001 | Limit.LimitExceeded           | transaction limit exceeded        |
 
 #### Request Validation (6XXX)
 
-| Code | Type | Message |
-|------|------|---------|
-| 6000 | `RequestValidation.InvalidRequestBody` | request body is invalid |
-| 6001 | `RequestValidation.MissingRequiredFields` | request body is missing required fields |
-| 6002 | `RequestValidation.InvalidFieldFormat` | one or more fields have invalid format |
-| 6003 | `RequestValidation.DuplicateRequest` | duplicate request detected |
-| 6004 | `RequestValidation.InvalidFieldValue` | one or more fields have invalid value |
+| Code | Type                                    | Message                                 |
+| ---- | --------------------------------------- | --------------------------------------- |
+| 6000 | RequestValidation.InvalidRequestBody    | request body is invalid                 |
+| 6001 | RequestValidation.MissingRequiredFields | request body is missing required fields |
+| 6002 | RequestValidation.InvalidFieldFormat    | one or more fields have invalid format  |
+| 6003 | RequestValidation.DuplicateRequest      | duplicate request detected              |
+| 6004 | RequestValidation.InvalidFieldValue     | one or more fields have invalid value   |
 
 #### Service Level (7XXX)
 
-| Code | Type | Message |
-|------|------|---------|
-| 7000 | `ServiceLevel.WalletServiceNotAllowed` | wallet service is not allowed for this user |
-| 7001 | `ServiceLevel.WalletServiceDisabled` | wallet service is currently disabled |
-| 7002 | `ServiceLevel.WalletServiceNotFound` | wallet service not found |
-| 7003 | `ServiceLevel.WalletServiceInvalid` | wallet service is invalid or misconfigured |
-| 7004 | `ServiceLevel.TransactionFailed` | transaction failed to process |
+| Code | Type                                 | Message                                     |
+| ---- | ------------------------------------ | ------------------------------------------- |
+| 7000 | ServiceLevel.WalletServiceNotAllowed | wallet service is not allowed for this user |
+| 7001 | ServiceLevel.WalletServiceDisabled   | wallet service is currently disabled        |
+| 7002 | ServiceLevel.WalletServiceNotFound   | wallet service not found                    |
+| 7003 | ServiceLevel.WalletServiceInvalid    | wallet service is invalid or misconfigured  |
+| 7004 | ServiceLevel.TransactionFailed       | transaction failed to process               |
 
 #### Unknown (8XXX)
 
-| Code | Type | Message |
-|------|------|---------|
-| 8000 | `Unknown.UnknownError` | an unknown error occurred |
+| Code | Type                 | Message                   |
+| ---- | -------------------- | ------------------------- |
+| 8000 | Unknown.UnknownError | an unknown error occurred |
 
 #### System Level (9XXX)
 
-| Code | Type | Message |
-|------|------|---------|
-| 9000 | `SystemLevel.IPBlocked` | access from this IP address has been blocked |
-| 9001 | `SystemLevel.IPNotAllowed` | access from this IP address is not allowed |
-| 9002 | `SystemLevel.ServiceUnavailable` | the service is currently unavailable |
-| 9003 | `SystemLevel.RateLimitExceeded` | rate limit exceeded, please try again later |
+| Code | Type                           | Message                                      |
+| ---- | ------------------------------ | -------------------------------------------- |
+| 9000 | SystemLevel.IPBlocked          | access from this IP address has been blocked |
+| 9001 | SystemLevel.IPNotAllowed       | access from this IP address is not allowed   |
+| 9002 | SystemLevel.ServiceUnavailable | the service is currently unavailable         |
+| 9003 | SystemLevel.RateLimitExceeded  | rate limit exceeded, please try again later  |
