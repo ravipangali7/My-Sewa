@@ -1,51 +1,31 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Home, ArrowLeftRight, History, User, ArrowLeft, QrCode } from "lucide-react";
+import { Home, ArrowLeftRight, History, User, ArrowLeft } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { apiClient } from "@/lib/api";
 
-const SIDE_TABS = [
-  { to: "/app", label: "Home", shortLabel: "Home", icon: Home, match: (p: string) => p === "/app" || p === "/app/" },
+const TABS = [
+  { to: "/app", label: "Home", icon: Home, match: (p: string) => p === "/app" || p === "/app/" },
   {
     to: "/app/transfer",
     label: "Fund Transfer",
-    shortLabel: "Transfer",
     icon: ArrowLeftRight,
     match: (p: string) => p.startsWith("/app/transfer"),
   },
   {
-    to: "/app/qr",
-    label: "Scan QR",
-    shortLabel: "Scan QR",
-    icon: QrCode,
-    match: (p: string) => p.startsWith("/app/qr"),
-  },
-  {
     to: "/app/history",
     label: "History",
-    shortLabel: "History",
     icon: History,
     match: (p: string) => p.startsWith("/app/history"),
   },
   {
     to: "/app/profile",
     label: "Profile",
-    shortLabel: "Profile",
     icon: User,
     match: (p: string) => p.startsWith("/app/profile"),
   },
-] as const;
-
-const BOTTOM_LEFT = [
-  SIDE_TABS[0],
-  SIDE_TABS[1],
-] as const;
-
-const BOTTOM_RIGHT = [
-  SIDE_TABS[3],
-  SIDE_TABS[4],
 ] as const;
 
 export function UserShell({
@@ -53,18 +33,15 @@ export function UserShell({
   children,
   back,
   hideHeader = false,
-  hideNav = false,
 }: {
   title: string;
   children: ReactNode;
   back?: string;
   hideHeader?: boolean;
-  hideNav?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const { user, isLoading, token, logout } = useAuth();
-  const qrActive = pathname.startsWith("/app/qr");
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -116,7 +93,7 @@ export function UserShell({
           </div>
         </Link>
         <nav className="flex flex-col gap-1">
-          {SIDE_TABS.map((t) => {
+          {TABS.map((t) => {
             const active = t.match(pathname);
             return (
               <Link
@@ -179,7 +156,7 @@ export function UserShell({
         <main
           className={cn(
             "flex-1 lg:px-8 lg:pb-10",
-            hideNav ? "px-0 pb-4" : hideHeader ? "px-0 pb-28" : "px-4 pb-28",
+            hideHeader ? "px-0 pb-28" : "px-4 pb-28",
           )}
         >
           <div className={cn("mx-auto w-full", hideHeader ? "max-w-lg lg:max-w-6xl" : "max-w-6xl")}>
@@ -193,71 +170,28 @@ export function UserShell({
           </div>
         </main>
 
-        {!hideNav ? (
-          <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface pb-[max(10px,env(safe-area-inset-bottom))] lg:hidden">
-            <ul className="grid grid-cols-5 items-end">
-              {BOTTOM_LEFT.map((t) => {
-                const active = t.match(pathname);
-                return (
-                  <li key={t.to}>
-                    <Link
-                      to={t.to}
-                      className={cn(
-                        "flex min-h-[56px] flex-col items-center justify-center gap-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
-                        "active:bg-transparent focus-visible:bg-transparent",
-                        active ? "text-brand" : "text-[#8A94A6]",
-                      )}
-                    >
-                      <t.icon className={cn("size-[22px]", active && "stroke-[2.25px]")} />
-                      <span className="leading-none">{t.shortLabel}</span>
-                    </Link>
-                  </li>
-                );
-              })}
-
-              <li className="relative flex justify-center">
-                <Link
-                  to="/app/qr"
-                  search={{ tab: "scan" }}
-                  aria-label="Scan Or Share QR"
-                  className={cn(
-                    "absolute -top-6 flex size-[58px] items-center justify-center rounded-full border-[3px] border-surface bg-brand text-white shadow-lg shadow-brand/30 outline-none transition-transform active:scale-95",
-                    qrActive && "ring-2 ring-brand-accent ring-offset-2 ring-offset-surface",
-                  )}
-                >
-                  <QrCode className="size-7" strokeWidth={2.25} />
-                </Link>
-                <span
-                  className={cn(
-                    "pointer-events-none mt-[34px] pb-1.5 text-[10px] font-medium",
-                    qrActive ? "text-brand" : "text-[#8A94A6]",
-                  )}
-                >
-                  Scan QR
-                </span>
-              </li>
-
-              {BOTTOM_RIGHT.map((t) => {
-                const active = t.match(pathname);
-                return (
-                  <li key={t.to}>
-                    <Link
-                      to={t.to}
-                      className={cn(
-                        "flex min-h-[56px] flex-col items-center justify-center gap-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
-                        "active:bg-transparent focus-visible:bg-transparent",
-                        active ? "text-brand" : "text-[#8A94A6]",
-                      )}
-                    >
-                      <t.icon className={cn("size-[22px]", active && "stroke-[2.25px]")} />
-                      <span className="leading-none">{t.shortLabel}</span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </nav>
-        ) : null}
+        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface pb-[max(10px,env(safe-area-inset-bottom))] lg:hidden">
+          <ul className="grid grid-cols-4">
+            {TABS.map((t) => {
+              const active = t.match(pathname);
+              return (
+                <li key={t.to}>
+                  <Link
+                    to={t.to}
+                    className={cn(
+                      "flex min-h-[56px] flex-col items-center justify-center gap-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
+                      "active:bg-transparent focus-visible:bg-transparent",
+                      active ? "text-brand" : "text-[#8A94A6]",
+                    )}
+                  >
+                    <t.icon className={cn("size-[22px]", active && "stroke-[2.25px]")} />
+                    <span className="leading-none">{t.label}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
       </div>
     </div>
   );

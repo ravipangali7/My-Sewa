@@ -67,9 +67,9 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>MySewa needs camera access to scan payment QR codes and upload photos.</string>
+	<string>MySewa needs camera access to upload payment screenshots and profile photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>MySewa needs photo library access to scan QR codes from gallery and upload images.</string>
+	<string>MySewa needs photo library access to upload images.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MySewa needs microphone access for media features on the site.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

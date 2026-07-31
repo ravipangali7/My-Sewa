@@ -12,12 +12,7 @@ User = get_user_model()
 
 @receiver(post_save, sender=User)
 def create_user_wallet(sender, instance, created, **kwargs):
-    """Create wallet automatically when a new user is created.
-
-    Payment QR identity is the user's phone number. The web/app client
-    generates a MySewa payment QR from phone + display name as soon as
-    the account exists (no separate image stored server-side).
-    """
+    """Create wallet automatically when a new user is created"""
     if created:
         Wallet.objects.get_or_create(user=instance, defaults={'balance': 0.00})
 

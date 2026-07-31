@@ -31,18 +31,6 @@ export const Route = createFileRoute("/app/transfer")({
       },
     ],
   }),
-  validateSearch: (search: Record<string, unknown>) => ({
-    method:
-      search["method"] === "phone" || search["method"] === "bank"
-        ? (search["method"] as "bank" | "phone")
-        : undefined,
-    bank: typeof search["bank"] === "string" ? search["bank"] : undefined,
-    accNo: typeof search["accNo"] === "string" ? search["accNo"] : undefined,
-    accName: typeof search["accName"] === "string" ? search["accName"] : undefined,
-    phone: typeof search["phone"] === "string" ? search["phone"] : undefined,
-    amount: typeof search["amount"] === "string" ? search["amount"] : undefined,
-    fromQr: search["fromQr"] === "1" || search["fromQr"] === true ? ("1" as const) : undefined,
-  }),
   component: Transfer,
 });
 
@@ -50,13 +38,12 @@ type TransferMethod = "bank" | "phone";
 
 function Transfer() {
   const queryClient = useQueryClient();
-  const search = Route.useSearch();
-  const [method, setMethod] = useState<TransferMethod>(search.method ?? "bank");
-  const [bank, setBank] = useState(search.bank ?? "");
-  const [accNo, setAccNo] = useState(search.accNo ?? "");
-  const [accName, setAccName] = useState(search.accName ?? "");
-  const [phone, setPhone] = useState(search.phone ?? "");
-  const [amount, setAmount] = useState(search.amount ?? "");
+  const [method, setMethod] = useState<TransferMethod>("bank");
+  const [bank, setBank] = useState("");
+  const [accNo, setAccNo] = useState("");
+  const [accName, setAccName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [amount, setAmount] = useState("");
   const [remarks, setRemarks] = useState("Fund Transfer");
   const [verified, setVerified] = useState(false);
   const [merchantTxnId, setMerchantTxnId] = useState<string | undefined>();
@@ -64,7 +51,6 @@ function Transfer() {
   const [cashback, setCashback] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [verifying, setVerifying] = useState(false);
-  const [qrBanner, setQrBanner] = useState(!!search.fromQr);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -104,19 +90,6 @@ function Transfer() {
   useEffect(() => {
     if (!bank && banks[0]) setBank(banks[0].bank_code);
   }, [banks, bank]);
-
-  useEffect(() => {
-    if (!search.fromQr) return;
-    if (search.method) setMethod(search.method);
-    if (search.bank) setBank(search.bank);
-    if (search.accNo) setAccNo(search.accNo);
-    if (search.accName) setAccName(search.accName);
-    if (search.phone) setPhone(search.phone);
-    if (search.amount) setAmount(search.amount);
-    setVerified(false);
-    setMerchantTxnId(undefined);
-    setQrBanner(true);
-  }, [search]);
 
   useEffect(() => {
     setVerified(false);
@@ -228,14 +201,6 @@ function Transfer() {
             <p className="text-[15px] font-medium text-destructive">Transfers temporarily unavailable</p>
             <p className="mt-1 text-[13px] text-muted-foreground">
               Fund transfers are currently disabled by the administrator.
-            </p>
-          </section>
-        ) : null}
-        {qrBanner ? (
-          <section className="inset-group border-brand/25 bg-brand-soft/60 p-4 lg:col-span-2">
-            <p className="text-[15px] font-medium text-brand-dark">Details filled from QR</p>
-            <p className="mt-1 text-[13px] text-muted-foreground">
-              Verify the recipient, enter the amount, then confirm the transfer.
             </p>
           </section>
         ) : null}
