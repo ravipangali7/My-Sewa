@@ -24,8 +24,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatNPR } from "@/lib/format";
 import type { AdminWallet } from "@/lib/types";
 
 export const Route = createFileRoute("/admin/wallets")({
@@ -119,81 +127,77 @@ function WalletsPage() {
           }
         />
 
-        {walletsQuery.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading wallets…</p>
-        ) : wallets.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-surface px-6 py-14 text-center">
-            <p className="text-sm font-medium">No wallets found</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {q.trim() ? "Try a different search term." : "Wallets appear when users are created."}
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {wallets.map((w) => {
-              const name = walletDisplayName(w);
-              const walletId = String(w.id);
-              return (
-                <div
-                  key={w.id}
-                  className="overflow-hidden rounded-2xl border border-border bg-surface shadow-card transition-shadow hover:shadow-md"
-                >
-                  <Link
-                    to="/admin/wallets/$walletId"
-                    params={{ walletId }}
-                    className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={`View wallet for ${name}`}
-                  >
-                    <WalletCard
-                      balance={w.balance}
-                      title={name}
-                      subtitle={w.phone}
-                      className="rounded-none rounded-t-2xl shadow-none"
-                    />
-                  </Link>
-
-                  <div className="flex items-center justify-between gap-3 p-4">
-                    <div className="min-w-0 text-[12px] text-muted-foreground">
-                      <p className="truncate">ID #{w.id} · User #{w.user_id}</p>
-                      <p className="truncate">Updated {formatDateTime(w.updated_at)}</p>
-                    </div>
-
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="outline" className="h-8 shrink-0 gap-1.5 px-2.5">
-                          <MoreHorizontal className="size-3.5" />
-                          Actions
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem asChild>
-                          <Link to="/admin/wallets/$walletId" params={{ walletId }}>
-                            <Eye className="size-3.5" />
-                            View
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
-                            <Pencil className="size-3.5" />
-                            Edit
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-danger focus:text-danger"
-                          onSelect={() => setPendingDelete(w)}
-                        >
-                          <Trash2 className="size-3.5" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead className="text-right">Balance</TableHead>
+                <TableHead>Created at</TableHead>
+                <TableHead>Updated at</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {wallets.map((w) => {
+                const walletId = String(w.id);
+                return (
+                  <TableRow key={w.id}>
+                    <TableCell className="text-sm">{w.id}</TableCell>
+                    <TableCell className="text-sm">{walletDisplayName(w)}</TableCell>
+                    <TableCell className="text-sm font-medium">{w.phone}</TableCell>
+                    <TableCell className="tabular text-right text-sm">
+                      {formatNPR(w.balance)}
+                    </TableCell>
+                    <TableCell className="text-sm">{formatDateTime(w.created_at)}</TableCell>
+                    <TableCell className="text-sm">{formatDateTime(w.updated_at)}</TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2">
+                            <MoreHorizontal className="size-3.5" />
+                            <span className="sr-only sm:not-sr-only">Actions</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem asChild>
+                            <Link to="/admin/wallets/$walletId" params={{ walletId }}>
+                              <Eye className="size-3.5" />
+                              View
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
+                              <Pencil className="size-3.5" />
+                              Edit
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-danger focus:text-danger"
+                            onSelect={() => setPendingDelete(w)}
+                          >
+                            <Trash2 className="size-3.5" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {!walletsQuery.isLoading && wallets.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                    {q.trim() ? "No wallets match your search." : "No wallets found."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
