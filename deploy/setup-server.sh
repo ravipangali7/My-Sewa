@@ -48,6 +48,12 @@ curl -sf "http://127.0.0.1:8001/api/settings/" >/dev/null \
   && echo "API OK on :8001" \
   || echo "WARNING: /api/settings/ did not return 200 — check journalctl -u mysewa-api"
 
-echo "==> Done. Ensure nginx includes deploy/nginx-mysewa.conf location /api/ proxy,"
-echo "    then: nginx -t && systemctl reload nginx"
-echo "    Upload web/dist (built with .env.production) to $APP_ROOT/web/dist"
+echo "==> Patch nginx to proxy /api → :8001"
+if [[ -f "$APP_ROOT/deploy/patch-nginx-api.sh" ]]; then
+  bash "$APP_ROOT/deploy/patch-nginx-api.sh" \
+    || echo "WARNING: nginx patch failed — run: sudo bash $APP_ROOT/deploy/patch-nginx-api.sh"
+else
+  echo "WARNING: patch-nginx-api.sh missing; merge location /api/ from nginx-mysewa.conf manually"
+fi
+
+echo "==> Done. Upload web/dist (built with .env.production) to $APP_ROOT/web/dist if needed."

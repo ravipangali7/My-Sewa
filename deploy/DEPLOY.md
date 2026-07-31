@@ -1,45 +1,32 @@
 # Deploy MySewa so login works on https://mysewa.sewabyapar.com
 
-## Why login fails today
+## Why login returns 405
 
-1. The live SPA was built **without** `VITE_API_BASE_URL`, so it calls `http://127.0.0.1:8000` in the visitor’s browser (unreachable + mixed content on HTTPS).
-2. nginx on `mysewa.sewabyapar.com` only serves the static SPA. `POST /api/auth/login/` returns **405**; `GET /api/*` returns HTML — **Django is not proxied**.
+nginx is serving the **static SPA** for `/api/*`.
 
-Login is already dynamic in code (`POST /api/auth/login/` → DRF Token). The backend just is not reachable from production.
+| Request | What you see | Meaning |
+|---------|--------------|---------|
+| `GET /api/settings/` | HTML (`index.html`) | No proxy — SPA fallback |
+| `POST /api/auth/login/` | **405 Not Allowed** (nginx) | Static files reject POST |
 
-## Fix (same VPS as www.sewabyapar.com — `147.93.153.157`)
+The SPA and Django code are fine. **Gunicorn must listen on `127.0.0.1:8001` and nginx must proxy `/api/` to it.**
 
-### 1. Build the frontend (on your PC)
+## One-shot fix on the VPS (`147.93.153.157`)
 
-```bash
-cd web
-npm ci
-npm run build   # uses .env.production → same-origin /api
-```
-
-Upload `web/dist/` to the server document root (e.g. `/var/www/mysewa/web/dist`).
-
-### 2. Deploy Django + Gunicorn on the VPS
+SSH in as root (or a sudo user), copy this repo to the server if needed, then:
 
 ```bash
-# copy repo to server, then:
+# From the repo root on the VPS (or after rsync):
 sudo bash deploy/setup-server.sh
+# That starts Gunicorn + patches nginx. Or only patch nginx if API is already up:
+sudo bash /var/www/mysewa/deploy/patch-nginx-api.sh
 ```
 
-Gunicorn listens on `127.0.0.1:8001` (avoids clashing with the ecommerce app on `:8000`).
-
-### 3. Point nginx at the API
-
-Merge the `location /api/`, `/media/`, `/database/`, and `/static/` blocks from `deploy/nginx-mysewa.conf` into the existing `mysewa.sewabyapar.com` server block (keep your current SSL certs), then:
+### Verify
 
 ```bash
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-### 4. Verify
-
-```bash
-curl -s https://mysewa.sewabyapar.com/api/settings/
+curl -s http://127.0.0.1:8001/api/settings/          # must be JSON
+curl -s https://mysewa.sewabyapar.com/api/settings/  # must be JSON (not HTML)
 curl -s -X POST https://mysewa.sewabyapar.com/api/auth/login/ \
   -H 'Content-Type: application/json' \
   -d '{"phone":"98XXXXXXXX","password":"yourpassword"}'
@@ -61,3 +48,22 @@ python manage.py createsuperuser   # phone-based USERNAME_FIELD
 |------|---------|
 | `web/.env` | Local: `VITE_API_BASE_URL=http://127.0.0.1:8000` |
 | `web/.env.production` | Prod: empty → same-origin `/api/...` |
+
+Build SPA (on your PC) and upload `web/dist/` to `/var/www/mysewa/web/dist`:
+
+```bash
+cd web
+npm ci
+npm run build
+```
+
+## Files
+
+| Path | Role |
+|------|------|
+| `deploy/setup-server.sh` | venv, migrate, systemd `mysewa-api`, nginx patch |
+| `deploy/patch-nginx-api.sh` | Inject `/api` proxy into existing SSL site config |
+| `deploy/nginx-api-locations.conf` | Snippet included by nginx |
+| `deploy/nginx-mysewa.conf` | Full example site (HTTP; certbot adds TLS) |
+| `deploy/mysewa-api.service` | systemd unit for Gunicorn |
+| `deploy/gunicorn.conf.py` | Binds `127.0.0.1:8001` |
