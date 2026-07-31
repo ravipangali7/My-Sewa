@@ -1,6 +1,7 @@
 """
 Staff / superuser admin API endpoints for the web console.
 """
+import json
 from datetime import timedelta
 from decimal import Decimal
 
@@ -20,6 +21,7 @@ from ..models import (
     Settings,
     TopupTransaction,
     BankTransferTransaction,
+    merge_app_config,
 )
 from ..serializers import (
     AdminUserSerializer,
@@ -28,6 +30,7 @@ from ..serializers import (
     AdminWalletWriteSerializer,
     DepositSerializer,
     TopupTransactionSerializer,
+    AdminTopupSerializer,
     BankTransferTransactionSerializer,
     SettingsSerializer,
 )
@@ -227,6 +230,16 @@ def admin_list_deposits(request):
     return Response(DepositSerializer(qs, many=True, context={'request': request}).data)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_get_deposit(request, deposit_id):
+    try:
+        deposit = Deposit.objects.select_related('user').get(pk=deposit_id)
+    except Deposit.DoesNotExist:
+        return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(DepositSerializer(deposit, context={'request': request}).data)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_approve_deposit(request, deposit_id):
@@ -284,7 +297,23 @@ def admin_reject_deposit(request, deposit_id):
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_list_topups(request):
     qs = TopupTransaction.objects.select_related('user').order_by('-created_at')
+    status_filter = request.query_params.get('status')
+    if status_filter in ('pending', 'success', 'failed'):
+        qs = qs.filter(status=status_filter)
+    product_filter = request.query_params.get('product_id')
+    if product_filter in ('1', '2'):
+        qs = qs.filter(product_id=int(product_filter))
     return Response(TopupTransactionSerializer(qs, many=True).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_get_topup(request, topup_id):
+    try:
+        topup = TopupTransaction.objects.select_related('user').get(pk=topup_id)
+    except TopupTransaction.DoesNotExist:
+        return Response({'error': 'Top-up not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(AdminTopupSerializer(topup).data)
 
 
 @api_view(['GET'])
@@ -292,6 +321,19 @@ def admin_list_topups(request):
 def admin_list_transfers(request):
     qs = BankTransferTransaction.objects.select_related('user').order_by('-created_at')
     return Response(BankTransferTransactionSerializer(qs, many=True).data)
+
+
+def _parse_json_field(value):
+    """Parse a JSON object from request data (dict or JSON string)."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else None
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+    return None
 
 
 @api_view(['GET', 'PUT', 'PATCH'])
@@ -318,8 +360,21 @@ def admin_settings(request):
     elif request.data.get('qr_code') in ('', 'null', None) and 'qr_code' in request.data:
         pass  # ignore empty
 
-    if 'bank_details' in request.data and isinstance(request.data.get('bank_details'), dict):
-        settings_obj.bank_details = request.data.get('bank_details')
+    if 'bank_details' in request.data:
+        parsed_bank = _parse_json_field(request.data.get('bank_details'))
+        if parsed_bank is not None:
+            settings_obj.bank_details = parsed_bank
+
+    if 'config' in request.data:
+        incoming = _parse_json_field(request.data.get('config'))
+        if incoming is not None:
+            current = merge_app_config(settings_obj.config)
+            for section, values in incoming.items():
+                if isinstance(values, dict):
+                    current[section] = {**(current.get(section) or {}), **values}
+                else:
+                    current[section] = values
+            settings_obj.config = current
 
     settings_obj.save()
     return Response({

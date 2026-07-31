@@ -1,7 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { StatusChip } from "@/components/StatusChip";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -10,9 +12,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { apiClient } from "@/lib/api";
+import { apiClient, ApiError } from "@/lib/api";
 import { OPERATORS } from "@/lib/constants";
 import { formatNPR, formatDateTime } from "@/lib/format";
+import type { TxnStatus } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/topups")({
   head: () => ({
@@ -30,68 +34,204 @@ export const Route = createFileRoute("/admin/topups")({
   component: TopupsPage,
 });
 
+type StatusTab = "all" | TxnStatus;
+type OperatorTab = "all" | "1" | "2";
+
+const STATUS_TABS: { value: StatusTab; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "success", label: "Success" },
+  { value: "failed", label: "Failed" },
+];
+
+const OPERATOR_TABS: { value: OperatorTab; label: string }[] = [
+  { value: "all", label: "All operators" },
+  { value: "1", label: "NTC" },
+  { value: "2", label: "NCELL" },
+];
+
 function TopupsPage() {
+  const navigate = useNavigate();
+  const [statusTab, setStatusTab] = useState<StatusTab>("all");
+  const [operatorTab, setOperatorTab] = useState<OperatorTab>("all");
+
   const topupsQuery = useQuery({
     queryKey: ["admin", "topups"],
     queryFn: () => apiClient.adminTopups(),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   const topups = topupsQuery.data ?? [];
 
+  const statusCounts = useMemo(() => {
+    const counts: Record<StatusTab, number> = {
+      all: topups.length,
+      pending: 0,
+      success: 0,
+      failed: 0,
+    };
+    for (const t of topups) {
+      counts[t.status] += 1;
+    }
+    return counts;
+  }, [topups]);
+
+  const operatorCounts = useMemo(() => {
+    const byStatus =
+      statusTab === "all" ? topups : topups.filter((t) => t.status === statusTab);
+    const counts: Record<OperatorTab, number> = {
+      all: byStatus.length,
+      "1": 0,
+      "2": 0,
+    };
+    for (const t of byStatus) {
+      if (t.product_id === 1 || t.product_id === 2) {
+        counts[String(t.product_id) as "1" | "2"] += 1;
+      }
+    }
+    return counts;
+  }, [topups, statusTab]);
+
+  const visible = useMemo(() => {
+    return topups.filter((t) => {
+      if (statusTab !== "all" && t.status !== statusTab) return false;
+      if (operatorTab !== "all" && String(t.product_id) !== operatorTab) return false;
+      return true;
+    });
+  }, [topups, statusTab, operatorTab]);
+
+  const openTopup = (id: number) => {
+    navigate({ to: "/admin/topups/$topupId", params: { topupId: String(id) } });
+  };
+
+  const emptyParts: string[] = [];
+  if (statusTab !== "all") emptyParts.push(statusTab);
+  if (operatorTab !== "all") emptyParts.push(OPERATORS[Number(operatorTab) as 1 | 2]);
+  const emptyLabel = emptyParts.join(" ");
+
   return (
     <AdminShell title="Top-ups" description="NTC & NCELL transaction ledger">
-      <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>User phone</TableHead>
-              <TableHead>Mobile number</TableHead>
-              <TableHead>Operator</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead className="text-right">Charge</TableHead>
-              <TableHead className="text-right">Cashback</TableHead>
-              <TableHead className="text-right">Total debited</TableHead>
-              <TableHead>Merchant txn ID</TableHead>
-              <TableHead>Service hub txn ID</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created at</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {topups.map((t) => (
-              <TableRow key={t.id}>
-                <TableCell className="text-sm">{t.id}</TableCell>
-                <TableCell className="text-sm">{t.phone}</TableCell>
-                <TableCell className="text-sm font-medium">{t.mobile_number}</TableCell>
-                <TableCell className="text-sm">
-                  {t.product_name || OPERATORS[t.product_id]}
-                </TableCell>
-                <TableCell className="tabular text-right text-sm">{formatNPR(t.amount)}</TableCell>
-                <TableCell className="tabular text-right text-sm">{formatNPR(t.charge)}</TableCell>
-                <TableCell className="tabular text-right text-sm">{formatNPR(t.cashback)}</TableCell>
-                <TableCell className="tabular text-right text-sm">
-                  {formatNPR(t.total_debited)}
-                </TableCell>
-                <TableCell className="text-sm">{t.merchant_txn_id}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {t.service_hub_txn_id ?? "—"}
-                </TableCell>
-                <TableCell>
-                  <StatusChip status={t.status} compact />
-                </TableCell>
-                <TableCell className="text-sm">{formatDateTime(t.created_at)}</TableCell>
-              </TableRow>
+      {topupsQuery.isLoading && (
+        <p className="mb-4 text-sm text-muted-foreground">Loading top-ups…</p>
+      )}
+      {topupsQuery.isError && (
+        <p className="mb-4 text-sm text-destructive">
+          {topupsQuery.error instanceof ApiError
+            ? topupsQuery.error.message
+            : "Could not load top-ups."}
+        </p>
+      )}
+
+      <div className="space-y-4">
+        <Tabs value={statusTab} onValueChange={(v) => setStatusTab(v as StatusTab)}>
+          <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto">
+            {STATUS_TABS.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5">
+                {tab.label}
+                <span
+                  className={cn(
+                    "rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+                    statusTab === tab.value
+                      ? "bg-muted text-foreground"
+                      : "bg-background/60 text-muted-foreground",
+                  )}
+                >
+                  {statusCounts[tab.value]}
+                </span>
+              </TabsTrigger>
             ))}
-            {!topupsQuery.isLoading && topups.length === 0 && (
+          </TabsList>
+        </Tabs>
+
+        <Tabs value={operatorTab} onValueChange={(v) => setOperatorTab(v as OperatorTab)}>
+          <TabsList className="h-auto w-full flex-wrap justify-start bg-transparent p-0 sm:w-auto">
+            {OPERATOR_TABS.map((op) => (
+              <TabsTrigger
+                key={op.value}
+                value={op.value}
+                className="rounded-full border border-transparent px-3 data-[state=active]:border-border data-[state=active]:bg-surface data-[state=active]:shadow-sm"
+              >
+                {op.label}
+                <span className="ml-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+                  {operatorCounts[op.value]}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={12} className="py-10 text-center text-sm text-muted-foreground">
-                  No top-ups yet.
-                </TableCell>
+                <TableHead>ID</TableHead>
+                <TableHead>User phone</TableHead>
+                <TableHead>Mobile number</TableHead>
+                <TableHead>Operator</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="text-right">Charge</TableHead>
+                <TableHead className="text-right">Cashback</TableHead>
+                <TableHead className="text-right">Total debited</TableHead>
+                <TableHead>Merchant txn ID</TableHead>
+                <TableHead>Service hub txn ID</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created at</TableHead>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {visible.map((t) => (
+                <TableRow
+                  key={t.id}
+                  className="cursor-pointer"
+                  onClick={() => openTopup(t.id)}
+                >
+                  <TableCell className="text-sm">#{t.id}</TableCell>
+                  <TableCell className="text-sm">{t.phone}</TableCell>
+                  <TableCell className="text-sm font-medium">{t.mobile_number}</TableCell>
+                  <TableCell className="text-sm">
+                    {t.product_name || OPERATORS[t.product_id]}
+                  </TableCell>
+                  <TableCell className="tabular text-right text-sm">
+                    {formatNPR(t.amount)}
+                  </TableCell>
+                  <TableCell className="tabular text-right text-sm">
+                    {formatNPR(t.charge)}
+                  </TableCell>
+                  <TableCell className="tabular text-right text-sm">
+                    {formatNPR(t.cashback)}
+                  </TableCell>
+                  <TableCell className="tabular text-right text-sm">
+                    {formatNPR(t.total_debited)}
+                  </TableCell>
+                  <TableCell
+                    className="max-w-40 truncate text-sm"
+                    title={t.merchant_txn_id}
+                  >
+                    {t.merchant_txn_id}
+                  </TableCell>
+                  <TableCell className="max-w-40 truncate text-sm text-muted-foreground">
+                    {t.service_hub_txn_id ?? "—"}
+                  </TableCell>
+                  <TableCell>
+                    <StatusChip status={t.status} compact />
+                  </TableCell>
+                  <TableCell className="text-sm">{formatDateTime(t.created_at)}</TableCell>
+                </TableRow>
+              ))}
+              {!topupsQuery.isLoading && visible.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={12}
+                    className="py-10 text-center text-sm text-muted-foreground"
+                  >
+                    No {emptyLabel ? `${emptyLabel} ` : ""}top-ups.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
     </AdminShell>
   );

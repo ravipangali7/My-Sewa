@@ -90,16 +90,82 @@ class Wallet(models.Model):
         verbose_name_plural = "Wallets"
 
 
+def default_app_config():
+    """Default application-wide settings used by the Settings singleton."""
+    return {
+        'site': {
+            'site_name': 'MySewa',
+            'tagline': 'Digital wallet & bill payments',
+            'support_email': '',
+            'support_phone': '',
+            'address': '',
+            'currency': 'NPR',
+            'timezone': 'Asia/Kathmandu',
+        },
+        'payment': {
+            'deposits_enabled': True,
+            'topups_enabled': True,
+            'transfers_enabled': True,
+            'min_deposit': 100,
+            'max_deposit': 100000,
+            'deposit_instructions': '',
+        },
+        'transactions': {
+            'min_topup': 10,
+            'max_topup': 5000,
+            'min_transfer': 10,
+            'max_transfer': 100000,
+            'topup_charge_percent': 0,
+            'transfer_charge_flat': 0,
+            'daily_transfer_limit': 200000,
+        },
+        'notifications': {
+            'email_on_deposit': True,
+            'email_on_topup': False,
+            'sms_on_deposit_approved': True,
+            'admin_alert_email': '',
+            'notify_low_balance': False,
+            'low_balance_threshold': 100,
+        },
+        'security': {
+            'require_deposit_screenshot': True,
+            'max_failed_logins': 5,
+            'session_timeout_minutes': 60,
+            'maintenance_mode': False,
+            'maintenance_message': '',
+            'allow_new_registrations': True,
+        },
+    }
+
+
+def merge_app_config(stored):
+    """Deep-merge stored config onto defaults so new keys appear automatically."""
+    defaults = default_app_config()
+    if not isinstance(stored, dict):
+        return defaults
+    merged = {}
+    for section, section_defaults in defaults.items():
+        stored_section = stored.get(section) if isinstance(stored.get(section), dict) else {}
+        merged[section] = {**section_defaults, **stored_section}
+    # Preserve any custom top-level sections admins may have added
+    for key, value in stored.items():
+        if key not in merged:
+            merged[key] = value
+    return merged
+
+
 class Settings(models.Model):
-    """Singleton model for QR code and bank details"""
+    """Singleton model for QR code, bank details, and global app configuration"""
     qr_code = models.ImageField(upload_to='settings/', null=True, blank=True, help_text="QR code image for deposits")
     bank_details = models.JSONField(default=dict, help_text="Bank account details in JSON format")
+    config = models.JSONField(default=default_app_config, blank=True, help_text="Application-wide configuration")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def save(self, *args, **kwargs):
         # Ensure only one instance exists
         self.pk = 1
+        self.config = merge_app_config(self.config)
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -110,6 +176,9 @@ class Settings(models.Model):
     def load(cls):
         obj, created = cls.objects.get_or_create(pk=1)
         return obj
+
+    def get_config(self):
+        return merge_app_config(self.config)
 
     def __str__(self):
         return "Application Settings"

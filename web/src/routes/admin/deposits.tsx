@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -45,17 +45,21 @@ export const Route = createFileRoute("/admin/deposits")({
   component: DepositsPage,
 });
 
-const FILTERS: (Deposit["status"] | "all")[] = ["pending", "approved", "rejected", "all"];
+const FILTERS: (Deposit["status"] | "all")[] = ["all", "pending", "approved", "rejected"];
 
 function DepositsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [filter, setFilter] = useState<Deposit["status"] | "all">("pending");
+  const [filter, setFilter] = useState<Deposit["status"] | "all">("all");
   const [rejectTarget, setRejectTarget] = useState<Deposit | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
   const depositsQuery = useQuery({
     queryKey: ["admin", "deposits"],
     queryFn: () => apiClient.adminDeposits(),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: 15_000,
   });
 
   const visible = (depositsQuery.data ?? []).filter(
@@ -117,6 +121,10 @@ function DepositsPage() {
 
   const actionPending = approveMutation.isPending || rejectMutation.isPending;
 
+  const openDeposit = (id: number) => {
+    navigate({ to: "/admin/deposits/$depositId", params: { depositId: String(id) } });
+  };
+
   return (
     <AdminShell
       title="Deposits"
@@ -139,6 +147,17 @@ function DepositsPage() {
         </div>
       }
     >
+      {depositsQuery.isLoading && (
+        <p className="mb-4 text-sm text-muted-foreground">Loading deposits…</p>
+      )}
+      {depositsQuery.isError && (
+        <p className="mb-4 text-sm text-destructive">
+          {depositsQuery.error instanceof ApiError
+            ? depositsQuery.error.message
+            : "Could not load deposits."}
+        </p>
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-border bg-surface">
         <Table>
           <TableHeader>
@@ -155,25 +174,37 @@ function DepositsPage() {
           </TableHeader>
           <TableBody>
             {visible.map((d) => (
-              <TableRow key={d.id}>
+              <TableRow
+                key={d.id}
+                className="cursor-pointer"
+                onClick={() => openDeposit(d.id)}
+              >
                 <TableCell className="text-sm">#{d.id}</TableCell>
                 <TableCell className="text-sm font-medium">{d.phone}</TableCell>
                 <TableCell className="tabular text-right text-sm">{formatNPR(d.amount)}</TableCell>
-                <TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
                   {d.screenshot_proof ? (
                     <a
                       href={d.screenshot_proof}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-2 text-sm text-brand hover:underline"
+                      className="group inline-flex items-center gap-2"
+                      title="Open full-size proof"
                     >
-                      <span className="flex size-9 items-center justify-center rounded-md bg-muted">
-                        <ImageIcon className="size-4" />
-                      </span>
-                      View proof
+                      <img
+                        src={d.screenshot_proof}
+                        alt={`Deposit #${d.id} proof`}
+                        className="size-12 rounded-md border border-border object-cover shadow-sm transition-opacity group-hover:opacity-90"
+                      />
+                      <span className="text-xs text-brand group-hover:underline">View</span>
                     </a>
                   ) : (
-                    <span className="text-sm text-muted-foreground">—</span>
+                    <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                      <span className="flex size-12 items-center justify-center rounded-md bg-muted">
+                        <ImageIcon className="size-4" />
+                      </span>
+                      —
+                    </span>
                   )}
                 </TableCell>
                 <TableCell className="max-w-55 text-sm text-muted-foreground">
@@ -190,7 +221,7 @@ function DepositsPage() {
                 <TableCell>
                   <StatusChip status={d.status} compact />
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   {d.status === "pending" ? (
                     <div className="flex justify-end gap-2">
                       <Button
@@ -210,9 +241,13 @@ function DepositsPage() {
                       </Button>
                     </div>
                   ) : (
-                    <span className="text-sm text-muted-foreground">
-                      {formatDateTime(d.updated_at)}
-                    </span>
+                    <Link
+                      to="/admin/deposits/$depositId"
+                      params={{ depositId: String(d.id) }}
+                      className="text-sm text-brand hover:underline"
+                    >
+                      View details
+                    </Link>
                   )}
                 </TableCell>
               </TableRow>
@@ -220,7 +255,7 @@ function DepositsPage() {
             {!depositsQuery.isLoading && visible.length === 0 && (
               <TableRow>
                 <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
-                  No {filter} deposits.
+                  No {filter === "all" ? "" : `${filter} `}deposits.
                 </TableCell>
               </TableRow>
             )}

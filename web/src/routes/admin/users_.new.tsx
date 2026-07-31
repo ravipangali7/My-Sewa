@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { BackButton } from "@/components/BackButton";
 import { UserForm } from "@/components/admin/UserForm";
 import { apiClient, ApiError } from "@/lib/api";
 import type { AdminUserWritePayload } from "@/lib/types";
@@ -38,6 +39,9 @@ function NewUserPage() {
 
   return (
     <AdminShell title="Add user" description="Create a new account">
+      <div className="mb-5">
+        <BackButton to="/admin/users" label="Back to users" />
+      </div>
       <UserForm
         mode="create"
         submitting={createMutation.isPending}

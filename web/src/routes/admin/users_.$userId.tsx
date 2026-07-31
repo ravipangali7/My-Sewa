@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Pencil, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { BackButton } from "@/components/BackButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -115,6 +116,10 @@ function UserDetailPage() {
         ) : undefined
       }
     >
+      <div className="mb-5">
+        <BackButton to="/admin/users" label="Back to users" />
+      </div>
+
       {userQuery.isError && (
         <p className="text-sm text-muted-foreground">
           {userQuery.error instanceof ApiError ? userQuery.error.message : "User not found."}
@@ -159,12 +164,6 @@ function UserDetailPage() {
           </dl>
         </div>
       )}
-
-      <div className="mt-4">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/admin/users">← Back to users</Link>
-        </Button>
-      </div>
     </AdminShell>
   );
 }

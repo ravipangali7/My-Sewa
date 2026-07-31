@@ -52,9 +52,11 @@ urlpatterns = [
     path('api/admin/wallets/', admin_views.admin_list_wallets, name='admin_list_wallets'),
     path('api/admin/wallets/<int:wallet_id>/', admin_views.admin_wallet_detail, name='admin_wallet_detail'),
     path('api/admin/deposits/', admin_views.admin_list_deposits, name='admin_list_deposits'),
+    path('api/admin/deposits/<int:deposit_id>/', admin_views.admin_get_deposit, name='admin_get_deposit'),
     path('api/admin/deposits/<int:deposit_id>/approve/', admin_views.admin_approve_deposit, name='admin_approve_deposit'),
     path('api/admin/deposits/<int:deposit_id>/reject/', admin_views.admin_reject_deposit, name='admin_reject_deposit'),
     path('api/admin/topups/', admin_views.admin_list_topups, name='admin_list_topups'),
+    path('api/admin/topups/<int:topup_id>/', admin_views.admin_get_topup, name='admin_get_topup'),
     path('api/admin/transfers/', admin_views.admin_list_transfers, name='admin_list_transfers'),
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
 ]

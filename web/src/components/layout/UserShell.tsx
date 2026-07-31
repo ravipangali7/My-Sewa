@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Home, ArrowLeftRight, History, User, Bell, ChevronLeft } from "lucide-react";
+import { Home, ArrowLeftRight, History, User, Bell, ArrowLeft } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -100,8 +100,17 @@ export function UserShell({
           <header className="sticky top-0 z-30 bg-hero-gradient px-4 pt-[max(14px,env(safe-area-inset-top))] pb-5 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
             <div className="flex items-center gap-3">
               {back && (
-                <Link to={back} className="-ml-1 text-primary-foreground lg:text-foreground">
-                  <ChevronLeft className="size-6" />
+                <Link
+                  to={back}
+                  aria-label="Go back"
+                  className={cn(
+                    "group -ml-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur transition-all duration-200",
+                    "hover:bg-white/25 hover:shadow-md",
+                    "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
+                  )}
+                >
+                  <ArrowLeft className="size-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
                 </Link>
               )}
               <h1 className="text-[28px] font-bold tracking-tight text-primary-foreground lg:text-[22px] lg:text-foreground">

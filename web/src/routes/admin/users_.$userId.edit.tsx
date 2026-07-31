@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { BackButton } from "@/components/BackButton";
 import { UserForm } from "@/components/admin/UserForm";
 import { apiClient, ApiError } from "@/lib/api";
 import type { AdminUserWritePayload } from "@/lib/types";
@@ -51,6 +52,14 @@ function EditUserPage() {
       title="Edit user"
       description={u ? `${u.phone} · #${u.id}` : userQuery.isLoading ? "Loading…" : "Not found"}
     >
+      <div className="mb-5">
+        <BackButton
+          to="/admin/users/$userId"
+          params={{ userId }}
+          label="Back to user"
+        />
+      </div>
+
       {userQuery.isError && (
         <p className="text-sm text-muted-foreground">
           {userQuery.error instanceof ApiError ? userQuery.error.message : "User not found."}

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Pencil, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { BackButton } from "@/components/BackButton";
 import { WalletCard, walletDisplayName } from "@/components/admin/WalletCard";
 import { Button } from "@/components/ui/button";
 import {
@@ -113,6 +114,10 @@ function WalletDetailPage() {
         ) : undefined
       }
     >
+      <div className="mb-5">
+        <BackButton to="/admin/wallets" label="Back to wallets" />
+      </div>
+
       {walletQuery.isError && (
         <p className="text-sm text-muted-foreground">
           {walletQuery.error instanceof ApiError ? walletQuery.error.message : "Wallet not found."}
@@ -156,12 +161,6 @@ function WalletDetailPage() {
           </div>
         </div>
       )}
-
-      <div className="mt-4">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/admin/wallets">← Back to wallets</Link>
-        </Button>
-      </div>
     </AdminShell>
   );
 }

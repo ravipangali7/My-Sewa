@@ -34,11 +34,67 @@ export interface BankDetails {
   [key: string]: string | undefined;
 }
 
+export interface SiteConfig {
+  site_name: string;
+  tagline: string;
+  support_email: string;
+  support_phone: string;
+  address: string;
+  currency: string;
+  timezone: string;
+}
+
+export interface PaymentConfig {
+  deposits_enabled: boolean;
+  topups_enabled: boolean;
+  transfers_enabled: boolean;
+  min_deposit: number;
+  max_deposit: number;
+  deposit_instructions: string;
+}
+
+export interface TransactionsConfig {
+  min_topup: number;
+  max_topup: number;
+  min_transfer: number;
+  max_transfer: number;
+  topup_charge_percent: number;
+  transfer_charge_flat: number;
+  daily_transfer_limit: number;
+}
+
+export interface NotificationsConfig {
+  email_on_deposit: boolean;
+  email_on_topup: boolean;
+  sms_on_deposit_approved: boolean;
+  admin_alert_email: string;
+  notify_low_balance: boolean;
+  low_balance_threshold: number;
+}
+
+export interface SecurityConfig {
+  require_deposit_screenshot: boolean;
+  max_failed_logins: number;
+  session_timeout_minutes: number;
+  maintenance_mode: boolean;
+  maintenance_message: string;
+  allow_new_registrations: boolean;
+}
+
+export interface AppConfig {
+  site: SiteConfig;
+  payment: PaymentConfig;
+  transactions: TransactionsConfig;
+  notifications: NotificationsConfig;
+  security: SecurityConfig;
+}
+
 export interface AppSettings {
   id: number;
   qr_code: string | null;
   qr_code_url: string | null;
   bank_details: BankDetails;
+  config: AppConfig;
   created_at: string;
   updated_at: string;
 }
@@ -46,7 +102,10 @@ export interface AppSettings {
 export interface Deposit {
   id: number;
   user: string;
+  user_id: number;
   phone: string;
+  first_name: string;
+  last_name: string;
   amount: string;
   status: DepositStatus;
   status_display: string;
@@ -60,7 +119,10 @@ export interface Deposit {
 export interface TopupTransaction {
   id: number;
   user: string;
+  user_id: number;
   phone: string;
+  first_name: string;
+  last_name: string;
   mobile_number: string;
   amount: string;
   product_id: 1 | 2;
@@ -73,6 +135,7 @@ export interface TopupTransaction {
   cashback: string;
   total_debited: string;
   reference_id: string | null;
+  provider_response?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

@@ -260,13 +260,17 @@ class WalletSerializer(serializers.ModelSerializer):
 class DepositSerializer(serializers.ModelSerializer):
     """Deposit request serializer"""
     user = serializers.StringRelatedField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
     phone = serializers.CharField(source='user.phone', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
 
     class Meta:
         model = Deposit
         fields = (
-            'id', 'user', 'phone', 'amount', 'status', 'status_display',
+            'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
+            'amount', 'status', 'status_display',
             'screenshot_proof', 'note', 'rejection_reason', 'created_at', 'updated_at',
         )
         read_only_fields = (
@@ -297,10 +301,14 @@ class DepositCreateSerializer(serializers.ModelSerializer):
 class SettingsSerializer(serializers.ModelSerializer):
     """Settings serializer"""
     qr_code_url = serializers.SerializerMethodField()
+    config = serializers.SerializerMethodField()
 
     class Meta:
         model = Settings
-        fields = ('id', 'qr_code', 'qr_code_url', 'bank_details', 'created_at', 'updated_at')
+        fields = (
+            'id', 'qr_code', 'qr_code_url', 'bank_details', 'config',
+            'created_at', 'updated_at',
+        )
         read_only_fields = ('id', 'created_at', 'updated_at')
 
     def get_qr_code_url(self, obj):
@@ -311,18 +319,25 @@ class SettingsSerializer(serializers.ModelSerializer):
             return obj.qr_code.url
         return None
 
+    def get_config(self, obj):
+        return obj.get_config()
+
 
 class TopupTransactionSerializer(serializers.ModelSerializer):
     """Topup transaction serializer"""
     user = serializers.StringRelatedField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
     phone = serializers.CharField(source='user.phone', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
     product_name = serializers.CharField(source='get_product_id_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
 
     class Meta:
         model = TopupTransaction
         fields = (
-            'id', 'user', 'phone', 'mobile_number', 'amount', 'product_id',
+            'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
+            'mobile_number', 'amount', 'product_id',
             'product_name', 'status', 'status_display', 'service_hub_txn_id',
             'merchant_txn_id', 'charge', 'cashback', 'total_debited',
             'reference_id', 'created_at', 'updated_at',
@@ -344,6 +359,13 @@ class TopupTransactionSerializer(serializers.ModelSerializer):
         if value < 10:
             raise serializers.ValidationError("Minimum topup amount is Rs. 10.")
         return value
+
+
+class AdminTopupSerializer(TopupTransactionSerializer):
+    """Staff top-up detail — includes raw provider response for support."""
+
+    class Meta(TopupTransactionSerializer.Meta):
+        fields = TopupTransactionSerializer.Meta.fields + ('provider_response',)
 
 
 class TopupCreateSerializer(serializers.Serializer):

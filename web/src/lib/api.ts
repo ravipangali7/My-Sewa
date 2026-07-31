@@ -248,6 +248,8 @@ export const apiClient = {
     api<import("./types").Deposit[]>(
       status ? `/api/admin/deposits/?status=${status}` : "/api/admin/deposits/",
     ),
+  adminGetDeposit: (id: number) =>
+    api<import("./types").Deposit>(`/api/admin/deposits/${id}/`),
   adminApproveDeposit: (id: number) =>
     api<{ message: string; data: import("./types").Deposit }>(
       `/api/admin/deposits/${id}/approve/`,
@@ -259,12 +261,14 @@ export const apiClient = {
       { method: "POST", body },
     ),
   adminTopups: () => api<import("./types").TopupTransaction[]>("/api/admin/topups/"),
+  adminGetTopup: (id: number) =>
+    api<import("./types").TopupTransaction>(`/api/admin/topups/${id}/`),
   adminTransfers: () =>
     api<import("./types").BankTransferTransaction[]>("/api/admin/transfers/"),
   adminGetSettings: () => api<import("./types").AppSettings>("/api/admin/settings/"),
-  adminUpdateSettings: (formData: FormData) =>
+  adminUpdateSettings: (payload: FormData | Record<string, unknown>) =>
     api<{ message: string; data: import("./types").AppSettings }>("/api/admin/settings/", {
       method: "PATCH",
-      formData,
+      ...(payload instanceof FormData ? { formData: payload } : { body: payload }),
     }),
 };

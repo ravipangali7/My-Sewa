@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useEffect, useState, type FormEvent } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { BackButton } from "@/components/BackButton";
 import { WalletCard, walletDisplayName } from "@/components/admin/WalletCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,6 +74,14 @@ function EditWalletPage() {
       title="Edit wallet"
       description={w ? `${name} · #${w.id}` : walletQuery.isLoading ? "Loading…" : "Not found"}
     >
+      <div className="mb-5">
+        <BackButton
+          to="/admin/wallets/$walletId"
+          params={{ walletId }}
+          label="Back to wallet"
+        />
+      </div>
+
       {walletQuery.isError && (
         <p className="text-sm text-muted-foreground">
           {walletQuery.error instanceof ApiError ? walletQuery.error.message : "Wallet not found."}
