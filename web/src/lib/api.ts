@@ -1,8 +1,14 @@
 import { TOKEN_KEY } from "./constants";
 
+// Production must use same-origin (empty string) so nginx can proxy /api → Django.
+// Dev defaults to local Django. Override anytime with VITE_API_BASE_URL.
+const configuredBase = (import.meta.env["VITE_API_BASE_URL"] as string | undefined)?.trim();
 const API_BASE =
-  (import.meta.env["VITE_API_BASE_URL"] as string | undefined)?.replace(/\/$/, "") ||
-  "http://127.0.0.1:8000";
+  configuredBase !== undefined && configuredBase !== ""
+    ? configuredBase.replace(/\/$/, "")
+    : import.meta.env.DEV
+      ? "http://127.0.0.1:8000"
+      : "";
 
 export class ApiError extends Error {
   status: number;
@@ -69,7 +75,15 @@ export async function api<T = unknown>(path: string, options: RequestOptions = {
     init.body = JSON.stringify(body);
   }
 
-  const res = await fetch(`${API_BASE}${path}`, init);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, init);
+  } catch {
+    throw new ApiError(
+      "Cannot reach the MySewa server. Check your connection and try again.",
+      0,
+    );
+  }
 
   const text = await res.text();
   let data: unknown = null;
