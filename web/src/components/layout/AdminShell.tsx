@@ -62,7 +62,10 @@ export function AdminShell({
   const nav = (
     <nav className="flex flex-col gap-1">
       {NAV.map((item) => {
-        const active = pathname === item.to;
+        const active =
+          item.to === "/admin"
+            ? pathname === "/admin" || pathname === "/admin/"
+            : pathname === item.to || pathname.startsWith(`${item.to}/`);
         return (
           <Link
             key={item.to}

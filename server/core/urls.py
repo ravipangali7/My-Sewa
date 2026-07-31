@@ -48,7 +48,9 @@ urlpatterns = [
     # Admin / staff console
     path('api/admin/dashboard/', admin_views.admin_dashboard, name='admin_dashboard'),
     path('api/admin/users/', admin_views.admin_list_users, name='admin_list_users'),
+    path('api/admin/users/<int:user_id>/', admin_views.admin_user_detail, name='admin_user_detail'),
     path('api/admin/wallets/', admin_views.admin_list_wallets, name='admin_list_wallets'),
+    path('api/admin/wallets/<int:wallet_id>/', admin_views.admin_wallet_detail, name='admin_wallet_detail'),
     path('api/admin/deposits/', admin_views.admin_list_deposits, name='admin_list_deposits'),
     path('api/admin/deposits/<int:deposit_id>/approve/', admin_views.admin_approve_deposit, name='admin_approve_deposit'),
     path('api/admin/deposits/<int:deposit_id>/reject/', admin_views.admin_reject_deposit, name='admin_reject_deposit'),

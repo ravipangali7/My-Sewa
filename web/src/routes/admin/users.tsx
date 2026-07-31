@@ -1,7 +1,21 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -10,8 +24,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { apiClient } from "@/lib/api";
+import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDate } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
+import type { AdminUser } from "@/lib/types";
 
 export const Route = createFileRoute("/admin/users")({
   head: () => ({
@@ -30,17 +46,95 @@ export const Route = createFileRoute("/admin/users")({
 });
 
 function UsersPage() {
+  const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
+
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => apiClient.adminUsers(),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiClient.adminDeleteUser(id),
+    onSuccess: () => {
+      toast.success("User deleted");
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not delete user");
+    },
+  });
+
   const users = usersQuery.data ?? [];
+
+  const actionsFor = (u: AdminUser) => {
+    const userId = String(u.id);
+    const isSelf = currentUser?.id === u.id;
+    return (
+      <div className="flex justify-end gap-1">
+        <Button asChild size="sm" variant="ghost" className="h-8 px-2">
+          <Link to="/admin/users/$userId" params={{ userId }} title="View">
+            <Eye className="size-3.5" />
+            <span className="sr-only sm:not-sr-only sm:ml-1">View</span>
+          </Link>
+        </Button>
+        <Button asChild size="sm" variant="ghost" className="h-8 px-2">
+          <Link to="/admin/users/$userId/edit" params={{ userId }} title="Edit">
+            <Pencil className="size-3.5" />
+            <span className="sr-only sm:not-sr-only sm:ml-1">Edit</span>
+          </Link>
+        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2 text-danger hover:text-danger"
+              disabled={isSelf || deleteMutation.isPending}
+              title={isSelf ? "You cannot delete your own account" : "Delete"}
+            >
+              <Trash2 className="size-3.5" />
+              <span className="sr-only sm:not-sr-only sm:ml-1">Delete</span>
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this user?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently removes {u.phone}
+                {u.first_name || u.last_name
+                  ? ` (${[u.first_name, u.last_name].filter(Boolean).join(" ")})`
+                  : ""}{" "}
+                and related wallet data. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => deleteMutation.mutate(u.id)}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    );
+  };
 
   return (
     <AdminShell
       title="Users"
       description={usersQuery.isLoading ? "Loading…" : `${users.length} registered accounts`}
+      actions={
+        <Button asChild size="sm">
+          <Link to="/admin/users/new">
+            <Plus className="size-4" />
+            Add user
+          </Link>
+        </Button>
+      }
     >
       <div className="overflow-x-auto rounded-xl border border-border bg-surface">
         <Table>
@@ -55,6 +149,7 @@ function UsersPage() {
               <TableHead>Date joined</TableHead>
               <TableHead>Last login</TableHead>
               <TableHead className="text-right">Wallet balance</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -81,11 +176,12 @@ function UsersPage() {
                 <TableCell className="tabular text-right text-sm">
                   {formatNPR(u.wallet_balance ?? "0.00")}
                 </TableCell>
+                <TableCell className="text-right">{actionsFor(u)}</TableCell>
               </TableRow>
             ))}
             {!usersQuery.isLoading && users.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={10} className="py-10 text-center text-sm text-muted-foreground">
                   No users found.
                 </TableCell>
               </TableRow>

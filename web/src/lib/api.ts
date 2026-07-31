@@ -220,8 +220,30 @@ export const apiClient = {
 
   adminDashboard: () => api<import("./types").AdminDashboard>("/api/admin/dashboard/"),
   adminUsers: () => api<import("./types").AdminUser[]>("/api/admin/users/"),
+  adminGetUser: (id: number) => api<import("./types").AdminUser>(`/api/admin/users/${id}/`),
+  adminCreateUser: (body: import("./types").AdminUserWritePayload) =>
+    api<{ message: string; data: import("./types").AdminUser }>("/api/admin/users/", {
+      method: "POST",
+      body,
+    }),
+  adminUpdateUser: (id: number, body: import("./types").AdminUserWritePayload) =>
+    api<{ message: string; data: import("./types").AdminUser }>(`/api/admin/users/${id}/`, {
+      method: "PATCH",
+      body,
+    }),
+  adminDeleteUser: (id: number) =>
+    api<{ message: string }>(`/api/admin/users/${id}/`, { method: "DELETE" }),
   adminWallets: () =>
     api<{ wallet_float: string; wallets: import("./types").AdminWallet[] }>("/api/admin/wallets/"),
+  adminGetWallet: (id: number) =>
+    api<import("./types").AdminWallet>(`/api/admin/wallets/${id}/`),
+  adminUpdateWallet: (id: number, body: { balance: string | number }) =>
+    api<{ message: string; data: import("./types").AdminWallet }>(`/api/admin/wallets/${id}/`, {
+      method: "PATCH",
+      body,
+    }),
+  adminDeleteWallet: (id: number) =>
+    api<{ message: string }>(`/api/admin/wallets/${id}/`, { method: "DELETE" }),
   adminDeposits: (status?: string) =>
     api<import("./types").Deposit[]>(
       status ? `/api/admin/deposits/?status=${status}` : "/api/admin/deposits/",

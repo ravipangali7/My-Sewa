@@ -23,7 +23,9 @@ from ..models import (
 )
 from ..serializers import (
     AdminUserSerializer,
+    AdminUserWriteSerializer,
     AdminWalletSerializer,
+    AdminWalletWriteSerializer,
     DepositSerializer,
     TopupTransactionSerializer,
     BankTransferTransactionSerializer,
@@ -113,11 +115,64 @@ def admin_dashboard(request):
     })
 
 
-@api_view(['GET'])
+@api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_list_users(request):
+    if request.method == 'POST':
+        serializer = AdminUserWriteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {'error': 'Validation failed', 'errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = serializer.save()
+        user = User.objects.select_related('wallet').get(pk=user.pk)
+        return Response(
+            {
+                'message': 'User created successfully',
+                'data': AdminUserSerializer(user, context={'request': request}).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
     users = User.objects.select_related('wallet').order_by('-date_joined')
     return Response(AdminUserSerializer(users, many=True, context={'request': request}).data)
+
+
+@api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_user_detail(request, user_id):
+    try:
+        user = User.objects.select_related('wallet').get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response(AdminUserSerializer(user, context={'request': request}).data)
+
+    if request.method == 'DELETE':
+        if user.pk == request.user.pk:
+            return Response(
+                {'error': 'You cannot delete your own account.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.delete()
+        return Response({'message': 'User deleted successfully'}, status=status.HTTP_200_OK)
+
+    serializer = AdminUserWriteSerializer(
+        user, data=request.data, partial=(request.method == 'PATCH'),
+    )
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Validation failed', 'errors': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    user = serializer.save()
+    user = User.objects.select_related('wallet').get(pk=user.pk)
+    return Response({
+        'message': 'User updated successfully',
+        'data': AdminUserSerializer(user, context={'request': request}).data,
+    })
 
 
 @api_view(['GET'])
@@ -128,6 +183,37 @@ def admin_list_wallets(request):
     return Response({
         'wallet_float': str(total),
         'wallets': AdminWalletSerializer(wallets, many=True).data,
+    })
+
+
+@api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_wallet_detail(request, wallet_id):
+    try:
+        wallet = Wallet.objects.select_related('user').get(pk=wallet_id)
+    except Wallet.DoesNotExist:
+        return Response({'error': 'Wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response(AdminWalletSerializer(wallet).data)
+
+    if request.method == 'DELETE':
+        wallet.delete()
+        return Response({'message': 'Wallet deleted successfully'}, status=status.HTTP_200_OK)
+
+    serializer = AdminWalletWriteSerializer(
+        wallet, data=request.data, partial=(request.method == 'PATCH'),
+    )
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Validation failed', 'errors': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    wallet = serializer.save()
+    wallet = Wallet.objects.select_related('user').get(pk=wallet.pk)
+    return Response({
+        'message': 'Wallet updated successfully',
+        'data': AdminWalletSerializer(wallet).data,
     })
 
 

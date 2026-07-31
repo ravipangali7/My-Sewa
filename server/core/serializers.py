@@ -4,6 +4,7 @@ DRF Serializers for all models
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import Wallet, Deposit, Settings, TopupTransaction, BankTransferTransaction
 
 User = get_user_model()
@@ -101,6 +102,83 @@ class AdminUserSerializer(serializers.ModelSerializer):
         return wallet.id if wallet else None
 
 
+class AdminUserWriteSerializer(serializers.ModelSerializer):
+    """Create / update users from the admin console (password optional on update)."""
+    password = serializers.CharField(
+        write_only=True, required=False, allow_blank=True,
+    )
+    password2 = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, label='Confirm Password',
+    )
+
+    class Meta:
+        model = User
+        fields = (
+            'id', 'phone', 'email', 'first_name', 'last_name',
+            'is_active', 'is_staff', 'is_superuser',
+            'password', 'password2',
+        )
+        extra_kwargs = {
+            'phone': {'required': True},
+            'email': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'first_name': {'required': False, 'allow_blank': True},
+            'last_name': {'required': False, 'allow_blank': True},
+            'is_active': {'required': False},
+            'is_staff': {'required': False},
+            'is_superuser': {'required': False},
+        }
+
+    def validate_phone(self, value):
+        phone = (value or '').strip()
+        if not phone:
+            raise serializers.ValidationError('Phone number is required.')
+        qs = User.objects.filter(phone=phone)
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError('This phone number is already registered.')
+        return phone
+
+    def validate(self, attrs):
+        password = attrs.get('password') or ''
+        password2 = attrs.get('password2') or ''
+        creating = self.instance is None
+
+        if creating and not password:
+            raise serializers.ValidationError({'password': 'Password is required when creating a user.'})
+
+        if password or password2:
+            if password != password2:
+                raise serializers.ValidationError({'password': "Password fields didn't match."})
+            if not password:
+                raise serializers.ValidationError({'password': 'Password cannot be empty.'})
+            try:
+                validate_password(password)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({'password': list(exc.messages)}) from exc
+
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('password2', None)
+        password = validated_data.pop('password')
+        phone = validated_data.pop('phone')
+        return User.objects.create_user(phone, password=password, **validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop('password2', None)
+        password = validated_data.pop('password', None) or None
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if password:
+            instance.set_password(password)
+
+        instance.save()
+        return instance
+
+
 class AdminWalletSerializer(serializers.ModelSerializer):
     phone = serializers.CharField(source='user.phone', read_only=True)
     first_name = serializers.CharField(source='user.first_name', read_only=True)
@@ -113,6 +191,14 @@ class AdminWalletSerializer(serializers.ModelSerializer):
             'id', 'user_id', 'phone', 'first_name', 'last_name',
             'balance', 'created_at', 'updated_at',
         )
+
+
+class AdminWalletWriteSerializer(serializers.ModelSerializer):
+    """Staff-only wallet balance update."""
+
+    class Meta:
+        model = Wallet
+        fields = ('balance',)
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
