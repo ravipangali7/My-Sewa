@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Html5Qrcode } from "html5-qrcode";
+import jsQR from "jsqr";
 import QRCode from "qrcode";
 import {
   ArrowLeft,
@@ -9,7 +9,7 @@ import {
   Image as ImageIcon,
   Share2,
 } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
@@ -38,6 +38,30 @@ export const Route = createFileRoute("/app/qr")({
 
 type Tab = "scan" | "share";
 
+function decodeQrFromImageData(image: ImageData): string | null {
+  const code = jsQR(image.data, image.width, image.height, {
+    inversionAttempts: "attemptBoth",
+  });
+  return code?.data?.trim() ? code.data : null;
+}
+
+async function decodeQrFromFile(file: File): Promise<string | null> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0);
+    return decodeQrFromImageData(
+      ctx.getImageData(0, 0, canvas.width, canvas.height),
+    );
+  } finally {
+    bitmap.close();
+  }
+}
+
 function QrScanSharePage() {
   const navigate = useNavigate();
   const { user, token, isLoading } = useAuth();
@@ -48,11 +72,11 @@ function QrScanSharePage() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [scanRestartKey, setScanRestartKey] = useState(0);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef<number | null>(null);
   const handledRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const readerDomId = useId().replace(/:/g, "");
-  const readerId = `msw-qr-reader-${readerDomId}`;
 
   const displayName =
     [user?.first_name, user?.last_name].filter(Boolean).join(" ") ||
@@ -80,72 +104,40 @@ function QrScanSharePage() {
     [navigate],
   );
 
-  const stopScanner = useCallback(async () => {
-    const scanner = scannerRef.current;
-    scannerRef.current = null;
-    if (!scanner) return;
-    try {
-      if (scanner.isScanning) await scanner.stop();
-    } catch {
-      // already stopped
+  const stopScanner = useCallback(() => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     }
-    try {
-      scanner.clear();
-    } catch {
-      // ignore
+    const stream = streamRef.current;
+    streamRef.current = null;
+    stream?.getTracks().forEach((t) => t.stop());
+    const video = videoRef.current;
+    if (video) {
+      video.srcObject = null;
     }
   }, []);
 
-  const setTorch = useCallback(
-    async (on: boolean) => {
-      const scanner = scannerRef.current;
-      if (!scanner?.isScanning) return;
-      try {
-        const caps = (
-          scanner as unknown as {
-            getRunningTrackCameraCapabilities?: () => {
-              torchFeature?: () => {
-                isSupported: () => boolean;
-                apply: (v: boolean) => Promise<void>;
-              };
-            };
-          }
-        ).getRunningTrackCameraCapabilities?.();
-        const torch = caps?.torchFeature?.();
-        if (torch?.isSupported()) {
-          await torch.apply(on);
-          setTorchOn(on);
-          setTorchSupported(true);
-          return;
-        }
-      } catch {
-        // fall through
-      }
-
-      const video = document.querySelector(
-        `#${readerId} video`,
-      ) as HTMLVideoElement | null;
-      const mediaTrack =
-        video?.srcObject instanceof MediaStream
-          ? video.srcObject.getVideoTracks()[0]
-          : undefined;
-      if (!mediaTrack) return;
-      const trackCaps = mediaTrack.getCapabilities?.() as
-        | { torch?: boolean }
-        | undefined;
-      if (!trackCaps?.torch) {
-        setTorchSupported(false);
-        toast.message("Flash is not available on this camera");
-        return;
-      }
-      setTorchSupported(true);
-      await mediaTrack.applyConstraints({
+  const setTorch = useCallback(async (on: boolean) => {
+    const stream = streamRef.current;
+    const track = stream?.getVideoTracks()[0];
+    if (!track) return;
+    const trackCaps = track.getCapabilities?.() as { torch?: boolean } | undefined;
+    if (!trackCaps?.torch) {
+      setTorchSupported(false);
+      toast.message("Flash is not available on this camera");
+      return;
+    }
+    setTorchSupported(true);
+    try {
+      await track.applyConstraints({
         advanced: [{ torch: on } as MediaTrackConstraintSet],
       });
       setTorchOn(on);
-    },
-    [readerId],
-  );
+    } catch {
+      toast.message("Could not toggle flash");
+    }
+  }, []);
 
   useEffect(() => {
     if (!isLoading && !token) navigate({ to: "/" });
@@ -173,7 +165,7 @@ function QrScanSharePage() {
 
   useEffect(() => {
     if (tab !== "scan" || !token || !user) {
-      void stopScanner();
+      stopScanner();
       setTorchOn(false);
       return;
     }
@@ -181,44 +173,62 @@ function QrScanSharePage() {
     handledRef.current = false;
     setCameraError(null);
     let cancelled = false;
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
-    const start = async () => {
-      await stopScanner();
+    const tick = () => {
       if (cancelled) return;
-      const el = document.getElementById(readerId);
-      if (!el) return;
-      const scanner = new Html5Qrcode(readerId, { verbose: false });
-      scannerRef.current = scanner;
-      try {
-        await scanner.start(
-          { facingMode: "environment" },
-          {
-            fps: 10,
-            qrbox: (viewW, viewH) => {
-              const edge = Math.floor(Math.min(viewW, viewH) * 0.72);
-              return { width: edge, height: edge };
-            },
-            aspectRatio: 1.777778,
-            disableFlip: false,
-          },
-          (decoded) => goToTransfer(decoded),
-          () => undefined,
-        );
-        if (cancelled) {
-          await stopScanner();
+      const video = videoRef.current;
+      if (
+        video &&
+        ctx &&
+        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        video.videoWidth > 0
+      ) {
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+        }
+        ctx.drawImage(video, 0, 0, w, h);
+        const decoded = decodeQrFromImageData(ctx.getImageData(0, 0, w, h));
+        if (decoded) {
+          goToTransfer(decoded);
           return;
         }
-        requestAnimationFrame(() => {
-          const video = document.querySelector(
-            `#${readerId} video`,
-          ) as HTMLVideoElement | null;
-          const track =
-            video?.srcObject instanceof MediaStream
-              ? video.srcObject.getVideoTracks()[0]
-              : undefined;
-          const caps = track?.getCapabilities?.() as { torch?: boolean } | undefined;
-          setTorchSupported(!!caps?.torch);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    const start = async () => {
+      stopScanner();
+      if (cancelled) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
         });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        const video = videoRef.current;
+        if (!video) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        video.srcObject = stream;
+        await video.play();
+        const track = stream.getVideoTracks()[0];
+        const caps = track?.getCapabilities?.() as { torch?: boolean } | undefined;
+        setTorchSupported(!!caps?.torch);
+        rafRef.current = requestAnimationFrame(tick);
       } catch (err) {
         if (cancelled) return;
         const message =
@@ -230,30 +240,19 @@ function QrScanSharePage() {
     void start();
     return () => {
       cancelled = true;
-      void stopScanner();
+      stopScanner();
     };
-  }, [tab, readerId, goToTransfer, stopScanner, token, user, scanRestartKey]);
+  }, [tab, goToTransfer, stopScanner, token, user, scanRestartKey]);
 
   async function onGalleryFile(file: File | undefined) {
     if (!file) return;
     try {
-      // Use a detached scanner instance for file decode so camera stream stays intact
-      const tempId = `${readerId}-file`;
-      let host = document.getElementById(tempId);
-      if (!host) {
-        host = document.createElement("div");
-        host.id = tempId;
-        host.className = "hidden";
-        document.body.appendChild(host);
+      const decoded = await decodeQrFromFile(file);
+      if (!decoded) {
+        toast.error("Could not read a QR code from that image");
+        if (tab === "scan") setScanRestartKey((k) => k + 1);
+        return;
       }
-      const fileScanner = new Html5Qrcode(tempId, { verbose: false });
-      const decoded = await fileScanner.scanFile(file, false);
-      try {
-        fileScanner.clear();
-      } catch {
-        // ignore
-      }
-      host.remove();
       goToTransfer(decoded);
     } catch {
       toast.error("Could not read a QR code from that image");
@@ -393,9 +392,12 @@ function QrScanSharePage() {
             </p>
 
             <div className="relative aspect-square w-[min(280px,72vw)] overflow-hidden rounded-2xl">
-              <div
-                id={readerId}
-                className="qr-reader absolute inset-0 overflow-hidden rounded-2xl [&_img]:hidden [&_video]:h-full [&_video]:w-full [&_video]:object-cover"
+              <video
+                ref={videoRef}
+                className="absolute inset-0 h-full w-full object-cover"
+                playsInline
+                muted
+                autoPlay
               />
               <div className="pointer-events-none absolute inset-0 rounded-2xl border-[3px] border-brand shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]" />
               {cameraError ? (
