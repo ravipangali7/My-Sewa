@@ -94,11 +94,10 @@ function EditWalletPage() {
             balance={balance || w.balance}
             title="Preview balance"
             subtitle={`${name} · ${w.phone}`}
-            className="max-w-xl"
           />
 
           <form
-            className="max-w-xl space-y-5 rounded-xl border border-border bg-surface p-5"
+            className="space-y-5 rounded-xl border border-border bg-surface p-5"
             onSubmit={handleSubmit}
           >
             <div className="space-y-1.5">

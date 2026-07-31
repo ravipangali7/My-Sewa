@@ -1,12 +1,24 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Send, Smartphone, ChevronRight } from "lucide-react";
+import { useState } from "react";
+import {
+  Bell,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  ArrowDownToLine,
+  Send,
+  History,
+  User,
+  Redo2,
+} from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
-import { StatusChip } from "@/components/StatusChip";
+import { MountainBackdrop } from "@/components/home/MountainBackdrop";
+import { WalletIllustration } from "@/components/home/WalletIllustration";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { apiClient } from "@/lib/api";
 import { buildActivity } from "@/lib/activity";
 import { useAuth } from "@/lib/auth";
-import { formatNPR, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/")({
@@ -26,120 +38,276 @@ export const Route = createFileRoute("/app/")({
 });
 
 const ACTIONS = [
-  { to: "/app/load", label: "Load", icon: Download },
-  { to: "/app/topup", label: "Top Up", icon: Smartphone },
-  { to: "/app/transfer", label: "Transfer", icon: Send },
-];
+  {
+    to: "/app/transfer",
+    label: "Fund Transfer",
+    icon: Send,
+    iconBg: "bg-[#22C55E]",
+  },
+  {
+    to: "/app/load",
+    label: "Receive Remittance",
+    icon: ArrowDownToLine,
+    iconBg: "bg-[#2563EB]",
+  },
+  {
+    to: "/app/history",
+    label: "Transaction History",
+    icon: History,
+    iconBg: "bg-[#7C3AED]",
+  },
+  {
+    to: "/app/profile",
+    label: "Profile",
+    icon: User,
+    iconBg: "bg-[#38BDF8]",
+  },
+] as const;
+
+function formatRu(value: string | number) {
+  const n = typeof value === "string" ? Number(value) : value;
+  if (Number.isNaN(n)) return "रु. —";
+  return `रु. ${n.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function formatTxStamp(iso: string) {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString("en-CA"); // YYYY-MM-DD
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return `${date} ${time}`;
+}
+
+function formatPhone(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("977") && digits.length >= 12) {
+    return `+977 ${digits.slice(3)}`;
+  }
+  if (digits.length === 10) return `+977 ${digits}`;
+  if (phone.startsWith("+")) return phone;
+  return phone ? `+977 ${phone}` : "";
+}
 
 function WalletHome() {
   const { user, wallet } = useAuth();
+  const [balanceVisible, setBalanceVisible] = useState(true);
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
   });
 
-  const activity = txQuery.data ? buildActivity(txQuery.data).slice(0, 5) : [];
-  const displayName = user
-    ? [user.first_name, user.last_name].filter(Boolean).join(" ") || user.phone
-    : "";
+  const activity = txQuery.data ? buildActivity(txQuery.data).slice(0, 3) : [];
+  const firstName = user?.first_name?.trim() || "User";
+  const initials = [user?.first_name, user?.last_name]
+    .filter(Boolean)
+    .map((s) => s![0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "MS";
 
   return (
-    <UserShell title="MySewa">
-      <div className="-mt-3 space-y-5 lg:mt-0">
-        <section className="rounded-2xl bg-hero-gradient p-5 shadow-card lg:p-7">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[13px] text-primary-foreground/70">Available balance</p>
-              <p className="tabular mt-1 text-[38px] leading-none font-bold text-primary-foreground lg:text-[44px]">
-                {wallet ? formatNPR(wallet.balance) : "—"}
-              </p>
-              <p className="mt-2 text-[13px] text-primary-foreground/70">
-                {displayName}
-                {user ? ` · ${user.phone}` : ""}
-              </p>
-            </div>
-            <span className="rounded-full bg-brand-accent/90 px-3 py-1 text-xs font-medium text-primary-foreground">
-              NPR
-            </span>
-          </div>
-        </section>
+    <UserShell title="MySewa" hideHeader>
+      <div className="relative min-h-[100dvh] bg-[#F3F5F8] lg:rounded-2xl lg:overflow-hidden">
+        {/* Header band */}
+        <section className="relative overflow-hidden bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_28%,#0C5F8A_55%,#0A8A6A_82%,#10B981_100%)] px-4 pb-[72px] pt-[max(12px,env(safe-area-inset-top))]">
+          <MountainBackdrop className="pointer-events-none absolute inset-x-0 bottom-0 h-[58%] w-full opacity-90" />
 
-        <section className="grid grid-cols-3 gap-3">
-          {ACTIONS.map((a) => (
-            <Link
-              key={a.to}
-              to={a.to}
-              className="inset-group flex flex-col items-center gap-2 px-2 py-4 transition-transform active:scale-[0.98]"
+          <div className="relative z-10 flex items-start justify-between">
+            <div className="flex items-center gap-2.5">
+              <img
+                src="/logo.png"
+                alt="MySewa"
+                className="size-[44px] shrink-0 rounded-full object-cover shadow-[0_4px_14px_rgba(0,0,0,0.25)] ring-[2.5px] ring-white/40"
+              />
+              <div className="leading-tight">
+                <p className="text-[22px] font-bold tracking-tight">
+                  <span className="text-white">My</span>
+                  <span className="text-[#6CFFAE]">Sewa</span>
+                </p>
+                <p className="mt-0.5 text-[11px] font-medium text-white/90">
+                  सजिलो, सुरक्षित, हाम्रो सँग
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              aria-label="Notifications"
+              className="relative mt-1 flex size-10 items-center justify-center rounded-full text-white"
             >
-              <span className="flex size-11 items-center justify-center rounded-xl bg-brand-soft text-brand">
-                <a.icon className="size-5" />
+              <Bell className="size-[22px]" strokeWidth={1.75} />
+              <span className="absolute top-1 right-1 flex size-[16px] items-center justify-center rounded-full bg-[#FF3B30] text-[9px] font-bold text-white ring-2 ring-[#0B4A8F]/70">
+                3
               </span>
-              <span className="text-[13px] font-medium">{a.label}</span>
-            </Link>
-          ))}
+            </button>
+          </div>
+
+          <div className="relative z-10 mt-5 flex items-center gap-3">
+            <Avatar className="size-[52px] ring-2 ring-white/40 shadow-md">
+              {user?.avatar_url ? <AvatarImage src={user.avatar_url} alt={firstName} /> : null}
+              <AvatarFallback className="bg-white/20 text-sm font-semibold text-white">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <p className="truncate text-[18px] font-bold text-white">नमस्ते, {firstName}</p>
+              <p className="mt-0.5 text-[13px] font-medium text-white/80">
+                {user ? formatPhone(user.phone) : ""}
+              </p>
+            </div>
+          </div>
         </section>
 
-        <section>
-          <div className="mb-2 flex items-center justify-between px-1">
-            <h2 className="text-[17px] font-semibold">Recent activity</h2>
-            <Link to="/app/history" className="text-[15px] font-medium text-brand">
-              See all
-            </Link>
-          </div>
-          {txQuery.isLoading ? (
-            <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
-              Loading activity…
+        {/* Content overlapping header */}
+        <div className="relative z-20 -mt-10 space-y-4 px-4 pb-6">
+          {/* Wallet card */}
+          <section className="relative overflow-hidden rounded-[22px] bg-[linear-gradient(145deg,#062A5C_0%,#0B3B7A_38%,#0B5588_68%,#0A6E78_100%)] px-5 pb-5 pt-4 shadow-[0_14px_36px_-10px_rgba(6,42,92,0.55)]">
+            <div
+              className="pointer-events-none absolute inset-0 opacity-50"
+              style={{
+                backgroundImage:
+                  "radial-gradient(circle at 18% 78%, rgba(125,211,252,0.45) 0 1.2px, transparent 1.8px), radial-gradient(circle at 72% 72%, rgba(165,243,252,0.35) 0 1px, transparent 1.6px), radial-gradient(circle at 88% 58%, rgba(103,232,249,0.3) 0 1.4px, transparent 2.2px), radial-gradient(circle at 55% 85%, rgba(110,231,183,0.25) 0 1px, transparent 1.5px)",
+                backgroundSize: "26px 26px, 34px 34px, 20px 20px, 30px 30px",
+              }}
+            />
+
+            <div className="relative z-10 flex items-start justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-white">
+                <span className="text-[13px] font-medium tracking-wide">MySewa Wallet</span>
+                <button
+                  type="button"
+                  aria-label={balanceVisible ? "Hide balance" : "Show balance"}
+                  onClick={() => setBalanceVisible((v) => !v)}
+                  className="inline-flex size-7 items-center justify-center rounded-full text-white/90"
+                >
+                  {balanceVisible ? (
+                    <Eye className="size-[16px]" strokeWidth={1.75} />
+                  ) : (
+                    <EyeOff className="size-[16px]" strokeWidth={1.75} />
+                  )}
+                </button>
+              </div>
+              <span className="shrink-0 rounded-full bg-[#22C55E] px-2.5 py-1 text-[10px] font-semibold tracking-wide text-white shadow-sm">
+                Remittance Received
+              </span>
             </div>
-          ) : activity.length === 0 ? (
-            <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
-              No recent activity yet.
+
+            <div className="relative z-10 mt-3 flex items-end justify-between gap-2">
+              <div className="min-w-0">
+                <p className="tabular text-[34px] leading-none font-bold tracking-tight text-white">
+                  {wallet
+                    ? balanceVisible
+                      ? formatRu(wallet.balance)
+                      : "रु. ••••••"
+                    : "रु. —"}
+                </p>
+                <p className="mt-2 text-[11px] font-medium text-white/75">
+                  (रेमिटेन्सबाट प्राप्त कुल रकम)
+                </p>
+              </div>
+              <WalletIllustration className="mb-[-4px] h-[88px] w-[108px] shrink-0" />
             </div>
-          ) : (
-            <ul className="inset-group divide-y divide-border">
-              {activity.map((item) => (
-                <li key={item.id}>
-                  <Link
-                    to="/app/history"
-                    className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/60"
-                  >
-                    <span
+          </section>
+
+          {/* Quick actions */}
+          <section className="grid grid-cols-4 gap-2.5">
+            {ACTIONS.map((a) => (
+              <Link
+                key={a.to}
+                to={a.to}
+                className="flex flex-col items-center gap-2 rounded-2xl bg-white px-1.5 py-3.5 shadow-[0_4px_16px_-6px_rgba(16,24,40,0.14)] transition-transform active:scale-[0.97]"
+              >
+                <span
+                  className={cn(
+                    "flex size-11 items-center justify-center rounded-full text-white shadow-sm",
+                    a.iconBg,
+                  )}
+                >
+                  <a.icon className="size-5" strokeWidth={2.25} />
+                </span>
+                <span className="text-center text-[11px] leading-tight font-semibold text-[#0B2B4A]">
+                  {a.label}
+                </span>
+              </Link>
+            ))}
+          </section>
+
+          {/* Recent transactions */}
+          <section>
+            <div className="mb-2.5 flex items-center justify-between px-0.5">
+              <h2 className="text-[16px] font-bold text-[#0B2B4A]">हालका कारोबारहरू</h2>
+              <Link
+                to="/app/history"
+                className="inline-flex items-center gap-0.5 rounded-full bg-[#DCEBFA] px-3 py-1 text-[11px] font-semibold text-[#3B7FC4]"
+              >
+                View All
+                <ChevronRight className="size-3.5 stroke-[2.5px]" />
+              </Link>
+            </div>
+
+            {txQuery.isLoading ? (
+              <div className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-muted-foreground shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)]">
+                Loading activity…
+              </div>
+            ) : activity.length === 0 ? (
+              <div className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-muted-foreground shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)]">
+                No recent activity yet.
+              </div>
+            ) : (
+              <ul className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)]">
+                {activity.map((item, idx) => (
+                  <li key={item.id}>
+                    <Link
+                      to="/app/history"
                       className={cn(
-                        "flex size-10 shrink-0 items-center justify-center rounded-full",
-                        item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
+                        "flex items-center gap-3 px-3.5 py-3.5 transition-colors active:bg-muted/40",
+                        idx > 0 && "border-t border-[#EEF1F5]",
                       )}
                     >
-                      {item.credit ? (
-                        <Download className="size-[18px]" />
-                      ) : item.kind === "topup" ? (
-                        <Smartphone className="size-[18px]" />
-                      ) : (
-                        <Send className="size-[18px]" />
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[15px] font-medium">{item.title}</span>
-                      <span className="block truncate text-[13px] text-muted-foreground">
-                        {formatDateTime(item.created_at)}
-                      </span>
-                    </span>
-                    <span className="text-right">
                       <span
                         className={cn(
-                          "tabular block text-[15px] font-semibold",
-                          item.credit ? "text-success" : "text-label",
+                          "flex size-10 shrink-0 items-center justify-center rounded-full",
+                          item.credit
+                            ? "bg-[#22C55E]/15 text-[#16A34A]"
+                            : "bg-[#2563EB]/12 text-[#2563EB]",
                         )}
                       >
-                        {item.credit ? "+" : "−"} {formatNPR(item.amount)}
+                        {item.credit ? (
+                          <ArrowDownToLine className="size-[18px]" strokeWidth={2.25} />
+                        ) : (
+                          <Redo2 className="size-[18px]" strokeWidth={2.25} />
+                        )}
                       </span>
-                      <StatusChip status={item.status} compact className="mt-1" />
-                    </span>
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-semibold text-[#0B2B4A]">
+                          {item.title}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11px] text-[#8A94A6]">
+                          {formatTxStamp(item.created_at)}
+                        </span>
+                      </span>
+                      <span
+                        className={cn(
+                          "tabular shrink-0 text-[13px] font-bold",
+                          item.credit ? "text-[#16A34A]" : "text-[#0B2B4A]",
+                        )}
+                      >
+                        {item.credit ? "+" : "−"} {formatRu(item.amount)}
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-[#C0C7D1]" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
       </div>
     </UserShell>
   );

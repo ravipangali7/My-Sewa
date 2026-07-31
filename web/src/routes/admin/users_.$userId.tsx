@@ -127,7 +127,7 @@ function UserDetailPage() {
       )}
 
       {u && (
-        <div className="max-w-2xl rounded-xl border border-border bg-surface p-5">
+        <div className="rounded-xl border border-border bg-surface p-5">
           <dl>
             <DetailRow label="ID">{u.id}</DetailRow>
             <DetailRow label="Phone">{u.phone}</DetailRow>

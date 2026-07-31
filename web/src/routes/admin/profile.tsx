@@ -104,7 +104,7 @@ function AdminProfilePage() {
 
   return (
     <AdminShell title="Profile" description="Manage your account details and security">
-      <div className="mx-auto max-w-2xl space-y-4">
+      <div className="space-y-4">
         <section className="rounded-xl border border-border bg-surface p-5">
           <div className="flex items-center gap-4">
             <div className="relative">

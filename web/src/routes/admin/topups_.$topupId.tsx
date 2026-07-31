@@ -90,7 +90,7 @@ function TopupDetailPage() {
       )}
 
       {t && (
-        <div className="mx-auto max-w-3xl space-y-6">
+        <div className="space-y-6">
           <article className="overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
             <div className="border-b border-border bg-gradient-to-br from-muted/80 via-surface to-surface px-6 py-6 sm:px-8">
               <div className="flex flex-wrap items-start justify-between gap-4">

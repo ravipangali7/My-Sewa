@@ -131,10 +131,9 @@ function WalletDetailPage() {
             balance={w.balance}
             title="Wallet balance"
             subtitle={`${name} · ${w.phone}`}
-            className="max-w-xl"
           />
 
-          <div className="max-w-2xl rounded-xl border border-border bg-surface p-5">
+          <div className="rounded-xl border border-border bg-surface p-5">
             <h2 className="mb-1 text-sm font-semibold">Wallet information</h2>
             <p className="mb-3 text-sm text-muted-foreground">Full record for this user wallet.</p>
             <dl>

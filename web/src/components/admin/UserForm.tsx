@@ -70,7 +70,7 @@ export function UserForm({
 
   return (
     <form
-      className="max-w-xl space-y-5 rounded-xl border border-border bg-surface p-5"
+      className="space-y-5 rounded-xl border border-border bg-surface p-5"
       onSubmit={handleSubmit}
     >
       <div className="grid gap-4 sm:grid-cols-2">
