@@ -264,7 +264,15 @@ def admin_reject_deposit(request, deposit_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    reason = (request.data.get('rejection_reason') or request.data.get('reason') or '').strip()
+    if not reason:
+        return Response(
+            {'error': 'Rejection reason is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     deposit.status = 'rejected'
+    deposit.rejection_reason = reason
     deposit.save()
     return Response({
         'message': 'Deposit rejected',

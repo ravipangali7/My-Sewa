@@ -48,6 +48,7 @@ export interface Deposit {
   status: DepositStatus;
   screenshot_proof: string;
   note: string | null;
+  rejection_reason: string | null;
   created_at: string;
   updated_at: string;
 }

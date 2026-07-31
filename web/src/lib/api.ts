@@ -253,10 +253,10 @@ export const apiClient = {
       `/api/admin/deposits/${id}/approve/`,
       { method: "POST" },
     ),
-  adminRejectDeposit: (id: number) =>
+  adminRejectDeposit: (id: number, body: { rejection_reason: string }) =>
     api<{ message: string; data: import("./types").Deposit }>(
       `/api/admin/deposits/${id}/reject/`,
-      { method: "POST" },
+      { method: "POST", body },
     ),
   adminTopups: () => api<import("./types").TopupTransaction[]>("/api/admin/topups/"),
   adminTransfers: () =>

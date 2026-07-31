@@ -189,6 +189,11 @@ function LoadWallet() {
                     <p className="truncate text-[13px] text-muted-foreground">
                       {d.note ?? "No note"} · {formatDateTime(d.created_at)}
                     </p>
+                    {d.status === "rejected" && d.rejection_reason ? (
+                      <p className="mt-0.5 text-[13px] text-destructive">
+                        Reason: {d.rejection_reason}
+                      </p>
+                    ) : null}
                   </div>
                   <StatusChip status={d.status} />
                 </li>

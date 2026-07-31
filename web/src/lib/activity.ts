@@ -13,7 +13,10 @@ export function buildActivity(tx: WalletTransactions): ActivityItem[] {
       id: `dep-${d.id}`,
       kind: "deposit" as const,
       title: "Remittance Received",
-      subtitle: d.note ?? "Wallet load",
+      subtitle:
+        d.status === "rejected" && d.rejection_reason
+          ? `Rejected: ${d.rejection_reason}`
+          : (d.note ?? "Wallet load"),
       amount: d.amount,
       credit: true,
       status: d.status,

@@ -4,7 +4,6 @@ DRF Serializers for all models
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import Wallet, Deposit, Settings, TopupTransaction, BankTransferTransaction
 
 User = get_user_model()
@@ -152,10 +151,11 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'password': "Password fields didn't match."})
             if not password:
                 raise serializers.ValidationError({'password': 'Password cannot be empty.'})
-            try:
-                validate_password(password)
-            except DjangoValidationError as exc:
-                raise serializers.ValidationError({'password': list(exc.messages)}) from exc
+            # Match change-password: min 8 chars only (admins often set temporary passwords)
+            if len(password) < 8:
+                raise serializers.ValidationError(
+                    {'password': 'Password must be at least 8 characters.'}
+                )
 
         return attrs
 
@@ -265,9 +265,13 @@ class DepositSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Deposit
-        fields = ('id', 'user', 'phone', 'amount', 'status', 'status_display', 
-                  'screenshot_proof', 'note', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'user', 'status', 'created_at', 'updated_at')
+        fields = (
+            'id', 'user', 'phone', 'amount', 'status', 'status_display',
+            'screenshot_proof', 'note', 'rejection_reason', 'created_at', 'updated_at',
+        )
+        read_only_fields = (
+            'id', 'user', 'status', 'rejection_reason', 'created_at', 'updated_at',
+        )
 
     def validate_amount(self, value):
         if value <= 0:

@@ -52,6 +52,7 @@ export interface Deposit {
   status_display: string;
   screenshot_proof: string | null;
   note: string | null;
+  rejection_reason: string | null;
   created_at: string;
   updated_at: string;
 }

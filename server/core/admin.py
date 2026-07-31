@@ -28,8 +28,11 @@ class WalletAdmin(admin.ModelAdmin):
 class DepositAdmin(admin.ModelAdmin):
     list_display = ('user', 'amount', 'status', 'created_at', 'updated_at')
     list_filter = ('status', 'created_at', 'updated_at')
-    search_fields = ('user__username', 'user__email', 'note')
-    readonly_fields = ('user', 'amount', 'screenshot_proof', 'note', 'created_at', 'updated_at')
+    search_fields = ('user__username', 'user__email', 'note', 'rejection_reason')
+    readonly_fields = (
+        'user', 'amount', 'screenshot_proof', 'note', 'rejection_reason',
+        'created_at', 'updated_at',
+    )
     ordering = ('-created_at',)
     actions = ['approve_deposits', 'reject_deposits']
 

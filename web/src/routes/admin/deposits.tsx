@@ -7,6 +7,16 @@ import { AdminShell } from "@/components/layout/AdminShell";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
   Table,
   TableBody,
   TableCell,
@@ -15,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiClient, ApiError } from "@/lib/api";
-import type { DepositStatus } from "@/lib/types";
+import type { Deposit } from "@/lib/types";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -35,11 +45,13 @@ export const Route = createFileRoute("/admin/deposits")({
   component: DepositsPage,
 });
 
-const FILTERS: (DepositStatus | "all")[] = ["pending", "approved", "rejected", "all"];
+const FILTERS: (Deposit["status"] | "all")[] = ["pending", "approved", "rejected", "all"];
 
 function DepositsPage() {
   const queryClient = useQueryClient();
-  const [filter, setFilter] = useState<DepositStatus | "all">("pending");
+  const [filter, setFilter] = useState<Deposit["status"] | "all">("pending");
+  const [rejectTarget, setRejectTarget] = useState<Deposit | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
 
   const depositsQuery = useQuery({
     queryKey: ["admin", "deposits"],
@@ -50,25 +62,60 @@ function DepositsPage() {
     (d) => filter === "all" || d.status === filter,
   );
 
-  const decideMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: DepositStatus }) => {
-      if (status === "approved") return apiClient.adminApproveDeposit(id);
-      return apiClient.adminRejectDeposit(id);
-    },
-    onSuccess: (_res, vars) => {
-      toast[vars.status === "approved" ? "success" : "error"](
-        vars.status === "approved"
-          ? `Deposit #${vars.id} approved — wallet credited`
-          : `Deposit #${vars.id} rejected`,
-      );
-      queryClient.invalidateQueries({ queryKey: ["admin", "deposits"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
+  const invalidateDepositQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin", "deposits"] });
+    queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
+    queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
+  };
+
+  const approveMutation = useMutation({
+    mutationFn: (id: number) => apiClient.adminApproveDeposit(id),
+    onSuccess: (_res, id) => {
+      toast.success(`Deposit #${id} approved — wallet credited`);
+      invalidateDepositQueries();
     },
     onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : "Action failed");
+      toast.error(err instanceof ApiError ? err.message : "Approve failed");
     },
   });
+
+  const rejectMutation = useMutation({
+    mutationFn: ({ id, rejection_reason }: { id: number; rejection_reason: string }) =>
+      apiClient.adminRejectDeposit(id, { rejection_reason }),
+    onSuccess: (_res, vars) => {
+      toast.error(`Deposit #${vars.id} rejected`);
+      setRejectTarget(null);
+      setRejectionReason("");
+      invalidateDepositQueries();
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Reject failed");
+    },
+  });
+
+  const openRejectDialog = (deposit: Deposit) => {
+    setRejectTarget(deposit);
+    setRejectionReason("");
+  };
+
+  const closeRejectDialog = (open: boolean) => {
+    if (!open) {
+      setRejectTarget(null);
+      setRejectionReason("");
+    }
+  };
+
+  const submitReject = () => {
+    if (!rejectTarget) return;
+    const reason = rejectionReason.trim();
+    if (!reason) {
+      toast.error("Please enter a rejection reason");
+      return;
+    }
+    rejectMutation.mutate({ id: rejectTarget.id, rejection_reason: reason });
+  };
+
+  const actionPending = approveMutation.isPending || rejectMutation.isPending;
 
   return (
     <AdminShell
@@ -129,7 +176,16 @@ function DepositsPage() {
                     <span className="text-sm text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell className="text-sm text-muted-foreground">{d.note ?? "—"}</TableCell>
+                <TableCell className="max-w-55 text-sm text-muted-foreground">
+                  {d.status === "rejected" && d.rejection_reason ? (
+                    <div className="space-y-0.5">
+                      <p>{d.note ?? "—"}</p>
+                      <p className="text-destructive">Rejected: {d.rejection_reason}</p>
+                    </div>
+                  ) : (
+                    (d.note ?? "—")
+                  )}
+                </TableCell>
                 <TableCell className="text-sm">{formatDateTime(d.created_at)}</TableCell>
                 <TableCell>
                   <StatusChip status={d.status} compact />
@@ -139,16 +195,16 @@ function DepositsPage() {
                     <div className="flex justify-end gap-2">
                       <Button
                         size="sm"
-                        disabled={decideMutation.isPending}
-                        onClick={() => decideMutation.mutate({ id: d.id, status: "approved" })}
+                        disabled={actionPending}
+                        onClick={() => approveMutation.mutate(d.id)}
                       >
                         Approve
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={decideMutation.isPending}
-                        onClick={() => decideMutation.mutate({ id: d.id, status: "rejected" })}
+                        disabled={actionPending}
+                        onClick={() => openRejectDialog(d)}
                       >
                         Reject
                       </Button>
@@ -171,6 +227,48 @@ function DepositsPage() {
           </TableBody>
         </Table>
       </div>
+
+      <Dialog open={!!rejectTarget} onOpenChange={closeRejectDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject deposit #{rejectTarget?.id}</DialogTitle>
+            <DialogDescription>
+              {rejectTarget
+                ? `${formatNPR(rejectTarget.amount)} from ${rejectTarget.phone}. The user will see this reason.`
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-1">
+            <Label htmlFor="rejection-reason">Rejection reason</Label>
+            <Textarea
+              id="rejection-reason"
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              placeholder="e.g. Screenshot unclear / amount mismatch"
+              rows={4}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={rejectMutation.isPending}
+              onClick={() => closeRejectDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={rejectMutation.isPending || !rejectionReason.trim()}
+              onClick={submitReject}
+            >
+              {rejectMutation.isPending ? "Rejecting…" : "Reject deposit"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AdminShell>
   );
 }

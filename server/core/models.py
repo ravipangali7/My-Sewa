@@ -132,6 +132,11 @@ class Deposit(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     screenshot_proof = models.ImageField(upload_to='deposits/', help_text="Screenshot proof of payment")
     note = models.TextField(blank=True, null=True, help_text="Optional note from user")
+    rejection_reason = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Reason provided by admin when rejecting the deposit",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
