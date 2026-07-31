@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from urllib.parse import urlparse
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -24,6 +25,26 @@ except ImportError:
     pass
 
 
+def _normalize_url(url: str) -> str:
+    return (url or '').strip().rstrip('/')
+
+
+def _origin_from_url(url: str) -> str:
+    """Return scheme://host[:port] from a full URL (path is ignored)."""
+    raw = (url or '').strip()
+    if not raw:
+        return ''
+    parsed = urlparse(raw if '://' in raw else f'https://{raw}')
+    if not parsed.scheme or not parsed.netloc:
+        return ''
+    return f'{parsed.scheme}://{parsed.netloc}'
+
+
+def _host_from_url(url: str) -> str | None:
+    origin = _origin_from_url(url)
+    return urlparse(origin).hostname if origin else None
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -33,7 +54,31 @@ SECRET_KEY = 'django-insecure-k+i9woi)x(trwi=*4g3r!)oqrf9u)j)yvg$9f^%(3%y5c9e56@
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['*']
+# Public URLs (from .env) — frontend SPA and Django API/admin host
+FRONTEND_URL = _normalize_url(
+    os.environ.get('FRONTEND_URL', 'https://mysewa.sewabyapar.com/')
+)
+# May include the admin path (/database); origin is derived for CORS/hosts.
+BACKEND_URL = _normalize_url(
+    os.environ.get('BACKEND_URL', 'https://mysewaserver.sewabyapar.com/database/')
+)
+FRONTEND_ORIGIN = _origin_from_url(FRONTEND_URL) or FRONTEND_URL
+BACKEND_ORIGIN = _origin_from_url(BACKEND_URL) or BACKEND_URL
+# Admin lives at BACKEND_URL when that env value already includes /database
+ADMIN_URL = BACKEND_URL if BACKEND_URL.rstrip('/').endswith('/database') else f'{BACKEND_ORIGIN}/database'
+
+_allowed_hosts_env = os.environ.get('ALLOWED_HOSTS', '').strip()
+if _allowed_hosts_env:
+    ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_env.split(',') if h.strip()]
+else:
+    _derived_hosts = [
+        h for h in (_host_from_url(FRONTEND_URL), _host_from_url(BACKEND_URL)) if h
+    ]
+    ALLOWED_HOSTS = _derived_hosts or ['*']
+    if DEBUG:
+        for _local in ('localhost', '127.0.0.1'):
+            if _local not in ALLOWED_HOSTS:
+                ALLOWED_HOSTS.append(_local)
 
 
 # Application definition
@@ -72,7 +117,30 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.SessionAuthentication',
     ],
 }
-CORS_ALLOW_ALL_ORIGINS = True
+
+# CORS / CSRF from configured frontend + backend origins
+CORS_ALLOWED_ORIGINS = [
+    o for o in (FRONTEND_ORIGIN, BACKEND_ORIGIN) if o
+]
+CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'true').lower() in (
+    '1',
+    'true',
+    'yes',
+)
+CSRF_TRUSTED_ORIGINS = [
+    o for o in (FRONTEND_ORIGIN, BACKEND_ORIGIN) if o
+]
+if DEBUG:
+    for _dev_origin in (
+        'http://127.0.0.1:8000',
+        'http://localhost:8000',
+        'http://127.0.0.1:5173',
+        'http://localhost:5173',
+    ):
+        if _dev_origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(_dev_origin)
+        if _dev_origin not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(_dev_origin)
 
 ROOT_URLCONF = 'mysewa_backend.urls'
 
