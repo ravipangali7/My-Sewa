@@ -34,6 +34,13 @@ class CustomUserManager(BaseUserManager):
 
 class CustomUser(AbstractUser):
     """Custom User model with phone number as authentication field"""
+    ACCOUNT_STATUS_PENDING = 'pending'
+    ACCOUNT_STATUS_APPROVED = 'approved'
+    ACCOUNT_STATUS_CHOICES = [
+        (ACCOUNT_STATUS_PENDING, 'Pending'),
+        (ACCOUNT_STATUS_APPROVED, 'Approved'),
+    ]
+
     # Make username nullable since we're using phone as USERNAME_FIELD
     username = models.CharField(max_length=150, blank=True, null=True)
     
@@ -51,10 +58,24 @@ class CustomUser(AbstractUser):
         blank=True,
         help_text="Profile picture",
     )
+    account_status = models.CharField(
+        max_length=20,
+        choices=ACCOUNT_STATUS_CHOICES,
+        default=ACCOUNT_STATUS_APPROVED,
+        db_index=True,
+        help_text="Pending users can log in but cannot perform transactions until approved.",
+    )
     
     # Use phone as the authentication field
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = []  # Remove email from required fields
+
+    @property
+    def is_account_approved(self):
+        """Staff/superusers are always treated as approved for business activity."""
+        if self.is_staff or self.is_superuser:
+            return True
+        return self.account_status == self.ACCOUNT_STATUS_APPROVED
     
     def save(self, *args, **kwargs):
         # Automatically set username = phone for compatibility
@@ -162,6 +183,12 @@ def merge_app_config(stored):
 class Settings(models.Model):
     """Singleton model for QR code, bank details, and global app configuration"""
     qr_code = models.ImageField(upload_to='settings/', null=True, blank=True, help_text="QR code image for deposits")
+    logo = models.ImageField(
+        upload_to='settings/logo/',
+        null=True,
+        blank=True,
+        help_text="Brand logo used across the app and as the favicon",
+    )
     bank_details = models.JSONField(default=dict, help_text="Bank account details in JSON format")
     config = models.JSONField(default=default_app_config, blank=True, help_text="Application-wide configuration")
     created_at = models.DateTimeField(auto_now_add=True)

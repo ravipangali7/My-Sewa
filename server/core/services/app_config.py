@@ -161,6 +161,36 @@ def require_feature_enabled(feature: str) -> Optional[Response]:
     return None
 
 
+def require_account_approved(user) -> Optional[Response]:
+    """
+    Block business transactions for accounts that are still pending approval.
+    Staff / superusers are always allowed.
+    """
+    if user is None:
+        return Response(
+            {
+                'error': 'authentication_required',
+                'message': 'Authentication required.',
+                'code': 'authentication_required',
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+    if getattr(user, 'is_account_approved', True):
+        return None
+    return Response(
+        {
+            'error': 'account_pending',
+            'message': (
+                'Your account is pending Super Admin approval. '
+                'You can sign in, but transactions are disabled until approval.'
+            ),
+            'code': 'account_pending',
+            'account_status': getattr(user, 'account_status', 'pending'),
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 def is_auto_status_verified(config: Optional[Dict] = None) -> bool:
     """
     When True, deposits/topups/transfers finalize as approved/success
