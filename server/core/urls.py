@@ -57,6 +57,8 @@ urlpatterns = [
     path('api/admin/deposits/<int:deposit_id>/reject/', admin_views.admin_reject_deposit, name='admin_reject_deposit'),
     path('api/admin/topups/', admin_views.admin_list_topups, name='admin_list_topups'),
     path('api/admin/topups/<int:topup_id>/', admin_views.admin_get_topup, name='admin_get_topup'),
+    path('api/admin/topups/<int:topup_id>/status/', admin_views.admin_update_topup_status, name='admin_update_topup_status'),
     path('api/admin/transfers/', admin_views.admin_list_transfers, name='admin_list_transfers'),
+    path('api/admin/transfers/<int:transfer_id>/status/', admin_views.admin_update_transfer_status, name='admin_update_transfer_status'),
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
 ]

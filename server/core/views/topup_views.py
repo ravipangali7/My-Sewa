@@ -24,8 +24,10 @@ from ..services.app_config import (
     get_app_config,
     platform_topup_charge,
     require_feature_enabled,
+    is_auto_status_verified,
 )
 from ..services.notifications import notify_topup_success, notify_low_balance_if_needed
+from ..services.txn_status import resolve_provider_outcome
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +132,22 @@ def _process_topup(request, product_id: int, service_label: str):
                 (topup_txn.total_debited or amount) + platform_fee
             )
 
-        if txn_status == 'success':
+        if txn_status == 'failed':
+            topup_txn.status = 'failed'
+            topup_txn.save()
+            return Response(
+                {
+                    'error': f'{service_label} topup failed',
+                    'message': response.get('error') or response.get('message') or 'Transaction failed',
+                    'data': TopupTransactionSerializer(topup_txn).data,
+                    'himalpay_response': response,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        local_status = resolve_provider_outcome(txn_status, is_auto_status_verified(cfg))
+
+        if local_status == 'success':
             with transaction.atomic():
                 wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                 debit = topup_txn.total_debited or amount
@@ -158,29 +175,20 @@ def _process_topup(request, product_id: int, service_label: str):
                 status=status.HTTP_200_OK,
             )
 
-        if txn_status == 'pending':
-            topup_txn.status = 'pending'
-            topup_txn.save()
-            return Response(
-                {
-                    'message': f'{service_label} topup is being processed',
-                    'pending_message': response.get('message', 'Your payment is being processed!'),
-                    'data': TopupTransactionSerializer(topup_txn).data,
-                    'himalpay_response': response,
-                },
-                status=status.HTTP_202_ACCEPTED,
-            )
-
-        topup_txn.status = 'failed'
+        # Awaiting Super Admin verification (provider success/pending, auto off)
+        topup_txn.status = 'pending'
         topup_txn.save()
         return Response(
             {
-                'error': f'{service_label} topup failed',
-                'message': response.get('error') or response.get('message') or 'Transaction failed',
+                'message': f'{service_label} topup is awaiting verification',
+                'pending_message': response.get(
+                    'message',
+                    'Your payment is being processed and awaits admin verification.',
+                ),
                 'data': TopupTransactionSerializer(topup_txn).data,
                 'himalpay_response': response,
             },
-            status=status.HTTP_400_BAD_REQUEST,
+            status=status.HTTP_202_ACCEPTED,
         )
 
     except HimalPayError as exc:
@@ -303,28 +311,41 @@ def check_transaction_status(request):
         topup = TopupTransaction.objects.filter(
             user=request.user, merchant_txn_id=merchant_txn_id
         ).first()
-        if topup and topup.status == 'pending' and normalized in ('success', 'failed'):
-            with transaction.atomic():
-                topup = TopupTransaction.objects.select_for_update().get(pk=topup.pk)
-                if topup.status == 'pending':
-                    _apply_fee_fields(topup, himalpay, result, topup.amount)
-                    if normalized == 'success':
-                        wallet = _get_or_create_wallet(request.user)
-                        wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
-                        debit = topup.total_debited or topup.amount
-                        if wallet.balance >= debit:
-                            wallet.balance -= debit
-                            wallet.save()
-                            topup.status = 'success'
-                        else:
+        if topup and topup.status == 'pending' and normalized in ('success', 'failed', 'pending'):
+            auto = is_auto_status_verified()
+            local_status = resolve_provider_outcome(normalized, auto)
+            # Skip no-op poll while still waiting on provider and auto is off
+            if normalized == 'pending' and not auto:
+                pass
+            else:
+                with transaction.atomic():
+                    topup = TopupTransaction.objects.select_for_update().get(pk=topup.pk)
+                    if topup.status == 'pending':
+                        _apply_fee_fields(topup, himalpay, result, topup.amount)
+                        if local_status == 'success':
+                            wallet = _get_or_create_wallet(request.user)
+                            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+                            debit = topup.total_debited or topup.amount
+                            if wallet.balance >= debit:
+                                wallet.balance -= debit
+                                wallet.save()
+                                topup.status = 'success'
+                                topup.save()
+                                notify_topup_success(topup)
+                                notify_low_balance_if_needed(wallet)
+                            else:
+                                topup.status = 'failed'
+                                topup.provider_response = {
+                                    **(topup.provider_response or {}),
+                                    'local_error': 'Insufficient balance on status sync',
+                                }
+                                topup.save()
+                        elif local_status == 'failed':
                             topup.status = 'failed'
-                            topup.provider_response = {
-                                **(topup.provider_response or {}),
-                                'local_error': 'Insufficient balance on status sync',
-                            }
-                    else:
-                        topup.status = 'failed'
-                    topup.save()
+                            topup.save()
+                        else:
+                            # Provider success/pending but awaiting admin — keep pending
+                            topup.save()
 
         return Response(
             {

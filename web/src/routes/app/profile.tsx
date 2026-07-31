@@ -82,6 +82,7 @@ function Profile() {
         </section>
 
         <section className="inset-group divide-y divide-border">
+          <ActionRow label="My payment QR" to="/app/qr" />
           <ActionRow label="Edit profile" to="/app/profile/edit" />
           <ActionRow label="Change phone" to="/app/profile/phone" />
           <ActionRow label="Change password" to="/app/profile/password" />
@@ -111,7 +112,25 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ActionRow({ label, to }: { label: string; to: "/app/profile/edit" | "/app/profile/phone" | "/app/profile/password" }) {
+function ActionRow({
+  label,
+  to,
+}: {
+  label: string;
+  to: "/app/qr" | "/app/profile/edit" | "/app/profile/phone" | "/app/profile/password";
+}) {
+  if (to === "/app/qr") {
+    return (
+      <Link
+        to="/app/qr"
+        search={{ tab: "share" }}
+        className="flex w-full items-center px-4 py-3.5 text-left text-[17px] hover:bg-muted/60"
+      >
+        {label}
+        <ChevronRight className="ml-auto size-4 text-muted-foreground" />
+      </Link>
+    );
+  }
   return (
     <Link
       to={to}

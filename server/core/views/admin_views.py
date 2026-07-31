@@ -34,6 +34,7 @@ from ..serializers import (
     BankTransferTransactionSerializer,
     SettingsSerializer,
 )
+from ..services.txn_status import apply_outbound_status_change
 
 User = get_user_model()
 
@@ -321,6 +322,53 @@ def admin_get_topup(request, topup_id):
 def admin_list_transfers(request):
     qs = BankTransferTransaction.objects.select_related('user').order_by('-created_at')
     return Response(BankTransferTransactionSerializer(qs, many=True).data)
+
+
+@api_view(['POST', 'PATCH'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_update_transfer_status(request, transfer_id):
+    """Change bank transfer status from the admin list (pending / success / failed)."""
+    try:
+        transfer = BankTransferTransaction.objects.select_related('user').get(pk=transfer_id)
+    except BankTransferTransaction.DoesNotExist:
+        return Response({'error': 'Transfer not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    new_status = (request.data.get('status') or '').strip().lower()
+    ok, err = apply_outbound_status_change(transfer, new_status)
+    if not ok:
+        return Response({'error': err}, status=status.HTTP_400_BAD_REQUEST)
+
+    transfer.refresh_from_db()
+    return Response({
+        'message': f'Transfer status updated to {transfer.status}',
+        'data': BankTransferTransactionSerializer(transfer).data,
+    })
+
+
+@api_view(['POST', 'PATCH'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_update_topup_status(request, topup_id):
+    """Change top-up status from the admin list (pending / success / failed)."""
+    try:
+        topup = TopupTransaction.objects.select_related('user').get(pk=topup_id)
+    except TopupTransaction.DoesNotExist:
+        return Response({'error': 'Top-up not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    new_status = (request.data.get('status') or '').strip().lower()
+    old_status = topup.status
+    ok, err = apply_outbound_status_change(topup, new_status)
+    if not ok:
+        return Response({'error': err}, status=status.HTTP_400_BAD_REQUEST)
+
+    topup.refresh_from_db()
+    if old_status != 'success' and topup.status == 'success':
+        from ..services.notifications import notify_topup_success
+        notify_topup_success(topup)
+
+    return Response({
+        'message': f'Top-up status updated to {topup.status}',
+        'data': AdminTopupSerializer(topup).data,
+    })
 
 
 def _parse_json_field(value):

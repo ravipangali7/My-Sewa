@@ -23,6 +23,7 @@ import { Route as AppHistoryRouteImport } from './routes/app/history'
 import { Route as AppLoadRouteImport } from './routes/app/load'
 import { Route as AppNotificationsRouteImport } from './routes/app/notifications'
 import { Route as AppProfileRouteImport } from './routes/app/profile'
+import { Route as AppQrRouteImport } from './routes/app/qr'
 import { Route as AppServicesRouteImport } from './routes/app/services'
 import { Route as AppTopupRouteImport } from './routes/app/topup'
 import { Route as AppTransferRouteImport } from './routes/app/transfer'
@@ -106,6 +107,11 @@ const AppNotificationsRoute = AppNotificationsRouteImport.update({
 const AppProfileRoute = AppProfileRouteImport.update({
   id: '/app/profile',
   path: '/app/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppQrRoute = AppQrRouteImport.update({
+  id: '/app/qr',
+  path: '/app/qr',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppServicesRoute = AppServicesRouteImport.update({
@@ -194,6 +200,7 @@ export interface FileRoutesByFullPath {
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
+  '/app/qr': typeof AppQrRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
@@ -224,6 +231,7 @@ export interface FileRoutesByTo {
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
+  '/app/qr': typeof AppQrRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
@@ -255,6 +263,7 @@ export interface FileRoutesById {
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
+  '/app/qr': typeof AppQrRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
@@ -287,6 +296,7 @@ export interface FileRouteTypes {
     | '/app/load'
     | '/app/notifications'
     | '/app/profile'
+    | '/app/qr'
     | '/app/services'
     | '/app/topup'
     | '/app/transfer'
@@ -317,6 +327,7 @@ export interface FileRouteTypes {
     | '/app/load'
     | '/app/notifications'
     | '/app/profile'
+    | '/app/qr'
     | '/app/services'
     | '/app/topup'
     | '/app/transfer'
@@ -347,6 +358,7 @@ export interface FileRouteTypes {
     | '/app/load'
     | '/app/notifications'
     | '/app/profile'
+    | '/app/qr'
     | '/app/services'
     | '/app/topup'
     | '/app/transfer'
@@ -378,6 +390,7 @@ export interface RootRouteChildren {
   AppLoadRoute: typeof AppLoadRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppProfileRoute: typeof AppProfileRoute
+  AppQrRoute: typeof AppQrRoute
   AppServicesRoute: typeof AppServicesRoute
   AppTopupRoute: typeof AppTopupRoute
   AppTransferRoute: typeof AppTransferRoute
@@ -492,6 +505,13 @@ declare module '@tanstack/react-router' {
       path: '/app/profile'
       fullPath: '/app/profile'
       preLoaderRoute: typeof AppProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/qr': {
+      id: '/app/qr'
+      path: '/app/qr'
+      fullPath: '/app/qr'
+      preLoaderRoute: typeof AppQrRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/services': {
@@ -630,6 +650,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppLoadRoute: AppLoadRoute,
   AppNotificationsRoute: AppNotificationsRoute,
   AppProfileRoute: AppProfileRoute,
+  AppQrRoute: AppQrRoute,
   AppServicesRoute: AppServicesRoute,
   AppTopupRoute: AppTopupRoute,
   AppTransferRoute: AppTransferRoute,

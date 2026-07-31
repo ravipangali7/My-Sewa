@@ -69,7 +69,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
       params = const PlatformWebViewControllerCreationParams();
     }
 
-    final controller = WebViewController.fromPlatformCreationParams(params);
+    final controller = WebViewController.fromPlatformCreationParams(
+      params,
+      onPermissionRequest: (request) {
+        request.grant();
+      },
+    );
 
     await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await controller.setBackgroundColor(const Color(AppConfig.bg));
@@ -139,6 +144,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
       await android.setMediaPlaybackRequiresUserGesture(false);
       await android.setTextZoom(100);
       await android.setOnShowFileSelector(_androidFileSelector);
+      await android.setOnPlatformPermissionRequest((request) async {
+        request.grant();
+      });
       await android.setGeolocationPermissionsPromptCallbacks(
         onShowPrompt: (request) async {
           return const GeolocationPermissionsResponse(

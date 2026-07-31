@@ -1,8 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
-import { StatusChip } from "@/components/StatusChip";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -11,8 +18,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { apiClient } from "@/lib/api";
+import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
+import type { TxnStatus } from "@/lib/types";
 
 export const Route = createFileRoute("/admin/transfers")({
   head: () => ({
@@ -33,16 +41,50 @@ export const Route = createFileRoute("/admin/transfers")({
   component: TransfersPage,
 });
 
+const STATUS_OPTIONS: { value: TxnStatus; label: string }[] = [
+  { value: "pending", label: "Pending" },
+  { value: "success", label: "Success" },
+  { value: "failed", label: "Failed" },
+];
+
 function TransfersPage() {
+  const queryClient = useQueryClient();
   const transfersQuery = useQuery({
     queryKey: ["admin", "transfers"],
     queryFn: () => apiClient.adminTransfers(),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: TxnStatus }) =>
+      apiClient.adminUpdateTransferStatus(id, status),
+    onSuccess: (_res, vars) => {
+      toast.success(`Transfer #${vars.id} marked ${vars.status}`);
+      queryClient.invalidateQueries({ queryKey: ["admin", "transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Status update failed");
+    },
   });
 
   const bankTransfers = transfersQuery.data ?? [];
 
   return (
     <AdminShell title="Bank transfers" description="Outbound transfer ledger">
+      {transfersQuery.isLoading && (
+        <p className="mb-4 text-sm text-muted-foreground">Loading transfers…</p>
+      )}
+      {transfersQuery.isError && (
+        <p className="mb-4 text-sm text-destructive">
+          {transfersQuery.error instanceof ApiError
+            ? transfersQuery.error.message
+            : "Could not load transfers."}
+        </p>
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-border bg-surface">
         <Table>
           <TableHeader>
@@ -93,7 +135,25 @@ function TransfersPage() {
                   {b.provider_txn_id ?? "—"}
                 </TableCell>
                 <TableCell>
-                  <StatusChip status={b.status} compact />
+                  <Select
+                    value={b.status}
+                    disabled={statusMutation.isPending}
+                    onValueChange={(value) => {
+                      if (value === b.status) return;
+                      statusMutation.mutate({ id: b.id, status: value as TxnStatus });
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-[120px]" aria-label={`Status for transfer ${b.id}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </TableCell>
                 <TableCell className="text-sm">{formatDateTime(b.created_at)}</TableCell>
               </TableRow>

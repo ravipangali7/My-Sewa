@@ -161,6 +161,16 @@ def require_feature_enabled(feature: str) -> Optional[Response]:
     return None
 
 
+def is_auto_status_verified(config: Optional[Dict] = None) -> bool:
+    """
+    When True, deposits/topups/transfers finalize as approved/success
+    without waiting for Super Admin manual verification.
+    """
+    cfg = config or get_app_config()
+    tx = cfg.get('transactions') or {}
+    return bool(tx.get('auto_status_verified', False))
+
+
 def public_config(config: Optional[Dict] = None) -> Dict[str, Any]:
     """Config safe to expose on the public settings endpoint."""
     cfg = config or get_app_config()

@@ -71,6 +71,7 @@ const DEFAULT_CONFIG: AppConfig = {
     transfer_cashback_flat: 0,
     transfer_cashback_percent: 0,
     daily_transfer_limit: 200000,
+    auto_status_verified: false,
   },
   notifications: {
     email_on_deposit: true,
@@ -497,6 +498,17 @@ function SettingsPage() {
                     }
                   />
                 </div>
+                <ToggleRow
+                  label="Auto Status Verified"
+                  description="When enabled, deposits are approved and top-ups/transfers finalize as success automatically. When disabled, they stay pending until an admin updates status on Deposits, Top-ups, or Transfers."
+                  checked={config.transactions.auto_status_verified === true}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      transactions: { ...c.transactions, auto_status_verified: v },
+                    }))
+                  }
+                />
               </div>
             </SettingsPanel>
           </TabsContent>

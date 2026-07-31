@@ -1,9 +1,16 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
-import { StatusChip } from "@/components/StatusChip";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -44,6 +51,12 @@ const STATUS_TABS: { value: StatusTab; label: string }[] = [
   { value: "failed", label: "Failed" },
 ];
 
+const STATUS_OPTIONS: { value: TxnStatus; label: string }[] = [
+  { value: "pending", label: "Pending" },
+  { value: "success", label: "Success" },
+  { value: "failed", label: "Failed" },
+];
+
 const OPERATOR_TABS: { value: OperatorTab; label: string }[] = [
   { value: "all", label: "All operators" },
   { value: "1", label: "NTC" },
@@ -52,6 +65,7 @@ const OPERATOR_TABS: { value: OperatorTab; label: string }[] = [
 
 function TopupsPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [operatorTab, setOperatorTab] = useState<OperatorTab>("all");
 
@@ -60,6 +74,20 @@ function TopupsPage() {
     queryFn: () => apiClient.adminTopups(),
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: TxnStatus }) =>
+      apiClient.adminUpdateTopupStatus(id, status),
+    onSuccess: (_res, vars) => {
+      toast.success(`Top-up #${vars.id} marked ${vars.status}`);
+      queryClient.invalidateQueries({ queryKey: ["admin", "topups"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Status update failed");
+    },
   });
 
   const topups = topupsQuery.data ?? [];
@@ -213,8 +241,26 @@ function TopupsPage() {
                   <TableCell className="max-w-40 truncate text-sm text-muted-foreground">
                     {t.service_hub_txn_id ?? "—"}
                   </TableCell>
-                  <TableCell>
-                    <StatusChip status={t.status} compact />
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <Select
+                      value={t.status}
+                      disabled={statusMutation.isPending}
+                      onValueChange={(value) => {
+                        if (value === t.status) return;
+                        statusMutation.mutate({ id: t.id, status: value as TxnStatus });
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[120px]" aria-label={`Status for top-up ${t.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </TableCell>
                   <TableCell className="text-sm">{formatDateTime(t.created_at)}</TableCell>
                 </TableRow>

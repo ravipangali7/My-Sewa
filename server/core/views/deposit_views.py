@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from ..models import Deposit
 from ..serializers import DepositSerializer, DepositCreateSerializer
-from ..services.app_config import require_feature_enabled
+from ..services.app_config import is_auto_status_verified, require_feature_enabled
 from ..services.notifications import notify_deposit_submitted
 
 
@@ -29,9 +29,20 @@ def create_deposit(request):
             status='pending'
         )
         notify_deposit_submitted(deposit)
+
+        # Super Admin: Auto Status Verified → approve immediately (wallet credited via signal)
+        if is_auto_status_verified():
+            deposit.status = 'approved'
+            deposit.save()
+
         response_serializer = DepositSerializer(deposit, context={'request': request})
+        message = (
+            'Deposit approved automatically'
+            if deposit.status == 'approved'
+            else 'Deposit request created successfully'
+        )
         return Response({
-            'message': 'Deposit request created successfully',
+            'message': message,
             'data': response_serializer.data
         }, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -65,6 +65,8 @@ export interface TransactionsConfig {
   transfer_cashback_flat: number;
   transfer_cashback_percent: number;
   daily_transfer_limit: number;
+  /** When true, deposit/top-up/transfer finalize as approved/success without admin review */
+  auto_status_verified: boolean;
 }
 
 export interface NotificationsConfig {

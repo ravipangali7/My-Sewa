@@ -33,8 +33,10 @@ from ..services.app_config import (
     get_app_config,
     resolve_transfer_fees,
     require_feature_enabled,
+    is_auto_status_verified,
 )
 from ..services.notifications import notify_low_balance_if_needed
+from ..services.txn_status import resolve_provider_outcome
 from django.utils import timezone
 from django.db.models import Sum
 
@@ -374,7 +376,22 @@ def create_bank_transfer(request):
         transfer.reference_id = himalpay.extract_reference_id(response)
         transfer.provider_response = response
 
-        if txn_status == 'success':
+        if txn_status == 'failed':
+            transfer.status = 'failed'
+            transfer.save()
+            return Response(
+                {
+                    'error': 'Bank transfer failed',
+                    'message': response.get('error') or response.get('message') or 'Transaction failed',
+                    'data': BankTransferTransactionSerializer(transfer).data,
+                    'himalpay_response': response,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        local_status = resolve_provider_outcome(txn_status, is_auto_status_verified())
+
+        if local_status == 'success':
             with transaction.atomic():
                 wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                 debit = transfer.total_debited or amount
@@ -401,29 +418,20 @@ def create_bank_transfer(request):
                 status=status.HTTP_200_OK,
             )
 
-        if txn_status == 'pending':
-            transfer.status = 'pending'
-            transfer.save()
-            return Response(
-                {
-                    'message': 'Bank transfer is being processed',
-                    'pending_message': response.get('message', 'Your transfer is being processed!'),
-                    'data': BankTransferTransactionSerializer(transfer).data,
-                    'himalpay_response': response,
-                },
-                status=status.HTTP_202_ACCEPTED,
-            )
-
-        transfer.status = 'failed'
+        # Awaiting Super Admin verification
+        transfer.status = 'pending'
         transfer.save()
         return Response(
             {
-                'error': 'Bank transfer failed',
-                'message': response.get('error') or response.get('message') or 'Transaction failed',
+                'message': 'Bank transfer is awaiting verification',
+                'pending_message': response.get(
+                    'message',
+                    'Your transfer is being processed and awaits admin verification.',
+                ),
                 'data': BankTransferTransactionSerializer(transfer).data,
                 'himalpay_response': response,
             },
-            status=status.HTTP_400_BAD_REQUEST,
+            status=status.HTTP_202_ACCEPTED,
         )
 
     except HimalPayError as exc:
@@ -482,26 +490,36 @@ def bank_transfer_status(request):
             user=request.user, merchant_txn_id=merchant_txn_id
         ).first()
 
-        if transfer and transfer.status == 'pending' and normalized in ('success', 'failed'):
-            with transaction.atomic():
-                transfer = BankTransferTransaction.objects.select_for_update().get(pk=transfer.pk)
-                if transfer.status == 'pending':
-                    transfer.provider_txn_id = himalpay.extract_transaction_id(result)
-                    transfer.reference_id = himalpay.extract_reference_id(result)
-                    transfer.provider_response = result
-                    if normalized == 'success':
-                        wallet = _get_or_create_wallet(request.user)
-                        wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
-                        debit = transfer.total_debited or transfer.amount
-                        if wallet.balance >= debit:
-                            wallet.balance -= debit
-                            wallet.save()
-                            transfer.status = 'success'
-                        else:
+        if transfer and transfer.status == 'pending' and normalized in ('success', 'failed', 'pending'):
+            auto = is_auto_status_verified()
+            local_status = resolve_provider_outcome(normalized, auto)
+            if normalized == 'pending' and not auto:
+                pass
+            else:
+                with transaction.atomic():
+                    transfer = BankTransferTransaction.objects.select_for_update().get(pk=transfer.pk)
+                    if transfer.status == 'pending':
+                        transfer.provider_txn_id = himalpay.extract_transaction_id(result)
+                        transfer.reference_id = himalpay.extract_reference_id(result)
+                        transfer.provider_response = result
+                        if local_status == 'success':
+                            wallet = _get_or_create_wallet(request.user)
+                            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+                            debit = transfer.total_debited or transfer.amount
+                            if wallet.balance >= debit:
+                                wallet.balance -= debit
+                                wallet.save()
+                                transfer.status = 'success'
+                                transfer.save()
+                                notify_low_balance_if_needed(wallet)
+                            else:
+                                transfer.status = 'failed'
+                                transfer.save()
+                        elif local_status == 'failed':
                             transfer.status = 'failed'
-                    else:
-                        transfer.status = 'failed'
-                    transfer.save()
+                            transfer.save()
+                        else:
+                            transfer.save()
 
         return Response(
             {

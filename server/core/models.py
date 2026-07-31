@@ -122,6 +122,7 @@ def default_app_config():
             'transfer_cashback_flat': 0,
             'transfer_cashback_percent': 0,
             'daily_transfer_limit': 200000,
+            'auto_status_verified': False,
         },
         'notifications': {
             'email_on_deposit': True,

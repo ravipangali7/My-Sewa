@@ -9,7 +9,7 @@ import {
   ArrowDownToLine,
   Send,
   History,
-  User,
+  QrCode,
   Redo2,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
@@ -46,6 +46,12 @@ const ACTIONS = [
     iconBg: "bg-[#22C55E]",
   },
   {
+    to: "/app/qr",
+    label: "Scan QR",
+    icon: QrCode,
+    iconBg: "bg-[#0A7A4B]",
+  },
+  {
     to: "/app/load",
     label: "Receive Remittance",
     icon: ArrowDownToLine,
@@ -56,12 +62,6 @@ const ACTIONS = [
     label: "Transaction History",
     icon: History,
     iconBg: "bg-[#7C3AED]",
-  },
-  {
-    to: "/app/profile",
-    label: "Profile",
-    icon: User,
-    iconBg: "bg-[#38BDF8]",
   },
 ] as const;
 
@@ -224,25 +224,46 @@ function WalletHome() {
 
           {/* Quick actions */}
           <section className="grid grid-cols-4 gap-2.5">
-            {ACTIONS.map((a) => (
-              <Link
-                key={a.to}
-                to={a.to}
-                className="flex flex-col items-center gap-2 rounded-2xl bg-white px-1.5 py-3.5 shadow-[0_4px_16px_-6px_rgba(16,24,40,0.14)] transition-transform active:scale-[0.97]"
-              >
-                <span
-                  className={cn(
-                    "flex size-11 items-center justify-center rounded-full text-white shadow-sm",
-                    a.iconBg,
-                  )}
+            {ACTIONS.map((a) =>
+              a.to === "/app/qr" ? (
+                <Link
+                  key={a.to}
+                  to="/app/qr"
+                  search={{ tab: "scan" }}
+                  className="flex flex-col items-center gap-2 rounded-2xl bg-white px-1.5 py-3.5 shadow-[0_4px_16px_-6px_rgba(16,24,40,0.14)] transition-transform active:scale-[0.97]"
                 >
-                  <a.icon className="size-5" strokeWidth={2.25} />
-                </span>
-                <span className="text-center text-[11px] leading-tight font-semibold text-[#0B2B4A]">
-                  {a.label}
-                </span>
-              </Link>
-            ))}
+                  <span
+                    className={cn(
+                      "flex size-11 items-center justify-center rounded-full text-white shadow-sm",
+                      a.iconBg,
+                    )}
+                  >
+                    <a.icon className="size-5" strokeWidth={2.25} />
+                  </span>
+                  <span className="text-center text-[11px] leading-tight font-semibold text-[#0B2B4A]">
+                    {a.label}
+                  </span>
+                </Link>
+              ) : (
+                <Link
+                  key={a.to}
+                  to={a.to}
+                  className="flex flex-col items-center gap-2 rounded-2xl bg-white px-1.5 py-3.5 shadow-[0_4px_16px_-6px_rgba(16,24,40,0.14)] transition-transform active:scale-[0.97]"
+                >
+                  <span
+                    className={cn(
+                      "flex size-11 items-center justify-center rounded-full text-white shadow-sm",
+                      a.iconBg,
+                    )}
+                  >
+                    <a.icon className="size-5" strokeWidth={2.25} />
+                  </span>
+                  <span className="text-center text-[11px] leading-tight font-semibold text-[#0B2B4A]">
+                    {a.label}
+                  </span>
+                </Link>
+              ),
+            )}
           </section>
 
           {/* Recent transactions */}

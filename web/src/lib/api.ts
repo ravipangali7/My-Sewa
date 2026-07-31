@@ -263,8 +263,18 @@ export const apiClient = {
   adminTopups: () => api<import("./types").TopupTransaction[]>("/api/admin/topups/"),
   adminGetTopup: (id: number) =>
     api<import("./types").TopupTransaction>(`/api/admin/topups/${id}/`),
+  adminUpdateTopupStatus: (id: number, status: import("./types").TxnStatus) =>
+    api<{ message: string; data: import("./types").TopupTransaction }>(
+      `/api/admin/topups/${id}/status/`,
+      { method: "POST", body: { status } },
+    ),
   adminTransfers: () =>
     api<import("./types").BankTransferTransaction[]>("/api/admin/transfers/"),
+  adminUpdateTransferStatus: (id: number, status: import("./types").TxnStatus) =>
+    api<{ message: string; data: import("./types").BankTransferTransaction }>(
+      `/api/admin/transfers/${id}/status/`,
+      { method: "POST", body: { status } },
+    ),
   adminGetSettings: () => api<import("./types").AppSettings>("/api/admin/settings/"),
   adminUpdateSettings: (payload: FormData | Record<string, unknown>) =>
     api<{ message: string; data: import("./types").AppSettings }>("/api/admin/settings/", {
