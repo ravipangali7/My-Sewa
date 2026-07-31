@@ -284,8 +284,9 @@ class DepositSerializer(serializers.ModelSerializer):
 
 
 class DepositCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating deposit requests"""
-    
+    """Serializer for creating deposit requests — limits come from Settings.config."""
+    screenshot_proof = serializers.ImageField(required=False, allow_null=True)
+
     class Meta:
         model = Deposit
         fields = ('amount', 'screenshot_proof', 'note')
@@ -293,9 +294,27 @@ class DepositCreateSerializer(serializers.ModelSerializer):
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
-        if value < 100:
-            raise serializers.ValidationError("Minimum deposit amount is Rs. 100.")
+        from .services.app_config import get_app_config, validate_amount_bounds
+        payment = get_app_config().get('payment') or {}
+        err = validate_amount_bounds(
+            value,
+            min_amount=payment.get('min_deposit', 100),
+            max_amount=payment.get('max_deposit', 100000),
+            label='Deposit',
+        )
+        if err:
+            raise serializers.ValidationError(err)
         return value
+
+    def validate(self, attrs):
+        from .services.app_config import get_app_config
+        security = get_app_config().get('security') or {}
+        require_shot = security.get('require_deposit_screenshot', True)
+        if require_shot and not attrs.get('screenshot_proof'):
+            raise serializers.ValidationError({
+                'screenshot_proof': 'Screenshot proof is required for deposit requests.',
+            })
+        return attrs
 
 
 class SettingsSerializer(serializers.ModelSerializer):
@@ -385,8 +404,16 @@ class TopupCreateSerializer(serializers.Serializer):
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
-        if value < 10:
-            raise serializers.ValidationError("Minimum topup amount is Rs. 10.")
+        from .services.app_config import get_app_config, validate_amount_bounds
+        tx = get_app_config().get('transactions') or {}
+        err = validate_amount_bounds(
+            value,
+            min_amount=tx.get('min_topup', 10),
+            max_amount=tx.get('max_topup', 5000),
+            label='Top-up',
+        )
+        if err:
+            raise serializers.ValidationError(err)
         return value
 
     def validate(self, attrs):
@@ -467,8 +494,16 @@ class BankTransferCreateSerializer(serializers.Serializer):
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
-        if value < 10:
-            raise serializers.ValidationError("Minimum transfer amount is Rs. 10.")
+        from .services.app_config import get_app_config, validate_amount_bounds
+        tx = get_app_config().get('transactions') or {}
+        err = validate_amount_bounds(
+            value,
+            min_amount=tx.get('min_transfer', 10),
+            max_amount=tx.get('max_transfer', 100000),
+            label='Transfer',
+        )
+        if err:
+            raise serializers.ValidationError(err)
         return value
 
     def validate_destination_bank(self, value):

@@ -116,7 +116,11 @@ def default_app_config():
             'min_transfer': 10,
             'max_transfer': 100000,
             'topup_charge_percent': 0,
+            'transfer_charge_enabled': True,
             'transfer_charge_flat': 0,
+            'cashback_enabled': True,
+            'transfer_cashback_flat': 0,
+            'transfer_cashback_percent': 0,
             'daily_transfer_limit': 200000,
         },
         'notifications': {
@@ -199,7 +203,12 @@ class Deposit(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='deposits')
     amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
-    screenshot_proof = models.ImageField(upload_to='deposits/', help_text="Screenshot proof of payment")
+    screenshot_proof = models.ImageField(
+        upload_to='deposits/',
+        null=True,
+        blank=True,
+        help_text="Screenshot proof of payment (required when security.require_deposit_screenshot is on)",
+    )
     note = models.TextField(blank=True, null=True, help_text="Optional note from user")
     rejection_reason = models.TextField(
         blank=True,

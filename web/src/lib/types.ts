@@ -59,7 +59,11 @@ export interface TransactionsConfig {
   min_transfer: number;
   max_transfer: number;
   topup_charge_percent: number;
+  transfer_charge_enabled: boolean;
   transfer_charge_flat: number;
+  cashback_enabled: boolean;
+  transfer_cashback_flat: number;
+  transfer_cashback_percent: number;
   daily_transfer_limit: number;
 }
 
@@ -182,6 +186,9 @@ export interface ChargePreview {
   charge: string;
   cashback: string;
   total_debited: string;
+  platform_charge?: string;
+  charge_enabled?: boolean;
+  cashback_enabled?: boolean;
 }
 
 export interface ActivityItem {

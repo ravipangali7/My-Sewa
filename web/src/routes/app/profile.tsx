@@ -1,20 +1,7 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
-import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
-import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDate } from "@/lib/format";
 
 export const Route = createFileRoute("/app/profile")({
@@ -35,21 +22,7 @@ export const Route = createFileRoute("/app/profile")({
 
 function Profile() {
   const navigate = useNavigate();
-  const { user, wallet, logout, refreshProfile, setSessionToken } = useAuth();
-  const [editOpen, setEditOpen] = useState(false);
-  const [phoneOpen, setPhoneOpen] = useState(false);
-  const [passOpen, setPassOpen] = useState(false);
-
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
-
-  const [newPhone, setNewPhone] = useState("");
-  const [phonePassword, setPhonePassword] = useState("");
-
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const { user, wallet, logout } = useAuth();
 
   if (!user) {
     return (
@@ -59,6 +32,8 @@ function Profile() {
     );
   }
 
+  const displayName =
+    [user.first_name, user.last_name].filter(Boolean).join(" ") || "MySewa user";
   const initials =
     `${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase() ||
     user.phone.slice(0, 2);
@@ -66,24 +41,36 @@ function Profile() {
   return (
     <UserShell title="Profile">
       <div className="space-y-5">
-        <section className="inset-group flex items-center gap-4 p-4">
-          {user.avatar_url ? (
-            <img
-              src={user.avatar_url}
-              alt=""
-              className="size-16 rounded-full object-cover"
-            />
-          ) : (
-            <div className="flex size-16 items-center justify-center rounded-full bg-brand-soft text-[22px] font-semibold text-brand-dark">
-              {initials}
+        <section className="inset-group overflow-hidden">
+          <div className="h-16 bg-hero-gradient sm:h-18" aria-hidden />
+          <div className="relative px-4 pb-5 pt-0">
+            <div className="-mt-10 flex items-end gap-4">
+              {user.avatar_url ? (
+                <img
+                  src={user.avatar_url}
+                  alt=""
+                  className="size-22 shrink-0 rounded-2xl object-cover shadow-card ring-4 ring-surface"
+                />
+              ) : (
+                <div className="flex size-22 shrink-0 items-center justify-center rounded-2xl bg-brand-soft text-[28px] font-semibold text-brand-dark shadow-card ring-4 ring-surface">
+                  {initials}
+                </div>
+              )}
+              <div className="min-w-0 flex-1 pb-1">
+                <p className="truncate text-[20px] font-semibold leading-tight tracking-tight">
+                  {displayName}
+                </p>
+                <p className="mt-1 truncate text-[15px] text-muted-foreground">{user.phone}</p>
+              </div>
             </div>
-          )}
-          <div>
-            <p className="text-[20px] font-semibold">
-              {[user.first_name, user.last_name].filter(Boolean).join(" ") || "MySewa user"}
-            </p>
-            <p className="text-[15px] text-muted-foreground">{user.phone}</p>
-            <p className="text-[13px] text-muted-foreground">{user.email || "No email"}</p>
+            <div className="mt-4 rounded-xl bg-muted/70 px-3.5 py-3">
+              <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                Email
+              </p>
+              <p className="mt-0.5 truncate text-[15px] font-medium">
+                {user.email || "No email on file"}
+              </p>
+            </div>
           </div>
         </section>
 
@@ -95,32 +82,9 @@ function Profile() {
         </section>
 
         <section className="inset-group divide-y divide-border">
-          <ActionRow
-            label="Edit profile"
-            onClick={() => {
-              setFirstName(user.first_name || "");
-              setLastName(user.last_name || "");
-              setEmail(user.email || "");
-              setEditOpen(true);
-            }}
-          />
-          <ActionRow
-            label="Change phone"
-            onClick={() => {
-              setNewPhone("");
-              setPhonePassword("");
-              setPhoneOpen(true);
-            }}
-          />
-          <ActionRow
-            label="Change password"
-            onClick={() => {
-              setCurrentPassword("");
-              setNewPassword("");
-              setConfirmPassword("");
-              setPassOpen(true);
-            }}
-          />
+          <ActionRow label="Edit profile" to="/app/profile/edit" />
+          <ActionRow label="Change phone" to="/app/profile/phone" />
+          <ActionRow label="Change password" to="/app/profile/password" />
         </section>
 
         <button
@@ -134,148 +98,6 @@ function Profile() {
           Log out
         </button>
       </div>
-
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit profile</DialogTitle>
-          </DialogHeader>
-          <form
-            className="space-y-3"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              try {
-                const fd = new FormData();
-                fd.append("first_name", firstName);
-                fd.append("last_name", lastName);
-                fd.append("email", email);
-                await apiClient.updateProfile(fd);
-                await refreshProfile();
-                toast.success("Profile updated");
-                setEditOpen(false);
-              } catch (err) {
-                toast.error(err instanceof ApiError ? err.message : "Update failed");
-              }
-            }}
-          >
-            <div className="space-y-1.5">
-              <Label>First name</Label>
-              <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Last name</Label>
-              <Input value={lastName} onChange={(e) => setLastName(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Email</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            </div>
-            <DialogFooter>
-              <Button type="submit">Save</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={phoneOpen} onOpenChange={setPhoneOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Change phone</DialogTitle>
-          </DialogHeader>
-          <form
-            className="space-y-3"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              try {
-                await apiClient.changePhone({
-                  new_phone: newPhone.trim(),
-                  current_password: phonePassword,
-                });
-                await refreshProfile();
-                toast.success("Phone updated");
-                setPhoneOpen(false);
-              } catch (err) {
-                toast.error(err instanceof ApiError ? err.message : "Update failed");
-              }
-            }}
-          >
-            <div className="space-y-1.5">
-              <Label>New phone</Label>
-              <Input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} required />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Current password</Label>
-              <Input
-                type="password"
-                value={phonePassword}
-                onChange={(e) => setPhonePassword(e.target.value)}
-                required
-              />
-            </div>
-            <DialogFooter>
-              <Button type="submit">Update phone</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={passOpen} onOpenChange={setPassOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Change password</DialogTitle>
-          </DialogHeader>
-          <form
-            className="space-y-3"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              try {
-                const res = await apiClient.changePassword({
-                  current_password: currentPassword,
-                  new_password: newPassword,
-                  confirm_password: confirmPassword,
-                });
-                setSessionToken(res.token);
-                toast.success("Password changed");
-                setPassOpen(false);
-              } catch (err) {
-                toast.error(err instanceof ApiError ? err.message : "Update failed");
-              }
-            }}
-          >
-            <div className="space-y-1.5">
-              <Label>Current password</Label>
-              <Input
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>New password</Label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                minLength={8}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Confirm password</Label>
-              <Input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-              />
-            </div>
-            <DialogFooter>
-              <Button type="submit">Update password</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </UserShell>
   );
 }
@@ -289,15 +111,14 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ActionRow({ label, onClick }: { label: string; onClick: () => void }) {
+function ActionRow({ label, to }: { label: string; to: "/app/profile/edit" | "/app/profile/phone" | "/app/profile/password" }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <Link
+      to={to}
       className="flex w-full items-center px-4 py-3.5 text-left text-[17px] hover:bg-muted/60"
     >
       {label}
       <ChevronRight className="ml-auto size-4 text-muted-foreground" />
-    </button>
+    </Link>
   );
 }

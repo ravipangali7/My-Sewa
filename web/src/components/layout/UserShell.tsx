@@ -1,8 +1,10 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Home, ArrowLeftRight, History, User, ArrowLeft } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { apiClient } from "@/lib/api";
 
 const TABS = [
   { to: "/app", label: "Home", icon: Home, match: (p: string) => p === "/app" || p === "/app/" },
@@ -40,6 +42,16 @@ export function UserShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const { user, isLoading, token, logout } = useAuth();
+
+  const settingsQuery = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => apiClient.settings(),
+    staleTime: 60_000,
+  });
+  const maintenance = settingsQuery.data?.config?.security?.maintenance_mode;
+  const maintenanceMessage =
+    settingsQuery.data?.config?.security?.maintenance_message ||
+    "MySewa is under maintenance. Some features may be unavailable.";
 
   useEffect(() => {
     if (!token) navigate({ to: "/" });
@@ -148,6 +160,12 @@ export function UserShell({
           )}
         >
           <div className={cn("mx-auto w-full", hideHeader ? "max-w-lg lg:max-w-6xl" : "max-w-6xl")}>
+            {maintenance ? (
+              <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100">
+                <p className="font-medium">Maintenance mode</p>
+                <p className="mt-0.5 text-[13px] opacity-90">{maintenanceMessage}</p>
+              </div>
+            ) : null}
             {children}
           </div>
         </main>
@@ -161,15 +179,13 @@ export function UserShell({
                   <Link
                     to={t.to}
                     className={cn(
-                      "relative flex min-h-[56px] flex-col items-center justify-center gap-0.5 pt-1.5 text-[10px] font-medium",
+                      "flex min-h-[56px] flex-col items-center justify-center gap-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
+                      "active:bg-transparent focus-visible:bg-transparent",
                       active ? "text-brand" : "text-[#8A94A6]",
                     )}
                   >
                     <t.icon className={cn("size-[22px]", active && "stroke-[2.25px]")} />
                     <span className="leading-none">{t.label}</span>
-                    {active && (
-                      <span className="absolute bottom-1.5 h-[3px] w-8 rounded-full bg-brand" />
-                    )}
                   </Link>
                 </li>
               );

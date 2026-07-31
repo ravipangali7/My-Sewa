@@ -29,5 +29,14 @@ def handle_deposit_approval(sender, instance, **kwargs):
                 with transaction.atomic():
                     wallet.balance += instance.amount
                     wallet.save()
+                # Flag for post_save notification (avoid double-send on create)
+                instance._notify_deposit_approved = True
         except Deposit.DoesNotExist:
             pass  # New instance, no action needed
+
+
+@receiver(post_save, sender=Deposit)
+def notify_on_deposit_approved(sender, instance, **kwargs):
+    if getattr(instance, '_notify_deposit_approved', False):
+        from .services.notifications import notify_deposit_approved
+        notify_deposit_approved(instance)

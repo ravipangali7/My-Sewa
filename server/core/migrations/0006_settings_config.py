@@ -26,7 +26,11 @@ def default_app_config():
             'min_transfer': 10,
             'max_transfer': 100000,
             'topup_charge_percent': 0,
+            'transfer_charge_enabled': True,
             'transfer_charge_flat': 0,
+            'cashback_enabled': True,
+            'transfer_cashback_flat': 0,
+            'transfer_cashback_percent': 0,
             'daily_transfer_limit': 200000,
         },
         'notifications': {

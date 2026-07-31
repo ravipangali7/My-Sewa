@@ -29,6 +29,14 @@ from ..serializers import (
     TransactionStatusSerializer,
 )
 from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.app_config import (
+    get_app_config,
+    resolve_transfer_fees,
+    require_feature_enabled,
+)
+from ..services.notifications import notify_low_balance_if_needed
+from django.utils import timezone
+from django.db.models import Sum
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +95,10 @@ def _normalize_banks(raw) -> list:
 @permission_classes([IsAuthenticated])
 def list_banks(request):
     """List banks available for HimalPay bank transfer."""
+    blocked = require_feature_enabled('transfers')
+    if blocked:
+        return blocked
+
     himalpay = HimalPayAPI()
     try:
         raw = himalpay.list_banks()
@@ -112,6 +124,10 @@ def list_banks(request):
 @permission_classes([IsAuthenticated])
 def verify_account(request):
     """Verify destination bank account before transfer."""
+    blocked = require_feature_enabled('transfers')
+    if blocked:
+        return blocked
+
     serializer = BankAccountVerifySerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -157,7 +173,11 @@ def verify_account(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def calculate_transfer_charge(request):
-    """Preview charge/cashback for a bank transfer amount."""
+    """Preview charge/cashback for a bank transfer amount (+ platform flat fee)."""
+    blocked = require_feature_enabled('transfers')
+    if blocked:
+        return blocked
+
     payload = {
         'wallet_service_name': 'BANK_TRANSFER',
         'amount': request.data.get('amount'),
@@ -166,25 +186,53 @@ def calculate_transfer_charge(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    amount = serializer.validated_data['amount']
+    tx_cfg = get_app_config().get('transactions') or {}
     himalpay = HimalPayAPI()
     try:
         result = himalpay.calculate_cashback_and_charge(
             HimalPayAPI.SERVICE_BANK_TRANSFER,
-            serializer.validated_data['amount'],
+            amount,
         )
+        provider_charge = himalpay.to_rupees(result.get('charge', 0) or 0)
+        provider_cashback = himalpay.to_rupees(result.get('cashback', 0) or 0)
+        fees = resolve_transfer_fees(amount, provider_charge, provider_cashback, tx_cfg)
         return Response(
             {
                 'data': {
-                    'amount': str(serializer.validated_data['amount']),
-                    'charge': str(himalpay.to_rupees(result.get('charge', 0) or 0)),
-                    'cashback': str(himalpay.to_rupees(result.get('cashback', 0) or 0)),
-                    'total_debited': str(himalpay.to_rupees(result.get('total_debited', 0) or 0)),
+                    'amount': str(amount),
+                    'charge': str(fees['charge']),
+                    'cashback': str(fees['cashback']),
+                    'platform_charge': str(fees['platform_charge']),
+                    'total_debited': str(fees['total_debited']),
+                    'charge_enabled': bool(tx_cfg.get('transfer_charge_enabled', True)),
+                    'cashback_enabled': bool(tx_cfg.get('cashback_enabled', True)),
                 },
                 'raw': result,
             },
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
+        # Still honour admin fees when provider preview fails
+        fees = resolve_transfer_fees(amount, 0, 0, tx_cfg)
+        if fees['charge'] > 0 or fees['cashback'] > 0 or not bool(
+            tx_cfg.get('transfer_charge_enabled', True)
+        ):
+            return Response(
+                {
+                    'data': {
+                        'amount': str(amount),
+                        'charge': str(fees['charge']),
+                        'cashback': str(fees['cashback']),
+                        'platform_charge': str(fees['platform_charge']),
+                        'total_debited': str(fees['total_debited']),
+                        'charge_enabled': bool(tx_cfg.get('transfer_charge_enabled', True)),
+                        'cashback_enabled': bool(tx_cfg.get('cashback_enabled', True)),
+                    },
+                    'warning': exc.message,
+                },
+                status=status.HTTP_200_OK,
+            )
         return Response(
             {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
             status=status.HTTP_400_BAD_REQUEST,
@@ -195,6 +243,10 @@ def calculate_transfer_charge(request):
 @permission_classes([IsAuthenticated])
 def create_bank_transfer(request):
     """Process an outbound bank transfer via HimalPay."""
+    blocked = require_feature_enabled('transfers')
+    if blocked:
+        return blocked
+
     serializer = BankTransferCreateSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -204,18 +256,49 @@ def create_bank_transfer(request):
     wallet = _get_or_create_wallet(request.user)
     himalpay = HimalPayAPI()
 
+    tx_cfg = get_app_config().get('transactions') or {}
+    daily_limit = Decimal(str(tx_cfg.get('daily_transfer_limit') or 0))
+
+    if daily_limit > 0:
+        today = timezone.localdate()
+        used = (
+            BankTransferTransaction.objects.filter(
+                user=request.user,
+                created_at__date=today,
+            )
+            .exclude(status='failed')
+            .aggregate(total=Sum('amount'))['total']
+            or Decimal('0.00')
+        )
+        if used + amount > daily_limit:
+            return Response(
+                {
+                    'error': 'Daily transfer limit exceeded',
+                    'message': (
+                        f'Daily transfer limit is Rs. {daily_limit}. '
+                        f'You have already transferred Rs. {used} today.'
+                    ),
+                    'daily_limit': str(daily_limit),
+                    'used_today': str(used),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     try:
         fee_info = himalpay.calculate_cashback_and_charge(
             HimalPayAPI.SERVICE_BANK_TRANSFER, amount
         )
-        charge = himalpay.to_rupees(fee_info.get('charge', 0) or 0)
-        cashback = himalpay.to_rupees(fee_info.get('cashback', 0) or 0)
-        total_required = amount + charge - cashback
+        provider_charge = himalpay.to_rupees(fee_info.get('charge', 0) or 0)
+        provider_cashback = himalpay.to_rupees(fee_info.get('cashback', 0) or 0)
     except HimalPayError as exc:
         logger.warning('Bank transfer charge calc failed: %s', exc.message)
-        charge = Decimal('0.00')
-        cashback = Decimal('0.00')
-        total_required = amount
+        provider_charge = Decimal('0.00')
+        provider_cashback = Decimal('0.00')
+
+    fees = resolve_transfer_fees(amount, provider_charge, provider_cashback, tx_cfg)
+    charge = fees['charge']
+    cashback = fees['cashback']
+    total_required = fees['total_debited']
 
     if wallet.balance < total_required:
         return Response(
@@ -276,16 +359,17 @@ def create_bank_transfer(request):
         )
 
         txn_status = himalpay.normalize_status(response)
-        charge_paisa = response.get('charge', response.get('applied_charge', himalpay.to_paisa(charge))) or 0
-        cashback_paisa = response.get('cashback', response.get('applied_cashback', himalpay.to_paisa(cashback))) or 0
-        total_paisa = response.get(
-            'total_debited',
-            response.get('net_amount', himalpay.to_paisa(amount) + int(charge_paisa) - int(cashback_paisa)),
+        charge_paisa = response.get('charge', response.get('applied_charge', himalpay.to_paisa(provider_charge))) or 0
+        cashback_paisa = response.get('cashback', response.get('applied_cashback', himalpay.to_paisa(provider_cashback))) or 0
+        applied = resolve_transfer_fees(
+            amount,
+            himalpay.to_rupees(charge_paisa),
+            himalpay.to_rupees(cashback_paisa),
+            tx_cfg,
         )
-
-        transfer.charge = himalpay.to_rupees(charge_paisa)
-        transfer.cashback = himalpay.to_rupees(cashback_paisa)
-        transfer.total_debited = himalpay.to_rupees(total_paisa)
+        transfer.charge = applied['charge']
+        transfer.cashback = applied['cashback']
+        transfer.total_debited = applied['total_debited']
         transfer.provider_txn_id = himalpay.extract_transaction_id(response)
         transfer.reference_id = himalpay.extract_reference_id(response)
         transfer.provider_response = response
@@ -305,6 +389,8 @@ def create_bank_transfer(request):
                 wallet.save()
                 transfer.status = 'success'
                 transfer.save()
+
+            notify_low_balance_if_needed(wallet)
 
             return Response(
                 {

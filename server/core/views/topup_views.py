@@ -20,6 +20,12 @@ from ..serializers import (
     TransactionStatusSerializer,
 )
 from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.app_config import (
+    get_app_config,
+    platform_topup_charge,
+    require_feature_enabled,
+)
+from ..services.notifications import notify_topup_success, notify_low_balance_if_needed
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +53,10 @@ def _apply_fee_fields(topup_txn, himalpay: HimalPayAPI, response: dict, amount):
 
 
 def _process_topup(request, product_id: int, service_label: str):
+    blocked = require_feature_enabled('topups')
+    if blocked:
+        return blocked
+
     serializer = TopupCreateSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -61,20 +71,24 @@ def _process_topup(request, product_id: int, service_label: str):
     amount = serializer.validated_data['amount']
     wallet = _get_or_create_wallet(request.user)
 
+    cfg = get_app_config()
+    tx_cfg = cfg.get('transactions') or {}
+    platform_fee = platform_topup_charge(amount, tx_cfg.get('topup_charge_percent', 0))
+
     himalpay = HimalPayAPI()
     service_name = HimalPayAPI.SERVICE_NTC if product_id == 1 else HimalPayAPI.SERVICE_NCELL
 
     # Pre-calculate charge so we can validate sufficient balance
     try:
         fee_info = himalpay.calculate_cashback_and_charge(service_name, amount)
-        charge = himalpay.to_rupees(fee_info.get('charge', 0) or 0)
+        charge = himalpay.to_rupees(fee_info.get('charge', 0) or 0) + platform_fee
         cashback = himalpay.to_rupees(fee_info.get('cashback', 0) or 0)
         total_required = amount + charge - cashback
     except HimalPayError as exc:
         logger.warning('Charge calculation failed for %s: %s', service_label, exc.message)
-        charge = Decimal('0.00')
+        charge = platform_fee
         cashback = Decimal('0.00')
-        total_required = amount
+        total_required = amount + platform_fee
 
     if wallet.balance < total_required:
         return Response(
@@ -109,6 +123,12 @@ def _process_topup(request, product_id: int, service_label: str):
 
         txn_status = himalpay.normalize_status(response)
         _apply_fee_fields(topup_txn, himalpay, response, amount)
+        # Re-apply platform fee on top of provider fees
+        if platform_fee > 0:
+            topup_txn.charge = (topup_txn.charge or Decimal('0.00')) + platform_fee
+            topup_txn.total_debited = (
+                (topup_txn.total_debited or amount) + platform_fee
+            )
 
         if txn_status == 'success':
             with transaction.atomic():
@@ -125,6 +145,9 @@ def _process_topup(request, product_id: int, service_label: str):
                 wallet.save()
                 topup_txn.status = 'success'
                 topup_txn.save()
+
+            notify_topup_success(topup_txn)
+            notify_low_balance_if_needed(wallet)
 
             return Response(
                 {
@@ -218,25 +241,38 @@ def topup_history(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def calculate_charge(request):
-    """Calculate HimalPay cashback and charge for a service/amount"""
+    """Calculate HimalPay cashback and charge for a service/amount (+ platform fee)."""
+    blocked = require_feature_enabled('topups')
+    if blocked and (request.data.get('wallet_service_name') or '').upper() in ('NTC', 'NCELL'):
+        return blocked
+
     serializer = CalculateChargeSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     himalpay = HimalPayAPI()
+    amount = serializer.validated_data['amount']
+    service = serializer.validated_data['wallet_service_name']
+    tx_cfg = get_app_config().get('transactions') or {}
+    platform_fee = (
+        platform_topup_charge(amount, tx_cfg.get('topup_charge_percent', 0))
+        if service.upper() in ('NTC', 'NCELL')
+        else Decimal('0.00')
+    )
     try:
-        result = himalpay.calculate_cashback_and_charge(
-            serializer.validated_data['wallet_service_name'],
-            serializer.validated_data['amount'],
-        )
+        result = himalpay.calculate_cashback_and_charge(service, amount)
+        charge = himalpay.to_rupees(result.get('charge', 0) or 0) + platform_fee
+        cashback = himalpay.to_rupees(result.get('cashback', 0) or 0)
+        total = amount + charge - cashback
         return Response(
             {
-                'wallet_service_name': serializer.validated_data['wallet_service_name'],
-                'amount': str(serializer.validated_data['amount']),
-                'amount_paisa': himalpay.to_paisa(serializer.validated_data['amount']),
-                'charge': str(himalpay.to_rupees(result.get('charge', 0) or 0)),
-                'cashback': str(himalpay.to_rupees(result.get('cashback', 0) or 0)),
-                'total_debited': str(himalpay.to_rupees(result.get('total_debited', 0) or 0)),
+                'wallet_service_name': service,
+                'amount': str(amount),
+                'amount_paisa': himalpay.to_paisa(amount),
+                'charge': str(charge),
+                'cashback': str(cashback),
+                'platform_charge': str(platform_fee),
+                'total_debited': str(total),
                 'raw': result,
             },
             status=status.HTTP_200_OK,

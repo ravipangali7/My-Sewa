@@ -47,13 +47,26 @@ function LoadWallet() {
     queryFn: () => apiClient.listDeposits(),
   });
 
+  const payment = settingsQuery.data?.config?.payment;
+  const security = settingsQuery.data?.config?.security;
+  const depositsEnabled = payment?.deposits_enabled !== false;
+  const requireScreenshot = security?.require_deposit_screenshot !== false;
+  const minDeposit = payment?.min_deposit ?? 100;
+  const maxDeposit = payment?.max_deposit ?? 100000;
+  const instructions = payment?.deposit_instructions?.trim() || "";
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!file) throw new Error("Screenshot proof is required");
+      if (!depositsEnabled) throw new Error("Wallet deposits are currently disabled.");
+      const amt = Number(amount);
+      if (!Number.isFinite(amt) || amt <= 0) throw new Error("Enter a valid amount");
+      if (amt < minDeposit) throw new Error(`Minimum deposit is Rs. ${minDeposit}`);
+      if (maxDeposit > 0 && amt > maxDeposit) throw new Error(`Maximum deposit is Rs. ${maxDeposit}`);
+      if (requireScreenshot && !file) throw new Error("Screenshot proof is required");
       const fd = new FormData();
       fd.append("amount", amount);
       if (note.trim()) fd.append("note", note.trim());
-      fd.append("screenshot_proof", file);
+      if (file) fd.append("screenshot_proof", file);
       return apiClient.createDeposit(fd);
     },
     onSuccess: () => {
@@ -75,8 +88,20 @@ function LoadWallet() {
   return (
     <UserShell title="Load Wallet" back="/app">
       <div className="grid gap-5 lg:grid-cols-2">
+        {!depositsEnabled ? (
+          <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
+            <p className="text-[15px] font-medium text-destructive">Deposits temporarily unavailable</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              Wallet deposits are currently disabled by the administrator. Please try again later.
+            </p>
+          </section>
+        ) : null}
+
         <section className="inset-group p-4">
           <h2 className="text-[15px] font-semibold">Pay to MySewa</h2>
+          {instructions ? (
+            <p className="mt-2 text-[13px] text-muted-foreground whitespace-pre-wrap">{instructions}</p>
+          ) : null}
           <div className="mt-3 flex gap-4">
             <div className="flex size-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-muted text-muted-foreground">
               {settingsQuery.data?.qr_code_url ? (
@@ -124,7 +149,12 @@ function LoadWallet() {
                 onChange={(e) => setAmount(e.target.value)}
                 className="tabular h-12 rounded-xl text-[22px] font-semibold"
                 required
+                disabled={!depositsEnabled}
               />
+              <p className="text-[12px] text-muted-foreground">
+                Min Rs. {minDeposit}
+                {maxDeposit > 0 ? ` · Max Rs. ${maxDeposit}` : ""}
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="note">Note (optional)</Label>
@@ -135,29 +165,52 @@ function LoadWallet() {
                 onChange={(e) => setNote(e.target.value)}
                 className="rounded-xl"
                 placeholder="e.g. Remittance from Qatar"
+                disabled={!depositsEnabled}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="proof">Screenshot proof</Label>
-              <label
-                htmlFor="proof"
-                className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
-              >
-                <Upload className="size-5" />
-                {file?.name ?? "Upload payment screenshot"}
-              </label>
-              <input
-                id="proof"
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                required
-              />
-            </div>
+            {requireScreenshot ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="proof">Screenshot proof</Label>
+                <label
+                  htmlFor="proof"
+                  className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
+                >
+                  <Upload className="size-5" />
+                  {file?.name ?? "Upload payment screenshot"}
+                </label>
+                <input
+                  id="proof"
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  required={requireScreenshot}
+                  disabled={!depositsEnabled}
+                />
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="proof">Screenshot proof (optional)</Label>
+                <label
+                  htmlFor="proof"
+                  className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
+                >
+                  <Upload className="size-5" />
+                  {file?.name ?? "Upload payment screenshot"}
+                </label>
+                <input
+                  id="proof"
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  disabled={!depositsEnabled}
+                />
+              </div>
+            )}
             <Button
               type="submit"
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || !depositsEnabled}
               className="h-12 w-full rounded-xl text-[17px]"
             >
               {createMutation.isPending ? "Submitting…" : "Submit deposit"}

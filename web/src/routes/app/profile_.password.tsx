@@ -1,0 +1,96 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { UserShell } from "@/components/layout/UserShell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/lib/auth";
+import { apiClient, ApiError } from "@/lib/api";
+
+export const Route = createFileRoute("/app/profile_/password")({
+  head: () => ({
+    meta: [
+      { title: "Change Password — MySewa" },
+      {
+        name: "description",
+        content: "Update your MySewa account password.",
+      },
+      { property: "og:title", content: "Change Password — MySewa" },
+    ],
+  }),
+  component: ChangePasswordPage,
+});
+
+function ChangePasswordPage() {
+  const navigate = useNavigate();
+  const { setSessionToken } = useAuth();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <UserShell title="Change password" back="/app/profile">
+      <form
+        className="inset-group space-y-4 p-4"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setSaving(true);
+          try {
+            const res = await apiClient.changePassword({
+              current_password: currentPassword,
+              new_password: newPassword,
+              confirm_password: confirmPassword,
+            });
+            setSessionToken(res.token);
+            toast.success("Password changed");
+            navigate({ to: "/app/profile" });
+          } catch (err) {
+            toast.error(err instanceof ApiError ? err.message : "Update failed");
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        <div className="space-y-1.5">
+          <Label htmlFor="current_password">Current password</Label>
+          <Input
+            id="current_password"
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="new_password">New password</Label>
+          <Input
+            id="new_password"
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            autoComplete="new-password"
+            required
+            minLength={8}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="confirm_password">Confirm password</Label>
+          <Input
+            id="confirm_password"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            autoComplete="new-password"
+            required
+          />
+        </div>
+        <Button type="submit" className="w-full" disabled={saving}>
+          {saving ? "Updating…" : "Update password"}
+        </Button>
+      </form>
+    </UserShell>
+  );
+}

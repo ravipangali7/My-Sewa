@@ -1,5 +1,5 @@
 """
-Deposit views: Create deposit request, list deposits, upload screenshot
+Deposit views: Create deposit request, list deposits
 """
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -7,22 +7,29 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from ..models import Deposit
 from ..serializers import DepositSerializer, DepositCreateSerializer
+from ..services.app_config import require_feature_enabled
+from ..services.notifications import notify_deposit_submitted
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_deposit(request):
     """Create a new deposit request"""
+    blocked = require_feature_enabled('deposits')
+    if blocked:
+        return blocked
+
     serializer = DepositCreateSerializer(data=request.data)
     if serializer.is_valid():
         deposit = Deposit.objects.create(
             user=request.user,
             amount=serializer.validated_data['amount'],
-            screenshot_proof=serializer.validated_data['screenshot_proof'],
+            screenshot_proof=serializer.validated_data.get('screenshot_proof'),
             note=serializer.validated_data.get('note', ''),
             status='pending'
         )
-        response_serializer = DepositSerializer(deposit)
+        notify_deposit_submitted(deposit)
+        response_serializer = DepositSerializer(deposit, context={'request': request})
         return Response({
             'message': 'Deposit request created successfully',
             'data': response_serializer.data
@@ -35,7 +42,7 @@ def create_deposit(request):
 def list_deposits(request):
     """List all deposits for the current user"""
     deposits = Deposit.objects.filter(user=request.user).order_by('-created_at')
-    serializer = DepositSerializer(deposits, many=True)
+    serializer = DepositSerializer(deposits, many=True, context={'request': request})
     return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -45,7 +52,7 @@ def get_deposit(request, deposit_id):
     """Get a specific deposit by ID"""
     try:
         deposit = Deposit.objects.get(id=deposit_id, user=request.user)
-        serializer = DepositSerializer(deposit)
+        serializer = DepositSerializer(deposit, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
     except Deposit.DoesNotExist:
         return Response({

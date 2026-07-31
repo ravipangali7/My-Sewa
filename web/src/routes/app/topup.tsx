@@ -40,6 +40,14 @@ function TopUp() {
   const [cashback, setCashback] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
 
+  const settingsQuery = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => apiClient.settings(),
+  });
+  const topupsEnabled = settingsQuery.data?.config?.payment?.topups_enabled !== false;
+  const minTopup = settingsQuery.data?.config?.transactions?.min_topup ?? 10;
+  const maxTopup = settingsQuery.data?.config?.transactions?.max_topup ?? 5000;
+
   const historyQuery = useQuery({
     queryKey: ["topups"],
     queryFn: () => apiClient.topupHistory(),
@@ -49,7 +57,7 @@ function TopUp() {
   const serviceName = productId === 1 ? "NTC" : "NCELL";
 
   useEffect(() => {
-    if (amt < 10) {
+    if (!topupsEnabled || amt < minTopup) {
       setCharge("0.00");
       setCashback("0.00");
       setTotalDebited("0.00");
@@ -70,10 +78,13 @@ function TopUp() {
         });
     }, 350);
     return () => clearTimeout(t);
-  }, [amt, serviceName]);
+  }, [amt, serviceName, topupsEnabled, minTopup]);
 
   const submitMutation = useMutation({
     mutationFn: async () => {
+      if (!topupsEnabled) throw new Error("Mobile top-ups are currently disabled.");
+      if (amt < minTopup) throw new Error(`Minimum top-up is Rs. ${minTopup}`);
+      if (maxTopup > 0 && amt > maxTopup) throw new Error(`Maximum top-up is Rs. ${maxTopup}`);
       const body = { mobile_number: mobile.trim(), amount: amt, product_id: productId };
       if (productId === 1) return apiClient.topupNtc({ ...body, product_id: 1 });
       return apiClient.topupNcell({ ...body, product_id: 2 });
@@ -95,6 +106,14 @@ function TopUp() {
   return (
     <UserShell title="Mobile Top-Up" back="/app">
       <div className="grid gap-5 lg:grid-cols-2">
+        {!topupsEnabled ? (
+          <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
+            <p className="text-[15px] font-medium text-destructive">Top-ups temporarily unavailable</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              Mobile top-ups are currently disabled by the administrator.
+            </p>
+          </section>
+        ) : null}
         <section className="inset-group p-4">
           <form
             className="space-y-4"
@@ -109,6 +128,7 @@ function TopUp() {
                   key={id}
                   type="button"
                   onClick={() => setProductId(id)}
+                  disabled={!topupsEnabled}
                   className={cn(
                     "rounded-lg py-2 text-[15px] font-medium transition-colors",
                     productId === id
@@ -131,6 +151,7 @@ function TopUp() {
                 onChange={(e) => setMobile(e.target.value)}
                 className="h-12 rounded-xl"
                 required
+                disabled={!topupsEnabled}
               />
             </div>
             <div className="space-y-1.5">
@@ -143,7 +164,12 @@ function TopUp() {
                 onChange={(e) => setAmount(e.target.value)}
                 className="tabular h-12 rounded-xl text-[22px] font-semibold"
                 required
+                disabled={!topupsEnabled}
               />
+              <p className="text-[12px] text-muted-foreground">
+                Min Rs. {minTopup}
+                {maxTopup > 0 ? ` · Max Rs. ${maxTopup}` : ""}
+              </p>
             </div>
 
             <div className="rounded-xl bg-muted p-3 text-[14px]">
@@ -157,7 +183,7 @@ function TopUp() {
 
             <Button
               type="submit"
-              disabled={submitMutation.isPending}
+              disabled={submitMutation.isPending || !topupsEnabled}
               className="h-12 w-full rounded-xl text-[17px]"
             >
               {submitMutation.isPending ? "Processing…" : "Confirm top-up"}

@@ -357,6 +357,12 @@ def admin_settings(request):
 
     if 'qr_code' in request.FILES:
         settings_obj.qr_code = request.FILES['qr_code']
+    elif 'clear_qr' in request.data and str(request.data.get('clear_qr')).lower() in (
+        '1', 'true', 'yes',
+    ):
+        if settings_obj.qr_code:
+            settings_obj.qr_code.delete(save=False)
+        settings_obj.qr_code = None
     elif request.data.get('qr_code') in ('', 'null', None) and 'qr_code' in request.data:
         pass  # ignore empty
 

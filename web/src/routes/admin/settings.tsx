@@ -65,7 +65,11 @@ const DEFAULT_CONFIG: AppConfig = {
     min_transfer: 10,
     max_transfer: 100000,
     topup_charge_percent: 0,
+    transfer_charge_enabled: true,
     transfer_charge_flat: 0,
+    cashback_enabled: true,
+    transfer_cashback_flat: 0,
+    transfer_cashback_percent: 0,
     daily_transfer_limit: 200000,
   },
   notifications: {
@@ -358,7 +362,7 @@ function SettingsPage() {
           <TabsContent value="transactions">
             <SettingsPanel
               title="Transaction rules"
-              description="Limits and charges for top-ups and bank transfers."
+              description="Limits, charges and cashback for top-ups and fund transfers."
               onSave={() => saveConfigSection("transactions", config.transactions)}
               saving={saving}
             >
@@ -420,17 +424,6 @@ function SettingsPage() {
                   }
                 />
                 <NumberField
-                  id="transfer_charge_flat"
-                  label="Transfer charge (Rs.)"
-                  value={config.transactions.transfer_charge_flat}
-                  onChange={(v) =>
-                    setConfig((c) => ({
-                      ...c,
-                      transactions: { ...c.transactions, transfer_charge_flat: v },
-                    }))
-                  }
-                />
-                <NumberField
                   id="daily_transfer_limit"
                   label="Daily transfer limit (Rs.)"
                   value={config.transactions.daily_transfer_limit}
@@ -441,6 +434,69 @@ function SettingsPage() {
                     }))
                   }
                 />
+              </div>
+
+              <div className="mt-5 space-y-3">
+                <ToggleRow
+                  label="Transfer charge"
+                  description="Apply transfer charges when enabled and a charge amount is configured"
+                  checked={config.transactions.transfer_charge_enabled !== false}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      transactions: { ...c.transactions, transfer_charge_enabled: v },
+                    }))
+                  }
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <NumberField
+                    id="transfer_charge_flat"
+                    label="Transfer charge (Rs.)"
+                    value={config.transactions.transfer_charge_flat}
+                    onChange={(v) =>
+                      setConfig((c) => ({
+                        ...c,
+                        transactions: { ...c.transactions, transfer_charge_flat: v },
+                      }))
+                    }
+                  />
+                </div>
+                <ToggleRow
+                  label="Cashback"
+                  description="Apply cashback when enabled; uses configured amounts or provider cashback"
+                  checked={config.transactions.cashback_enabled !== false}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      transactions: { ...c.transactions, cashback_enabled: v },
+                    }))
+                  }
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <NumberField
+                    id="transfer_cashback_flat"
+                    label="Transfer cashback (Rs.)"
+                    value={config.transactions.transfer_cashback_flat ?? 0}
+                    onChange={(v) =>
+                      setConfig((c) => ({
+                        ...c,
+                        transactions: { ...c.transactions, transfer_cashback_flat: v },
+                      }))
+                    }
+                  />
+                  <NumberField
+                    id="transfer_cashback_percent"
+                    label="Transfer cashback (%)"
+                    value={config.transactions.transfer_cashback_percent ?? 0}
+                    step="0.01"
+                    onChange={(v) =>
+                      setConfig((c) => ({
+                        ...c,
+                        transactions: { ...c.transactions, transfer_cashback_percent: v },
+                      }))
+                    }
+                  />
+                </div>
               </div>
             </SettingsPanel>
           </TabsContent>
@@ -489,24 +545,36 @@ function SettingsPage() {
 
               <div className="rounded-xl border border-border bg-surface p-5">
                 <h2 className="text-base font-semibold">Deposit QR code</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Upload a QR image. Preview appears immediately; save to publish it to customers.
+                </p>
                 <div className="mt-4 flex aspect-square items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
                   {qrPreview || settingsQuery.data?.qr_code_url ? (
                     <img
                       src={qrPreview || settingsQuery.data?.qr_code_url || ""}
-                      alt="Deposit QR"
-                      className="size-full object-contain"
+                      alt="Deposit QR preview"
+                      className="size-full object-contain p-2"
                     />
                   ) : (
-                    <QrCode className="size-16 text-muted-foreground" />
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <QrCode className="size-16" />
+                      <span className="text-xs">No QR uploaded</span>
+                    </div>
                   )}
                 </div>
-                <p className="mt-3 truncate text-xs text-muted-foreground">
-                  {qrFile?.name || settingsQuery.data?.qr_code || "No QR uploaded"}
-                </p>
+                {qrFile ? (
+                  <p className="mt-3 truncate text-xs font-medium text-brand">
+                    New file selected: {qrFile.name}
+                  </p>
+                ) : (
+                  <p className="mt-3 truncate text-xs text-muted-foreground">
+                    {settingsQuery.data?.qr_code || "No QR on file"}
+                  </p>
+                )}
                 <label className="mt-3 block">
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
                     className="sr-only"
                     onChange={(e) => setQrFile(e.target.files?.[0] ?? null)}
                   />
@@ -521,20 +589,50 @@ function SettingsPage() {
                       input?.click();
                     }}
                   >
-                    {qrFile ? "QR selected — save to upload" : "Upload new QR"}
+                    {qrFile ? "Choose a different image" : "Upload QR image"}
                   </Button>
                 </label>
-                {qrFile ? (
+                <div className="mt-2 flex flex-col gap-2">
                   <Button
                     type="button"
-                    className="mt-2 w-full gap-1.5"
-                    disabled={saving}
+                    className="w-full gap-1.5"
+                    disabled={saving || (!qrFile && !Object.values(bank).some(Boolean))}
                     onClick={saveDepositAccount}
                   >
                     <Save className="size-3.5" />
-                    {saving ? "Saving…" : "Save QR & bank details"}
+                    {saving ? "Saving…" : qrFile ? "Save QR & bank details" : "Save bank details"}
                   </Button>
-                ) : null}
+                  {settingsQuery.data?.qr_code_url && !qrFile ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      disabled={saving}
+                      onClick={() => {
+                        const fd = new FormData();
+                        fd.append("bank_name", bank.bank_name);
+                        fd.append("account_name", bank.account_name);
+                        fd.append("account_number", bank.account_number);
+                        fd.append("branch", bank.branch);
+                        fd.append("clear_qr", "true");
+                        saveMutation.mutate(fd);
+                      }}
+                    >
+                      Remove QR code
+                    </Button>
+                  ) : null}
+                  {qrFile ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full"
+                      disabled={saving}
+                      onClick={() => setQrFile(null)}
+                    >
+                      Cancel selection
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </div>
           </TabsContent>

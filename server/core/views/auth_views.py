@@ -55,6 +55,23 @@ def format_validation_errors(errors):
 @permission_classes([AllowAny])
 def register(request):
     """User registration endpoint"""
+    from ..services.app_config import get_app_config
+
+    security = get_app_config().get('security') or {}
+    if not security.get('allow_new_registrations', True):
+        return Response({
+            'error': 'registrations_disabled',
+            'message': 'New registrations are currently disabled.',
+            'detail': 'Please contact support if you need an account.',
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    if security.get('maintenance_mode'):
+        return Response({
+            'error': 'maintenance_mode',
+            'message': security.get('maintenance_message')
+                or 'MySewa is under maintenance. Please try again later.',
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
     # Handle username field from Flutter app - use it as phone if phone is missing
     data = request.data.copy()
     
@@ -95,11 +112,14 @@ def login(request):
     User login endpoint - returns DRF token (uses phone as authentication field)
     Uses custom PhoneBackend for authentication with comprehensive logging
     """
+    from django.core.cache import cache
+    from ..services.app_config import get_app_config
+
     # Accept both 'phone' and 'username' for backward compatibility
     phone = request.data.get('phone') or request.data.get('username')
     password = request.data.get('password')
 
-    logger.info(f"Login attempt received - Phone: {phone[:3]}*** (masked)")
+    logger.info(f"Login attempt received - Phone: {phone[:3]}*** (masked)" if phone else "Login attempt with empty phone")
 
     # Validate input
     if not phone or not password:
@@ -114,6 +134,18 @@ def login(request):
     phone = phone.strip() if phone else phone
     logger.debug(f"Normalized phone number: {phone[:3]}***")
 
+    security = get_app_config().get('security') or {}
+    max_failed = int(security.get('max_failed_logins') or 0)
+    fail_key = f'failed_login:{phone}'
+    if max_failed > 0:
+        fails = int(cache.get(fail_key) or 0)
+        if fails >= max_failed:
+            return Response({
+                'error': 'account_locked',
+                'message': 'Too many failed login attempts. Please try again later.',
+                'detail': f'Account temporarily locked after {max_failed} failed attempts.',
+            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
     # Use Django's authenticate() with custom PhoneBackend
     # The backend will handle user lookup, active check, and password verification
     try:
@@ -122,14 +154,34 @@ def login(request):
         if user is not None:
             # Authentication successful
             logger.info(f"Login successful for user ID: {user.id}, Phone: {user.phone[:3]}***")
-            
+            cache.delete(fail_key)
+
+            # Staff can always log in during maintenance; customers are blocked
+            if security.get('maintenance_mode') and not (user.is_staff or user.is_superuser):
+                return Response({
+                    'error': 'maintenance_mode',
+                    'message': security.get('maintenance_message')
+                        or 'MySewa is under maintenance. Please try again later.',
+                    'code': 'maintenance_mode',
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
             # Get or create token
             token, created = Token.objects.get_or_create(user=user)
             if created:
                 logger.debug(f"New token created for user ID: {user.id}")
             else:
                 logger.debug(f"Existing token retrieved for user ID: {user.id}")
-            
+
+            # Seed session activity for timeout middleware
+            timeout_minutes = int(security.get('session_timeout_minutes') or 0)
+            if timeout_minutes > 0:
+                import time
+                cache.set(
+                    f'session_activity:{token.key}',
+                    time.time(),
+                    timeout=timeout_minutes * 60 + 300,
+                )
+
             return Response({
                 'message': 'Login successful',
                 'token': token.key,
@@ -146,6 +198,8 @@ def login(request):
         else:
             # Authentication failed - user not found, inactive, or wrong password
             logger.warning(f"Login failed for phone: {phone[:3]}*** - Invalid credentials")
+            if max_failed > 0:
+                cache.set(fail_key, int(cache.get(fail_key) or 0) + 1, timeout=60 * 30)
             
             # Try to get more specific error information
             try:

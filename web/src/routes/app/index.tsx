@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Bell,
   ChevronRight,
@@ -18,6 +18,7 @@ import { WalletIllustration } from "@/components/home/WalletIllustration";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { apiClient } from "@/lib/api";
 import { buildActivity } from "@/lib/activity";
+import { buildNotifications } from "@/lib/notifications";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -103,6 +104,10 @@ function WalletHome() {
   });
 
   const activity = txQuery.data ? buildActivity(txQuery.data).slice(0, 3) : [];
+  const unreadCount = useMemo(
+    () => (txQuery.data ? buildNotifications(txQuery.data).filter((n) => n.unread).length : 0),
+    [txQuery.data],
+  );
   const firstName = user?.first_name?.trim() || "User";
   const initials = [user?.first_name, user?.last_name]
     .filter(Boolean)
@@ -136,16 +141,18 @@ function WalletHome() {
               </div>
             </div>
 
-            <button
-              type="button"
+            <Link
+              to="/app/notifications"
               aria-label="Notifications"
               className="relative mt-1 flex size-10 items-center justify-center rounded-full text-white"
             >
               <Bell className="size-[22px]" strokeWidth={1.75} />
-              <span className="absolute top-1 right-1 flex size-[16px] items-center justify-center rounded-full bg-[#FF3B30] text-[9px] font-bold text-white ring-2 ring-[#0B4A8F]/70">
-                3
-              </span>
-            </button>
+              {unreadCount > 0 ? (
+                <span className="absolute top-1 right-1 flex size-[16px] items-center justify-center rounded-full bg-[#FF3B30] text-[9px] font-bold text-white ring-2 ring-[#0B4A8F]/70">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              ) : null}
+            </Link>
           </div>
 
           <div className="relative z-10 mt-5 flex items-center gap-3">

@@ -21,6 +21,7 @@ import { Route as AdminWalletsRouteImport } from './routes/admin/wallets'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as AppHistoryRouteImport } from './routes/app/history'
 import { Route as AppLoadRouteImport } from './routes/app/load'
+import { Route as AppNotificationsRouteImport } from './routes/app/notifications'
 import { Route as AppProfileRouteImport } from './routes/app/profile'
 import { Route as AppServicesRouteImport } from './routes/app/services'
 import { Route as AppTopupRouteImport } from './routes/app/topup'
@@ -30,6 +31,10 @@ import { Route as AdminTopupsTopupIdRouteImport } from './routes/admin/topups_.$
 import { Route as AdminUsersUserIdRouteImport } from './routes/admin/users_.$userId'
 import { Route as AdminUsersNewRouteImport } from './routes/admin/users_.new'
 import { Route as AdminWalletsWalletIdRouteImport } from './routes/admin/wallets_.$walletId'
+import { Route as AppNotificationsNotificationIdRouteImport } from './routes/app/notifications_.$notificationId'
+import { Route as AppProfileEditRouteImport } from './routes/app/profile_.edit'
+import { Route as AppProfilePasswordRouteImport } from './routes/app/profile_.password'
+import { Route as AppProfilePhoneRouteImport } from './routes/app/profile_.phone'
 import { Route as AdminUsersUserIdEditRouteImport } from './routes/admin/users_.$userId.edit'
 import { Route as AdminWalletsWalletIdEditRouteImport } from './routes/admin/wallets_.$walletId.edit'
 
@@ -93,6 +98,11 @@ const AppLoadRoute = AppLoadRouteImport.update({
   path: '/app/load',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppNotificationsRoute = AppNotificationsRouteImport.update({
+  id: '/app/notifications',
+  path: '/app/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppProfileRoute = AppProfileRouteImport.update({
   id: '/app/profile',
   path: '/app/profile',
@@ -138,6 +148,27 @@ const AdminWalletsWalletIdRoute = AdminWalletsWalletIdRouteImport.update({
   path: '/admin/wallets/$walletId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppNotificationsNotificationIdRoute =
+  AppNotificationsNotificationIdRouteImport.update({
+    id: '/app/notifications_/$notificationId',
+    path: '/app/notifications/$notificationId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const AppProfileEditRoute = AppProfileEditRouteImport.update({
+  id: '/app/profile_/edit',
+  path: '/app/profile/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppProfilePasswordRoute = AppProfilePasswordRouteImport.update({
+  id: '/app/profile_/password',
+  path: '/app/profile/password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppProfilePhoneRoute = AppProfilePhoneRouteImport.update({
+  id: '/app/profile_/phone',
+  path: '/app/profile/phone',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminUsersUserIdEditRoute = AdminUsersUserIdEditRouteImport.update({
   id: '/edit',
   path: '/edit',
@@ -161,6 +192,7 @@ export interface FileRoutesByFullPath {
   '/admin/wallets': typeof AdminWalletsRoute
   '/app/history': typeof AppHistoryRoute
   '/app/load': typeof AppLoadRoute
+  '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
@@ -172,6 +204,10 @@ export interface FileRoutesByFullPath {
   '/admin/users/$userId': typeof AdminUsersUserIdRouteWithChildren
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/wallets/$walletId': typeof AdminWalletsWalletIdRouteWithChildren
+  '/app/notifications/$notificationId': typeof AppNotificationsNotificationIdRoute
+  '/app/profile/edit': typeof AppProfileEditRoute
+  '/app/profile/password': typeof AppProfilePasswordRoute
+  '/app/profile/phone': typeof AppProfilePhoneRoute
   '/admin/users/$userId/edit': typeof AdminUsersUserIdEditRoute
   '/admin/wallets/$walletId/edit': typeof AdminWalletsWalletIdEditRoute
 }
@@ -186,6 +222,7 @@ export interface FileRoutesByTo {
   '/admin/wallets': typeof AdminWalletsRoute
   '/app/history': typeof AppHistoryRoute
   '/app/load': typeof AppLoadRoute
+  '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
@@ -197,6 +234,10 @@ export interface FileRoutesByTo {
   '/admin/users/$userId': typeof AdminUsersUserIdRouteWithChildren
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/wallets/$walletId': typeof AdminWalletsWalletIdRouteWithChildren
+  '/app/notifications/$notificationId': typeof AppNotificationsNotificationIdRoute
+  '/app/profile/edit': typeof AppProfileEditRoute
+  '/app/profile/password': typeof AppProfilePasswordRoute
+  '/app/profile/phone': typeof AppProfilePhoneRoute
   '/admin/users/$userId/edit': typeof AdminUsersUserIdEditRoute
   '/admin/wallets/$walletId/edit': typeof AdminWalletsWalletIdEditRoute
 }
@@ -212,6 +253,7 @@ export interface FileRoutesById {
   '/admin/wallets': typeof AdminWalletsRoute
   '/app/history': typeof AppHistoryRoute
   '/app/load': typeof AppLoadRoute
+  '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
@@ -223,6 +265,10 @@ export interface FileRoutesById {
   '/admin/users_/$userId': typeof AdminUsersUserIdRouteWithChildren
   '/admin/users_/new': typeof AdminUsersNewRoute
   '/admin/wallets_/$walletId': typeof AdminWalletsWalletIdRouteWithChildren
+  '/app/notifications_/$notificationId': typeof AppNotificationsNotificationIdRoute
+  '/app/profile_/edit': typeof AppProfileEditRoute
+  '/app/profile_/password': typeof AppProfilePasswordRoute
+  '/app/profile_/phone': typeof AppProfilePhoneRoute
   '/admin/users_/$userId/edit': typeof AdminUsersUserIdEditRoute
   '/admin/wallets_/$walletId/edit': typeof AdminWalletsWalletIdEditRoute
 }
@@ -239,6 +285,7 @@ export interface FileRouteTypes {
     | '/admin/wallets'
     | '/app/history'
     | '/app/load'
+    | '/app/notifications'
     | '/app/profile'
     | '/app/services'
     | '/app/topup'
@@ -250,6 +297,10 @@ export interface FileRouteTypes {
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/wallets/$walletId'
+    | '/app/notifications/$notificationId'
+    | '/app/profile/edit'
+    | '/app/profile/password'
+    | '/app/profile/phone'
     | '/admin/users/$userId/edit'
     | '/admin/wallets/$walletId/edit'
   fileRoutesByTo: FileRoutesByTo
@@ -264,6 +315,7 @@ export interface FileRouteTypes {
     | '/admin/wallets'
     | '/app/history'
     | '/app/load'
+    | '/app/notifications'
     | '/app/profile'
     | '/app/services'
     | '/app/topup'
@@ -275,6 +327,10 @@ export interface FileRouteTypes {
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/wallets/$walletId'
+    | '/app/notifications/$notificationId'
+    | '/app/profile/edit'
+    | '/app/profile/password'
+    | '/app/profile/phone'
     | '/admin/users/$userId/edit'
     | '/admin/wallets/$walletId/edit'
   id:
@@ -289,6 +345,7 @@ export interface FileRouteTypes {
     | '/admin/wallets'
     | '/app/history'
     | '/app/load'
+    | '/app/notifications'
     | '/app/profile'
     | '/app/services'
     | '/app/topup'
@@ -300,6 +357,10 @@ export interface FileRouteTypes {
     | '/admin/users_/$userId'
     | '/admin/users_/new'
     | '/admin/wallets_/$walletId'
+    | '/app/notifications_/$notificationId'
+    | '/app/profile_/edit'
+    | '/app/profile_/password'
+    | '/app/profile_/phone'
     | '/admin/users_/$userId/edit'
     | '/admin/wallets_/$walletId/edit'
   fileRoutesById: FileRoutesById
@@ -315,6 +376,7 @@ export interface RootRouteChildren {
   AdminWalletsRoute: typeof AdminWalletsRoute
   AppHistoryRoute: typeof AppHistoryRoute
   AppLoadRoute: typeof AppLoadRoute
+  AppNotificationsRoute: typeof AppNotificationsRoute
   AppProfileRoute: typeof AppProfileRoute
   AppServicesRoute: typeof AppServicesRoute
   AppTopupRoute: typeof AppTopupRoute
@@ -326,6 +388,10 @@ export interface RootRouteChildren {
   AdminUsersUserIdRoute: typeof AdminUsersUserIdRouteWithChildren
   AdminUsersNewRoute: typeof AdminUsersNewRoute
   AdminWalletsWalletIdRoute: typeof AdminWalletsWalletIdRouteWithChildren
+  AppNotificationsNotificationIdRoute: typeof AppNotificationsNotificationIdRoute
+  AppProfileEditRoute: typeof AppProfileEditRoute
+  AppProfilePasswordRoute: typeof AppProfilePasswordRoute
+  AppProfilePhoneRoute: typeof AppProfilePhoneRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -414,6 +480,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppLoadRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/notifications': {
+      id: '/app/notifications'
+      path: '/app/notifications'
+      fullPath: '/app/notifications'
+      preLoaderRoute: typeof AppNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/profile': {
       id: '/app/profile'
       path: '/app/profile'
@@ -477,6 +550,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminWalletsWalletIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/notifications_/$notificationId': {
+      id: '/app/notifications_/$notificationId'
+      path: '/app/notifications/$notificationId'
+      fullPath: '/app/notifications/$notificationId'
+      preLoaderRoute: typeof AppNotificationsNotificationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/profile_/edit': {
+      id: '/app/profile_/edit'
+      path: '/app/profile/edit'
+      fullPath: '/app/profile/edit'
+      preLoaderRoute: typeof AppProfileEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/profile_/password': {
+      id: '/app/profile_/password'
+      path: '/app/profile/password'
+      fullPath: '/app/profile/password'
+      preLoaderRoute: typeof AppProfilePasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/profile_/phone': {
+      id: '/app/profile_/phone'
+      path: '/app/profile/phone'
+      fullPath: '/app/profile/phone'
+      preLoaderRoute: typeof AppProfilePhoneRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/users_/$userId/edit': {
       id: '/admin/users_/$userId/edit'
       path: '/edit'
@@ -527,6 +628,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminWalletsRoute: AdminWalletsRoute,
   AppHistoryRoute: AppHistoryRoute,
   AppLoadRoute: AppLoadRoute,
+  AppNotificationsRoute: AppNotificationsRoute,
   AppProfileRoute: AppProfileRoute,
   AppServicesRoute: AppServicesRoute,
   AppTopupRoute: AppTopupRoute,
@@ -538,6 +640,10 @@ const rootRouteChildren: RootRouteChildren = {
   AdminUsersUserIdRoute: AdminUsersUserIdRouteWithChildren,
   AdminUsersNewRoute: AdminUsersNewRoute,
   AdminWalletsWalletIdRoute: AdminWalletsWalletIdRouteWithChildren,
+  AppNotificationsNotificationIdRoute: AppNotificationsNotificationIdRoute,
+  AppProfileEditRoute: AppProfileEditRoute,
+  AppProfilePasswordRoute: AppProfilePasswordRoute,
+  AppProfilePhoneRoute: AppProfilePhoneRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
