@@ -181,11 +181,17 @@ export function UserShell({
                   <Link
                     to={t.to}
                     className={cn(
-                      "flex min-h-[56px] flex-col items-center justify-center gap-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
+                      "relative flex min-h-[56px] flex-col items-center justify-center gap-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
                       "active:bg-transparent focus-visible:bg-transparent",
                       active ? "text-brand" : "text-[#8A94A6]",
                     )}
                   >
+                    {active ? (
+                      <span
+                        aria-hidden
+                        className="absolute inset-x-6 top-0 h-[2.5px] rounded-b-full bg-brand"
+                      />
+                    ) : null}
                     <t.icon className={cn("size-[22px]", active && "stroke-[2.25px]")} />
                     <span className="leading-none">{t.label}</span>
                   </Link>

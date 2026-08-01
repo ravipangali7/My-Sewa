@@ -1,8 +1,18 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ChevronRight } from "lucide-react";
+import { useRef, useState } from "react";
+import {
+  Camera,
+  ChevronRight,
+  Lock,
+  LogOut,
+  Phone,
+  UserRound,
+} from "lucide-react";
+import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { useAuth } from "@/lib/auth";
-import { formatNPR, formatDate } from "@/lib/format";
+import { apiClient, ApiError } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/profile")({
   head: () => ({
@@ -22,12 +32,16 @@ export const Route = createFileRoute("/app/profile")({
 
 function Profile() {
   const navigate = useNavigate();
-  const { user, wallet, logout } = useAuth();
+  const { user, logout, refreshProfile } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [savingAvatar, setSavingAvatar] = useState(false);
 
   if (!user) {
     return (
-      <UserShell title="Profile">
-        <p className="text-sm text-muted-foreground">Loading profile…</p>
+      <UserShell title="Profile" hideHeader>
+        <div className="flex min-h-[50vh] items-center justify-center px-4">
+          <p className="text-sm text-muted-foreground">Loading profile…</p>
+        </div>
       </UserShell>
     );
   }
@@ -38,87 +52,156 @@ function Profile() {
     `${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase() ||
     user.phone.slice(0, 2);
 
+  const handleAvatarChange = async (file: File | null) => {
+    if (!file) return;
+    setSavingAvatar(true);
+    try {
+      const fd = new FormData();
+      fd.append("avatar", file);
+      await apiClient.updateProfile(fd);
+      await refreshProfile();
+      toast.success("Profile photo updated");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Photo update failed");
+    } finally {
+      setSavingAvatar(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   return (
-    <UserShell title="Profile">
-      <div className="space-y-5">
-        <section className="inset-group overflow-hidden">
-          <div className="h-16 bg-hero-gradient sm:h-18" aria-hidden />
-          <div className="relative px-4 pb-5 pt-0">
-            <div className="-mt-10 flex items-end gap-4">
+    <UserShell title="Profile" hideHeader>
+      <div className="min-h-[100dvh] bg-[#F2F4F7] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
+        {/* Gradient header */}
+        <section className="relative bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_32%,#0C6B7A_68%,#0A9B6E_100%)] px-4 pb-8 pt-[max(14px,env(safe-area-inset-top))]">
+          <h1 className="text-[20px] font-medium tracking-tight text-white">Profile</h1>
+
+          <div className="mt-5 flex flex-col items-center">
+            <div className="relative">
               {user.avatar_url ? (
                 <img
                   src={user.avatar_url}
                   alt=""
-                  className="size-22 shrink-0 rounded-2xl object-cover shadow-card ring-4 ring-surface"
+                  className="size-[108px] rounded-full object-cover shadow-[0_8px_24px_rgba(0,0,0,0.22)] ring-[3px] ring-white"
                 />
               ) : (
-                <div className="flex size-22 shrink-0 items-center justify-center rounded-2xl bg-brand-soft text-[28px] font-semibold text-brand-dark shadow-card ring-4 ring-surface">
+                <div className="flex size-[108px] items-center justify-center rounded-full bg-white/20 text-[34px] font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.22)] ring-[3px] ring-white">
                   {initials}
                 </div>
               )}
-              <div className="min-w-0 flex-1 pb-1">
-                <p className="truncate text-[20px] font-semibold leading-tight tracking-tight">
-                  {displayName}
-                </p>
-                <p className="mt-1 truncate text-[15px] text-muted-foreground">{user.phone}</p>
-              </div>
+              <button
+                type="button"
+                aria-label="Change profile photo"
+                disabled={savingAvatar}
+                className="absolute bottom-0.5 right-0.5 flex size-8 items-center justify-center rounded-full bg-[#22C55E] text-white shadow-md ring-2 ring-white disabled:opacity-60"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Camera className="size-3.5" strokeWidth={2.25} />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleAvatarChange(e.target.files?.[0] ?? null)}
+              />
             </div>
-            <div className="mt-4 rounded-xl bg-muted/70 px-3.5 py-3">
-              <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
-                Email
-              </p>
-              <p className="mt-0.5 truncate text-[15px] font-medium">
-                {user.email || "No email on file"}
-              </p>
-            </div>
+            <p className="mt-3.5 text-center text-[22px] font-bold tracking-tight text-white">
+              {displayName}
+            </p>
           </div>
         </section>
 
-        <section className="inset-group divide-y divide-border">
-          <Field label="Wallet balance" value={wallet ? formatNPR(wallet.balance) : "—"} />
-          <Field label="Account status" value={user.is_active ? "Active" : "Inactive"} />
-          <Field label="Date joined" value={formatDate(user.date_joined)} />
-          <Field label="Last login" value={user.last_login ? formatDate(user.last_login) : "—"} />
-        </section>
+        {/* Settings */}
+        <div className="space-y-5 px-4 pb-8 pt-4">
+          {/* Phone card */}
+          <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+              <Phone className="size-[18px]" strokeWidth={2} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-medium text-[#8A94A6]">Phone number</p>
+              <p className="truncate text-[16px] font-semibold text-[#0F172A]">{user.phone}</p>
+            </div>
+            <Link
+              to="/app/profile/phone"
+              className="shrink-0 px-1 text-[15px] font-semibold text-[#2563EB]"
+            >
+              Change
+            </Link>
+          </div>
 
-        <section className="inset-group divide-y divide-border">
-          <ActionRow label="Edit profile" to="/app/profile/edit" />
-          <ActionRow label="Change phone" to="/app/profile/phone" />
-          <ActionRow label="Change password" to="/app/profile/password" />
-        </section>
+          {/* Account */}
+          <section>
+            <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
+              ACCOUNT
+            </h2>
+            <SettingsRow
+              to="/app/profile/edit"
+              icon={UserRound}
+              title="Edit profile"
+              subtitle="Name and email"
+            />
+          </section>
 
-        <button
-          type="button"
-          className="inset-group block w-full px-4 py-3.5 text-center text-[17px] font-medium text-danger"
-          onClick={async () => {
-            await logout();
-            navigate({ to: "/" });
-          }}
-        >
-          Log out
-        </button>
+          {/* Security */}
+          <section>
+            <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
+              SECURITY
+            </h2>
+            <SettingsRow
+              to="/app/profile/password"
+              icon={Lock}
+              title="Change password"
+              subtitle="Update your login password"
+            />
+          </section>
+
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#F87171]/70 bg-[#FEF2F2] px-4 py-3.5 text-[16px] font-semibold text-[#EF4444] transition-colors hover:bg-[#FEE2E2]"
+            onClick={async () => {
+              await logout();
+              navigate({ to: "/" });
+            }}
+          >
+            <LogOut className="size-[18px]" strokeWidth={2} />
+            Logout
+          </button>
+        </div>
       </div>
     </UserShell>
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between px-4 py-3">
-      <span className="text-[15px] text-muted-foreground">{label}</span>
-      <span className="text-[15px] font-medium">{value}</span>
-    </div>
-  );
-}
-
-function ActionRow({ label, to }: { label: string; to: "/app/profile/edit" | "/app/profile/phone" | "/app/profile/password" }) {
+function SettingsRow({
+  to,
+  icon: Icon,
+  title,
+  subtitle,
+}: {
+  to: "/app/profile/edit" | "/app/profile/password";
+  icon: typeof UserRound;
+  title: string;
+  subtitle: string;
+}) {
   return (
     <Link
       to={to}
-      className="flex w-full items-center px-4 py-3.5 text-left text-[17px] hover:bg-muted/60"
+      className={cn(
+        "flex w-full items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 text-left",
+        "shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]",
+        "active:bg-[#F8FAFC]",
+      )}
     >
-      {label}
-      <ChevronRight className="ml-auto size-4 text-muted-foreground" />
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+        <Icon className="size-[18px]" strokeWidth={2} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[16px] font-semibold text-[#0F172A]">{title}</p>
+        <p className="mt-0.5 text-[13px] text-[#8A94A6]">{subtitle}</p>
+      </div>
+      <ChevronRight className="size-5 shrink-0 text-[#C0C7D2]" strokeWidth={2} />
     </Link>
   );
 }
