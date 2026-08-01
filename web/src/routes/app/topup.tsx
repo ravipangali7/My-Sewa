@@ -15,6 +15,10 @@ import {
 } from "@/lib/constants";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
+import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { ACCOUNT_PENDING_MESSAGE, isAccountPending } from "@/lib/account-status";
+import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 
 export const Route = createFileRoute("/app/topup")({
   head: () => ({
@@ -37,6 +41,8 @@ export const Route = createFileRoute("/app/topup")({
 
 function TopUp() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const accountPending = isAccountPending(user);
   const [productId, setProductId] = useState<1 | 2>(1);
   const [mobile, setMobile] = useState("");
   const [amount, setAmount] = useState("");
@@ -49,13 +55,15 @@ function TopUp() {
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
   });
-  const topupsEnabled = settingsQuery.data?.config?.payment?.topups_enabled !== false;
+  const topupsEnabled =
+    settingsQuery.data?.config?.payment?.topups_enabled !== false && !accountPending;
   const minTopup = settingsQuery.data?.config?.transactions?.min_topup ?? 10;
   const maxTopup = settingsQuery.data?.config?.transactions?.max_topup ?? 5000;
 
   const historyQuery = useQuery({
     queryKey: ["topups"],
     queryFn: () => apiClient.topupHistory(),
+    refetchInterval: LIVE_REFETCH_MS,
   });
 
   const amt = Number(amount) || 0;
@@ -95,6 +103,7 @@ function TopUp() {
 
   const submitMutation = useMutation({
     mutationFn: async () => {
+      if (accountPending) throw new Error(ACCOUNT_PENDING_MESSAGE);
       if (!topupsEnabled) throw new Error("Mobile top-ups are currently disabled.");
       setTouchedMobile(true);
       if (validateOperatorMobile(productId, mobile)) {
@@ -137,7 +146,12 @@ function TopUp() {
   return (
     <UserShell title="Mobile Top-Up" back="/app">
       <div className="grid gap-5 lg:grid-cols-2">
-        {!topupsEnabled ? (
+        {accountPending ? (
+          <div className="lg:col-span-2">
+            <AccountPendingBanner />
+          </div>
+        ) : null}
+        {!topupsEnabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
             <p className="text-[15px] font-medium text-destructive">Top-ups temporarily unavailable</p>
             <p className="mt-1 text-[13px] text-muted-foreground">

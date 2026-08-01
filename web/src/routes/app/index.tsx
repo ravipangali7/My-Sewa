@@ -22,6 +22,9 @@ import { buildNotifications } from "@/lib/notifications";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useSiteBranding } from "@/hooks/use-site-branding";
+import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { ACCOUNT_PENDING_MESSAGE, isAccountPending } from "@/lib/account-status";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/")({
   head: () => ({
@@ -99,10 +102,12 @@ function formatPhone(phone: string) {
 function WalletHome() {
   const { user, wallet } = useAuth();
   const { logoUrl } = useSiteBranding();
+  const accountPending = isAccountPending(user);
   const [balanceVisible, setBalanceVisible] = useState(true);
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
+    refetchInterval: LIVE_REFETCH_MS,
   });
 
   const activity = txQuery.data ? buildActivity(txQuery.data).slice(0, 3) : [];
@@ -226,25 +231,52 @@ function WalletHome() {
 
           {/* Quick actions */}
           <section className="grid grid-cols-4 gap-2.5">
-            {ACTIONS.map((a) => (
-              <Link
-                key={a.to}
-                to={a.to}
-                className="flex flex-col items-center gap-2 rounded-2xl bg-white px-1.5 py-3.5 shadow-[0_4px_16px_-6px_rgba(16,24,40,0.14)] transition-transform active:scale-[0.97]"
-              >
-                <span
-                  className={cn(
-                    "flex size-11 items-center justify-center rounded-full text-white shadow-sm",
-                    a.iconBg,
-                  )}
+            {ACTIONS.map((a) => {
+              const blocked =
+                accountPending &&
+                (a.to === "/app/transfer" || a.to === "/app/topup" || a.to === "/app/load");
+              if (blocked) {
+                return (
+                  <button
+                    key={a.to}
+                    type="button"
+                    onClick={() => toast.error(ACCOUNT_PENDING_MESSAGE)}
+                    className="flex flex-col items-center gap-2 rounded-2xl bg-white px-1.5 py-3.5 opacity-70 shadow-[0_4px_16px_-6px_rgba(16,24,40,0.14)] transition-transform active:scale-[0.97]"
+                  >
+                    <span
+                      className={cn(
+                        "flex size-11 items-center justify-center rounded-full text-white shadow-sm",
+                        a.iconBg,
+                      )}
+                    >
+                      <a.icon className="size-5" strokeWidth={2.25} />
+                    </span>
+                    <span className="text-center text-[11px] leading-tight font-semibold text-[#0B2B4A]">
+                      {a.label}
+                    </span>
+                  </button>
+                );
+              }
+              return (
+                <Link
+                  key={a.to}
+                  to={a.to}
+                  className="flex flex-col items-center gap-2 rounded-2xl bg-white px-1.5 py-3.5 shadow-[0_4px_16px_-6px_rgba(16,24,40,0.14)] transition-transform active:scale-[0.97]"
                 >
-                  <a.icon className="size-5" strokeWidth={2.25} />
-                </span>
-                <span className="text-center text-[11px] leading-tight font-semibold text-[#0B2B4A]">
-                  {a.label}
-                </span>
-              </Link>
-            ))}
+                  <span
+                    className={cn(
+                      "flex size-11 items-center justify-center rounded-full text-white shadow-sm",
+                      a.iconBg,
+                    )}
+                  >
+                    <a.icon className="size-5" strokeWidth={2.25} />
+                  </span>
+                  <span className="text-center text-[11px] leading-tight font-semibold text-[#0B2B4A]">
+                    {a.label}
+                  </span>
+                </Link>
+              );
+            })}
           </section>
 
           {/* Recent transactions */}

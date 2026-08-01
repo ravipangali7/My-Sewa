@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from ..models import Deposit
 from ..serializers import DepositSerializer, DepositCreateSerializer
-from ..services.app_config import is_auto_status_verified, require_feature_enabled
+from ..services.app_config import is_auto_status_verified, require_feature_enabled, require_account_approved
 from ..services.notifications import notify_deposit_submitted
 
 
@@ -18,6 +18,10 @@ def create_deposit(request):
     blocked = require_feature_enabled('deposits')
     if blocked:
         return blocked
+
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
 
     serializer = DepositCreateSerializer(data=request.data)
     if serializer.is_valid():

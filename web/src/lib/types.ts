@@ -2,6 +2,9 @@ export type DepositStatus = "pending" | "approved" | "rejected";
 export type TxnStatus = "pending" | "success" | "failed";
 export type ActivityKind = "deposit" | "topup" | "transfer";
 
+/** Account approval status — pending users can log in but cannot transact. */
+export type AccountStatus = "pending" | "approved";
+
 export interface UserProfile {
   id: number;
   phone: string;
@@ -13,6 +16,8 @@ export interface UserProfile {
   is_active: boolean;
   is_staff: boolean;
   is_superuser: boolean;
+  /** `pending` = Pending (yellow), `approved` = Active (green) */
+  account_status?: AccountStatus;
   date_joined: string;
   last_login: string | null;
 }
@@ -225,6 +230,7 @@ export interface AdminUserWritePayload {
   is_active?: boolean;
   is_staff?: boolean;
   is_superuser?: boolean;
+  account_status?: AccountStatus;
   password?: string;
   password2?: string;
 }

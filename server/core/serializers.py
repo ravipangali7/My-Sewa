@@ -32,13 +32,14 @@ class UserSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('password2')
         phone = validated_data.pop('phone')
-        # create_user() uses USERNAME_FIELD (phone), so pass phone as the first positional argument
+        # Self-registration starts as Pending until Super Admin activates the account.
         user = User.objects.create_user(
             phone,  # This maps to USERNAME_FIELD which is 'phone'
             email=validated_data.get('email', ''),
             password=validated_data['password'],
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', ''),
+            account_status=User.ACCOUNT_STATUS_PENDING,
         )
         # Wallet will be created automatically via signal
         return user
@@ -52,11 +53,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             'id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url',
-            'is_active', 'is_staff', 'is_superuser', 'date_joined', 'last_login',
+            'is_active', 'is_staff', 'is_superuser', 'account_status',
+            'date_joined', 'last_login',
         )
         read_only_fields = (
             'id', 'phone', 'avatar', 'is_active', 'is_staff', 'is_superuser',
-            'date_joined', 'last_login',
+            'account_status', 'date_joined', 'last_login',
         )
 
     def get_avatar_url(self, obj):
@@ -78,7 +80,8 @@ class AdminUserSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             'id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url',
-            'is_active', 'is_staff', 'is_superuser', 'date_joined', 'last_login',
+            'is_active', 'is_staff', 'is_superuser', 'account_status',
+            'date_joined', 'last_login',
             'wallet_id', 'wallet_balance',
         )
 
@@ -114,7 +117,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             'id', 'phone', 'email', 'first_name', 'last_name',
-            'is_active', 'is_staff', 'is_superuser',
+            'is_active', 'is_staff', 'is_superuser', 'account_status',
             'password', 'password2',
         )
         extra_kwargs = {
@@ -125,6 +128,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'is_active': {'required': False},
             'is_staff': {'required': False},
             'is_superuser': {'required': False},
+            'account_status': {'required': False},
         }
 
     def validate_phone(self, value):
@@ -163,6 +167,8 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         validated_data.pop('password2', None)
         password = validated_data.pop('password')
         phone = validated_data.pop('phone')
+        # Admin-created users default to Active unless explicitly set to Pending.
+        validated_data.setdefault('account_status', User.ACCOUNT_STATUS_APPROVED)
         return User.objects.create_user(phone, password=password, **validated_data)
 
     def update(self, instance, validated_data):
@@ -220,6 +226,33 @@ class ChangePasswordSerializer(serializers.Serializer):
     current_password = serializers.CharField(required=True, write_only=True)
     new_password = serializers.CharField(required=True, write_only=True, min_length=8)
     confirm_password = serializers.CharField(required=True, write_only=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['confirm_password']:
+            raise serializers.ValidationError(
+                {'confirm_password': 'Passwords do not match.'}
+            )
+        return attrs
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    phone = serializers.CharField(required=True, max_length=50)
+
+    def validate_phone(self, value):
+        phone = (value or '').strip()
+        if not phone:
+            raise serializers.ValidationError('Phone number is required.')
+        return phone
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    phone = serializers.CharField(required=True, max_length=50)
+    otp = serializers.CharField(required=True, max_length=10)
+    new_password = serializers.CharField(required=True, write_only=True, min_length=8)
+    confirm_password = serializers.CharField(required=True, write_only=True)
+
+    def validate_phone(self, value):
+        return (value or '').strip()
 
     def validate(self, attrs):
         if attrs['new_password'] != attrs['confirm_password']:

@@ -11,6 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
+import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { ACCOUNT_PENDING_MESSAGE, isAccountPending } from "@/lib/account-status";
+import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 
 export const Route = createFileRoute("/app/load")({
   head: () => ({
@@ -33,6 +37,8 @@ export const Route = createFileRoute("/app/load")({
 
 function LoadWallet() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const accountPending = isAccountPending(user);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -45,11 +51,12 @@ function LoadWallet() {
   const depositsQuery = useQuery({
     queryKey: ["deposits"],
     queryFn: () => apiClient.listDeposits(),
+    refetchInterval: LIVE_REFETCH_MS,
   });
 
   const payment = settingsQuery.data?.config?.payment;
   const security = settingsQuery.data?.config?.security;
-  const depositsEnabled = payment?.deposits_enabled !== false;
+  const depositsEnabled = payment?.deposits_enabled !== false && !accountPending;
   const requireScreenshot = security?.require_deposit_screenshot !== false;
   const minDeposit = payment?.min_deposit ?? 100;
   const maxDeposit = payment?.max_deposit ?? 100000;
@@ -57,6 +64,7 @@ function LoadWallet() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      if (accountPending) throw new Error(ACCOUNT_PENDING_MESSAGE);
       if (!depositsEnabled) throw new Error("Wallet deposits are currently disabled.");
       const amt = Number(amount);
       if (!Number.isFinite(amt) || amt <= 0) throw new Error("Enter a valid amount");
@@ -88,7 +96,12 @@ function LoadWallet() {
   return (
     <UserShell title="Load Wallet" back="/app">
       <div className="grid gap-5 lg:grid-cols-2">
-        {!depositsEnabled ? (
+        {accountPending ? (
+          <div className="lg:col-span-2">
+            <AccountPendingBanner />
+          </div>
+        ) : null}
+        {!depositsEnabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
             <p className="text-[15px] font-medium text-destructive">Deposits temporarily unavailable</p>
             <p className="mt-1 text-[13px] text-muted-foreground">

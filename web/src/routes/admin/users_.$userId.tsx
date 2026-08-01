@@ -134,9 +134,14 @@ function UserDetailPage() {
             <DetailRow label="First name">{u.first_name || "—"}</DetailRow>
             <DetailRow label="Last name">{u.last_name || "—"}</DetailRow>
             <DetailRow label="Email">{u.email || "—"}</DetailRow>
-            <DetailRow label="Status">
+            <DetailRow label="Account status">
+              <Badge variant={u.account_status === "approved" ? "default" : "secondary"}>
+                {u.account_status === "approved" ? "Active" : "Pending"}
+              </Badge>
+            </DetailRow>
+            <DetailRow label="Login">
               <Badge variant={u.is_active ? "default" : "secondary"}>
-                {u.is_active ? "Active" : "Inactive"}
+                {u.is_active ? "Enabled" : "Disabled"}
               </Badge>
             </DetailRow>
             <DetailRow label="Role">

@@ -165,5 +165,7 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
+    /* Prefer our in-app pull-to-refresh over native overscroll bounce. */
+    overscroll-behavior-y: contain;
   }
 }

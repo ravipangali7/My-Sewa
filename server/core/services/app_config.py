@@ -182,7 +182,7 @@ def require_account_approved(user) -> Optional[Response]:
             'error': 'account_pending',
             'message': (
                 'Your account is pending Super Admin approval. '
-                'You can sign in, but transactions are disabled until approval.'
+                'You can sign in, but transactions are disabled until your account is Active.'
             ),
             'code': 'account_pending',
             'account_status': getattr(user, 'account_status', 'pending'),

@@ -14,6 +14,10 @@ import { mergeBankLists } from "@/lib/nepali-banks";
 import type { BankOption } from "@/lib/types";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
+import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { ACCOUNT_PENDING_MESSAGE, isAccountPending } from "@/lib/account-status";
+import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 
 export const Route = createFileRoute("/app/transfer")({
   head: () => ({
@@ -38,6 +42,8 @@ type TransferMethod = "bank" | "phone";
 
 function Transfer() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const accountPending = isAccountPending(user);
   const [method, setMethod] = useState<TransferMethod>("bank");
   const [bank, setBank] = useState("");
   const [accNo, setAccNo] = useState("");
@@ -56,7 +62,8 @@ function Transfer() {
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
   });
-  const transfersEnabled = settingsQuery.data?.config?.payment?.transfers_enabled !== false;
+  const transfersEnabled =
+    settingsQuery.data?.config?.payment?.transfers_enabled !== false && !accountPending;
   const minTransfer = settingsQuery.data?.config?.transactions?.min_transfer ?? 10;
   const maxTransfer = settingsQuery.data?.config?.transactions?.max_transfer ?? 100000;
   const dailyLimit = settingsQuery.data?.config?.transactions?.daily_transfer_limit ?? 200000;
@@ -77,6 +84,7 @@ function Transfer() {
   const historyQuery = useQuery({
     queryKey: ["transfers"],
     queryFn: () => apiClient.transferHistory(),
+    refetchInterval: LIVE_REFETCH_MS,
   });
 
   const banks = useMemo(
@@ -124,6 +132,7 @@ function Transfer() {
 
   const submitMutation = useMutation({
     mutationFn: () => {
+      if (accountPending) throw new Error(ACCOUNT_PENDING_MESSAGE);
       if (!transfersEnabled) throw new Error("Bank transfers are currently disabled.");
       if (amt < minTransfer) throw new Error(`Minimum transfer is Rs. ${minTransfer}`);
       if (maxTransfer > 0 && amt > maxTransfer) {
@@ -160,6 +169,10 @@ function Transfer() {
   });
 
   async function verifyDestination() {
+    if (accountPending) {
+      toast.error(ACCOUNT_PENDING_MESSAGE);
+      return;
+    }
     if (!bank || !accName.trim()) {
       toast.error("Enter bank and account holder name");
       return;
@@ -208,7 +221,12 @@ function Transfer() {
   return (
     <UserShell title="Fund Transfer" back="/app">
       <div className="grid gap-5 lg:grid-cols-2">
-        {!transfersEnabled ? (
+        {accountPending ? (
+          <div className="lg:col-span-2">
+            <AccountPendingBanner />
+          </div>
+        ) : null}
+        {!transfersEnabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
             <p className="text-[15px] font-medium text-destructive">Transfers temporarily unavailable</p>
             <p className="mt-1 text-[13px] text-muted-foreground">

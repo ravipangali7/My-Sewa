@@ -3,7 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import type { AdminUser, AdminUserWritePayload } from "@/lib/types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { AccountStatus, AdminUser, AdminUserWritePayload } from "@/lib/types";
 
 export type UserFormValues = {
   phone: string;
@@ -13,6 +20,7 @@ export type UserFormValues = {
   is_active: boolean;
   is_staff: boolean;
   is_superuser: boolean;
+  account_status: AccountStatus;
   password: string;
   password2: string;
 };
@@ -26,6 +34,7 @@ function fromUser(user?: AdminUser | null): UserFormValues {
     is_active: user?.is_active ?? true,
     is_staff: user?.is_staff ?? false,
     is_superuser: user?.is_superuser ?? false,
+    account_status: user?.account_status ?? "approved",
     password: "",
     password2: "",
   };
@@ -60,6 +69,7 @@ export function UserForm({
       is_active: values.is_active,
       is_staff: values.is_staff,
       is_superuser: values.is_superuser,
+      account_status: values.account_status,
     };
     if (values.password || mode === "create") {
       payload.password = values.password;
@@ -153,10 +163,32 @@ export function UserForm({
       </div>
 
       <div className="space-y-3 rounded-lg border border-border p-4">
+        <p className="text-sm font-medium">Account status</p>
+        <div className="space-y-1.5">
+          <Label htmlFor="account_status">Status</Label>
+          <Select
+            value={values.account_status}
+            onValueChange={(v) => set("account_status", v as AccountStatus)}
+          >
+            <SelectTrigger id="account_status" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="approved">Active</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Pending users can sign in but cannot perform remittance, top-up or transfers.
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border p-4">
         <p className="text-sm font-medium">Permissions</p>
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor="is_active" className="font-normal">
-            Active
+            Login enabled
           </Label>
           <Switch
             id="is_active"

@@ -8,11 +8,14 @@ User = get_user_model()
 
 @admin.register(User)
 class CustomUserAdmin(admin.ModelAdmin):
-    list_display = ('phone', 'email', 'first_name', 'last_name', 'is_active', 'date_joined')
-    list_filter = ('is_active', 'is_staff', 'date_joined')
+    list_display = ('phone', 'email', 'first_name', 'last_name', 'account_status', 'is_active', 'date_joined')
+    list_filter = ('account_status', 'is_active', 'is_staff', 'date_joined')
     search_fields = ('phone', 'email', 'first_name', 'last_name')
     readonly_fields = ('date_joined', 'last_login')
-    fields = ('phone', 'email', 'first_name', 'last_name', 'avatar', 'is_active', 'is_staff', 'date_joined', 'last_login')
+    fields = (
+        'phone', 'email', 'first_name', 'last_name', 'avatar',
+        'account_status', 'is_active', 'is_staff', 'date_joined', 'last_login',
+    )
 
 
 @admin.register(Wallet)

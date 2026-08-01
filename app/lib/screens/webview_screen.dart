@@ -19,7 +19,8 @@ class WebViewScreen extends StatefulWidget {
   State<WebViewScreen> createState() => _WebViewScreenState();
 }
 
-class _WebViewScreenState extends State<WebViewScreen> {
+class _WebViewScreenState extends State<WebViewScreen>
+    with WidgetsBindingObserver {
   WebViewController? _controller;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
@@ -29,6 +30,15 @@ class _WebViewScreenState extends State<WebViewScreen> {
   bool _isLoading = true;
   bool _exitDialogOpen = false;
   double _progress = 0;
+
+  /// Ask the embedded web app to refetch data (pull-to-refresh / live updates).
+  static const _dispatchAppResumeJs = '''
+(function() {
+  try {
+    window.dispatchEvent(new CustomEvent('mysewa-app-resume'));
+  } catch (e) {}
+})();
+''';
 
   /// Keeps zoom locked while preserving `viewport-fit=cover` so CSS
   /// `env(safe-area-inset-*)` works for status / nav / home-indicator insets.
@@ -73,7 +83,15 @@ class _WebViewScreenState extends State<WebViewScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bootstrap();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _isOnline && _controller != null) {
+      _controller!.runJavaScript(_dispatchAppResumeJs);
+    }
   }
 
   Future<void> _bootstrap() async {
@@ -336,6 +354,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _connectivitySub?.cancel();
     super.dispose();
   }

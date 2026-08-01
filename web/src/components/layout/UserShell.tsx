@@ -1,11 +1,13 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Home, ArrowLeftRight, History, User, ArrowLeft } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { apiClient } from "@/lib/api";
+import { refreshAppData } from "@/lib/refresh";
 import { useSiteBranding } from "@/hooks/use-site-branding";
+import { PullToRefresh } from "@/components/PullToRefresh";
 
 const TABS = [
   { to: "/app", label: "Home", icon: Home, match: (p: string) => p === "/app" || p === "/app/" },
@@ -42,8 +44,14 @@ export function UserShell({
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user, isLoading, token, logout } = useAuth();
   const { logoUrl } = useSiteBranding();
+
+  const handlePullRefresh = useCallback(
+    () => refreshAppData(queryClient),
+    [queryClient],
+  );
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -161,15 +169,17 @@ export function UserShell({
             hideHeader ? "px-0 pb-28" : "px-4 pb-28",
           )}
         >
-          <div className={cn("mx-auto w-full", hideHeader ? "max-w-lg lg:max-w-6xl" : "max-w-6xl")}>
-            {maintenance ? (
-              <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100">
-                <p className="font-medium">Maintenance mode</p>
-                <p className="mt-0.5 text-[13px] opacity-90">{maintenanceMessage}</p>
-              </div>
-            ) : null}
-            {children}
-          </div>
+          <PullToRefresh onRefresh={handlePullRefresh}>
+            <div className={cn("mx-auto w-full", hideHeader ? "max-w-lg lg:max-w-6xl" : "max-w-6xl")}>
+              {maintenance ? (
+                <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100">
+                  <p className="font-medium">Maintenance mode</p>
+                  <p className="mt-0.5 text-[13px] opacity-90">{maintenanceMessage}</p>
+                </div>
+              ) : null}
+              {children}
+            </div>
+          </PullToRefresh>
         </main>
 
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface pb-[max(10px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] lg:hidden">

@@ -17,6 +17,8 @@ urlpatterns = [
     path('api/auth/profile/', auth_views.profile, name='profile'),
     path('api/auth/change-password/', auth_views.change_password, name='change_password'),
     path('api/auth/change-phone/', auth_views.change_phone, name='change_phone'),
+    path('api/auth/forgot-password/', auth_views.forgot_password, name='forgot_password'),
+    path('api/auth/reset-password/', auth_views.reset_password, name='reset_password'),
 
     # Wallet endpoints
     path('api/wallet/balance/', wallet_views.get_wallet_balance, name='wallet_balance'),

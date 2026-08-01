@@ -35,10 +35,10 @@ class CustomUserManager(BaseUserManager):
 class CustomUser(AbstractUser):
     """Custom User model with phone number as authentication field"""
     ACCOUNT_STATUS_PENDING = 'pending'
-    ACCOUNT_STATUS_APPROVED = 'approved'
+    ACCOUNT_STATUS_APPROVED = 'approved'  # displayed as "Active" in the UI
     ACCOUNT_STATUS_CHOICES = [
         (ACCOUNT_STATUS_PENDING, 'Pending'),
-        (ACCOUNT_STATUS_APPROVED, 'Approved'),
+        (ACCOUNT_STATUS_APPROVED, 'Active'),
     ]
 
     # Make username nullable since we're using phone as USERNAME_FIELD
@@ -63,7 +63,7 @@ class CustomUser(AbstractUser):
         choices=ACCOUNT_STATUS_CHOICES,
         default=ACCOUNT_STATUS_APPROVED,
         db_index=True,
-        help_text="Pending users can log in but cannot perform transactions until approved.",
+        help_text="Pending users can log in but cannot perform transactions until set to Active.",
     )
     
     # Use phone as the authentication field

@@ -15,6 +15,8 @@ from ..serializers import (
     UserProfileUpdateSerializer,
     ChangePasswordSerializer,
     ChangePhoneSerializer,
+    ForgotPasswordSerializer,
+    ResetPasswordSerializer,
 )
 
 User = get_user_model()
@@ -193,6 +195,7 @@ def login(request):
                     'last_name': user.last_name,
                     'is_staff': user.is_staff,
                     'is_superuser': user.is_superuser,
+                    'account_status': user.account_status,
                 }
             }, status=status.HTTP_200_OK)
         else:
@@ -334,4 +337,93 @@ def change_phone(request):
     return Response({
         'message': 'Phone number updated successfully',
         'user': profile_serializer.data,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def forgot_password(request):
+    """
+    Request a password-reset OTP for a phone number.
+    Always returns a generic success message to avoid account enumeration.
+    """
+    import secrets
+    from django.core.cache import cache
+
+    serializer = ForgotPasswordSerializer(data=request.data)
+    if not serializer.is_valid():
+        formatted = format_validation_errors(serializer.errors)
+        return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
+
+    phone = serializer.validated_data['phone']
+    generic = {
+        'message': (
+            'If an account exists for this phone number, a verification code has been sent. '
+            'Enter the code to reset your password.'
+        ),
+    }
+
+    try:
+        user = User.objects.get(phone=phone)
+    except User.DoesNotExist:
+        return Response(generic, status=status.HTTP_200_OK)
+
+    if not user.is_active:
+        return Response(generic, status=status.HTTP_200_OK)
+
+    otp = f'{secrets.randbelow(1_000_000):06d}'
+    cache.set(f'password_reset_otp:{phone}', otp, timeout=60 * 15)
+    # SMS delivery is not wired yet — log the OTP for operators / local testing.
+    logger.info('Password reset OTP for %s***: %s', phone[:3], otp)
+
+    from django.conf import settings as dj_settings
+    if getattr(dj_settings, 'DEBUG', False):
+        return Response({**generic, 'debug_otp': otp}, status=status.HTTP_200_OK)
+
+    return Response(generic, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def reset_password(request):
+    """Reset password using phone + OTP from forgot_password."""
+    from django.core.cache import cache
+
+    serializer = ResetPasswordSerializer(data=request.data)
+    if not serializer.is_valid():
+        formatted = format_validation_errors(serializer.errors)
+        return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
+
+    phone = serializer.validated_data['phone']
+    otp = serializer.validated_data['otp'].strip()
+    cached = cache.get(f'password_reset_otp:{phone}')
+
+    if not cached or str(cached) != otp:
+        return Response({
+            'message': 'Invalid or expired verification code',
+            'errors': {'otp': ['Invalid or expired verification code']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = User.objects.get(phone=phone)
+    except User.DoesNotExist:
+        return Response({
+            'message': 'Invalid or expired verification code',
+            'errors': {'otp': ['Invalid or expired verification code']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    if not user.is_active:
+        return Response({
+            'message': 'Your account has been deactivated',
+            'errors': {'phone': ['Your account has been deactivated']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    user.set_password(serializer.validated_data['new_password'])
+    user.save()
+    cache.delete(f'password_reset_otp:{phone}')
+    # Invalidate existing sessions
+    Token.objects.filter(user=user).delete()
+
+    return Response({
+        'message': 'Password reset successfully. You can now log in with your new password.',
     }, status=status.HTTP_200_OK)

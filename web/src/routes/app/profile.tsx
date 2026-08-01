@@ -12,7 +12,19 @@ import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
+import { isAccountActive } from "@/lib/account-status";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/app/profile")({
   head: () => ({
@@ -35,6 +47,7 @@ function Profile() {
   const { user, logout, refreshProfile } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [savingAvatar, setSavingAvatar] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   if (!user) {
     return (
@@ -51,6 +64,7 @@ function Profile() {
   const initials =
     `${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase() ||
     user.phone.slice(0, 2);
+  const accountActive = isAccountActive(user);
 
   const handleAvatarChange = async (file: File | null) => {
     if (!file) return;
@@ -66,6 +80,16 @@ function Profile() {
     } finally {
       setSavingAvatar(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const confirmLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logout();
+      navigate({ to: "/" });
+    } finally {
+      setLoggingOut(false);
     }
   };
 
@@ -89,6 +113,15 @@ function Profile() {
                   {initials}
                 </div>
               )}
+              {/* Account status: yellow = Pending, green = Active (no text label) */}
+              <span
+                aria-label={accountActive ? "Account active" : "Account pending"}
+                title={accountActive ? "Active" : "Pending"}
+                className={cn(
+                  "absolute left-1.5 top-1.5 size-3.5 rounded-full ring-2 ring-white",
+                  accountActive ? "bg-[#22C55E]" : "bg-[#EAB308]",
+                )}
+              />
               <button
                 type="button"
                 aria-label="Change profile photo"
@@ -157,17 +190,38 @@ function Profile() {
             />
           </section>
 
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#F87171]/70 bg-[#FEF2F2] px-4 py-3.5 text-[16px] font-semibold text-[#EF4444] transition-colors hover:bg-[#FEE2E2]"
-            onClick={async () => {
-              await logout();
-              navigate({ to: "/" });
-            }}
-          >
-            <LogOut className="size-[18px]" strokeWidth={2} />
-            Logout
-          </button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#F87171]/70 bg-[#FEF2F2] px-4 py-3.5 text-[16px] font-semibold text-[#EF4444] transition-colors hover:bg-[#FEE2E2]"
+              >
+                <LogOut className="size-[18px]" strokeWidth={2} />
+                Logout
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Log out?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to log out?
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={loggingOut}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={loggingOut}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmLogout();
+                  }}
+                >
+                  {loggingOut ? "Logging out…" : "Log out"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
     </UserShell>

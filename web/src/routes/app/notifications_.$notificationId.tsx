@@ -6,6 +6,7 @@ import { StatusChip } from "@/components/StatusChip";
 import { apiClient } from "@/lib/api";
 import { findNotification, markNotificationRead } from "@/lib/notifications";
 import { formatNPR } from "@/lib/format";
+import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/notifications_/$notificationId")({
@@ -23,6 +24,7 @@ function NotificationDetailPage() {
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
+    refetchInterval: LIVE_REFETCH_MS,
   });
 
   const notification = txQuery.data

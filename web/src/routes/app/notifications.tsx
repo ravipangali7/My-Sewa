@@ -11,6 +11,7 @@ import {
   markAllNotificationsRead,
 } from "@/lib/notifications";
 import { formatDateTime, formatNPR } from "@/lib/format";
+import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/notifications")({
@@ -31,6 +32,7 @@ function NotificationsPage() {
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
+    refetchInterval: LIVE_REFETCH_MS,
   });
 
   const notifications = useMemo(

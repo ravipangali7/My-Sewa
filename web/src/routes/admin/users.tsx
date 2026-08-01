@@ -36,7 +36,7 @@ export const Route = createFileRoute("/admin/users")({
       {
         name: "description",
         content:
-          "Browse every MySewa account: phone, name, email, active state, join date and wallet balance.",
+          "Browse every MySewa account: phone, name, email, account status, join date and wallet balance.",
       },
       { property: "og:title", content: "Users — MySewa Admin" },
       { property: "og:description", content: "User directory with wallet balances and status." },
@@ -52,6 +52,24 @@ function UsersPage() {
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => apiClient.adminUsers(),
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, account_status }: { id: number; account_status: "pending" | "approved" }) => {
+      const existing = usersQuery.data?.find((u) => u.id === id);
+      if (!existing) throw new Error("User not found");
+      return apiClient.adminUpdateUser(id, {
+        phone: existing.phone,
+        account_status,
+      });
+    },
+    onSuccess: (_data, vars) => {
+      toast.success(vars.account_status === "approved" ? "User set to Active" : "User set to Pending");
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not update status");
+    },
   });
 
   const deleteMutation = useMutation({
@@ -70,8 +88,21 @@ function UsersPage() {
   const actionsFor = (u: AdminUser) => {
     const userId = String(u.id);
     const isSelf = currentUser?.id === u.id;
+    const isPending = u.account_status === "pending";
     return (
       <div className="flex justify-end gap-1">
+        {isPending ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 px-2"
+            disabled={statusMutation.isPending}
+            title="Set Active"
+            onClick={() => statusMutation.mutate({ id: u.id, account_status: "approved" })}
+          >
+            Activate
+          </Button>
+        ) : null}
         <Button asChild size="sm" variant="ghost" className="h-8 px-2">
           <Link to="/admin/users/$userId" params={{ userId }} title="View">
             <Eye className="size-3.5" />
@@ -145,7 +176,8 @@ function UsersPage() {
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Staff</TableHead>
-              <TableHead>Active</TableHead>
+              <TableHead>Account</TableHead>
+              <TableHead>Login</TableHead>
               <TableHead>Date joined</TableHead>
               <TableHead>Last login</TableHead>
               <TableHead className="text-right">Wallet balance</TableHead>
@@ -165,8 +197,13 @@ function UsersPage() {
                   {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : "—"}
                 </TableCell>
                 <TableCell>
+                  <Badge variant={u.account_status === "approved" ? "default" : "secondary"}>
+                    {u.account_status === "approved" ? "Active" : "Pending"}
+                  </Badge>
+                </TableCell>
+                <TableCell>
                   <Badge variant={u.is_active ? "default" : "secondary"}>
-                    {u.is_active ? "Active" : "Inactive"}
+                    {u.is_active ? "Enabled" : "Disabled"}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-sm">{formatDate(u.date_joined)}</TableCell>
@@ -181,7 +218,7 @@ function UsersPage() {
             ))}
             {!usersQuery.isLoading && users.length === 0 && (
               <TableRow>
-                <TableCell colSpan={10} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={11} className="py-10 text-center text-sm text-muted-foreground">
                   No users found.
                 </TableCell>
               </TableRow>

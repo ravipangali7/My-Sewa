@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth";
 import { useSiteBranding } from "@/hooks/use-site-branding";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
 function NotFoundComponent() {
   return (
@@ -129,6 +130,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <SiteBrandingSync />
+        <LiveRefreshSync />
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
         <Toaster position="top-center" />
@@ -140,5 +142,11 @@ function RootComponent() {
 /** Keeps the document favicon in sync with the uploaded site logo. */
 function SiteBrandingSync() {
   useSiteBranding();
+  return null;
+}
+
+/** Refetch when the WebView/tab becomes visible again. */
+function LiveRefreshSync() {
+  useLiveRefresh();
   return null;
 }

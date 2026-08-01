@@ -3,6 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Download, Send, Smartphone, ChevronRight } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { apiClient } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { isAccountPending } from "@/lib/account-status";
+import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 
 export const Route = createFileRoute("/app/services")({
   head: () => ({
@@ -24,6 +27,8 @@ export const Route = createFileRoute("/app/services")({
 });
 
 function Services() {
+  const { user } = useAuth();
+  const accountPending = isAccountPending(user);
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
@@ -37,29 +42,36 @@ function Services() {
     {
       to: "/app/load" as const,
       title: "Load Wallet",
-      desc: "Remittance / bank deposit with proof",
+      desc: accountPending
+        ? "Unavailable while account is Pending"
+        : "Remittance / bank deposit with proof",
       icon: Download,
-      enabled: payment?.deposits_enabled !== false,
+      enabled: payment?.deposits_enabled !== false && !accountPending,
     },
     {
       to: "/app/topup" as const,
       title: "Mobile Top-Up",
-      desc: "NTC · NCELL recharge",
+      desc: accountPending
+        ? "Unavailable while account is Pending"
+        : "NTC · NCELL recharge",
       icon: Smartphone,
-      enabled: payment?.topups_enabled !== false,
+      enabled: payment?.topups_enabled !== false && !accountPending,
     },
     {
       to: "/app/transfer" as const,
       title: "Bank Transfer",
-      desc: "Send to any Nepali bank",
+      desc: accountPending
+        ? "Unavailable while account is Pending"
+        : "Send to any Nepali bank",
       icon: Send,
-      enabled: payment?.transfers_enabled !== false,
+      enabled: payment?.transfers_enabled !== false && !accountPending,
     },
   ];
 
   return (
     <UserShell title="Services">
       <div className="space-y-5">
+        {accountPending ? <AccountPendingBanner /> : null}
         <ul className="inset-group divide-y divide-border">
           {services.map((s) => (
             <li key={s.to}>
@@ -82,7 +94,7 @@ function Services() {
                   <span className="min-w-0 flex-1">
                     <span className="block text-[17px] font-medium">{s.title}</span>
                     <span className="block text-[13px] text-muted-foreground">
-                      Currently unavailable
+                      {accountPending ? s.desc : "Currently unavailable"}
                     </span>
                   </span>
                 </div>

@@ -33,6 +33,7 @@ from ..services.app_config import (
     get_app_config,
     resolve_transfer_fees,
     require_feature_enabled,
+    require_account_approved,
     is_auto_status_verified,
 )
 from ..services.notifications import notify_low_balance_if_needed
@@ -129,6 +130,10 @@ def verify_account(request):
     blocked = require_feature_enabled('transfers')
     if blocked:
         return blocked
+
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
 
     serializer = BankAccountVerifySerializer(data=request.data)
     if not serializer.is_valid():
@@ -271,6 +276,10 @@ def create_bank_transfer(request):
     blocked = require_feature_enabled('transfers')
     if blocked:
         return blocked
+
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
 
     serializer = BankTransferCreateSerializer(data=request.data)
     if not serializer.is_valid():

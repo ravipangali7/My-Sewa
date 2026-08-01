@@ -8,6 +8,7 @@ import { apiClient } from "@/lib/api";
 import { buildActivity } from "@/lib/activity";
 import type { ActivityKind } from "@/lib/types";
 import { formatNPR, formatDateTime } from "@/lib/format";
+import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/history")({
@@ -41,6 +42,7 @@ function HistoryPage() {
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
+    refetchInterval: LIVE_REFETCH_MS,
   });
 
   const items = (txQuery.data ? buildActivity(txQuery.data) : []).filter(

@@ -24,6 +24,7 @@ from ..services.app_config import (
     get_app_config,
     platform_topup_charge,
     require_feature_enabled,
+    require_account_approved,
     is_auto_status_verified,
 )
 from ..services.notifications import notify_topup_success, notify_low_balance_if_needed
@@ -58,6 +59,10 @@ def _process_topup(request, product_id: int, service_label: str):
     blocked = require_feature_enabled('topups')
     if blocked:
         return blocked
+
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
 
     serializer = TopupCreateSerializer(data=request.data)
     if not serializer.is_valid():

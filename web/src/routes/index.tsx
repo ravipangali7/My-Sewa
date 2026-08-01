@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -102,7 +102,15 @@ function LoginPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  to="/forgot-password"
+                  className="text-[13px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <Input
                 id="password"
                 type="password"
@@ -122,7 +130,13 @@ function LoginPage() {
           </form>
 
           <p className="mt-6 text-center text-[13px] text-muted-foreground">
-            New to MySewa? Registering creates your wallet automatically.
+            New to MySewa?{" "}
+            <Link
+              to="/register"
+              className="font-semibold text-foreground underline-offset-2 hover:underline"
+            >
+              Create an account
+            </Link>
           </p>
         </div>
       </section>

@@ -4,11 +4,14 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { apiClient, getToken, setToken, ApiError } from "./api";
+import { LIVE_REFETCH_MS } from "./refresh";
 import type { UserProfile, Wallet } from "./types";
 
 type AuthContextValue = {
@@ -19,6 +22,14 @@ type AuthContextValue = {
   isAuthenticated: boolean;
   isStaff: boolean;
   login: (phone: string, password: string) => Promise<UserProfile>;
+  register: (input: {
+    phone: string;
+    password: string;
+    password2: string;
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+  }) => Promise<UserProfile>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   setSessionToken: (token: string) => void;
@@ -35,6 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryFn: () => apiClient.profile(),
     enabled: !!token,
     retry: false,
+    // Poll so Pending → Active (and other profile fields) update without a manual refresh.
+    refetchInterval: token ? LIVE_REFETCH_MS : false,
+    refetchIntervalInBackground: false,
   });
 
   const walletQuery = useQuery({
@@ -42,7 +56,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryFn: () => apiClient.walletBalance(),
     enabled: !!token,
     retry: false,
+    refetchInterval: token ? LIVE_REFETCH_MS : false,
+    refetchIntervalInBackground: false,
   });
+
+  const prevAccountStatus = useRef<string | null>(null);
 
   useEffect(() => {
     if (profileQuery.error instanceof ApiError && profileQuery.error.status === 401) {
@@ -52,9 +70,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [profileQuery.error, queryClient]);
 
+  // Notify the user when Super Admin activates their account (Pending → Active).
+  useEffect(() => {
+    const status = profileQuery.data?.account_status ?? null;
+    if (!status) return;
+    const prev = prevAccountStatus.current;
+    prevAccountStatus.current = status;
+    if (prev === "pending" && status === "approved") {
+      toast.success("Your account is now active. You can use all wallet features.");
+    }
+  }, [profileQuery.data?.account_status]);
+
   const login = useCallback(
     async (phone: string, password: string) => {
       const res = await apiClient.login(phone, password);
+      setToken(res.token);
+      setTokenState(res.token);
+      const profile = await apiClient.profile();
+      queryClient.setQueryData(["auth", "profile"], profile);
+      await queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });
+      return profile;
+    },
+    [queryClient],
+  );
+
+  const register = useCallback(
+    async (input: {
+      phone: string;
+      password: string;
+      password2: string;
+      first_name?: string;
+      last_name?: string;
+      email?: string;
+    }) => {
+      const res = await apiClient.register(input);
       setToken(res.token);
       setTokenState(res.token);
       const profile = await apiClient.profile();
@@ -99,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: !!token && !!user,
       isStaff: !!(user?.is_staff || user?.is_superuser),
       login,
+      register,
       logout,
       refreshProfile,
       setSessionToken,
@@ -110,6 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileQuery.isLoading,
       walletQuery.isLoading,
       login,
+      register,
       logout,
       refreshProfile,
       setSessionToken,

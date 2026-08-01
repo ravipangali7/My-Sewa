@@ -132,8 +132,42 @@ export const apiClient = {
         last_name: string;
         is_staff?: boolean;
         is_superuser?: boolean;
+        account_status?: import("./types").AccountStatus;
       };
     }>("/api/auth/login/", { method: "POST", body: { phone, password }, auth: false }),
+
+  register: (body: {
+    phone: string;
+    password: string;
+    password2: string;
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+  }) =>
+    api<{
+      message: string;
+      token: string;
+      user: { id: number; phone: string; email: string };
+    }>("/api/auth/register/", { method: "POST", body, auth: false }),
+
+  forgotPassword: (phone: string) =>
+    api<{ message: string; debug_otp?: string }>("/api/auth/forgot-password/", {
+      method: "POST",
+      body: { phone },
+      auth: false,
+    }),
+
+  resetPassword: (body: {
+    phone: string;
+    otp: string;
+    new_password: string;
+    confirm_password: string;
+  }) =>
+    api<{ message: string }>("/api/auth/reset-password/", {
+      method: "POST",
+      body,
+      auth: false,
+    }),
 
   logout: () => api<{ message: string }>("/api/auth/logout/", { method: "POST" }),
 

@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as RegisterRouteImport } from './routes/register'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminDepositsRouteImport } from './routes/admin/deposits'
 import { Route as AdminProfileRouteImport } from './routes/admin/profile'
@@ -41,6 +43,16 @@ import { Route as AdminWalletsWalletIdEditRouteImport } from './routes/admin/wal
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
@@ -183,6 +195,8 @@ const AdminWalletsWalletIdEditRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/register': typeof RegisterRoute
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -213,6 +227,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/register': typeof RegisterRoute
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -244,6 +260,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/register': typeof RegisterRoute
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -276,6 +294,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/forgot-password'
+    | '/register'
     | '/admin/deposits'
     | '/admin/profile'
     | '/admin/settings'
@@ -306,6 +326,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/forgot-password'
+    | '/register'
     | '/admin/deposits'
     | '/admin/profile'
     | '/admin/settings'
@@ -336,6 +358,8 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/forgot-password'
+    | '/register'
     | '/admin/deposits'
     | '/admin/profile'
     | '/admin/settings'
@@ -367,6 +391,8 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
+  RegisterRoute: typeof RegisterRoute
   AdminDepositsRoute: typeof AdminDepositsRoute
   AdminProfileRoute: typeof AdminProfileRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
@@ -401,6 +427,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/': {
@@ -619,6 +659,8 @@ const AdminWalletsWalletIdRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
+  RegisterRoute: RegisterRoute,
   AdminDepositsRoute: AdminDepositsRoute,
   AdminProfileRoute: AdminProfileRoute,
   AdminSettingsRoute: AdminSettingsRoute,
@@ -648,13 +690,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
