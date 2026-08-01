@@ -47,6 +47,23 @@ function extractMessage(body: unknown, fallback: string): string {
     }
     if (parts.length) return parts.join(" ");
   }
+  // DRF serializer field errors: { mobile_number: ["Invalid Number"] }
+  const fieldParts: string[] = [];
+  for (const [k, v] of Object.entries(b)) {
+    if (k === "non_field_errors" && Array.isArray(v)) {
+      fieldParts.push(v.map(String).join(" "));
+      continue;
+    }
+    if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
+      // Prefer the raw message when it's a single known UX string
+      if (v.length === 1 && (v[0] === "Invalid Number" || k === "mobile_number")) {
+        fieldParts.push(String(v[0]));
+      } else {
+        fieldParts.push(`${k}: ${v.join(" ")}`);
+      }
+    }
+  }
+  if (fieldParts.length) return fieldParts.join(" ");
   return fallback;
 }
 
@@ -200,7 +217,14 @@ export const apiClient = {
   }) =>
     api<{
       message: string;
-      data: { verified: boolean; merchant_txn_id?: string; provider?: unknown };
+      data: {
+        verified: boolean;
+        account_name?: string;
+        account_number?: string;
+        bank_code?: string;
+        merchant_txn_id?: string;
+        provider?: unknown;
+      };
     }>("/api/bank-transfer/verify/", { method: "POST", body }),
 
   calculateTransfer: (amount: number) =>

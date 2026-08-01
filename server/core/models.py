@@ -161,6 +161,10 @@ def default_app_config():
             'maintenance_message': '',
             'allow_new_registrations': True,
         },
+        'integrations': {
+            'himalpay_api_key': '',
+            'himalpay_base_url': 'https://uatapi.himalpay.com.np/api/v1',
+        },
     }
 
 

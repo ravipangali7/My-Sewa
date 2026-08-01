@@ -30,6 +30,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
   bool _exitDialogOpen = false;
   double _progress = 0;
 
+  /// Keeps zoom locked while preserving `viewport-fit=cover` so CSS
+  /// `env(safe-area-inset-*)` works for status / nav / home-indicator insets.
   static const _disableZoomJs = '''
 (function() {
   var meta = document.querySelector('meta[name=viewport]');
@@ -40,11 +42,33 @@ class _WebViewScreenState extends State<WebViewScreen> {
   }
   meta.setAttribute(
     'content',
-    'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'
+    'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover'
   );
   document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
 })();
 ''';
+
+  String _safeAreaCssJs(EdgeInsets padding) {
+    final top = padding.top;
+    final right = padding.right;
+    final bottom = padding.bottom;
+    final left = padding.left;
+    return '''
+(function() {
+  var root = document.documentElement;
+  root.style.setProperty('--flutter-safe-top', '${top}px');
+  root.style.setProperty('--flutter-safe-right', '${right}px');
+  root.style.setProperty('--flutter-safe-bottom', '${bottom}px');
+  root.style.setProperty('--flutter-safe-left', '${left}px');
+  if (!document.getElementById('mysewa-safe-area')) {
+    var style = document.createElement('style');
+    style.id = 'mysewa-safe-area';
+    style.textContent = ':root{--safe-area-top:max(env(safe-area-inset-top,0px),var(--flutter-safe-top,0px));--safe-area-right:max(env(safe-area-inset-right,0px),var(--flutter-safe-right,0px));--safe-area-bottom:max(env(safe-area-inset-bottom,0px),var(--flutter-safe-bottom,0px));--safe-area-left:max(env(safe-area-inset-left,0px),var(--flutter-safe-left,0px));}';
+    document.head.appendChild(style);
+  }
+})();
+''';
+  }
 
   @override
   void initState() {
@@ -96,6 +120,10 @@ class _WebViewScreenState extends State<WebViewScreen> {
         },
         onPageFinished: (_) async {
           await controller.runJavaScript(_disableZoomJs);
+          if (mounted) {
+            final padding = MediaQuery.paddingOf(context);
+            await controller.runJavaScript(_safeAreaCssJs(padding));
+          }
           if (!mounted) return;
           setState(() {
             _isLoading = false;
@@ -314,6 +342,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final topInset = MediaQuery.paddingOf(context).top;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
@@ -325,25 +355,33 @@ class _WebViewScreenState extends State<WebViewScreen> {
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: Brightness.dark,
           statusBarBrightness: Brightness.light,
-          systemNavigationBarColor: Color(AppConfig.bg),
+          systemNavigationBarColor: Colors.transparent,
           systemNavigationBarIconBrightness: Brightness.dark,
+          systemNavigationBarDividerColor: Colors.transparent,
         ),
         child: Scaffold(
           backgroundColor: const Color(AppConfig.bg),
+          // Edge-to-edge WebView: system insets are applied inside the web UI
+          // via viewport-fit=cover + CSS env()/--safe-area-* (AdminShell / UserShell).
+          // Native SafeArea wraps only non-web chrome so branded pages can paint
+          // full-bleed under the status bar when they opt in.
           body: !_isOnline
               ? NoInternetScreen(onRetry: _onRetry, isChecking: _isChecking)
               : !_isReady || _controller == null
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(AppConfig.brand),
+                  ? const SafeArea(
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          color: Color(AppConfig.brand),
+                        ),
                       ),
                     )
                   : Stack(
+                      fit: StackFit.expand,
                       children: [
                         WebViewWidget(controller: _controller!),
                         if (_isLoading)
                           Positioned(
-                            top: MediaQuery.paddingOf(context).top,
+                            top: topInset,
                             left: 0,
                             right: 0,
                             child: LinearProgressIndicator(

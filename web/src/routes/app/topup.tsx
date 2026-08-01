@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
@@ -8,7 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiClient, ApiError } from "@/lib/api";
-import { OPERATORS } from "@/lib/constants";
+import {
+  OPERATORS,
+  normalizeNepalMobile,
+  validateOperatorMobile,
+} from "@/lib/constants";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +43,7 @@ function TopUp() {
   const [charge, setCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
+  const [touchedMobile, setTouchedMobile] = useState(false);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -55,6 +60,14 @@ function TopUp() {
 
   const amt = Number(amount) || 0;
   const serviceName = productId === 1 ? "NTC" : "NCELL";
+  const mobileError = useMemo(
+    () => validateOperatorMobile(productId, mobile),
+    [productId, mobile],
+  );
+  const showMobileError = touchedMobile && mobileError !== null;
+  const normalizedMobile = normalizeNepalMobile(mobile).slice(-10);
+  const mobileReady =
+    normalizedMobile.length === 10 && mobileError === null;
 
   useEffect(() => {
     if (!topupsEnabled || amt < minTopup) {
@@ -83,9 +96,20 @@ function TopUp() {
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (!topupsEnabled) throw new Error("Mobile top-ups are currently disabled.");
+      setTouchedMobile(true);
+      if (validateOperatorMobile(productId, mobile)) {
+        throw new Error("Invalid Number");
+      }
+      if (normalizedMobile.length < 10) {
+        throw new Error("Enter a valid 10-digit mobile number.");
+      }
       if (amt < minTopup) throw new Error(`Minimum top-up is Rs. ${minTopup}`);
       if (maxTopup > 0 && amt > maxTopup) throw new Error(`Maximum top-up is Rs. ${maxTopup}`);
-      const body = { mobile_number: mobile.trim(), amount: amt, product_id: productId };
+      const body = {
+        mobile_number: normalizedMobile,
+        amount: amt,
+        product_id: productId,
+      };
       if (productId === 1) return apiClient.topupNtc({ ...body, product_id: 1 });
       return apiClient.topupNcell({ ...body, product_id: 2 });
     },
@@ -95,11 +119,18 @@ function TopUp() {
       });
       setMobile("");
       setAmount("");
+      setTouchedMobile(false);
       queryClient.invalidateQueries({ queryKey: ["topups"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
     onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : "Top-up failed");
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Top-up failed";
+      toast.error(message);
     },
   });
 
@@ -127,7 +158,10 @@ function TopUp() {
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setProductId(id)}
+                  onClick={() => {
+                    setProductId(id);
+                    setTouchedMobile(Boolean(mobile.trim()));
+                  }}
                   disabled={!topupsEnabled}
                   className={cn(
                     "rounded-lg py-2 text-[15px] font-medium transition-colors",
@@ -146,13 +180,29 @@ function TopUp() {
               <Input
                 id="mobile_number"
                 inputMode="tel"
-                placeholder="98XXXXXXXX"
+                placeholder={productId === 1 ? "984XXXXXXX" : "980XXXXXXX"}
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
-                className="h-12 rounded-xl"
+                onBlur={() => setTouchedMobile(true)}
+                aria-invalid={showMobileError}
+                className={cn(
+                  "h-12 rounded-xl",
+                  showMobileError && "border-destructive focus-visible:ring-destructive/40",
+                )}
                 required
                 disabled={!topupsEnabled}
               />
+              {showMobileError ? (
+                <p className="text-[13px] font-medium text-destructive" role="alert">
+                  Invalid Number
+                </p>
+              ) : (
+                <p className="text-[12px] text-muted-foreground">
+                  {productId === 1
+                    ? "NTC numbers start with 984, 985, 986, 974, 975, or 976"
+                    : "Ncell numbers start with 980, 981, 982, or 970"}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="topup_amount">Amount (NPR)</Label>
@@ -183,7 +233,12 @@ function TopUp() {
 
             <Button
               type="submit"
-              disabled={submitMutation.isPending || !topupsEnabled}
+              disabled={
+                submitMutation.isPending ||
+                !topupsEnabled ||
+                !mobileReady ||
+                amt < minTopup
+              }
               className="h-12 w-full rounded-xl text-[17px]"
             >
               {submitMutation.isPending ? "Processing…" : "Confirm top-up"}

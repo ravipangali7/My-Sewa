@@ -147,11 +147,34 @@ def verify_account(request):
             merchant_txn_id=merchant_txn_id,
             is_mobile=is_mobile,
         )
+        if not himalpay.is_verification_success(result):
+            return Response(
+                {
+                    'error': 'Account verification failed',
+                    'message': (
+                        result.get('message')
+                        or result.get('error')
+                        or 'Could not verify the destination account.'
+                    ),
+                    'verified': False,
+                    'merchant_txn_id': merchant_txn_id,
+                    'provider': result,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Prefer the bank-returned original account holder name
+        verified_name = himalpay.extract_verified_account_name(
+            result, fallback=data['account_name']
+        )
         return Response(
             {
                 'message': 'Account verification completed',
                 'data': {
                     'verified': True,
+                    'account_name': verified_name,
+                    'account_number': data['account_number'],
+                    'bank_code': data['bank_code'],
                     'merchant_txn_id': merchant_txn_id,
                     'provider': result,
                 },
@@ -335,25 +358,50 @@ def create_bank_transfer(request):
         charge=charge,
         cashback=cashback,
         total_debited=total_required,
-        verified=True,
+        verified=False,
     )
 
     try:
-        # Verify account first (required three-step flow)
-        himalpay.verify_bank_account(
+        # Step 1: verify destination — only proceed with the bank-original name
+        verify_result = himalpay.verify_bank_account(
             bank_code=data['destination_bank'],
             account_name=data['destination_acc_name'],
             account_number=data['destination_acc_no'],
             merchant_txn_id=merchant_txn_id,
             is_mobile='y' if is_mobile else 'n',
         )
+        if not himalpay.is_verification_success(verify_result):
+            transfer.status = 'failed'
+            transfer.provider_response = verify_result if isinstance(verify_result, dict) else {}
+            transfer.save()
+            return Response(
+                {
+                    'error': 'Account verification failed',
+                    'message': (
+                        (verify_result or {}).get('message')
+                        if isinstance(verify_result, dict)
+                        else None
+                    )
+                    or 'Destination account could not be verified. Transfer rejected.',
+                    'data': BankTransferTransactionSerializer(transfer).data,
+                    'provider': verify_result,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        verified_name = himalpay.extract_verified_account_name(
+            verify_result, fallback=data['destination_acc_name']
+        )
+        transfer.destination_acc_name = verified_name
+        transfer.verified = True
+        transfer.save(update_fields=['destination_acc_name', 'verified', 'updated_at'])
 
         response = himalpay.bank_transfer(
             amount_rupees=amount,
             merchant_transaction_id=merchant_txn_id,
             destination_bank=data['destination_bank'],
             destination_acc_no=data['destination_acc_no'],
-            destination_acc_name=data['destination_acc_name'],
+            destination_acc_name=verified_name,
             is_destination_mobile='y' if is_mobile else 'n',
             transaction_remarks=transfer.transaction_remarks,
             transaction_remarks_2=transfer.transaction_remarks_2,

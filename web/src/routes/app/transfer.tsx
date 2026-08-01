@@ -182,9 +182,21 @@ function Transfer() {
         account_number: destinationNumber,
         is_mobile: isMobile,
       });
-      setVerified(!!res.data?.verified);
+      if (!res.data?.verified) {
+        setVerified(false);
+        toast.error("Account could not be verified");
+        return;
+      }
+      // Use the bank-returned original account holder name for the transfer
+      const originalName = (res.data.account_name || accName).trim();
+      setAccName(originalName);
+      setVerified(true);
       setMerchantTxnId(res.data?.merchant_txn_id);
-      toast.success(res.message || "Account verified");
+      toast.success(
+        originalName !== accName.trim()
+          ? `Verified as ${originalName}`
+          : res.message || "Account verified",
+      );
     } catch (err) {
       setVerified(false);
       toast.error(err instanceof ApiError ? err.message : "Verification failed");
@@ -295,7 +307,9 @@ function Transfer() {
                   Send to a bank account linked to this mobile number (same-bank style transfer).
                 </p>
                 {verified && (
-                  <p className="text-[13px] text-success">Phone verified: {accName}</p>
+                  <p className="text-[13px] text-success">
+                    Verified account: {accName} (original name from bank)
+                  </p>
                 )}
               </div>
             ) : (
@@ -324,7 +338,9 @@ function Transfer() {
                   </Button>
                 </div>
                 {verified && (
-                  <p className="text-[13px] text-success">Account verified: {accName}</p>
+                  <p className="text-[13px] text-success">
+                    Verified account: {accName} (original name from bank)
+                  </p>
                 )}
               </div>
             )}

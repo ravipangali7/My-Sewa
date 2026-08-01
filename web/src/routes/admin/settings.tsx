@@ -90,6 +90,10 @@ const DEFAULT_CONFIG: AppConfig = {
     maintenance_message: "",
     allow_new_registrations: true,
   },
+  integrations: {
+    himalpay_api_key: "",
+    himalpay_base_url: "https://uatapi.himalpay.com.np/api/v1",
+  },
 };
 
 type BankForm = {
@@ -139,6 +143,10 @@ function SettingsPage() {
       transactions: { ...DEFAULT_CONFIG.transactions, ...(remote?.transactions ?? {}) },
       notifications: { ...DEFAULT_CONFIG.notifications, ...(remote?.notifications ?? {}) },
       security: { ...DEFAULT_CONFIG.security, ...(remote?.security ?? {}) },
+      integrations: {
+        ...DEFAULT_CONFIG.integrations!,
+        ...(remote?.integrations ?? {}),
+      },
     });
     const b = settingsQuery.data.bank_details ?? {};
     setBank({
@@ -209,6 +217,17 @@ function SettingsPage() {
     fd.append("account_name", bank.account_name);
     fd.append("account_number", bank.account_number);
     fd.append("branch", bank.branch);
+    fd.append(
+      "config",
+      JSON.stringify({
+        integrations: {
+          himalpay_api_key: config.integrations?.himalpay_api_key ?? "",
+          himalpay_base_url:
+            config.integrations?.himalpay_base_url ||
+            DEFAULT_CONFIG.integrations!.himalpay_base_url,
+        },
+      }),
+    );
     if (qrFile) fd.append("qr_code", qrFile);
     saveMutation.mutate(fd);
   };
@@ -708,6 +727,62 @@ function SettingsPage() {
                     </div>
                   ))}
                 </div>
+
+                <div className="mt-8 border-t border-border pt-6">
+                  <h2 className="text-base font-semibold">HimalPay reseller</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    API key used for top-ups, account verification, and bank transfers. Stored
+                    server-side only — never exposed to customers.
+                  </p>
+                  <div className="mt-4 grid gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="himalpay_api_key">HimalPay API key</Label>
+                      <Input
+                        id="himalpay_api_key"
+                        type="password"
+                        autoComplete="off"
+                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        value={config.integrations?.himalpay_api_key ?? ""}
+                        onChange={(e) =>
+                          setConfig((c) => ({
+                            ...c,
+                            integrations: {
+                              himalpay_base_url:
+                                c.integrations?.himalpay_base_url ||
+                                DEFAULT_CONFIG.integrations!.himalpay_base_url,
+                              himalpay_api_key: e.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="himalpay_base_url">HimalPay base URL</Label>
+                      <Input
+                        id="himalpay_base_url"
+                        type="url"
+                        placeholder="https://uatapi.himalpay.com.np/api/v1"
+                        value={
+                          config.integrations?.himalpay_base_url ||
+                          DEFAULT_CONFIG.integrations!.himalpay_base_url
+                        }
+                        onChange={(e) =>
+                          setConfig((c) => ({
+                            ...c,
+                            integrations: {
+                              himalpay_api_key: c.integrations?.himalpay_api_key ?? "",
+                              himalpay_base_url: e.target.value,
+                            },
+                          }))
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        UAT: https://uatapi.himalpay.com.np/api/v1 — authenticate with header
+                        X-API-Key.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </form>
 
               <div className="rounded-xl border border-border bg-surface p-5">
@@ -781,6 +856,17 @@ function SettingsPage() {
                         fd.append("account_name", bank.account_name);
                         fd.append("account_number", bank.account_number);
                         fd.append("branch", bank.branch);
+                        fd.append(
+                          "config",
+                          JSON.stringify({
+                            integrations: {
+                              himalpay_api_key: config.integrations?.himalpay_api_key ?? "",
+                              himalpay_base_url:
+                                config.integrations?.himalpay_base_url ||
+                                DEFAULT_CONFIG.integrations!.himalpay_base_url,
+                            },
+                          }),
+                        );
                         fd.append("clear_qr", "true");
                         saveMutation.mutate(fd);
                       }}

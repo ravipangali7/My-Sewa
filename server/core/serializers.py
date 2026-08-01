@@ -404,8 +404,13 @@ class TopupCreateSerializer(serializers.Serializer):
         if not value or value.strip() == '':
             raise serializers.ValidationError("Mobile number is required.")
         digits = ''.join(ch for ch in value.strip() if ch.isdigit())
+        # Strip Nepal country code so prefix checks use the 10-digit local number
+        if digits.startswith('977') and len(digits) >= 13:
+            digits = digits[3:]
         if len(digits) < 10:
             raise serializers.ValidationError("Enter a valid mobile number (at least 10 digits).")
+        if len(digits) > 10:
+            digits = digits[-10:]
         return digits
 
     def validate_amount(self, value):
@@ -426,14 +431,12 @@ class TopupCreateSerializer(serializers.Serializer):
     def validate(self, attrs):
         product_id = attrs.get('product_id')
         mobile = attrs.get('mobile_number', '')
-        if product_id == 1 and not mobile.startswith(('984', '985', '986', '974', '975', '976')):
-            raise serializers.ValidationError({
-                'mobile_number': 'NTC numbers typically start with 984, 985, 986, 974, 975, or 976.',
-            })
-        if product_id == 2 and not mobile.startswith(('980', '981', '982', '970')):
-            raise serializers.ValidationError({
-                'mobile_number': 'NCELL numbers typically start with 980, 981, 982, or 970.',
-            })
+        ntc_prefixes = ('984', '985', '986', '974', '975', '976')
+        ncell_prefixes = ('980', '981', '982', '970')
+        if product_id == 1 and not mobile.startswith(ntc_prefixes):
+            raise serializers.ValidationError({'mobile_number': 'Invalid Number'})
+        if product_id == 2 and not mobile.startswith(ncell_prefixes):
+            raise serializers.ValidationError({'mobile_number': 'Invalid Number'})
         return attrs
 
     def validate_product_id(self, value):

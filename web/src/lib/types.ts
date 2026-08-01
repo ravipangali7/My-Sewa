@@ -87,12 +87,18 @@ export interface SecurityConfig {
   allow_new_registrations: boolean;
 }
 
+export interface IntegrationsConfig {
+  himalpay_api_key: string;
+  himalpay_base_url: string;
+}
+
 export interface AppConfig {
   site: SiteConfig;
   payment: PaymentConfig;
   transactions: TransactionsConfig;
   notifications: NotificationsConfig;
   security: SecurityConfig;
+  integrations?: IntegrationsConfig;
 }
 
 export interface AppSettings {

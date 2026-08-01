@@ -132,7 +132,7 @@ export function UserShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         {!hideHeader && (
-          <header className="sticky top-0 z-30 bg-hero-gradient px-4 pt-[max(14px,env(safe-area-inset-top))] pb-5 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
+          <header className="sticky top-0 z-30 bg-hero-gradient px-4 pt-[max(14px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-5 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
             <div className="flex items-center gap-3">
               {back && (
                 <Link
@@ -172,7 +172,7 @@ export function UserShell({
           </div>
         </main>
 
-        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface pb-[max(10px,env(safe-area-inset-bottom))] lg:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface pb-[max(10px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] lg:hidden">
           <ul className="grid grid-cols-4">
             {TABS.map((t) => {
               const active = t.match(pathname);

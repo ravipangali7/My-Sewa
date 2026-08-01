@@ -43,12 +43,11 @@ class HimalPayAPI:
     SERVICE_BANK_TRANSFER_VERIFICATION = 'BANK_TRANSFER_VERIFICATION'
 
     def __init__(self):
-        self.base_url = getattr(
-            settings,
-            'HIMALPAY_BASE_URL',
-            'https://uatapi.himalpay.com.np/api/v1',
-        ).rstrip('/')
-        self.api_key = getattr(settings, 'HIMALPAY_API_KEY', '')
+        from .app_config import get_himalpay_credentials
+
+        creds = get_himalpay_credentials()
+        self.base_url = creds['base_url']
+        self.api_key = creds['api_key']
         self.bypass_api = getattr(settings, 'HIMALPAY_BYPASS_API', False)
         self.timeout = getattr(settings, 'HIMALPAY_TIMEOUT', 60)
 
@@ -74,7 +73,8 @@ class HimalPayAPI:
     def _headers(self) -> Dict[str, str]:
         if not self.api_key and not self.bypass_api:
             raise HimalPayError(
-                'HimalPay API key is not configured. Set HIMALPAY_API_KEY in settings.',
+                'HimalPay API key is not configured. '
+                'Set it under Super Admin → Settings → Deposit account.',
                 status_code=500,
             )
         return {
@@ -355,6 +355,75 @@ class HimalPayAPI:
             or (response.get('data') or {}).get('reference_id')
             or ''
         )
+
+    @staticmethod
+    def extract_verified_account_name(response: Any, fallback: str = '') -> str:
+        """
+        Pull the bank-verified / original account holder name from a
+        BANK_TRANSFER_VERIFICATION response. Falls back to the provided name.
+        """
+        if not isinstance(response, dict):
+            return (fallback or '').strip()
+
+        candidates = [
+            response.get('account_name'),
+            response.get('AccountName'),
+            response.get('account_holder_name'),
+            response.get('AccountHolderName'),
+            response.get('destination_acc_name'),
+            response.get('name'),
+        ]
+        nested = response.get('data') or response.get('Data') or {}
+        if isinstance(nested, dict):
+            candidates.extend([
+                nested.get('account_name'),
+                nested.get('AccountName'),
+                nested.get('account_holder_name'),
+                nested.get('AccountHolderName'),
+                nested.get('destination_acc_name'),
+                nested.get('name'),
+            ])
+            deeper = nested.get('data') or nested.get('Data') or {}
+            if isinstance(deeper, dict):
+                candidates.extend([
+                    deeper.get('account_name'),
+                    deeper.get('AccountName'),
+                    deeper.get('account_holder_name'),
+                    deeper.get('name'),
+                ])
+
+        for value in candidates:
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+        return (fallback or '').strip()
+
+    @staticmethod
+    def is_verification_success(response: Any) -> bool:
+        """Return True when a verify response indicates a successful match."""
+        if not isinstance(response, dict):
+            return False
+        if response.get('verified') is False:
+            return False
+        if response.get('verified') is True:
+            return True
+
+        status = str(
+            response.get('status')
+            or response.get('Status')
+            or (response.get('data') or {}).get('status')
+            or ''
+        ).upper()
+        if status in ('FAILED', 'FAILURE', 'ERROR', 'DECLINED', 'UNVERIFIED', 'MISMATCH'):
+            return False
+        if status in ('SUCCESS', 'SUCCESSFUL', 'OK', 'VERIFIED', 'MATCHED'):
+            return True
+        if response.get('error') or response.get('error_code'):
+            return False
+        # Successful HTTP detail responses often omit an explicit status flag
+        return True
 
     # ------------------------------------------------------------------
     # Bypass / mock helpers (local development)

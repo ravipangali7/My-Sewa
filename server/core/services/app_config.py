@@ -201,6 +201,32 @@ def is_auto_status_verified(config: Optional[Dict] = None) -> bool:
     return bool(tx.get('auto_status_verified', False))
 
 
+def get_himalpay_credentials() -> Dict[str, str]:
+    """
+    Resolve HimalPay credentials: Settings.config.integrations first, then env.
+    """
+    from django.conf import settings as django_settings
+
+    env_key = (getattr(django_settings, 'HIMALPAY_API_KEY', '') or '').strip()
+    env_base = (
+        getattr(django_settings, 'HIMALPAY_BASE_URL', '')
+        or 'https://uatapi.himalpay.com.np/api/v1'
+    ).strip()
+
+    try:
+        integrations = get_app_config().get('integrations') or {}
+    except Exception:
+        integrations = {}
+
+    db_key = str(integrations.get('himalpay_api_key') or '').strip()
+    db_base = str(integrations.get('himalpay_base_url') or '').strip()
+
+    return {
+        'api_key': db_key or env_key,
+        'base_url': (db_base or env_base).rstrip('/'),
+    }
+
+
 def public_config(config: Optional[Dict] = None) -> Dict[str, Any]:
     """Config safe to expose on the public settings endpoint."""
     cfg = config or get_app_config()
@@ -231,4 +257,5 @@ def public_config(config: Optional[Dict] = None) -> Dict[str, Any]:
                 'session_timeout_minutes', 60
             ),
         },
+        # Never expose HimalPay secrets on the public endpoint
     }

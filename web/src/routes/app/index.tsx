@@ -9,7 +9,7 @@ import {
   ArrowDownToLine,
   Send,
   History,
-  User,
+  Smartphone,
   Redo2,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
@@ -47,6 +47,12 @@ const ACTIONS = [
     iconBg: "bg-[#22C55E]",
   },
   {
+    to: "/app/topup",
+    label: "Top Up",
+    icon: Smartphone,
+    iconBg: "bg-[#F59E0B]",
+  },
+  {
     to: "/app/load",
     label: "Receive Remittance",
     icon: ArrowDownToLine,
@@ -54,15 +60,9 @@ const ACTIONS = [
   },
   {
     to: "/app/history",
-    label: "Transaction History",
+    label: "History",
     icon: History,
     iconBg: "bg-[#7C3AED]",
-  },
-  {
-    to: "/app/profile",
-    label: "Profile",
-    icon: User,
-    iconBg: "bg-[#38BDF8]",
   },
 ] as const;
 
