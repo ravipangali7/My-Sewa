@@ -99,6 +99,8 @@ export interface AppSettings {
   id: number;
   qr_code: string | null;
   qr_code_url: string | null;
+  logo: string | null;
+  logo_url: string | null;
   bank_details: BankDetails;
   config: AppConfig;
   created_at: string;

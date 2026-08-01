@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -30,6 +31,7 @@ export const Route = createFileRoute("/")({
 function LoginPage() {
   const navigate = useNavigate();
   const { login, token, user, isStaff, isLoading } = useAuth();
+  const { logoUrl } = useSiteBranding();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -44,7 +46,7 @@ function LoginPage() {
     <div className="grid min-h-screen lg:grid-cols-2">
       <section className="relative hidden flex-col justify-between bg-hero-gradient p-12 lg:flex">
         <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="" className="size-11 rounded-2xl" />
+          <img src={logoUrl} alt="" className="size-11 rounded-2xl object-cover" />
           <span className="text-2xl font-bold text-primary-foreground">MySewa</span>
         </div>
         <div className="max-w-md">
@@ -64,7 +66,7 @@ function LoginPage() {
       <section className="flex items-center justify-center px-5 py-12">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex flex-col items-center lg:items-start">
-            <img src="/logo.png" alt="MySewa" className="size-14 rounded-2xl lg:hidden" />
+            <img src={logoUrl} alt="MySewa" className="size-14 rounded-2xl object-cover lg:hidden" />
             <h1 className="mt-4 text-[34px] font-bold tracking-tight lg:mt-0">Welcome back</h1>
             <p className="mt-1 text-[15px] text-muted-foreground">Sign in with your phone number</p>
           </div>

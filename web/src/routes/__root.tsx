@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 
 function NotFoundComponent() {
   return (
@@ -127,10 +128,17 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <SiteBrandingSync />
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
         <Toaster position="top-center" />
       </AuthProvider>
     </QueryClientProvider>
   );
+}
+
+/** Keeps the document favicon in sync with the uploaded site logo. */
+function SiteBrandingSync() {
+  useSiteBranding();
+  return null;
 }

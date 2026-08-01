@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { apiClient } from "@/lib/api";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 
 const TABS = [
   { to: "/app", label: "Home", icon: Home, match: (p: string) => p === "/app" || p === "/app/" },
@@ -42,6 +43,7 @@ export function UserShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const { user, isLoading, token, logout } = useAuth();
+  const { logoUrl } = useSiteBranding();
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -83,7 +85,7 @@ export function UserShell({
     <div className="min-h-screen bg-background lg:flex">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex">
         <Link to="/app" className="mb-8 flex items-center gap-2.5 px-2">
-          <img src="/logo.png" alt="MySewa" className="size-9 rounded-full object-cover" />
+          <img src={logoUrl} alt="MySewa" className="size-9 rounded-full object-cover" />
           <div>
             <p className="text-[17px] leading-tight font-semibold">
               <span className="text-ocean">My</span>

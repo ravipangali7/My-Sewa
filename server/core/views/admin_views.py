@@ -414,6 +414,17 @@ def admin_settings(request):
     elif request.data.get('qr_code') in ('', 'null', None) and 'qr_code' in request.data:
         pass  # ignore empty
 
+    if 'logo' in request.FILES:
+        settings_obj.logo = request.FILES['logo']
+    elif 'clear_logo' in request.data and str(request.data.get('clear_logo')).lower() in (
+        '1', 'true', 'yes',
+    ):
+        if settings_obj.logo:
+            settings_obj.logo.delete(save=False)
+        settings_obj.logo = None
+    elif request.data.get('logo') in ('', 'null', None) and 'logo' in request.data:
+        pass  # ignore empty
+
     if 'bank_details' in request.data:
         parsed_bank = _parse_json_field(request.data.get('bank_details'))
         if parsed_bank is not None:

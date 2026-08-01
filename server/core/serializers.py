@@ -320,23 +320,30 @@ class DepositCreateSerializer(serializers.ModelSerializer):
 class SettingsSerializer(serializers.ModelSerializer):
     """Settings serializer"""
     qr_code_url = serializers.SerializerMethodField()
+    logo_url = serializers.SerializerMethodField()
     config = serializers.SerializerMethodField()
 
     class Meta:
         model = Settings
         fields = (
-            'id', 'qr_code', 'qr_code_url', 'bank_details', 'config',
+            'id', 'qr_code', 'qr_code_url', 'logo', 'logo_url', 'bank_details', 'config',
             'created_at', 'updated_at',
         )
         read_only_fields = ('id', 'created_at', 'updated_at')
 
+    def _absolute_media_url(self, file_field):
+        if not file_field:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(file_field.url)
+        return file_field.url
+
     def get_qr_code_url(self, obj):
-        if obj.qr_code:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.qr_code.url)
-            return obj.qr_code.url
-        return None
+        return self._absolute_media_url(obj.qr_code)
+
+    def get_logo_url(self, obj):
+        return self._absolute_media_url(obj.logo)
 
     def get_config(self, obj):
         return obj.get_config()

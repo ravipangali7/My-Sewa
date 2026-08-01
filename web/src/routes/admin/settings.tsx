@@ -7,6 +7,7 @@ import {
   Building2,
   CreditCard,
   ArrowLeftRight,
+  ImageIcon,
   QrCode,
   Save,
   Shield,
@@ -29,7 +30,7 @@ export const Route = createFileRoute("/admin/settings")({
       {
         name: "description",
         content:
-          "Manage MySewa global configuration: site info, payments, transaction rules, notifications, security, and deposit account details.",
+          "Manage MySewa global configuration: general info, branding, payments, transaction rules, notifications, security, and deposit account details.",
       },
       { property: "og:title", content: "App Settings — MySewa Admin" },
       {
@@ -99,7 +100,7 @@ type BankForm = {
 };
 
 const SECTIONS = [
-  { id: "site", label: "Site", icon: Building2 },
+  { id: "site", label: "General", icon: Building2 },
   { id: "payment", label: "Payments", icon: CreditCard },
   { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
   { id: "deposit", label: "Deposit account", icon: QrCode },
@@ -126,6 +127,8 @@ function SettingsPage() {
   });
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [qrPreview, setQrPreview] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
 
   useEffect(() => {
     if (!settingsQuery.data) return;
@@ -156,6 +159,16 @@ function SettingsPage() {
     return () => URL.revokeObjectURL(url);
   }, [qrFile]);
 
+  useEffect(() => {
+    if (!logoFile) {
+      setLogoPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(logoFile);
+    setLogoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [logoFile]);
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["admin", "settings"] });
     queryClient.invalidateQueries({ queryKey: ["settings"] });
@@ -167,6 +180,7 @@ function SettingsPage() {
     onSuccess: () => {
       toast.success("Settings saved — changes apply across the system");
       setQrFile(null);
+      setLogoFile(null);
       invalidate();
     },
     onError: (err) => {
@@ -178,6 +192,17 @@ function SettingsPage() {
     saveMutation.mutate({ config: { [section]: values } });
   };
 
+  const saveGeneral = () => {
+    if (logoFile) {
+      const fd = new FormData();
+      fd.append("config", JSON.stringify({ site: config.site }));
+      fd.append("logo", logoFile);
+      saveMutation.mutate(fd);
+      return;
+    }
+    saveConfigSection("site", config.site);
+  };
+
   const saveDepositAccount = () => {
     const fd = new FormData();
     fd.append("bank_name", bank.bank_name);
@@ -187,6 +212,8 @@ function SettingsPage() {
     if (qrFile) fd.append("qr_code", qrFile);
     saveMutation.mutate(fd);
   };
+
+  const brandingSrc = logoPreview || settingsQuery.data?.logo_url || null;
 
   const saving = saveMutation.isPending;
   const updatedAt = settingsQuery.data
@@ -219,67 +246,195 @@ function SettingsPage() {
           </TabsList>
 
           <TabsContent value="site">
-            <SettingsPanel
-              title="Site information"
-              description="Brand and contact details shown across the application."
-              onSave={() => saveConfigSection("site", config.site)}
-              saving={saving}
-            >
+            <div className="space-y-4">
+              <SettingsPanel
+                title="General information"
+                description="Brand and contact details shown across the application."
+                onSave={saveGeneral}
+                saving={saving}
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    id="site_name"
+                    label="Site name"
+                    value={config.site.site_name}
+                    onChange={(v) => setConfig((c) => ({ ...c, site: { ...c.site, site_name: v } }))}
+                  />
+                  <Field
+                    id="tagline"
+                    label="Tagline"
+                    value={config.site.tagline}
+                    onChange={(v) => setConfig((c) => ({ ...c, site: { ...c.site, tagline: v } }))}
+                  />
+                  <Field
+                    id="support_email"
+                    label="Support email"
+                    type="email"
+                    value={config.site.support_email}
+                    onChange={(v) =>
+                      setConfig((c) => ({ ...c, site: { ...c.site, support_email: v } }))
+                    }
+                  />
+                  <Field
+                    id="support_phone"
+                    label="Support phone"
+                    value={config.site.support_phone}
+                    onChange={(v) =>
+                      setConfig((c) => ({ ...c, site: { ...c.site, support_phone: v } }))
+                    }
+                  />
+                  <Field
+                    id="currency"
+                    label="Currency"
+                    value={config.site.currency}
+                    onChange={(v) => setConfig((c) => ({ ...c, site: { ...c.site, currency: v } }))}
+                  />
+                  <Field
+                    id="timezone"
+                    label="Timezone"
+                    value={config.site.timezone}
+                    onChange={(v) => setConfig((c) => ({ ...c, site: { ...c.site, timezone: v } }))}
+                  />
+                </div>
+                <div className="mt-4 space-y-1.5">
+                  <Label htmlFor="address">Address</Label>
+                  <Textarea
+                    id="address"
+                    rows={3}
+                    value={config.site.address}
+                    onChange={(e) =>
+                      setConfig((c) => ({ ...c, site: { ...c.site, address: e.target.value } }))
+                    }
+                  />
+                </div>
+              </SettingsPanel>
+
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field
-                  id="site_name"
-                  label="Site name"
-                  value={config.site.site_name}
-                  onChange={(v) => setConfig((c) => ({ ...c, site: { ...c.site, site_name: v } }))}
-                />
-                <Field
-                  id="tagline"
-                  label="Tagline"
-                  value={config.site.tagline}
-                  onChange={(v) => setConfig((c) => ({ ...c, site: { ...c.site, tagline: v } }))}
-                />
-                <Field
-                  id="support_email"
-                  label="Support email"
-                  type="email"
-                  value={config.site.support_email}
-                  onChange={(v) =>
-                    setConfig((c) => ({ ...c, site: { ...c.site, support_email: v } }))
-                  }
-                />
-                <Field
-                  id="support_phone"
-                  label="Support phone"
-                  value={config.site.support_phone}
-                  onChange={(v) =>
-                    setConfig((c) => ({ ...c, site: { ...c.site, support_phone: v } }))
-                  }
-                />
-                <Field
-                  id="currency"
-                  label="Currency"
-                  value={config.site.currency}
-                  onChange={(v) => setConfig((c) => ({ ...c, site: { ...c.site, currency: v } }))}
-                />
-                <Field
-                  id="timezone"
-                  label="Timezone"
-                  value={config.site.timezone}
-                  onChange={(v) => setConfig((c) => ({ ...c, site: { ...c.site, timezone: v } }))}
-                />
+                <div className="rounded-xl border border-border bg-surface p-5">
+                  <h2 className="text-base font-semibold">Logo</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Upload the brand logo used across the site. The same image is also used as the
+                    favicon.
+                  </p>
+                  <div className="mt-4 flex aspect-square max-h-48 items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
+                    {brandingSrc ? (
+                      <img
+                        src={brandingSrc}
+                        alt="Site logo preview"
+                        className="size-full object-contain p-3"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <ImageIcon className="size-12" />
+                        <span className="text-xs">No logo uploaded</span>
+                      </div>
+                    )}
+                  </div>
+                  {logoFile ? (
+                    <p className="mt-3 truncate text-xs font-medium text-brand">
+                      New file selected: {logoFile.name}
+                    </p>
+                  ) : (
+                    <p className="mt-3 truncate text-xs text-muted-foreground">
+                      {settingsQuery.data?.logo || "No logo on file"}
+                    </p>
+                  )}
+                  <label className="mt-3 block">
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="sr-only"
+                      onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+                    />
+                    <Button
+                      variant="secondary"
+                      className="w-full"
+                      type="button"
+                      onClick={(e) => {
+                        const input = (
+                          e.currentTarget.parentElement as HTMLLabelElement
+                        ).querySelector("input");
+                        input?.click();
+                      }}
+                    >
+                      {logoFile ? "Choose a different image" : "Upload logo"}
+                    </Button>
+                  </label>
+                  <div className="mt-2 flex flex-col gap-2">
+                    <Button
+                      type="button"
+                      className="w-full gap-1.5"
+                      disabled={saving || (!logoFile && !Object.values(config.site).some(Boolean))}
+                      onClick={saveGeneral}
+                    >
+                      <Save className="size-3.5" />
+                      {saving ? "Saving…" : logoFile ? "Save logo & info" : "Save changes"}
+                    </Button>
+                    {settingsQuery.data?.logo_url && !logoFile ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        disabled={saving}
+                        onClick={() => {
+                          const fd = new FormData();
+                          fd.append("clear_logo", "true");
+                          saveMutation.mutate(fd);
+                        }}
+                      >
+                        Remove logo
+                      </Button>
+                    ) : null}
+                    {logoFile ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="w-full"
+                        disabled={saving}
+                        onClick={() => setLogoFile(null)}
+                      >
+                        Cancel selection
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border bg-surface p-5">
+                  <h2 className="text-base font-semibold">Favicon</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Automatically uses the uploaded logo. No separate favicon upload is required.
+                  </p>
+                  <div className="mt-4 flex aspect-square max-h-48 items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
+                    {brandingSrc ? (
+                      <div className="flex flex-col items-center gap-3 p-4">
+                        <img
+                          src={brandingSrc}
+                          alt="Favicon preview"
+                          className="size-16 rounded-md object-contain shadow-sm"
+                        />
+                        <img
+                          src={brandingSrc}
+                          alt=""
+                          className="size-8 rounded object-contain"
+                          aria-hidden
+                        />
+                        <span className="text-xs text-muted-foreground">Browser tab sizes</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <ImageIcon className="size-12" />
+                        <span className="text-xs">Upload a logo to preview</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {brandingSrc
+                      ? "Same image as the logo — shown in browser tabs and bookmarks."
+                      : "Favicon updates automatically when you upload a logo."}
+                  </p>
+                </div>
               </div>
-              <div className="mt-4 space-y-1.5">
-                <Label htmlFor="address">Address</Label>
-                <Textarea
-                  id="address"
-                  rows={3}
-                  value={config.site.address}
-                  onChange={(e) =>
-                    setConfig((c) => ({ ...c, site: { ...c.site, address: e.target.value } }))
-                  }
-                />
-              </div>
-            </SettingsPanel>
+            </div>
           </TabsContent>
 
           <TabsContent value="payment">

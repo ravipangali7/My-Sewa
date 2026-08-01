@@ -21,6 +21,7 @@ import { buildActivity } from "@/lib/activity";
 import { buildNotifications } from "@/lib/notifications";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 
 export const Route = createFileRoute("/app/")({
   head: () => ({
@@ -97,6 +98,7 @@ function formatPhone(phone: string) {
 
 function WalletHome() {
   const { user, wallet } = useAuth();
+  const { logoUrl } = useSiteBranding();
   const [balanceVisible, setBalanceVisible] = useState(true);
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
@@ -126,7 +128,7 @@ function WalletHome() {
           <div className="relative z-10 flex items-start justify-between">
             <div className="flex items-center gap-2.5">
               <img
-                src="/logo.png"
+                src={logoUrl}
                 alt="MySewa"
                 className="size-[44px] shrink-0 rounded-full object-cover shadow-[0_4px_14px_rgba(0,0,0,0.25)] ring-[2.5px] ring-white/40"
               />

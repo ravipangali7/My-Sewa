@@ -65,7 +65,7 @@ class DepositAdmin(admin.ModelAdmin):
 class SettingsAdmin(admin.ModelAdmin):
     list_display = ('id', 'created_at', 'updated_at')
     readonly_fields = ('created_at', 'updated_at')
-    fields = ('qr_code', 'bank_details', 'config', 'created_at', 'updated_at')
+    fields = ('logo', 'qr_code', 'bank_details', 'config', 'created_at', 'updated_at')
 
     def has_add_permission(self, request):
         # Only allow one instance

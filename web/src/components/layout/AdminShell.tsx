@@ -15,6 +15,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 import type { UserProfile } from "@/lib/types";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -188,6 +189,7 @@ export function AdminShell({
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { user, token, isLoading, isStaff } = useAuth();
+  const { logoUrl } = useSiteBranding();
 
   useEffect(() => {
     if (!token) {
@@ -240,7 +242,7 @@ export function AdminShell({
     <div className="min-h-screen bg-background md:flex">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-surface px-3 py-5 md:flex">
         <Link to="/admin" className="mb-6 flex items-center gap-2.5 px-2">
-          <img src="/logo.png" alt="MySewa" className="size-9 rounded-xl" />
+          <img src={logoUrl} alt="MySewa" className="size-9 rounded-xl object-cover" />
           <div>
             <p className="text-[15px] leading-tight font-semibold">MySewa</p>
             <p className="text-xs text-muted-foreground">{roleLabel}</p>
