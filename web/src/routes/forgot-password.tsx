@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
 import { useSiteBranding } from "@/hooks/use-site-branding";
@@ -159,9 +160,8 @@ function ForgotPasswordPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="password">New password</Label>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="h-12 rounded-xl"
@@ -172,9 +172,8 @@ function ForgotPasswordPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="password2">Confirm password</Label>
-                <Input
+                <PasswordInput
                   id="password2"
-                  type="password"
                   value={password2}
                   onChange={(e) => setPassword2(e.target.value)}
                   className="h-12 rounded-xl"

@@ -3,6 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
+import {
+  AdminDataList,
+  AdminEmptyState,
+  AdminMobileCard,
+  AdminMobileCardGrid,
+  AdminMobileMeta,
+} from "@/components/admin/AdminDataList";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -138,6 +145,28 @@ function TopupsPage() {
   if (operatorTab !== "all") emptyParts.push(OPERATORS[Number(operatorTab) as 1 | 2]);
   const emptyLabel = emptyParts.join(" ");
 
+  const statusSelect = (id: number, status: TxnStatus) => (
+    <Select
+      value={status}
+      disabled={statusMutation.isPending}
+      onValueChange={(value) => {
+        if (value === status) return;
+        statusMutation.mutate({ id, status: value as TxnStatus });
+      }}
+    >
+      <SelectTrigger className="h-8 w-full min-w-[120px]" aria-label={`Status for top-up ${id}`}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {STATUS_OPTIONS.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
   return (
     <AdminShell title="Top-ups" description="NTC & NCELL transaction ledger">
       {topupsQuery.isLoading && (
@@ -189,95 +218,111 @@ function TopupsPage() {
           </TabsList>
         </Tabs>
 
-        <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>User phone</TableHead>
-                <TableHead>Mobile number</TableHead>
-                <TableHead>Operator</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead className="text-right">Charge</TableHead>
-                <TableHead className="text-right">Cashback</TableHead>
-                <TableHead className="text-right">Total debited</TableHead>
-                <TableHead>Merchant txn ID</TableHead>
-                <TableHead>Service hub txn ID</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created at</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visible.map((t) => (
-                <TableRow
-                  key={t.id}
-                  className="cursor-pointer"
-                  onClick={() => openTopup(t.id)}
-                >
-                  <TableCell className="text-sm">#{t.id}</TableCell>
-                  <TableCell className="text-sm">{t.phone}</TableCell>
-                  <TableCell className="text-sm font-medium">{t.mobile_number}</TableCell>
-                  <TableCell className="text-sm">
-                    {t.product_name || OPERATORS[t.product_id]}
-                  </TableCell>
-                  <TableCell className="tabular text-right text-sm">
-                    {formatNPR(t.amount)}
-                  </TableCell>
-                  <TableCell className="tabular text-right text-sm">
-                    {formatNPR(t.charge)}
-                  </TableCell>
-                  <TableCell className="tabular text-right text-sm">
-                    {formatNPR(t.cashback)}
-                  </TableCell>
-                  <TableCell className="tabular text-right text-sm">
-                    {formatNPR(t.total_debited)}
-                  </TableCell>
-                  <TableCell
-                    className="max-w-40 truncate text-sm"
-                    title={t.merchant_txn_id}
-                  >
-                    {t.merchant_txn_id}
-                  </TableCell>
-                  <TableCell className="max-w-40 truncate text-sm text-muted-foreground">
-                    {t.service_hub_txn_id ?? "—"}
-                  </TableCell>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Select
-                      value={t.status}
-                      disabled={statusMutation.isPending}
-                      onValueChange={(value) => {
-                        if (value === t.status) return;
-                        statusMutation.mutate({ id: t.id, status: value as TxnStatus });
-                      }}
-                    >
-                      <SelectTrigger className="h-8 w-[120px]" aria-label={`Status for top-up ${t.id}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell className="text-sm">{formatDateTime(t.created_at)}</TableCell>
-                </TableRow>
-              ))}
-              {!topupsQuery.isLoading && visible.length === 0 && (
+        <AdminDataList
+          isEmpty={!topupsQuery.isLoading && visible.length === 0}
+          empty={
+            <AdminEmptyState>
+              No {emptyLabel ? `${emptyLabel} ` : ""}top-ups.
+            </AdminEmptyState>
+          }
+          table={
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell
-                    colSpan={12}
-                    className="py-10 text-center text-sm text-muted-foreground"
-                  >
-                    No {emptyLabel ? `${emptyLabel} ` : ""}top-ups.
-                  </TableCell>
+                  <TableHead>ID</TableHead>
+                  <TableHead>User phone</TableHead>
+                  <TableHead>Mobile number</TableHead>
+                  <TableHead>Operator</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Charge</TableHead>
+                  <TableHead className="text-right">Cashback</TableHead>
+                  <TableHead className="text-right">Total debited</TableHead>
+                  <TableHead>Merchant txn ID</TableHead>
+                  <TableHead>Service hub txn ID</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Created at</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {visible.map((t) => (
+                  <TableRow
+                    key={t.id}
+                    className="cursor-pointer"
+                    onClick={() => openTopup(t.id)}
+                  >
+                    <TableCell className="text-sm">#{t.id}</TableCell>
+                    <TableCell className="text-sm">{t.phone}</TableCell>
+                    <TableCell className="text-sm font-medium">{t.mobile_number}</TableCell>
+                    <TableCell className="text-sm">
+                      {t.product_name || OPERATORS[t.product_id]}
+                    </TableCell>
+                    <TableCell className="tabular text-right text-sm">
+                      {formatNPR(t.amount)}
+                    </TableCell>
+                    <TableCell className="tabular text-right text-sm">
+                      {formatNPR(t.charge)}
+                    </TableCell>
+                    <TableCell className="tabular text-right text-sm">
+                      {formatNPR(t.cashback)}
+                    </TableCell>
+                    <TableCell className="tabular text-right text-sm">
+                      {formatNPR(t.total_debited)}
+                    </TableCell>
+                    <TableCell
+                      className="max-w-40 truncate text-sm"
+                      title={t.merchant_txn_id}
+                    >
+                      {t.merchant_txn_id}
+                    </TableCell>
+                    <TableCell className="max-w-40 truncate text-sm text-muted-foreground">
+                      {t.service_hub_txn_id ?? "—"}
+                    </TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      {statusSelect(t.id, t.status)}
+                    </TableCell>
+                    <TableCell className="text-sm">{formatDateTime(t.created_at)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          }
+          mobile={
+            <AdminMobileCardGrid>
+              {visible.map((t) => (
+                <AdminMobileCard key={t.id} onClick={() => openTopup(t.id)}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{t.mobile_number}</p>
+                      <p className="text-xs text-muted-foreground">
+                        #{t.id} · {t.product_name || OPERATORS[t.product_id]}
+                      </p>
+                    </div>
+                    <p className="tabular shrink-0 text-base font-semibold">{formatNPR(t.amount)}</p>
+                  </div>
+                  <AdminMobileMeta
+                    items={[
+                      { label: "User", value: t.phone },
+                      { label: "Total", value: formatNPR(t.total_debited) },
+                      { label: "Charge", value: formatNPR(t.charge) },
+                      { label: "Cashback", value: formatNPR(t.cashback) },
+                      { label: "Created", value: formatDateTime(t.created_at) },
+                      {
+                        label: "Txn ID",
+                        value: t.merchant_txn_id || "—",
+                      },
+                    ]}
+                  />
+                  <div
+                    className="mt-3 border-t border-border pt-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {statusSelect(t.id, t.status)}
+                  </div>
+                </AdminMobileCard>
+              ))}
+            </AdminMobileCardGrid>
+          }
+        />
       </div>
     </AdminShell>
   );

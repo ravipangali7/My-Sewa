@@ -4,6 +4,13 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ImageIcon } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
+import {
+  AdminDataList,
+  AdminEmptyState,
+  AdminMobileCard,
+  AdminMobileCardGrid,
+  AdminMobileMeta,
+} from "@/components/admin/AdminDataList";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import {
@@ -125,27 +132,91 @@ function DepositsPage() {
     navigate({ to: "/admin/deposits/$depositId", params: { depositId: String(id) } });
   };
 
+  const filterBar = (
+    <div className="flex shrink-0 gap-1 rounded-lg bg-muted p-1">
+      {FILTERS.map((f) => (
+        <button
+          key={f}
+          type="button"
+          onClick={() => setFilter(f)}
+          className={cn(
+            "rounded-md px-2.5 py-1 text-xs font-medium capitalize whitespace-nowrap",
+            filter === f ? "bg-surface text-brand-dark shadow-card" : "text-muted-foreground",
+          )}
+        >
+          {f}
+        </button>
+      ))}
+    </div>
+  );
+
+  const depositActions = (d: Deposit) =>
+    d.status === "pending" ? (
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          disabled={actionPending}
+          onClick={(e) => {
+            e.stopPropagation();
+            approveMutation.mutate(d.id);
+          }}
+        >
+          Approve
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={actionPending}
+          onClick={(e) => {
+            e.stopPropagation();
+            openRejectDialog(d);
+          }}
+        >
+          Reject
+        </Button>
+      </div>
+    ) : (
+      <Link
+        to="/admin/deposits/$depositId"
+        params={{ depositId: String(d.id) }}
+        className="text-sm text-brand hover:underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        View details
+      </Link>
+    );
+
+  const proofThumb = (d: Deposit) =>
+    d.screenshot_proof ? (
+      <a
+        href={d.screenshot_proof}
+        target="_blank"
+        rel="noreferrer"
+        className="group inline-flex items-center gap-2"
+        title="Open full-size proof"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={d.screenshot_proof}
+          alt={`Deposit #${d.id} proof`}
+          className="size-12 rounded-md border border-border object-cover shadow-sm transition-opacity group-hover:opacity-90"
+        />
+        <span className="text-xs text-brand group-hover:underline">View</span>
+      </a>
+    ) : (
+      <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+        <span className="flex size-12 items-center justify-center rounded-md bg-muted">
+          <ImageIcon className="size-4" />
+        </span>
+        —
+      </span>
+    );
+
   return (
     <AdminShell
       title="Deposits"
       description="Remittance / load requests awaiting review"
-      actions={
-        <div className="flex gap-1 rounded-lg bg-muted p-1">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-xs font-medium capitalize",
-                filter === f ? "bg-surface text-brand-dark shadow-card" : "text-muted-foreground",
-              )}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-      }
+      actions={filterBar}
     >
       {depositsQuery.isLoading && (
         <p className="mb-4 text-sm text-muted-foreground">Loading deposits…</p>
@@ -158,110 +229,119 @@ function DepositsPage() {
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>User phone</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead>Screenshot proof</TableHead>
-              <TableHead>Note</TableHead>
-              <TableHead>Created at</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {visible.map((d) => (
-              <TableRow
-                key={d.id}
-                className="cursor-pointer"
-                onClick={() => openDeposit(d.id)}
-              >
-                <TableCell className="text-sm">#{d.id}</TableCell>
-                <TableCell className="text-sm font-medium">{d.phone}</TableCell>
-                <TableCell className="tabular text-right text-sm">{formatNPR(d.amount)}</TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  {d.screenshot_proof ? (
-                    <a
-                      href={d.screenshot_proof}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="group inline-flex items-center gap-2"
-                      title="Open full-size proof"
-                    >
-                      <img
-                        src={d.screenshot_proof}
-                        alt={`Deposit #${d.id} proof`}
-                        className="size-12 rounded-md border border-border object-cover shadow-sm transition-opacity group-hover:opacity-90"
-                      />
-                      <span className="text-xs text-brand group-hover:underline">View</span>
-                    </a>
-                  ) : (
-                    <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                      <span className="flex size-12 items-center justify-center rounded-md bg-muted">
-                        <ImageIcon className="size-4" />
-                      </span>
-                      —
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell className="max-w-55 text-sm text-muted-foreground">
-                  {d.status === "rejected" && d.rejection_reason ? (
-                    <div className="space-y-0.5">
-                      <p>{d.note ?? "—"}</p>
-                      <p className="text-destructive">Rejected: {d.rejection_reason}</p>
-                    </div>
-                  ) : (
-                    (d.note ?? "—")
-                  )}
-                </TableCell>
-                <TableCell className="text-sm">{formatDateTime(d.created_at)}</TableCell>
-                <TableCell>
-                  <StatusChip status={d.status} compact />
-                </TableCell>
-                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                  {d.status === "pending" ? (
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        disabled={actionPending}
-                        onClick={() => approveMutation.mutate(d.id)}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={actionPending}
-                        onClick={() => openRejectDialog(d)}
-                      >
-                        Reject
-                      </Button>
-                    </div>
-                  ) : (
-                    <Link
-                      to="/admin/deposits/$depositId"
-                      params={{ depositId: String(d.id) }}
-                      className="text-sm text-brand hover:underline"
-                    >
-                      View details
-                    </Link>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-            {!depositsQuery.isLoading && visible.length === 0 && (
+      <AdminDataList
+        isEmpty={!depositsQuery.isLoading && visible.length === 0}
+        empty={
+          <AdminEmptyState>
+            No {filter === "all" ? "" : `${filter} `}deposits.
+          </AdminEmptyState>
+        }
+        table={
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
-                  No {filter === "all" ? "" : `${filter} `}deposits.
-                </TableCell>
+                <TableHead>ID</TableHead>
+                <TableHead>User phone</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead>Screenshot proof</TableHead>
+                <TableHead>Note</TableHead>
+                <TableHead>Created at</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {visible.map((d) => (
+                <TableRow
+                  key={d.id}
+                  className="cursor-pointer"
+                  onClick={() => openDeposit(d.id)}
+                >
+                  <TableCell className="text-sm">#{d.id}</TableCell>
+                  <TableCell className="text-sm font-medium">{d.phone}</TableCell>
+                  <TableCell className="tabular text-right text-sm">{formatNPR(d.amount)}</TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>{proofThumb(d)}</TableCell>
+                  <TableCell className="max-w-55 text-sm text-muted-foreground">
+                    {d.status === "rejected" && d.rejection_reason ? (
+                      <div className="space-y-0.5">
+                        <p>{d.note ?? "—"}</p>
+                        <p className="text-destructive">Rejected: {d.rejection_reason}</p>
+                      </div>
+                    ) : (
+                      (d.note ?? "—")
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm">{formatDateTime(d.created_at)}</TableCell>
+                  <TableCell>
+                    <StatusChip status={d.status} compact />
+                  </TableCell>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    {depositActions(d)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        }
+        mobile={
+          <AdminMobileCardGrid>
+            {visible.map((d) => (
+              <AdminMobileCard key={d.id} onClick={() => openDeposit(d.id)}>
+                <div className="flex items-start gap-3">
+                  <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                    {d.screenshot_proof ? (
+                      <a
+                        href={d.screenshot_proof}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Open full-size proof"
+                      >
+                        <img
+                          src={d.screenshot_proof}
+                          alt={`Deposit #${d.id} proof`}
+                          className="size-14 rounded-lg border border-border object-cover"
+                        />
+                      </a>
+                    ) : (
+                      <span className="flex size-14 items-center justify-center rounded-lg bg-muted">
+                        <ImageIcon className="size-5 text-muted-foreground" />
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{d.phone}</p>
+                        <p className="text-xs text-muted-foreground">#{d.id}</p>
+                      </div>
+                      <StatusChip status={d.status} compact />
+                    </div>
+                    <p className="tabular mt-1.5 text-lg font-semibold">{formatNPR(d.amount)}</p>
+                  </div>
+                </div>
+                <AdminMobileMeta
+                  items={[
+                    { label: "Created", value: formatDateTime(d.created_at) },
+                    {
+                      label: "Note",
+                      value:
+                        d.status === "rejected" && d.rejection_reason
+                          ? d.rejection_reason
+                          : d.note || "—",
+                    },
+                  ]}
+                />
+                <div
+                  className="mt-3 border-t border-border pt-3"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {depositActions(d)}
+                </div>
+              </AdminMobileCard>
+            ))}
+          </AdminMobileCardGrid>
+        }
+      />
 
       <Dialog open={!!rejectTarget} onOpenChange={closeRejectDialog}>
         <DialogContent className="sm:max-w-md">

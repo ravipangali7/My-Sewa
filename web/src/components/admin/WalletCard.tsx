@@ -52,8 +52,8 @@ export function WalletCard({
           </div>
           <p
             className={cn(
-              "tabular mt-2 font-bold leading-none tracking-tight",
-              large ? "text-[40px] lg:text-[48px]" : "text-[28px]",
+              "tabular mt-2 font-bold leading-none tracking-tight break-all",
+              large ? "text-[32px] sm:text-[40px] lg:text-[48px]" : "text-[28px]",
             )}
           >
             {formatNPR(balance)}

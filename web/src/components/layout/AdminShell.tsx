@@ -59,7 +59,8 @@ const BOTTOM_TABS = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { to: "/admin/users", label: "Users", icon: Users },
   { to: "/admin/deposits", label: "Deposits", icon: Inbox },
-  { to: "/admin/topups", label: "Top-ups", icon: Smartphone },
+  { to: "/admin/wallets", label: "Wallets", icon: Wallet },
+  { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
 function isNavActive(pathname: string, to: string) {
@@ -304,43 +305,56 @@ export function AdminShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-border bg-surface/95 px-4 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-3 backdrop-blur md:px-8 md:pt-5 md:pb-5">
-          <div className="flex items-center gap-3">
+          <div className="flex items-start gap-3">
             <button
               type="button"
               aria-label="Open menu"
               aria-expanded={drawerOpen}
-              className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground transition-colors hover:bg-muted md:hidden"
+              className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground transition-colors hover:bg-muted md:hidden"
               onClick={() => setDrawerOpen(true)}
             >
               <Menu className="size-5" />
             </button>
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-semibold tracking-tight md:text-[28px]">
-                {title}
-              </h1>
-              {description && (
-                <p className="truncate text-sm text-muted-foreground">{description}</p>
-              )}
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              {actions}
-              <AdminProfileControls
-                user={user}
-                roleLabel={roleLabel}
-                variant="header"
-                onNavigate={closeDrawer}
-              />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <h1 className="truncate text-xl font-semibold tracking-tight md:text-[28px]">
+                    {title}
+                  </h1>
+                  {description && (
+                    <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground md:truncate md:line-clamp-none">
+                      {description}
+                    </p>
+                  )}
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                  <div className="hidden items-center gap-2 sm:flex">{actions}</div>
+                  <AdminProfileControls
+                    user={user}
+                    roleLabel={roleLabel}
+                    variant="header"
+                    onNavigate={closeDrawer}
+                  />
+                </div>
+              </div>
+              {actions ? (
+                <div className="mt-3 flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5 sm:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {actions}
+                </div>
+              ) : null}
             </div>
           </div>
         </header>
 
-        <main className="flex-1 px-4 py-5 pb-28 md:px-8 md:py-7 md:pb-7">{children}</main>
+        <main className="flex-1 px-4 py-5 pb-[calc(5.5rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] md:px-8 md:py-7 md:pb-7">
+          {children}
+        </main>
 
         <nav
           aria-label="Admin primary"
-          className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface pb-[max(10px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] md:hidden"
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface/95 backdrop-blur-md pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] md:hidden"
         >
-          <ul className="grid grid-cols-4">
+          <ul className="grid grid-cols-5">
             {BOTTOM_TABS.map((tab) => {
               const active = isNavActive(pathname, tab.to);
               return (
@@ -348,7 +362,7 @@ export function AdminShell({
                   <Link
                     to={tab.to}
                     className={cn(
-                      "relative flex min-h-[56px] flex-col items-center justify-center gap-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
+                      "relative flex min-h-[52px] flex-col items-center justify-center gap-0.5 px-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
                       "active:bg-transparent focus-visible:bg-transparent",
                       active ? "text-brand" : "text-[#8A94A6]",
                     )}
@@ -356,11 +370,11 @@ export function AdminShell({
                     {active ? (
                       <span
                         aria-hidden
-                        className="absolute inset-x-6 top-0 h-[2.5px] rounded-b-full bg-brand"
+                        className="absolute inset-x-4 top-0 h-[2.5px] rounded-b-full bg-brand"
                       />
                     ) : null}
-                    <tab.icon className={cn("size-[22px]", active && "stroke-[2.25px]")} />
-                    <span className="leading-none">{tab.label}</span>
+                    <tab.icon className={cn("size-5", active && "stroke-[2.25px]")} />
+                    <span className="max-w-full truncate leading-none">{tab.label}</span>
                   </Link>
                 </li>
               );

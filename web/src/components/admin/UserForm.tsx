@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -137,9 +138,8 @@ export function UserForm({
             <Label htmlFor="password">
               {mode === "create" ? "Password" : "New password"}
             </Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               value={values.password}
               onChange={(e) => set("password", e.target.value)}
               required={mode === "create"}
@@ -149,9 +149,8 @@ export function UserForm({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="password2">Confirm password</Label>
-            <Input
+            <PasswordInput
               id="password2"
-              type="password"
               value={values.password2}
               onChange={(e) => set("password2", e.target.value)}
               required={mode === "create" || Boolean(values.password)}

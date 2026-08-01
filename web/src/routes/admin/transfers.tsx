@@ -2,6 +2,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
+import {
+  AdminDataList,
+  AdminEmptyState,
+  AdminMobileCard,
+  AdminMobileCardGrid,
+  AdminMobileMeta,
+} from "@/components/admin/AdminDataList";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -72,6 +79,28 @@ function TransfersPage() {
 
   const bankTransfers = transfersQuery.data ?? [];
 
+  const statusSelect = (id: number, status: TxnStatus) => (
+    <Select
+      value={status}
+      disabled={statusMutation.isPending}
+      onValueChange={(value) => {
+        if (value === status) return;
+        statusMutation.mutate({ id, status: value as TxnStatus });
+      }}
+    >
+      <SelectTrigger className="h-8 w-full min-w-[120px]" aria-label={`Status for transfer ${id}`}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {STATUS_OPTIONS.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
   return (
     <AdminShell title="Bank transfers" description="Outbound transfer ledger">
       {transfersQuery.isLoading && (
@@ -85,89 +114,104 @@ function TransfersPage() {
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>User phone</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead>Destination bank</TableHead>
-              <TableHead>Account no.</TableHead>
-              <TableHead>Account name</TableHead>
-              <TableHead>Remarks</TableHead>
-              <TableHead className="text-right">Charge</TableHead>
-              <TableHead className="text-right">Total debited</TableHead>
-              <TableHead>Verified</TableHead>
-              <TableHead>Merchant txn ID</TableHead>
-              <TableHead>Provider txn ID</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created at</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {bankTransfers.map((b) => (
-              <TableRow key={b.id}>
-                <TableCell className="text-sm">{b.id}</TableCell>
-                <TableCell className="text-sm">{b.phone}</TableCell>
-                <TableCell className="tabular text-right text-sm">{formatNPR(b.amount)}</TableCell>
-                <TableCell className="text-sm">
-                  {b.destination_bank_name}
-                  <span className="block text-xs text-muted-foreground">{b.destination_bank}</span>
-                </TableCell>
-                <TableCell className="text-sm">{b.destination_acc_no}</TableCell>
-                <TableCell className="text-sm font-medium">{b.destination_acc_name}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {b.transaction_remarks}
-                  {b.transaction_remarks_2 ? ` · ${b.transaction_remarks_2}` : ""}
-                </TableCell>
-                <TableCell className="tabular text-right text-sm">{formatNPR(b.charge)}</TableCell>
-                <TableCell className="tabular text-right text-sm">
-                  {formatNPR(b.total_debited)}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={b.verified ? "default" : "secondary"}>
-                    {b.verified ? "Verified" : "Unverified"}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-sm">{b.merchant_txn_id}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {b.provider_txn_id ?? "—"}
-                </TableCell>
-                <TableCell>
-                  <Select
-                    value={b.status}
-                    disabled={statusMutation.isPending}
-                    onValueChange={(value) => {
-                      if (value === b.status) return;
-                      statusMutation.mutate({ id: b.id, status: value as TxnStatus });
-                    }}
-                  >
-                    <SelectTrigger className="h-8 w-[120px]" aria-label={`Status for transfer ${b.id}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {STATUS_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-                <TableCell className="text-sm">{formatDateTime(b.created_at)}</TableCell>
-              </TableRow>
-            ))}
-            {!transfersQuery.isLoading && bankTransfers.length === 0 && (
+      <AdminDataList
+        isEmpty={!transfersQuery.isLoading && bankTransfers.length === 0}
+        empty={<AdminEmptyState>No transfers yet.</AdminEmptyState>}
+        table={
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={14} className="py-10 text-center text-sm text-muted-foreground">
-                  No transfers yet.
-                </TableCell>
+                <TableHead>ID</TableHead>
+                <TableHead>User phone</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead>Destination bank</TableHead>
+                <TableHead>Account no.</TableHead>
+                <TableHead>Account name</TableHead>
+                <TableHead>Remarks</TableHead>
+                <TableHead className="text-right">Charge</TableHead>
+                <TableHead className="text-right">Total debited</TableHead>
+                <TableHead>Verified</TableHead>
+                <TableHead>Merchant txn ID</TableHead>
+                <TableHead>Provider txn ID</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created at</TableHead>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {bankTransfers.map((b) => (
+                <TableRow key={b.id}>
+                  <TableCell className="text-sm">{b.id}</TableCell>
+                  <TableCell className="text-sm">{b.phone}</TableCell>
+                  <TableCell className="tabular text-right text-sm">{formatNPR(b.amount)}</TableCell>
+                  <TableCell className="text-sm">
+                    {b.destination_bank_name}
+                    <span className="block text-xs text-muted-foreground">{b.destination_bank}</span>
+                  </TableCell>
+                  <TableCell className="text-sm">{b.destination_acc_no}</TableCell>
+                  <TableCell className="text-sm font-medium">{b.destination_acc_name}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {b.transaction_remarks}
+                    {b.transaction_remarks_2 ? ` · ${b.transaction_remarks_2}` : ""}
+                  </TableCell>
+                  <TableCell className="tabular text-right text-sm">{formatNPR(b.charge)}</TableCell>
+                  <TableCell className="tabular text-right text-sm">
+                    {formatNPR(b.total_debited)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={b.verified ? "default" : "secondary"}>
+                      {b.verified ? "Verified" : "Unverified"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-sm">{b.merchant_txn_id}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {b.provider_txn_id ?? "—"}
+                  </TableCell>
+                  <TableCell>{statusSelect(b.id, b.status)}</TableCell>
+                  <TableCell className="text-sm">{formatDateTime(b.created_at)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        }
+        mobile={
+          <AdminMobileCardGrid>
+            {bankTransfers.map((b) => (
+              <AdminMobileCard key={b.id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{b.destination_acc_name}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {b.destination_bank_name} · #{b.id}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="tabular text-base font-semibold">{formatNPR(b.amount)}</p>
+                    <Badge variant={b.verified ? "default" : "secondary"} className="mt-1">
+                      {b.verified ? "Verified" : "Unverified"}
+                    </Badge>
+                  </div>
+                </div>
+                <AdminMobileMeta
+                  items={[
+                    { label: "User", value: b.phone },
+                    { label: "Account", value: b.destination_acc_no },
+                    { label: "Debited", value: formatNPR(b.total_debited) },
+                    { label: "Charge", value: formatNPR(b.charge) },
+                    { label: "Created", value: formatDateTime(b.created_at) },
+                    {
+                      label: "Remarks",
+                      value:
+                        [b.transaction_remarks, b.transaction_remarks_2].filter(Boolean).join(" · ") ||
+                        "—",
+                    },
+                  ]}
+                />
+                <div className="mt-3 border-t border-border pt-3">{statusSelect(b.id, b.status)}</div>
+              </AdminMobileCard>
+            ))}
+          </AdminMobileCardGrid>
+        }
+      />
     </AdminShell>
   );
 }

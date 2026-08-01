@@ -16,6 +16,7 @@ import { AdminShell } from "@/components/layout/AdminShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -255,14 +256,16 @@ function SettingsPage() {
         </div>
       ) : (
         <Tabs value={tab} onValueChange={(v) => setTab(v as SectionId)} className="space-y-4">
-          <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-muted/80 p-1.5">
-            {SECTIONS.map(({ id, label, icon: Icon }) => (
-              <TabsTrigger key={id} value={id} className="gap-1.5 px-3 py-2">
-                <Icon className="size-3.5 shrink-0" />
-                <span>{label}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <div className="-mx-1 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:overflow-visible">
+            <TabsList className="inline-flex h-auto min-w-full w-max justify-start gap-1 bg-muted/80 p-1.5 md:flex md:w-full md:flex-wrap">
+              {SECTIONS.map(({ id, label, icon: Icon }) => (
+                <TabsTrigger key={id} value={id} className="shrink-0 gap-1.5 px-3 py-2">
+                  <Icon className="size-3.5 shrink-0" />
+                  <span>{label}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
 
           <TabsContent value="site">
             <div className="space-y-4">
@@ -737,9 +740,9 @@ function SettingsPage() {
                   <div className="mt-4 grid gap-4">
                     <div className="space-y-1.5">
                       <Label htmlFor="himalpay_api_key">HimalPay API key</Label>
-                      <Input
+                      <PasswordInput
                         id="himalpay_api_key"
-                        type="password"
+                        revealLabel="API key"
                         autoComplete="off"
                         placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                         value={config.integrations?.himalpay_api_key ?? ""}

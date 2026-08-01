@@ -5,6 +5,7 @@ import { UserShell } from "@/components/layout/UserShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
 
@@ -72,9 +73,8 @@ function ChangePhonePage() {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="phone_password">Current password</Label>
-          <Input
+          <PasswordInput
             id="phone_password"
-            type="password"
             value={phonePassword}
             onChange={(e) => setPhonePassword(e.target.value)}
             autoComplete="current-password"

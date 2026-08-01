@@ -36,7 +36,7 @@ export const Route = createFileRoute("/admin/deposits_/$depositId")({
 
 function StatementRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[140px_1fr] gap-3 border-b border-dashed border-border/80 py-2.5 last:border-0 sm:grid-cols-[180px_1fr]">
+    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-border/80 py-2.5 last:border-0 sm:grid-cols-[180px_1fr] sm:gap-3">
       <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</dt>
       <dd className="text-sm font-medium break-words text-foreground">{children}</dd>
     </div>

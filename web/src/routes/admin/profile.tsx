@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
@@ -295,9 +296,8 @@ function AdminProfilePage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="phone_password">Current password</Label>
-              <Input
+              <PasswordInput
                 id="phone_password"
-                type="password"
                 value={phonePassword}
                 onChange={(e) => setPhonePassword(e.target.value)}
                 required
@@ -335,9 +335,8 @@ function AdminProfilePage() {
           >
             <div className="space-y-1.5">
               <Label htmlFor="current_password">Current password</Label>
-              <Input
+              <PasswordInput
                 id="current_password"
-                type="password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 required
@@ -345,9 +344,8 @@ function AdminProfilePage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="new_password">New password</Label>
-              <Input
+              <PasswordInput
                 id="new_password"
-                type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
@@ -356,9 +354,8 @@ function AdminProfilePage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="confirm_password">Confirm password</Label>
-              <Input
+              <PasswordInput
                 id="confirm_password"
-                type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
