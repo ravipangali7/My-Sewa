@@ -2,6 +2,7 @@ import type { ActivityItem, WalletTransactions } from "./types";
 import { buildActivity } from "./activity";
 import { formatNPR, formatDateTime } from "./format";
 import type { TranslateFn } from "./i18n";
+import { translateStatus } from "./status";
 
 export interface AppNotification {
   id: string;
@@ -54,7 +55,7 @@ function detailRows(
     return [
       { label: t("common.type"), value: t("notif.typeRemittance") },
       { label: t("common.amount"), value: formatNPR(d.amount) },
-      { label: t("common.status"), value: d.status_display || d.status },
+      { label: t("common.status"), value: translateStatus(d.status, t) },
       { label: t("common.note"), value: d.note || "—" },
       ...(d.rejection_reason
         ? [{ label: t("notif.rejectionReason"), value: d.rejection_reason }]
@@ -73,7 +74,7 @@ function detailRows(
       { label: t("common.charge"), value: formatNPR(top.charge) },
       { label: t("common.cashback"), value: formatNPR(top.cashback) },
       { label: t("common.totalDebited"), value: formatNPR(top.total_debited) },
-      { label: t("common.status"), value: top.status_display || top.status },
+      { label: t("common.status"), value: translateStatus(top.status, t) },
       { label: t("common.txnId"), value: top.merchant_txn_id },
       { label: t("common.date"), value: formatDateTime(top.created_at) },
     ];
@@ -100,7 +101,7 @@ function detailRows(
     { label: t("common.cashback"), value: formatNPR(b.cashback) },
     { label: t("common.totalDebited"), value: formatNPR(b.total_debited) },
     { label: t("common.remarks"), value: b.transaction_remarks || "—" },
-    { label: t("common.status"), value: b.status_display || b.status },
+    { label: t("common.status"), value: translateStatus(b.status, t) },
     { label: t("common.txnId"), value: b.merchant_txn_id },
     { label: t("common.date"), value: formatDateTime(b.created_at) },
   ];

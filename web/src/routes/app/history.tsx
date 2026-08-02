@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Download, Send, Smartphone } from "lucide-react";
+import { ChevronRight, Download, Send, Smartphone } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
 import { apiClient } from "@/lib/api";
@@ -92,38 +92,45 @@ function HistoryPage() {
         ) : (
           <ul className="inset-group divide-y divide-border">
             {items.map((item) => (
-              <li key={item.id} className="flex items-center gap-3 px-4 py-3">
-                <span
-                  className={cn(
-                    "flex size-10 shrink-0 items-center justify-center rounded-full",
-                    item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
-                  )}
+              <li key={item.id}>
+                <Link
+                  to="/app/history/$activityId"
+                  params={{ activityId: item.id }}
+                  className="flex items-center gap-3 px-4 py-3 transition-colors active:bg-muted/60"
                 >
-                  {item.kind === "deposit" ? (
-                    <Download className="size-[18px]" />
-                  ) : item.kind === "topup" ? (
-                    <Smartphone className="size-[18px]" />
-                  ) : (
-                    <Send className="size-[18px]" />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-medium">{item.title}</p>
-                  <p className="truncate text-[13px] text-muted-foreground">
-                    {item.subtitle} · {formatDateTime(item.created_at)}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p
+                  <span
                     className={cn(
-                      "tabular text-[15px] font-semibold",
-                      item.credit ? "text-success" : "text-label",
+                      "flex size-10 shrink-0 items-center justify-center rounded-full",
+                      item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
                     )}
                   >
-                    {item.credit ? "+" : "−"} {formatNPR(item.amount)}
-                  </p>
-                  <StatusChip status={item.status} compact className="mt-1" />
-                </div>
+                    {item.kind === "deposit" ? (
+                      <Download className="size-[18px]" />
+                    ) : item.kind === "topup" ? (
+                      <Smartphone className="size-[18px]" />
+                    ) : (
+                      <Send className="size-[18px]" />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-medium">{item.title}</p>
+                    <p className="truncate text-[13px] text-muted-foreground">
+                      {item.subtitle} · {formatDateTime(item.created_at)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p
+                      className={cn(
+                        "tabular text-[15px] font-semibold",
+                        item.credit ? "text-success" : "text-label",
+                      )}
+                    >
+                      {item.credit ? "+" : "−"} {formatNPR(item.amount)}
+                    </p>
+                    <StatusChip status={item.status} compact className="mt-1" />
+                  </div>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+                </Link>
               </li>
             ))}
           </ul>

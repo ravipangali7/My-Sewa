@@ -142,6 +142,16 @@ function Profile() {
             <p className="mt-3.5 text-center text-[22px] font-bold tracking-tight text-white">
               {displayName}
             </p>
+            <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[12px] font-medium text-white/95 ring-1 ring-white/20">
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  accountActive ? "bg-[#22C55E]" : "bg-[#EAB308]",
+                )}
+                aria-hidden
+              />
+              {accountActive ? t("account.activeLabel") : t("account.pendingLabel")}
+            </p>
           </div>
         </section>
 

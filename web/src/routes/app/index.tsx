@@ -319,7 +319,8 @@ function WalletHome() {
                 {activity.map((item, idx) => (
                   <li key={item.id}>
                     <Link
-                      to="/app/history"
+                      to="/app/history/$activityId"
+                      params={{ activityId: item.id }}
                       className={cn(
                         "flex items-center gap-3 px-3.5 py-3.5 transition-colors active:bg-muted/40",
                         idx > 0 && "border-t border-[#EEF1F5]",
