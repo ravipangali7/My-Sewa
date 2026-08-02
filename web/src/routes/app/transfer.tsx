@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useErrorPopup } from "@/components/ErrorPopup";
 import { apiClient, ApiError } from "@/lib/api";
 import { mergeBankLists } from "@/lib/nepali-banks";
 import type { BankOption } from "@/lib/types";
@@ -44,6 +45,7 @@ function Transfer() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const accountPending = isAccountPending(user);
+  const errorPopup = useErrorPopup("Transfer failed");
   const [method, setMethod] = useState<TransferMethod>("bank");
   const [bank, setBank] = useState("");
   const [accNo, setAccNo] = useState("");
@@ -79,7 +81,17 @@ function Transfer() {
       return (res.banks || res.data?.banks || []) as BankOption[];
     },
     enabled: transfersEnabled,
+    retry: 1,
   });
+
+  useEffect(() => {
+    if (!banksQuery.isError) return;
+    errorPopup.showError(banksQuery.error, {
+      title: "Could not load banks",
+      fallback: "Failed to fetch bank list from HimalPay",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [banksQuery.isError, banksQuery.error]);
 
   const historyQuery = useQuery({
     queryKey: ["transfers"],
@@ -119,13 +131,20 @@ function Transfer() {
           setCashback(String(res.data.cashback));
           setTotalDebited(String(res.data.total_debited));
         })
-        .catch(() => {
+        .catch((err) => {
           setCharge("0.00");
           setCashback("0.00");
           setTotalDebited(amt.toFixed(2));
+          if (err instanceof ApiError) {
+            const msg = err.message.toLowerCase();
+            if (msg.includes("ip not") || msg.includes("allowlist") || err.status === 403) {
+              errorPopup.showError(err, { title: "Payment provider error" });
+            }
+          }
         });
     }, 350);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amt, transfersEnabled, minTransfer]);
 
   const selectedBank = banks.find((b) => b.bank_code === bank);
@@ -164,27 +183,29 @@ function Transfer() {
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
     onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : "Transfer failed");
+      errorPopup.showError(err, { title: "Transfer failed", fallback: "Transfer failed" });
     },
   });
 
   async function verifyDestination() {
     if (accountPending) {
-      toast.error(ACCOUNT_PENDING_MESSAGE);
+      errorPopup.showMessage(ACCOUNT_PENDING_MESSAGE, { title: "Account pending" });
       return;
     }
     if (!bank || !accName.trim()) {
-      toast.error("Enter bank and account holder name");
+      errorPopup.showMessage("Enter bank and account holder name", { title: "Missing details" });
       return;
     }
     if (isMobile) {
       const digits = phone.replace(/\D/g, "");
       if (digits.length < 10) {
-        toast.error("Enter a valid Nepali mobile number");
+        errorPopup.showMessage("Enter a valid Nepali mobile number", {
+          title: "Invalid phone number",
+        });
         return;
       }
     } else if (accNo.trim().length < 5) {
-      toast.error("Enter a valid account number");
+      errorPopup.showMessage("Enter a valid account number", { title: "Invalid account" });
       return;
     }
     setVerifying(true);
@@ -197,7 +218,7 @@ function Transfer() {
       });
       if (!res.data?.verified) {
         setVerified(false);
-        toast.error("Account could not be verified");
+        errorPopup.showMessage("Account could not be verified", { title: "Verification failed" });
         return;
       }
       // Use the bank-returned original account holder name for the transfer
@@ -212,7 +233,7 @@ function Transfer() {
       );
     } catch (err) {
       setVerified(false);
-      toast.error(err instanceof ApiError ? err.message : "Verification failed");
+      errorPopup.showError(err, { title: "Verification failed", fallback: "Verification failed" });
     } finally {
       setVerifying(false);
     }
@@ -220,6 +241,7 @@ function Transfer() {
 
   return (
     <UserShell title="Fund Transfer" back="/app">
+      {errorPopup.popup}
       <div className="grid gap-5 lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
@@ -255,10 +277,11 @@ function Transfer() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!verified) {
-                toast.error(
+                errorPopup.showMessage(
                   isMobile
                     ? "Verify the destination phone number first"
                     : "Verify the destination account first",
+                  { title: "Verification required" },
                 );
                 return;
               }

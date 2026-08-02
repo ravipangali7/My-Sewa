@@ -34,6 +34,7 @@ from ..serializers import (
     BankTransferTransactionSerializer,
     SettingsSerializer,
 )
+from ..services.himalpay import HimalPayAPI, HimalPayError, get_outbound_public_ip
 from ..services.txn_status import apply_outbound_status_change
 
 User = get_user_model()
@@ -446,3 +447,57 @@ def admin_settings(request):
         'message': 'Settings updated successfully',
         'data': SettingsSerializer(settings_obj, context={'request': request}).data,
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_himalpay_status(request):
+    """
+    Diagnose HimalPay connectivity for admins.
+
+    Returns the outbound public IP that must be on the HimalPay IP Allowlist,
+    and probes the reseller services endpoint.
+    """
+    outbound_ip = get_outbound_public_ip(force=True)
+    himalpay = HimalPayAPI()
+    result = {
+        'outbound_ip': outbound_ip,
+        'base_url': himalpay.base_url,
+        'api_key_configured': bool(himalpay.api_key),
+        'bypass_api': bool(himalpay.bypass_api),
+        'ok': False,
+        'message': '',
+        'error_code': None,
+        'error_type': None,
+        'services_count': 0,
+    }
+
+    if himalpay.bypass_api:
+        result['ok'] = True
+        result['message'] = 'HimalPay bypass mode is enabled (no live API calls).'
+        return Response(result)
+
+    if not himalpay.api_key:
+        result['message'] = (
+            'HimalPay API key is not configured. '
+            'Set it under Super Admin → Settings → HimalPay reseller.'
+        )
+        return Response(result)
+
+    try:
+        services = himalpay.list_services()
+        count = len(services) if isinstance(services, list) else 0
+        result['ok'] = True
+        result['services_count'] = count
+        result['message'] = (
+            f'Connected to HimalPay. {count} reseller service(s) available.'
+        )
+        return Response(result)
+    except HimalPayError as exc:
+        result['message'] = exc.message
+        result['error_code'] = exc.error_code
+        result['error_type'] = exc.error_type
+        return Response(result)
+    except Exception as exc:
+        result['message'] = f'HimalPay check failed: {exc}'
+        return Response(result)

@@ -7,6 +7,7 @@ import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useErrorPopup } from "@/components/ErrorPopup";
 import { apiClient, ApiError } from "@/lib/api";
 import {
   OPERATORS,
@@ -43,6 +44,7 @@ function TopUp() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const accountPending = isAccountPending(user);
+  const errorPopup = useErrorPopup("Top-up failed");
   const [productId, setProductId] = useState<1 | 2>(1);
   const [mobile, setMobile] = useState("");
   const [amount, setAmount] = useState("");
@@ -50,6 +52,7 @@ function TopUp() {
   const [cashback, setCashback] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [touchedMobile, setTouchedMobile] = useState(false);
+  const [providerBlocked, setProviderBlocked] = useState(false);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -88,17 +91,27 @@ function TopUp() {
       apiClient
         .calculateCharge(serviceName, amt)
         .then((res) => {
+          setProviderBlocked(false);
           setCharge(String(res.charge));
           setCashback(String(res.cashback));
           setTotalDebited(String(res.total_debited));
         })
-        .catch(() => {
+        .catch((err) => {
           setCharge("0.00");
           setCashback("0.00");
           setTotalDebited(amt.toFixed(2));
+          if (err instanceof ApiError) {
+            const msg = err.message.toLowerCase();
+            if (msg.includes("ip not") || msg.includes("allowlist") || err.status === 403) {
+              setProviderBlocked(true);
+              errorPopup.showError(err, { title: "Payment provider error" });
+            }
+          }
         });
     }, 350);
     return () => clearTimeout(t);
+    // intentionally omit errorPopup — show once per failed fetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amt, serviceName, topupsEnabled, minTopup]);
 
   const submitMutation = useMutation({
@@ -133,18 +146,16 @@ function TopUp() {
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
     onError: (err) => {
-      const message =
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : "Top-up failed";
-      toast.error(message);
+      errorPopup.showError(err, {
+        title: "Top-up failed",
+        fallback: "Top-up failed",
+      });
     },
   });
 
   return (
     <UserShell title="Mobile Top-Up" back="/app">
+      {errorPopup.popup}
       <div className="grid gap-5 lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
@@ -156,6 +167,15 @@ function TopUp() {
             <p className="text-[15px] font-medium text-destructive">Top-ups temporarily unavailable</p>
             <p className="mt-1 text-[13px] text-muted-foreground">
               Mobile top-ups are currently disabled by the administrator.
+            </p>
+          </section>
+        ) : null}
+        {providerBlocked ? (
+          <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
+            <p className="text-[15px] font-medium text-destructive">Provider connection blocked</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              HimalPay rejected this server IP. Ask an admin to add the server public IP to the
+              HimalPay IP Allowlist (not the API key).
             </p>
           </section>
         ) : null}
@@ -251,7 +271,8 @@ function TopUp() {
                 submitMutation.isPending ||
                 !topupsEnabled ||
                 !mobileReady ||
-                amt < minTopup
+                amt < minTopup ||
+                providerBlocked
               }
               className="h-12 w-full rounded-xl text-[17px]"
             >

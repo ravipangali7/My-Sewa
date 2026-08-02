@@ -5,13 +5,82 @@ Handles X-API-Key auth, paisa conversion, payments, service details,
 cashback/charge calculation, and transaction status checks.
 """
 import logging
+import time
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
+
+# Cached outbound public IP (value, monotonic expiry).
+_OUTBOUND_IP_CACHE: Tuple[Optional[str], float] = (None, 0.0)
+_OUTBOUND_IP_TTL_SEC = 300
+
+
+def get_outbound_public_ip(force: bool = False) -> Optional[str]:
+    """
+    Public IPv4 that HimalPay sees for requests from this server.
+    Must be added to the HimalPay dashboard IP Allowlist (not the API key UUID).
+    """
+    global _OUTBOUND_IP_CACHE
+    cached, expires = _OUTBOUND_IP_CACHE
+    if not force and cached and time.monotonic() < expires:
+        return cached
+
+    ip: Optional[str] = None
+    for url in (
+        'https://api.ipify.org',
+        'https://ifconfig.me/ip',
+        'https://icanhazip.com',
+    ):
+        try:
+            resp = requests.get(url, timeout=5)
+            if resp.ok:
+                candidate = (resp.text or '').strip()
+                if candidate and ' ' not in candidate and len(candidate) < 64:
+                    ip = candidate
+                    break
+        except requests.RequestException:
+            continue
+
+    _OUTBOUND_IP_CACHE = (ip, time.monotonic() + _OUTBOUND_IP_TTL_SEC)
+    return ip
+
+
+def is_ip_not_allowed_error(
+    message: str = '',
+    error_code: Optional[int] = None,
+    error_type: Optional[str] = None,
+) -> bool:
+    text = (message or '').lower()
+    etype = (error_type or '').lower()
+    return (
+        error_code == 9001
+        or 'ipnotallowed' in etype
+        or 'ip not allowed' in text
+        or 'ip not allow' in text
+    )
+
+
+def format_himalpay_error_message(
+    message: str,
+    error_code: Optional[int] = None,
+    error_type: Optional[str] = None,
+) -> str:
+    """Human-readable HimalPay error; IP blocks include the outbound IP to allowlist."""
+    base = (message or 'HimalPay request failed').strip()
+    if not is_ip_not_allowed_error(base, error_code, error_type):
+        return base
+
+    outbound = get_outbound_public_ip()
+    ip_hint = outbound or "this server's public IP"
+    return (
+        f'{base.rstrip(".")}. '
+        f'Add {ip_hint} to the HimalPay dashboard IP Allowlist. '
+        f'Do not add the API key UUID - only the server public IP address is allowed.'
+    )
 
 
 class HimalPayError(Exception):
@@ -25,12 +94,14 @@ class HimalPayError(Exception):
         error_type: Optional[str] = None,
         response_data: Optional[Dict] = None,
     ):
+        message = format_himalpay_error_message(message, error_code, error_type)
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         self.error_code = error_code
         self.error_type = error_type
         self.response_data = response_data or {}
+        self.is_ip_blocked = is_ip_not_allowed_error(message, error_code, error_type)
 
 
 class HimalPayAPI:
@@ -111,18 +182,28 @@ class HimalPayAPI:
             data = {'error': response.text or 'Invalid JSON response from HimalPay'}
 
         if response.status_code >= 400:
-            message = (
-                data.get('error')
-                or data.get('message')
-                or data.get('detail')
-                or f'HimalPay request failed ({response.status_code})'
-            )
+            if isinstance(data, dict):
+                message = (
+                    data.get('error')
+                    or data.get('message')
+                    or data.get('detail')
+                    or f'HimalPay request failed ({response.status_code})'
+                )
+                error_code = data.get('error_code')
+                error_type = data.get('error_type')
+                response_data = data
+            else:
+                message = str(data) if data else f'HimalPay request failed ({response.status_code})'
+                error_code = None
+                error_type = None
+                response_data = {'raw': data}
+
             raise HimalPayError(
-                message=message,
+                message=str(message),
                 status_code=response.status_code,
-                error_code=data.get('error_code'),
-                error_type=data.get('error_type'),
-                response_data=data if isinstance(data, dict) else {'raw': data},
+                error_code=error_code if isinstance(error_code, int) else None,
+                error_type=str(error_type) if error_type else None,
+                response_data=response_data if isinstance(response_data, dict) else {'raw': response_data},
             )
 
         return data

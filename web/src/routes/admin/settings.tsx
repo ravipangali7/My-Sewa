@@ -13,6 +13,7 @@ import {
   Shield,
 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { useErrorPopup } from "@/components/ErrorPopup";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { AppConfig } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/settings")({
   head: () => ({
@@ -117,12 +119,19 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 
 function SettingsPage() {
   const queryClient = useQueryClient();
+  const errorPopup = useErrorPopup("Settings error");
+  const [tab, setTab] = useState<SectionId>("site");
   const settingsQuery = useQuery({
     queryKey: ["admin", "settings"],
     queryFn: () => apiClient.adminGetSettings(),
   });
+  const himalpayStatusQuery = useQuery({
+    queryKey: ["admin", "himalpay-status"],
+    queryFn: () => apiClient.adminHimalpayStatus(),
+    retry: false,
+    enabled: tab === "deposit",
+  });
 
-  const [tab, setTab] = useState<SectionId>("site");
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [bank, setBank] = useState<BankForm>({
     bank_name: "",
@@ -193,7 +202,27 @@ function SettingsPage() {
       invalidate();
     },
     onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : "Save failed");
+      errorPopup.showError(err, { title: "Save failed", fallback: "Save failed" });
+    },
+  });
+
+  const testHimalpayMutation = useMutation({
+    mutationFn: () => apiClient.adminHimalpayStatus(),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["admin", "himalpay-status"], data);
+      if (data.ok) {
+        toast.success(data.message || "HimalPay connected");
+      } else {
+        errorPopup.showMessage(data.message || "HimalPay connection failed", {
+          title: "HimalPay connection",
+        });
+      }
+    },
+    onError: (err) => {
+      errorPopup.showError(err, {
+        title: "HimalPay connection failed",
+        fallback: "Could not reach HimalPay",
+      });
     },
   });
 
@@ -250,6 +279,7 @@ function SettingsPage() {
         <p className="hidden text-xs text-muted-foreground sm:block">{updatedAt}</p>
       }
     >
+      {errorPopup.popup}
       {settingsQuery.isError ? (
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm text-destructive">
           Could not load settings. Refresh the page or try again.
@@ -758,6 +788,10 @@ function SettingsPage() {
                           }))
                         }
                       />
+                      <p className="text-xs text-muted-foreground">
+                        This UUID is your API key for the X-API-Key header — it is not an IP
+                        address and must not be pasted into the HimalPay IP Allowlist.
+                      </p>
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="himalpay_base_url">HimalPay base URL</Label>
@@ -783,6 +817,52 @@ function SettingsPage() {
                         UAT: https://uatapi.himalpay.com.np/api/v1 — authenticate with header
                         X-API-Key.
                       </p>
+                    </div>
+
+                    <div
+                      className={cn(
+                        "rounded-xl border p-4",
+                        himalpayStatusQuery.data?.ok
+                          ? "border-success/30 bg-success/5"
+                          : himalpayStatusQuery.data
+                            ? "border-destructive/30 bg-destructive/5"
+                            : "border-border bg-muted/40",
+                      )}
+                    >
+                      <p className="text-sm font-medium">Server IP for HimalPay allowlist</p>
+                      <p className="mt-1 font-mono text-[15px] font-semibold tracking-tight">
+                        {himalpayStatusQuery.isLoading
+                          ? "Detecting…"
+                          : himalpayStatusQuery.data?.outbound_ip || "Unavailable"}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Add this public IP in the HimalPay dashboard → IP Allowlist. Production
+                        VPS is typically <span className="font-mono">147.93.153.157</span>. Local
+                        development uses your current public IP (changes with network).
+                      </p>
+                      {himalpayStatusQuery.data?.message ? (
+                        <p
+                          className={cn(
+                            "mt-2 text-sm",
+                            himalpayStatusQuery.data.ok
+                              ? "text-success"
+                              : "text-destructive",
+                          )}
+                        >
+                          {himalpayStatusQuery.data.message}
+                        </p>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="mt-3 h-10 rounded-xl"
+                        disabled={testHimalpayMutation.isPending}
+                        onClick={() => testHimalpayMutation.mutate()}
+                      >
+                        {testHimalpayMutation.isPending
+                          ? "Testing…"
+                          : "Test HimalPay connection"}
+                      </Button>
                     </div>
                   </div>
                 </div>

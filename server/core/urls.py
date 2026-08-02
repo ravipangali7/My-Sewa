@@ -63,4 +63,5 @@ urlpatterns = [
     path('api/admin/transfers/', admin_views.admin_list_transfers, name='admin_list_transfers'),
     path('api/admin/transfers/<int:transfer_id>/status/', admin_views.admin_update_transfer_status, name='admin_update_transfer_status'),
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
+    path('api/admin/himalpay/status/', admin_views.admin_himalpay_status, name='admin_himalpay_status'),
 ]

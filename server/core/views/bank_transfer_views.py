@@ -243,6 +243,15 @@ def calculate_transfer_charge(request):
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
+        if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
+            return Response(
+                {
+                    'error': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                },
+                status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
+            )
         # Still honour admin fees when provider preview fails
         fees = resolve_transfer_fees(amount, 0, 0, tx_cfg)
         if fees['charge'] > 0 or fees['cashback'] > 0 or not bool(
@@ -325,6 +334,16 @@ def create_bank_transfer(request):
         provider_charge = himalpay.to_rupees(fee_info.get('charge', 0) or 0)
         provider_cashback = himalpay.to_rupees(fee_info.get('cashback', 0) or 0)
     except HimalPayError as exc:
+        if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
+            return Response(
+                {
+                    'error': 'Bank transfer failed',
+                    'message': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                },
+                status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
+            )
         logger.warning('Bank transfer charge calc failed: %s', exc.message)
         provider_charge = Decimal('0.00')
         provider_cashback = Decimal('0.00')

@@ -339,4 +339,17 @@ export const apiClient = {
       method: "PATCH",
       ...(payload instanceof FormData ? { formData: payload } : { body: payload }),
     }),
+
+  adminHimalpayStatus: () =>
+    api<{
+      outbound_ip: string | null;
+      base_url: string;
+      api_key_configured: boolean;
+      bypass_api: boolean;
+      ok: boolean;
+      message: string;
+      error_code?: number | null;
+      error_type?: string | null;
+      services_count: number;
+    }>("/api/admin/himalpay/status/"),
 };

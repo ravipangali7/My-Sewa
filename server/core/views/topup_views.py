@@ -92,6 +92,17 @@ def _process_topup(request, product_id: int, service_label: str):
         cashback = himalpay.to_rupees(fee_info.get('cashback', 0) or 0)
         total_required = amount + charge - cashback
     except HimalPayError as exc:
+        # IP / auth failures must not be swallowed — payment would fail the same way
+        if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
+            return Response(
+                {
+                    'error': f'{service_label} topup failed',
+                    'message': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                },
+                status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
+            )
         logger.warning('Charge calculation failed for %s: %s', service_label, exc.message)
         charge = platform_fee
         cashback = Decimal('0.00')
