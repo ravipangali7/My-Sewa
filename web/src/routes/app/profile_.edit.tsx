@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/app/profile_/edit")({
   head: () => ({
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/app/profile_/edit")({
 });
 
 function EditProfilePage() {
+  const t = useT();
   const navigate = useNavigate();
   const { user, refreshProfile } = useAuth();
   const [firstName, setFirstName] = useState("");
@@ -39,14 +41,14 @@ function EditProfilePage() {
 
   if (!user) {
     return (
-      <UserShell title="Edit profile" back="/app/profile">
-        <p className="text-sm text-muted-foreground">Loading profile…</p>
+      <UserShell title={t("profile.editProfile")} back="/app/profile">
+        <p className="text-sm text-muted-foreground">{t("profile.loading")}</p>
       </UserShell>
     );
   }
 
   return (
-    <UserShell title="Edit profile" back="/app/profile">
+    <UserShell title={t("profile.editProfile")} back="/app/profile">
       <form
         className="inset-group space-y-4 p-4"
         onSubmit={async (e) => {
@@ -59,17 +61,17 @@ function EditProfilePage() {
             fd.append("email", email);
             await apiClient.updateProfile(fd);
             await refreshProfile();
-            toast.success("Profile updated");
+            toast.success(t("profile.updated"));
             navigate({ to: "/app/profile" });
           } catch (err) {
-            toast.error(err instanceof ApiError ? err.message : "Update failed");
+            toast.error(err instanceof ApiError ? err.message : t("profile.updateFailed"));
           } finally {
             setSaving(false);
           }
         }}
       >
         <div className="space-y-1.5">
-          <Label htmlFor="first_name">First name</Label>
+          <Label htmlFor="first_name">{t("profile.firstName")}</Label>
           <Input
             id="first_name"
             value={firstName}
@@ -78,7 +80,7 @@ function EditProfilePage() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="last_name">Last name</Label>
+          <Label htmlFor="last_name">{t("profile.lastName")}</Label>
           <Input
             id="last_name"
             value={lastName}
@@ -87,7 +89,7 @@ function EditProfilePage() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="email">{t("profile.email")}</Label>
           <Input
             id="email"
             type="email"
@@ -97,7 +99,7 @@ function EditProfilePage() {
           />
         </div>
         <Button type="submit" className="w-full" disabled={saving}>
-          {saving ? "Saving…" : "Save changes"}
+          {saving ? t("common.saving") : t("profile.saveChanges")}
         </Button>
       </form>
     </UserShell>

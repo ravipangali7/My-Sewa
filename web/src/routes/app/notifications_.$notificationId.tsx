@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
 import { apiClient } from "@/lib/api";
@@ -8,6 +8,7 @@ import { findNotification, markNotificationRead } from "@/lib/notifications";
 import { formatNPR } from "@/lib/format";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/app/notifications_/$notificationId")({
   head: () => ({
@@ -21,31 +22,34 @@ export const Route = createFileRoute("/app/notifications_/$notificationId")({
 
 function NotificationDetailPage() {
   const { notificationId } = Route.useParams();
+  const { t, locale } = useI18n();
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
     refetchInterval: LIVE_REFETCH_MS,
   });
 
-  const notification = txQuery.data
-    ? findNotification(txQuery.data, notificationId)
-    : undefined;
+  const notification = useMemo(
+    () =>
+      txQuery.data ? findNotification(txQuery.data, notificationId, t) : undefined,
+    [txQuery.data, notificationId, t, locale],
+  );
 
   useEffect(() => {
     if (notificationId) markNotificationRead(notificationId);
   }, [notificationId]);
 
   return (
-    <UserShell title="Notification" back="/app/notifications">
+    <UserShell title={t("notif.detailTitle")} back="/app/notifications">
       {txQuery.isLoading ? (
         <div className="inset-group px-4 py-10 text-center text-sm text-muted-foreground">
-          Loading…
+          {t("common.loading")}
         </div>
       ) : !notification ? (
         <div className="inset-group px-4 py-10 text-center">
-          <p className="text-[16px] font-medium">Notification not found</p>
+          <p className="text-[16px] font-medium">{t("notif.notFound")}</p>
           <Link to="/app/notifications" className="mt-2 inline-block text-[14px] text-brand">
-            Back to notifications
+            {t("notif.back")}
           </Link>
         </div>
       ) : (

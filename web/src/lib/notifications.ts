@@ -1,6 +1,7 @@
 import type { ActivityItem, WalletTransactions } from "./types";
 import { buildActivity } from "./activity";
 import { formatNPR, formatDateTime } from "./format";
+import type { TranslateFn } from "./i18n";
 
 export interface AppNotification {
   id: string;
@@ -42,93 +43,123 @@ export function markAllNotificationsRead(ids: string[]) {
   localStorage.setItem(READ_KEY, JSON.stringify([...existing]));
 }
 
-function detailRows(item: ActivityItem, tx: WalletTransactions): Array<{ label: string; value: string }> {
+function detailRows(
+  item: ActivityItem,
+  tx: WalletTransactions,
+  t: TranslateFn,
+): Array<{ label: string; value: string }> {
   if (item.kind === "deposit") {
     const d = tx.deposits.find((x) => `dep-${x.id}` === item.id);
     if (!d) return [];
     return [
-      { label: "Type", value: "Remittance / Wallet load" },
-      { label: "Amount", value: formatNPR(d.amount) },
-      { label: "Status", value: d.status_display || d.status },
-      { label: "Note", value: d.note || "—" },
+      { label: t("common.type"), value: t("notif.typeRemittance") },
+      { label: t("common.amount"), value: formatNPR(d.amount) },
+      { label: t("common.status"), value: d.status_display || d.status },
+      { label: t("common.note"), value: d.note || "—" },
       ...(d.rejection_reason
-        ? [{ label: "Rejection reason", value: d.rejection_reason }]
+        ? [{ label: t("notif.rejectionReason"), value: d.rejection_reason }]
         : []),
-      { label: "Date", value: formatDateTime(d.created_at) },
+      { label: t("common.date"), value: formatDateTime(d.created_at) },
     ];
   }
   if (item.kind === "topup") {
-    const t = tx.topups.find((x) => `top-${x.id}` === item.id);
-    if (!t) return [];
+    const top = tx.topups.find((x) => `top-${x.id}` === item.id);
+    if (!top) return [];
     return [
-      { label: "Type", value: "Mobile top-up" },
-      { label: "Operator", value: t.product_name },
-      { label: "Mobile", value: t.mobile_number },
-      { label: "Amount", value: formatNPR(t.amount) },
-      { label: "Charge", value: formatNPR(t.charge) },
-      { label: "Cashback", value: formatNPR(t.cashback) },
-      { label: "Total debited", value: formatNPR(t.total_debited) },
-      { label: "Status", value: t.status_display || t.status },
-      { label: "Txn ID", value: t.merchant_txn_id },
-      { label: "Date", value: formatDateTime(t.created_at) },
+      { label: t("common.type"), value: t("notif.typeTopup") },
+      { label: t("common.operator"), value: top.product_name },
+      { label: t("common.mobile"), value: top.mobile_number },
+      { label: t("common.amount"), value: formatNPR(top.amount) },
+      { label: t("common.charge"), value: formatNPR(top.charge) },
+      { label: t("common.cashback"), value: formatNPR(top.cashback) },
+      { label: t("common.totalDebited"), value: formatNPR(top.total_debited) },
+      { label: t("common.status"), value: top.status_display || top.status },
+      { label: t("common.txnId"), value: top.merchant_txn_id },
+      { label: t("common.date"), value: formatDateTime(top.created_at) },
     ];
   }
   const b = tx.bank_transfers.find((x) => `bt-${x.id}` === item.id);
   if (!b) return [];
   return [
-    { label: "Type", value: b.is_destination_mobile ? "Phone transfer" : "Bank transfer" },
-    { label: "Recipient", value: b.destination_acc_name },
     {
-      label: b.is_destination_mobile ? "Phone number" : "Account number",
+      label: t("common.type"),
+      value: b.is_destination_mobile
+        ? t("notif.typePhoneTransfer")
+        : t("notif.typeBankTransfer"),
+    },
+    { label: t("common.recipient"), value: b.destination_acc_name },
+    {
+      label: b.is_destination_mobile
+        ? t("common.phoneNumber")
+        : t("common.accountNumber"),
       value: b.destination_acc_no,
     },
-    { label: "Bank", value: b.destination_bank_name || b.destination_bank },
-    { label: "Amount", value: formatNPR(b.amount) },
-    { label: "Charge", value: formatNPR(b.charge) },
-    { label: "Cashback", value: formatNPR(b.cashback) },
-    { label: "Total debited", value: formatNPR(b.total_debited) },
-    { label: "Remarks", value: b.transaction_remarks || "—" },
-    { label: "Status", value: b.status_display || b.status },
-    { label: "Txn ID", value: b.merchant_txn_id },
-    { label: "Date", value: formatDateTime(b.created_at) },
+    { label: t("common.bank"), value: b.destination_bank_name || b.destination_bank },
+    { label: t("common.amount"), value: formatNPR(b.amount) },
+    { label: t("common.charge"), value: formatNPR(b.charge) },
+    { label: t("common.cashback"), value: formatNPR(b.cashback) },
+    { label: t("common.totalDebited"), value: formatNPR(b.total_debited) },
+    { label: t("common.remarks"), value: b.transaction_remarks || "—" },
+    { label: t("common.status"), value: b.status_display || b.status },
+    { label: t("common.txnId"), value: b.merchant_txn_id },
+    { label: t("common.date"), value: formatDateTime(b.created_at) },
   ];
 }
 
-function notificationCopy(item: ActivityItem): { title: string; body: string } {
+function notificationCopy(
+  item: ActivityItem,
+  t: TranslateFn,
+): { title: string; body: string } {
   if (item.kind === "deposit") {
     if (item.status === "approved") {
       return {
-        title: "Remittance credited",
-        body: `${formatNPR(item.amount)} has been added to your MySewa wallet.`,
+        title: t("notif.remittanceCredited"),
+        body: t("notif.remittanceCreditedBody", {
+          amount: formatNPR(item.amount),
+        }),
       };
     }
     if (item.status === "rejected") {
       return {
-        title: "Deposit rejected",
-        body: item.subtitle || "Your remittance request was rejected.",
+        title: t("notif.depositRejected"),
+        body: item.subtitle || t("notif.depositRejectedBody"),
       };
     }
     return {
-      title: "Deposit under review",
-      body: `Your remittance of ${formatNPR(item.amount)} is pending approval.`,
+      title: t("notif.depositReview"),
+      body: t("notif.depositReviewBody", { amount: formatNPR(item.amount) }),
     };
   }
   if (item.kind === "topup") {
     return {
-      title: item.status === "failed" ? "Top-up failed" : "Top-up update",
-      body: `${item.title} for ${item.subtitle} — ${formatNPR(item.amount)}.`,
+      title:
+        item.status === "failed" ? t("notif.topupFailed") : t("notif.topupUpdate"),
+      body: t("notif.topupBody", {
+        title: item.title,
+        subtitle: item.subtitle,
+        amount: formatNPR(item.amount),
+      }),
     };
   }
   return {
-    title: item.status === "failed" ? "Transfer failed" : "Fund transfer update",
-    body: `${item.subtitle} — ${formatNPR(item.amount)}.`,
+    title:
+      item.status === "failed"
+        ? t("notif.transferFailed")
+        : t("notif.transferUpdate"),
+    body: t("notif.transferBody", {
+      subtitle: item.subtitle,
+      amount: formatNPR(item.amount),
+    }),
   };
 }
 
-export function buildNotifications(tx: WalletTransactions): AppNotification[] {
+export function buildNotifications(
+  tx: WalletTransactions,
+  t: TranslateFn = (key) => key,
+): AppNotification[] {
   const read = readIds();
-  return buildActivity(tx).map((item) => {
-    const copy = notificationCopy(item);
+  return buildActivity(tx, t).map((item) => {
+    const copy = notificationCopy(item, t);
     return {
       id: item.id,
       title: copy.title,
@@ -139,7 +170,7 @@ export function buildNotifications(tx: WalletTransactions): AppNotification[] {
       kind: item.kind,
       created_at: item.created_at,
       unread: !read.has(item.id),
-      details: detailRows(item, tx),
+      details: detailRows(item, tx, t),
     };
   });
 }
@@ -147,6 +178,7 @@ export function buildNotifications(tx: WalletTransactions): AppNotification[] {
 export function findNotification(
   tx: WalletTransactions,
   id: string,
+  t: TranslateFn = (key) => key,
 ): AppNotification | undefined {
-  return buildNotifications(tx).find((n) => n.id === id);
+  return buildNotifications(tx, t).find((n) => n.id === id);
 }

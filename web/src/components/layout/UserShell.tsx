@@ -8,24 +8,30 @@ import { apiClient } from "@/lib/api";
 import { refreshAppData } from "@/lib/refresh";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { PullToRefresh } from "@/components/PullToRefresh";
+import { useT, type MessageKey } from "@/lib/i18n";
 
 const TABS = [
-  { to: "/app", label: "Home", icon: Home, match: (p: string) => p === "/app" || p === "/app/" },
+  {
+    to: "/app",
+    labelKey: "nav.home" as const satisfies MessageKey,
+    icon: Home,
+    match: (p: string) => p === "/app" || p === "/app/",
+  },
   {
     to: "/app/transfer",
-    label: "Fund Transfer",
+    labelKey: "nav.transfer" as const satisfies MessageKey,
     icon: ArrowLeftRight,
     match: (p: string) => p.startsWith("/app/transfer"),
   },
   {
     to: "/app/history",
-    label: "History",
+    labelKey: "nav.history" as const satisfies MessageKey,
     icon: History,
     match: (p: string) => p.startsWith("/app/history"),
   },
   {
     to: "/app/profile",
-    label: "Profile",
+    labelKey: "nav.profile" as const satisfies MessageKey,
     icon: User,
     match: (p: string) => p.startsWith("/app/profile"),
   },
@@ -47,6 +53,7 @@ export function UserShell({
   const queryClient = useQueryClient();
   const { user, isLoading, token, logout } = useAuth();
   const { logoUrl } = useSiteBranding();
+  const t = useT();
 
   const handlePullRefresh = useCallback(
     () => refreshAppData(queryClient),
@@ -61,7 +68,7 @@ export function UserShell({
   const maintenance = settingsQuery.data?.config?.security?.maintenance_mode;
   const maintenanceMessage =
     settingsQuery.data?.config?.security?.maintenance_message ||
-    "MySewa is under maintenance. Some features may be unavailable.";
+    t("maintenance.fallback");
 
   useEffect(() => {
     if (!token) navigate({ to: "/" });
@@ -70,7 +77,7 @@ export function UserShell({
   if (!token || isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading…
+        {t("common.loading")}
       </div>
     );
   }
@@ -78,9 +85,9 @@ export function UserShell({
   if (!user) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Session expired.{" "}
+        {t("common.sessionExpired")}{" "}
         <Link to="/" className="ml-1 text-brand">
-          Sign in
+          {t("common.signIn")}
         </Link>
       </div>
     );
@@ -99,16 +106,16 @@ export function UserShell({
               <span className="text-ocean">My</span>
               <span className="text-brand">Sewa</span>
             </p>
-            <p className="text-xs text-muted-foreground">Wallet portal</p>
+            <p className="text-xs text-muted-foreground">{t("nav.walletPortal")}</p>
           </div>
         </Link>
         <nav className="flex flex-col gap-1">
-          {TABS.map((t) => {
-            const active = t.match(pathname);
+          {TABS.map((tab) => {
+            const active = tab.match(pathname);
             return (
               <Link
-                key={t.to}
-                to={t.to}
+                key={tab.to}
+                to={tab.to}
                 className={cn(
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                   active
@@ -116,8 +123,8 @@ export function UserShell({
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
-                <t.icon className="size-[18px]" />
-                {t.label}
+                <tab.icon className="size-[18px]" />
+                {t(tab.labelKey)}
               </Link>
             );
           })}
@@ -133,7 +140,7 @@ export function UserShell({
               navigate({ to: "/" });
             }}
           >
-            Log out
+            {t("nav.logOut")}
           </button>
         </div>
       </aside>
@@ -145,7 +152,7 @@ export function UserShell({
               {back && (
                 <Link
                   to={back}
-                  aria-label="Go back"
+                  aria-label={t("common.goBack")}
                   className={cn(
                     "group -ml-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur transition-all duration-200",
                     "hover:bg-white/25 hover:shadow-md",
@@ -173,7 +180,7 @@ export function UserShell({
             <div className={cn("mx-auto w-full", hideHeader ? "max-w-lg lg:max-w-6xl" : "max-w-6xl")}>
               {maintenance ? (
                 <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100">
-                  <p className="font-medium">Maintenance mode</p>
+                  <p className="font-medium">{t("maintenance.title")}</p>
                   <p className="mt-0.5 text-[13px] opacity-90">{maintenanceMessage}</p>
                 </div>
               ) : null}
@@ -184,12 +191,12 @@ export function UserShell({
 
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface pb-[max(10px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] lg:hidden">
           <ul className="grid grid-cols-4">
-            {TABS.map((t) => {
-              const active = t.match(pathname);
+            {TABS.map((tab) => {
+              const active = tab.match(pathname);
               return (
-                <li key={t.to}>
+                <li key={tab.to}>
                   <Link
-                    to={t.to}
+                    to={tab.to}
                     className={cn(
                       "relative flex min-h-[56px] flex-col items-center justify-center gap-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
                       "active:bg-transparent focus-visible:bg-transparent",
@@ -202,8 +209,8 @@ export function UserShell({
                         className="absolute inset-x-6 top-0 h-[2.5px] rounded-b-full bg-brand"
                       />
                     ) : null}
-                    <t.icon className={cn("size-[22px]", active && "stroke-[2.25px]")} />
-                    <span className="leading-none">{t.label}</span>
+                    <tab.icon className={cn("size-[22px]", active && "stroke-[2.25px]")} />
+                    <span className="leading-none">{t(tab.labelKey)}</span>
                   </Link>
                 </li>
               );

@@ -6,6 +6,7 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/app/services")({
   head: () => ({
@@ -27,6 +28,7 @@ export const Route = createFileRoute("/app/services")({
 });
 
 function Services() {
+  const t = useT();
   const { user } = useAuth();
   const accountPending = isAccountPending(user);
   const settingsQuery = useQuery({
@@ -41,35 +43,35 @@ function Services() {
   const services = [
     {
       to: "/app/load" as const,
-      title: "Load Wallet",
+      title: t("services.loadWallet"),
       desc: accountPending
-        ? "Unavailable while account is Pending"
-        : "Remittance / bank deposit with proof",
+        ? t("services.unavailablePending")
+        : t("services.loadDesc"),
       icon: Download,
       enabled: payment?.deposits_enabled !== false && !accountPending,
     },
     {
       to: "/app/topup" as const,
-      title: "Mobile Top-Up",
+      title: t("services.topup"),
       desc: accountPending
-        ? "Unavailable while account is Pending"
-        : "NTC · NCELL recharge",
+        ? t("services.unavailablePending")
+        : t("services.topupDesc"),
       icon: Smartphone,
       enabled: payment?.topups_enabled !== false && !accountPending,
     },
     {
       to: "/app/transfer" as const,
-      title: "Bank Transfer",
+      title: t("services.transfer"),
       desc: accountPending
-        ? "Unavailable while account is Pending"
-        : "Send to any Nepali bank",
+        ? t("services.unavailablePending")
+        : t("services.transferDesc"),
       icon: Send,
       enabled: payment?.transfers_enabled !== false && !accountPending,
     },
   ];
 
   return (
-    <UserShell title="Services">
+    <UserShell title={t("services.title")}>
       <div className="space-y-5">
         {accountPending ? <AccountPendingBanner /> : null}
         <ul className="inset-group divide-y divide-border">
@@ -94,7 +96,7 @@ function Services() {
                   <span className="min-w-0 flex-1">
                     <span className="block text-[17px] font-medium">{s.title}</span>
                     <span className="block text-[13px] text-muted-foreground">
-                      {accountPending ? s.desc : "Currently unavailable"}
+                      {accountPending ? s.desc : t("services.unavailable")}
                     </span>
                   </span>
                 </div>
@@ -104,12 +106,12 @@ function Services() {
         </ul>
 
         <section className="inset-group p-4">
-          <h2 className="text-[15px] font-semibold">Company deposit account</h2>
+          <h2 className="text-[15px] font-semibold">{t("services.depositAccount")}</h2>
           <dl className="mt-3 space-y-2 text-[15px]">
             {settingsQuery.isLoading ? (
-              <p className="text-muted-foreground">Loading…</p>
+              <p className="text-muted-foreground">{t("common.loading")}</p>
             ) : bankEntries.length === 0 ? (
-              <p className="text-muted-foreground">Not configured yet.</p>
+              <p className="text-muted-foreground">{t("services.notConfigured")}</p>
             ) : (
               bankEntries.map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-4">

@@ -18,8 +18,9 @@ import { formatNPR, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
-import { ACCOUNT_PENDING_MESSAGE, isAccountPending } from "@/lib/account-status";
+import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
+import { useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/app/topup")({
   head: () => ({
@@ -43,8 +44,9 @@ export const Route = createFileRoute("/app/topup")({
 function TopUp() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { t } = useI18n();
   const accountPending = isAccountPending(user);
-  const errorPopup = useErrorPopup("Top-up failed");
+  const errorPopup = useErrorPopup(t("topup.failed"));
   const [productId, setProductId] = useState<1 | 2>(1);
   const [mobile, setMobile] = useState("");
   const [amount, setAmount] = useState("");
@@ -87,7 +89,7 @@ function TopUp() {
       setTotalDebited("0.00");
       return;
     }
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       apiClient
         .calculateCharge(serviceName, amt)
         .then((res) => {
@@ -104,29 +106,29 @@ function TopUp() {
             const msg = err.message.toLowerCase();
             if (msg.includes("ip not") || msg.includes("allowlist") || err.status === 403) {
               setProviderBlocked(true);
-              errorPopup.showError(err, { title: "Payment provider error" });
+              errorPopup.showError(err, { title: t("topup.providerError") });
             }
           }
         });
     }, 350);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
     // intentionally omit errorPopup — show once per failed fetch
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amt, serviceName, topupsEnabled, minTopup]);
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      if (accountPending) throw new Error(ACCOUNT_PENDING_MESSAGE);
-      if (!topupsEnabled) throw new Error("Mobile top-ups are currently disabled.");
+      if (accountPending) throw new Error(t("account.pending"));
+      if (!topupsEnabled) throw new Error(t("topup.disabledError"));
       setTouchedMobile(true);
       if (validateOperatorMobile(productId, mobile)) {
-        throw new Error("Invalid Number");
+        throw new Error(t("topup.invalidNumber"));
       }
       if (normalizedMobile.length < 10) {
-        throw new Error("Enter a valid 10-digit mobile number.");
+        throw new Error(t("topup.validMobile"));
       }
-      if (amt < minTopup) throw new Error(`Minimum top-up is Rs. ${minTopup}`);
-      if (maxTopup > 0 && amt > maxTopup) throw new Error(`Maximum top-up is Rs. ${maxTopup}`);
+      if (amt < minTopup) throw new Error(t("topup.minError", { min: minTopup }));
+      if (maxTopup > 0 && amt > maxTopup) throw new Error(t("topup.maxError", { max: maxTopup }));
       const body = {
         mobile_number: normalizedMobile,
         amount: amt,
@@ -136,8 +138,10 @@ function TopUp() {
       return apiClient.topupNcell({ ...body, product_id: 2 });
     },
     onSuccess: (res) => {
-      toast.success(res.message || `${OPERATORS[productId]} top-up submitted`, {
-        description: `Total debited ${formatNPR(res.data.total_debited || totalDebited)}`,
+      toast.success(res.message || t("topup.submitted", { operator: OPERATORS[productId] }), {
+        description: t("transfer.debited", {
+          amount: formatNPR(res.data.total_debited || totalDebited),
+        }),
       });
       setMobile("");
       setAmount("");
@@ -147,14 +151,14 @@ function TopUp() {
     },
     onError: (err) => {
       errorPopup.showError(err, {
-        title: "Top-up failed",
-        fallback: "Top-up failed",
+        title: t("topup.failed"),
+        fallback: t("topup.failed"),
       });
     },
   });
 
   return (
-    <UserShell title="Mobile Top-Up" back="/app">
+    <UserShell title={t("topup.title")} back="/app">
       {errorPopup.popup}
       <div className="grid gap-5 lg:grid-cols-2">
         {accountPending ? (
@@ -164,19 +168,14 @@ function TopUp() {
         ) : null}
         {!topupsEnabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
-            <p className="text-[15px] font-medium text-destructive">Top-ups temporarily unavailable</p>
-            <p className="mt-1 text-[13px] text-muted-foreground">
-              Mobile top-ups are currently disabled by the administrator.
-            </p>
+            <p className="text-[15px] font-medium text-destructive">{t("topup.disabledTitle")}</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">{t("topup.disabledBody")}</p>
           </section>
         ) : null}
         {providerBlocked ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
-            <p className="text-[15px] font-medium text-destructive">Provider connection blocked</p>
-            <p className="mt-1 text-[13px] text-muted-foreground">
-              HimalPay rejected this server IP. Ask an admin to add the server public IP to the
-              HimalPay IP Allowlist (not the API key).
-            </p>
+            <p className="text-[15px] font-medium text-destructive">{t("topup.providerBlocked")}</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">{t("topup.providerBlockedBody")}</p>
           </section>
         ) : null}
         <section className="inset-group p-4">
@@ -210,7 +209,7 @@ function TopUp() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="mobile_number">Mobile number</Label>
+              <Label htmlFor="mobile_number">{t("topup.mobileLabel")}</Label>
               <Input
                 id="mobile_number"
                 inputMode="tel"
@@ -228,22 +227,20 @@ function TopUp() {
               />
               {showMobileError ? (
                 <p className="text-[13px] font-medium text-destructive" role="alert">
-                  Invalid Number
+                  {t("topup.invalidNumber")}
                 </p>
               ) : (
                 <p className="text-[12px] text-muted-foreground">
-                  {productId === 1
-                    ? "NTC numbers start with 984, 985, 986, 974, 975, or 976"
-                    : "Ncell numbers start with 980, 981, 982, or 970"}
+                  {productId === 1 ? t("topup.ntcHelp") : t("topup.ncellHelp")}
                 </p>
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="topup_amount">Amount (NPR)</Label>
+              <Label htmlFor="topup_amount">{t("common.amountNpr")}</Label>
               <Input
                 id="topup_amount"
                 inputMode="decimal"
-                placeholder="0.00"
+                placeholder={t("common.amountPlaceholder")}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className="tabular h-12 rounded-xl text-[22px] font-semibold"
@@ -251,17 +248,16 @@ function TopUp() {
                 disabled={!topupsEnabled}
               />
               <p className="text-[12px] text-muted-foreground">
-                Min Rs. {minTopup}
-                {maxTopup > 0 ? ` · Max Rs. ${maxTopup}` : ""}
+                {t("common.minMax", { min: minTopup, max: maxTopup })}
               </p>
             </div>
 
             <div className="rounded-xl bg-muted p-3 text-[14px]">
-              <Row label="Amount" value={formatNPR(amt)} />
-              <Row label="Charge" value={formatNPR(charge)} />
-              <Row label="Cashback" value={`− ${formatNPR(cashback)}`} />
+              <Row label={t("common.amount")} value={formatNPR(amt)} />
+              <Row label={t("common.charge")} value={formatNPR(charge)} />
+              <Row label={t("common.cashback")} value={`− ${formatNPR(cashback)}`} />
               <div className="mt-2 border-t border-separator pt-2">
-                <Row label="Total debited" value={formatNPR(totalDebited)} strong />
+                <Row label={t("common.totalDebited")} value={formatNPR(totalDebited)} strong />
               </div>
             </div>
 
@@ -276,42 +272,45 @@ function TopUp() {
               }
               className="h-12 w-full rounded-xl text-[17px]"
             >
-              {submitMutation.isPending ? "Processing…" : "Confirm top-up"}
+              {submitMutation.isPending ? t("common.processing") : t("topup.confirm")}
             </Button>
           </form>
         </section>
 
         <section>
-          <h2 className="mb-2 px-1 text-[17px] font-semibold">Recent top-ups</h2>
+          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("topup.recent")}</h2>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
-              Loading…
+              {t("common.loading")}
             </div>
           ) : !historyQuery.data?.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
-              No top-ups yet.
+              {t("topup.empty")}
             </div>
           ) : (
             <ul className="inset-group divide-y divide-border">
-              {historyQuery.data.map((t) => (
-                <li key={t.id} className="px-4 py-3">
+              {historyQuery.data.map((item) => (
+                <li key={item.id} className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-[15px] font-medium">
-                        {t.product_name || OPERATORS[t.product_id]} · {t.mobile_number}
+                        {item.product_name || OPERATORS[item.product_id]} · {item.mobile_number}
                       </p>
                       <p className="truncate text-[13px] text-muted-foreground">
-                        {t.merchant_txn_id} · {formatDateTime(t.created_at)}
+                        {item.merchant_txn_id} · {formatDateTime(item.created_at)}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="tabular text-[15px] font-semibold">{formatNPR(t.amount)}</p>
-                      <StatusChip status={t.status} compact className="mt-1" />
+                      <p className="tabular text-[15px] font-semibold">{formatNPR(item.amount)}</p>
+                      <StatusChip status={item.status} compact className="mt-1" />
                     </div>
                   </div>
                   <p className="mt-1 text-[12px] text-muted-foreground">
-                    Charge {formatNPR(t.charge)} · Cashback {formatNPR(t.cashback)} · Debited{" "}
-                    {formatNPR(t.total_debited)}
+                    {t("topup.chargeLine", {
+                      charge: formatNPR(item.charge),
+                      cashback: formatNPR(item.cashback),
+                      debited: formatNPR(item.total_debited),
+                    })}
                   </p>
                 </li>
               ))}

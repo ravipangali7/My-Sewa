@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 
 type ErrorPopupProps = {
   open: boolean;
@@ -21,10 +22,11 @@ type ErrorPopupProps = {
 /** Mobile-friendly centered dialog for API / HimalPay errors. */
 export function ErrorPopup({
   open,
-  title = "Something went wrong",
+  title,
   message,
   onClose,
 }: ErrorPopupProps) {
+  const t = useT();
   return (
     <AlertDialog open={open} onOpenChange={(next) => !next && onClose()}>
       <AlertDialogContent
@@ -35,7 +37,7 @@ export function ErrorPopup({
       >
         <AlertDialogHeader className="space-y-2 text-left">
           <AlertDialogTitle className="text-[17px] leading-snug text-destructive">
-            {title}
+            {title || t("common.somethingWrong")}
           </AlertDialogTitle>
           <AlertDialogDescription className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground">
             {message}
@@ -46,7 +48,7 @@ export function ErrorPopup({
             className="h-11 w-full rounded-xl text-[16px] sm:w-auto sm:min-w-[7rem]"
             onClick={onClose}
           >
-            OK
+            {t("common.ok")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/app/profile_/password")({
   head: () => ({
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/app/profile_/password")({
 });
 
 function ChangePasswordPage() {
+  const t = useT();
   const navigate = useNavigate();
   const { setSessionToken } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
@@ -31,7 +33,7 @@ function ChangePasswordPage() {
   const [saving, setSaving] = useState(false);
 
   return (
-    <UserShell title="Change password" back="/app/profile">
+    <UserShell title={t("profile.changePassword")} back="/app/profile">
       <form
         className="inset-group space-y-4 p-4"
         onSubmit={async (e) => {
@@ -44,17 +46,17 @@ function ChangePasswordPage() {
               confirm_password: confirmPassword,
             });
             setSessionToken(res.token);
-            toast.success("Password changed");
+            toast.success(t("profile.passwordChanged"));
             navigate({ to: "/app/profile" });
           } catch (err) {
-            toast.error(err instanceof ApiError ? err.message : "Update failed");
+            toast.error(err instanceof ApiError ? err.message : t("profile.updateFailed"));
           } finally {
             setSaving(false);
           }
         }}
       >
         <div className="space-y-1.5">
-          <Label htmlFor="current_password">Current password</Label>
+          <Label htmlFor="current_password">{t("profile.currentPassword")}</Label>
           <PasswordInput
             id="current_password"
             value={currentPassword}
@@ -64,7 +66,7 @@ function ChangePasswordPage() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="new_password">New password</Label>
+          <Label htmlFor="new_password">{t("profile.newPassword")}</Label>
           <PasswordInput
             id="new_password"
             value={newPassword}
@@ -75,7 +77,7 @@ function ChangePasswordPage() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="confirm_password">Confirm password</Label>
+          <Label htmlFor="confirm_password">{t("profile.confirmPassword")}</Label>
           <PasswordInput
             id="confirm_password"
             value={confirmPassword}
@@ -85,7 +87,7 @@ function ChangePasswordPage() {
           />
         </div>
         <Button type="submit" className="w-full" disabled={saving}>
-          {saving ? "Updating…" : "Update password"}
+          {saving ? t("common.updating") : t("profile.updatePassword")}
         </Button>
       </form>
     </UserShell>

@@ -6,36 +6,42 @@ import type {
   WalletTransactions,
 } from "./types";
 import { OPERATORS } from "./constants";
+import type { TranslateFn } from "./i18n";
 
-export function buildActivity(tx: WalletTransactions): ActivityItem[] {
+export function buildActivity(
+  tx: WalletTransactions,
+  t: TranslateFn = (key) => key,
+): ActivityItem[] {
   const items: ActivityItem[] = [
     ...tx.deposits.map((d: Deposit) => ({
       id: `dep-${d.id}`,
       kind: "deposit" as const,
-      title: "Remittance Received",
+      title: t("activity.remittanceReceived"),
       subtitle:
         d.status === "rejected" && d.rejection_reason
-          ? `Rejected: ${d.rejection_reason}`
-          : (d.note ?? "Wallet load"),
+          ? t("activity.rejected", { reason: d.rejection_reason })
+          : (d.note ?? t("activity.walletLoad")),
       amount: d.amount,
       credit: true,
       status: d.status,
       created_at: d.created_at,
     })),
-    ...tx.topups.map((t: TopupTransaction) => ({
-      id: `top-${t.id}`,
+    ...tx.topups.map((top: TopupTransaction) => ({
+      id: `top-${top.id}`,
       kind: "topup" as const,
-      title: `${t.product_name || OPERATORS[t.product_id]} Top-Up`,
-      subtitle: t.mobile_number,
-      amount: t.total_debited !== "0.00" ? t.total_debited : t.amount,
+      title: t("activity.topUp", {
+        operator: top.product_name || OPERATORS[top.product_id],
+      }),
+      subtitle: top.mobile_number,
+      amount: top.total_debited !== "0.00" ? top.total_debited : top.amount,
       credit: false,
-      status: t.status,
-      created_at: t.created_at,
+      status: top.status,
+      created_at: top.created_at,
     })),
     ...tx.bank_transfers.map((b: BankTransferTransaction) => ({
       id: `bt-${b.id}`,
       kind: "transfer" as const,
-      title: "Fund Transfer",
+      title: t("activity.fundTransfer"),
       subtitle: `${b.destination_acc_name} · ${b.destination_bank_name || b.destination_bank}`,
       amount: b.total_debited !== "0.00" ? b.total_debited : b.amount,
       credit: false,

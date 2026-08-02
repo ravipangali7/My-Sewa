@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
 import { isAccountActive } from "@/lib/account-status";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +44,7 @@ export const Route = createFileRoute("/app/profile")({
 });
 
 function Profile() {
+  const t = useT();
   const navigate = useNavigate();
   const { user, logout, refreshProfile } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,16 +53,16 @@ function Profile() {
 
   if (!user) {
     return (
-      <UserShell title="Profile" hideHeader>
+      <UserShell title={t("profile.title")} hideHeader>
         <div className="flex min-h-[50vh] items-center justify-center px-4">
-          <p className="text-sm text-muted-foreground">Loading profile…</p>
+          <p className="text-sm text-muted-foreground">{t("profile.loading")}</p>
         </div>
       </UserShell>
     );
   }
 
   const displayName =
-    [user.first_name, user.last_name].filter(Boolean).join(" ") || "MySewa user";
+    [user.first_name, user.last_name].filter(Boolean).join(" ") || t("profile.fallbackName");
   const initials =
     `${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase() ||
     user.phone.slice(0, 2);
@@ -74,9 +76,9 @@ function Profile() {
       fd.append("avatar", file);
       await apiClient.updateProfile(fd);
       await refreshProfile();
-      toast.success("Profile photo updated");
+      toast.success(t("profile.photoUpdated"));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Photo update failed");
+      toast.error(err instanceof ApiError ? err.message : t("profile.photoFailed"));
     } finally {
       setSavingAvatar(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -94,11 +96,10 @@ function Profile() {
   };
 
   return (
-    <UserShell title="Profile" hideHeader>
+    <UserShell title={t("profile.title")} hideHeader>
       <div className="min-h-[100dvh] bg-[#F2F4F7] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
-        {/* Gradient header */}
         <section className="relative bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_32%,#0C6B7A_68%,#0A9B6E_100%)] px-4 pb-8 pt-[max(14px,env(safe-area-inset-top))]">
-          <h1 className="text-[20px] font-medium tracking-tight text-white">Profile</h1>
+          <h1 className="text-[20px] font-medium tracking-tight text-white">{t("profile.title")}</h1>
 
           <div className="mt-5 flex flex-col items-center">
             <div className="relative">
@@ -113,10 +114,9 @@ function Profile() {
                   {initials}
                 </div>
               )}
-              {/* Account status: yellow = Pending, green = Active (no text label) */}
               <span
-                aria-label={accountActive ? "Account active" : "Account pending"}
-                title={accountActive ? "Active" : "Pending"}
+                aria-label={accountActive ? t("account.active") : t("account.pendingShort")}
+                title={accountActive ? t("account.activeLabel") : t("account.pendingLabel")}
                 className={cn(
                   "absolute left-1.5 top-1.5 size-3.5 rounded-full ring-2 ring-white",
                   accountActive ? "bg-[#22C55E]" : "bg-[#EAB308]",
@@ -124,7 +124,7 @@ function Profile() {
               />
               <button
                 type="button"
-                aria-label="Change profile photo"
+                aria-label={t("profile.changePhoto")}
                 disabled={savingAvatar}
                 className="absolute bottom-0.5 right-0.5 flex size-8 items-center justify-center rounded-full bg-[#22C55E] text-white shadow-md ring-2 ring-white disabled:opacity-60"
                 onClick={() => fileInputRef.current?.click()}
@@ -145,48 +145,44 @@ function Profile() {
           </div>
         </section>
 
-        {/* Settings */}
         <div className="space-y-5 px-4 pb-8 pt-4">
-          {/* Phone card */}
           <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
             <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
               <Phone className="size-[18px]" strokeWidth={2} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-medium text-[#8A94A6]">Phone number</p>
+              <p className="text-[12px] font-medium text-[#8A94A6]">{t("profile.phoneNumber")}</p>
               <p className="truncate text-[16px] font-semibold text-[#0F172A]">{user.phone}</p>
             </div>
             <Link
               to="/app/profile/phone"
               className="shrink-0 px-1 text-[15px] font-semibold text-[#2563EB]"
             >
-              Change
+              {t("profile.change")}
             </Link>
           </div>
 
-          {/* Account */}
           <section>
             <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
-              ACCOUNT
+              {t("profile.account")}
             </h2>
             <SettingsRow
               to="/app/profile/edit"
               icon={UserRound}
-              title="Edit profile"
-              subtitle="Name and email"
+              title={t("profile.editProfile")}
+              subtitle={t("profile.editSubtitle")}
             />
           </section>
 
-          {/* Security */}
           <section>
             <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
-              SECURITY
+              {t("profile.security")}
             </h2>
             <SettingsRow
               to="/app/profile/password"
               icon={Lock}
-              title="Change password"
-              subtitle="Update your login password"
+              title={t("profile.changePassword")}
+              subtitle={t("profile.passwordSubtitle")}
             />
           </section>
 
@@ -197,18 +193,18 @@ function Profile() {
                 className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#F87171]/70 bg-[#FEF2F2] px-4 py-3.5 text-[16px] font-semibold text-[#EF4444] transition-colors hover:bg-[#FEE2E2]"
               >
                 <LogOut className="size-[18px]" strokeWidth={2} />
-                Logout
+                {t("profile.logout")}
               </button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Log out?</AlertDialogTitle>
+                <AlertDialogTitle>{t("profile.logoutConfirmTitle")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Are you sure you want to log out?
+                  {t("profile.logoutConfirmBody")}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel disabled={loggingOut}>Cancel</AlertDialogCancel>
+                <AlertDialogCancel disabled={loggingOut}>{t("common.cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   disabled={loggingOut}
@@ -217,7 +213,7 @@ function Profile() {
                     void confirmLogout();
                   }}
                 >
-                  {loggingOut ? "Logging out…" : "Log out"}
+                  {loggingOut ? t("profile.loggingOut") : t("profile.logOut")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

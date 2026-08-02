@@ -15,6 +15,7 @@ import {
 import { UserShell } from "@/components/layout/UserShell";
 import { MountainBackdrop } from "@/components/home/MountainBackdrop";
 import { WalletIllustration } from "@/components/home/WalletIllustration";
+import { LanguageToggle } from "@/components/LanguageToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { apiClient } from "@/lib/api";
 import { buildActivity } from "@/lib/activity";
@@ -23,7 +24,8 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
-import { ACCOUNT_PENDING_MESSAGE, isAccountPending } from "@/lib/account-status";
+import { isAccountPending } from "@/lib/account-status";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/")({
@@ -45,25 +47,25 @@ export const Route = createFileRoute("/app/")({
 const ACTIONS = [
   {
     to: "/app/transfer",
-    label: "Fund Transfer",
+    labelKey: "home.fundTransfer" as const satisfies MessageKey,
     icon: Send,
     iconBg: "bg-[#22C55E]",
   },
   {
     to: "/app/topup",
-    label: "Top Up",
+    labelKey: "home.topUp" as const satisfies MessageKey,
     icon: Smartphone,
     iconBg: "bg-[#F59E0B]",
   },
   {
     to: "/app/load",
-    label: "Receive Remittance",
+    labelKey: "home.receiveRemittance" as const satisfies MessageKey,
     icon: ArrowDownToLine,
     iconBg: "bg-[#2563EB]",
   },
   {
     to: "/app/history",
-    label: "History",
+    labelKey: "home.history" as const satisfies MessageKey,
     icon: History,
     iconBg: "bg-[#7C3AED]",
   },
@@ -102,6 +104,7 @@ function formatPhone(phone: string) {
 function WalletHome() {
   const { user, wallet } = useAuth();
   const { logoUrl } = useSiteBranding();
+  const { t, locale } = useI18n();
   const accountPending = isAccountPending(user);
   const [balanceVisible, setBalanceVisible] = useState(true);
   const txQuery = useQuery({
@@ -110,12 +113,18 @@ function WalletHome() {
     refetchInterval: LIVE_REFETCH_MS,
   });
 
-  const activity = txQuery.data ? buildActivity(txQuery.data).slice(0, 3) : [];
-  const unreadCount = useMemo(
-    () => (txQuery.data ? buildNotifications(txQuery.data).filter((n) => n.unread).length : 0),
-    [txQuery.data],
+  const activity = useMemo(
+    () => (txQuery.data ? buildActivity(txQuery.data, t).slice(0, 3) : []),
+    [txQuery.data, t, locale],
   );
-  const firstName = user?.first_name?.trim() || "User";
+  const unreadCount = useMemo(
+    () =>
+      txQuery.data
+        ? buildNotifications(txQuery.data, t).filter((n) => n.unread).length
+        : 0,
+    [txQuery.data, t, locale],
+  );
+  const firstName = user?.first_name?.trim() || t("common.user");
   const initials = [user?.first_name, user?.last_name]
     .filter(Boolean)
     .map((s) => s![0])
@@ -143,23 +152,26 @@ function WalletHome() {
                   <span className="text-[#6CFFAE]">Sewa</span>
                 </p>
                 <p className="mt-0.5 text-[11px] font-medium text-white/90">
-                  सजिलो, सुरक्षित, हाम्रो सँग
+                  {t("home.tagline")}
                 </p>
               </div>
             </div>
 
-            <Link
-              to="/app/notifications"
-              aria-label="Notifications"
-              className="relative mt-1 flex size-10 items-center justify-center rounded-full text-white"
-            >
-              <Bell className="size-[22px]" strokeWidth={1.75} />
-              {unreadCount > 0 ? (
-                <span className="absolute top-1 right-1 flex size-[16px] items-center justify-center rounded-full bg-[#FF3B30] text-[9px] font-bold text-white ring-2 ring-[#0B4A8F]/70">
-                  {unreadCount > 9 ? "9+" : unreadCount}
-                </span>
-              ) : null}
-            </Link>
+            <div className="flex items-center gap-0.5">
+              <LanguageToggle />
+              <Link
+                to="/app/notifications"
+                aria-label={t("home.notifications")}
+                className="relative mt-1 flex size-10 items-center justify-center rounded-full text-white"
+              >
+                <Bell className="size-[22px]" strokeWidth={1.75} />
+                {unreadCount > 0 ? (
+                  <span className="absolute top-1 right-1 flex size-[16px] items-center justify-center rounded-full bg-[#FF3B30] text-[9px] font-bold text-white ring-2 ring-[#0B4A8F]/70">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                ) : null}
+              </Link>
+            </div>
           </div>
 
           <div className="relative z-10 mt-5 flex items-center gap-3">
@@ -170,7 +182,9 @@ function WalletHome() {
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <p className="truncate text-[18px] font-bold text-white">नमस्ते, {firstName}</p>
+              <p className="truncate text-[18px] font-bold text-white">
+                {t("home.greeting", { name: firstName })}
+              </p>
               <p className="mt-0.5 text-[13px] font-medium text-white/80">
                 {user ? formatPhone(user.phone) : ""}
               </p>
@@ -193,10 +207,10 @@ function WalletHome() {
 
             <div className="relative z-10 flex items-start justify-between gap-2">
               <div className="flex items-center gap-1.5 text-white">
-                <span className="text-[13px] font-medium tracking-wide">MySewa Wallet</span>
+                <span className="text-[13px] font-medium tracking-wide">{t("home.wallet")}</span>
                 <button
                   type="button"
-                  aria-label={balanceVisible ? "Hide balance" : "Show balance"}
+                  aria-label={balanceVisible ? t("home.hideBalance") : t("home.showBalance")}
                   onClick={() => setBalanceVisible((v) => !v)}
                   className="inline-flex size-7 items-center justify-center rounded-full text-white/90"
                 >
@@ -208,7 +222,7 @@ function WalletHome() {
                 </button>
               </div>
               <span className="shrink-0 rounded-full bg-[#22C55E] px-2.5 py-1 text-[10px] font-semibold tracking-wide text-white shadow-sm">
-                Remittance Received
+                {t("home.remittanceReceived")}
               </span>
             </div>
 
@@ -222,7 +236,7 @@ function WalletHome() {
                     : "रु. —"}
                 </p>
                 <p className="mt-2 text-[11px] font-medium text-white/75">
-                  (रेमिटेन्सबाट प्राप्त कुल रकम)
+                  {t("home.balanceCaption")}
                 </p>
               </div>
               <WalletIllustration className="mb-[-4px] h-[88px] w-[108px] shrink-0" />
@@ -240,7 +254,7 @@ function WalletHome() {
                   <button
                     key={a.to}
                     type="button"
-                    onClick={() => toast.error(ACCOUNT_PENDING_MESSAGE)}
+                    onClick={() => toast.error(t("account.pending"))}
                     className="flex flex-col items-center gap-2 rounded-2xl bg-white px-1.5 py-3.5 opacity-70 shadow-[0_4px_16px_-6px_rgba(16,24,40,0.14)] transition-transform active:scale-[0.97]"
                   >
                     <span
@@ -252,7 +266,7 @@ function WalletHome() {
                       <a.icon className="size-5" strokeWidth={2.25} />
                     </span>
                     <span className="text-center text-[11px] leading-tight font-semibold text-[#0B2B4A]">
-                      {a.label}
+                      {t(a.labelKey)}
                     </span>
                   </button>
                 );
@@ -272,7 +286,7 @@ function WalletHome() {
                     <a.icon className="size-5" strokeWidth={2.25} />
                   </span>
                   <span className="text-center text-[11px] leading-tight font-semibold text-[#0B2B4A]">
-                    {a.label}
+                    {t(a.labelKey)}
                   </span>
                 </Link>
               );
@@ -282,23 +296,23 @@ function WalletHome() {
           {/* Recent transactions */}
           <section>
             <div className="mb-2.5 flex items-center justify-between px-0.5">
-              <h2 className="text-[16px] font-bold text-[#0B2B4A]">हालका कारोबारहरू</h2>
+              <h2 className="text-[16px] font-bold text-[#0B2B4A]">{t("home.recentTx")}</h2>
               <Link
                 to="/app/history"
                 className="inline-flex items-center gap-0.5 rounded-full bg-[#DCEBFA] px-3 py-1 text-[11px] font-semibold text-[#3B7FC4]"
               >
-                View All
+                {t("home.viewAll")}
                 <ChevronRight className="size-3.5 stroke-[2.5px]" />
               </Link>
             </div>
 
             {txQuery.isLoading ? (
               <div className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-muted-foreground shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)]">
-                Loading activity…
+                {t("home.loadingActivity")}
               </div>
             ) : activity.length === 0 ? (
               <div className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-muted-foreground shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)]">
-                No recent activity yet.
+                {t("home.noActivity")}
               </div>
             ) : (
               <ul className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)]">

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Download, Send, Smartphone } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
@@ -10,6 +10,7 @@ import type { ActivityKind } from "@/lib/types";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 export const Route = createFileRoute("/app/history")({
   head: () => ({
@@ -31,13 +32,14 @@ export const Route = createFileRoute("/app/history")({
 });
 
 const FILTERS = [
-  { key: "all", label: "All" },
-  { key: "deposit", label: "Load" },
-  { key: "topup", label: "Top-up" },
-  { key: "transfer", label: "Transfer" },
+  { key: "all", labelKey: "history.all" as const satisfies MessageKey, filterKey: "history.filterAll" as const satisfies MessageKey },
+  { key: "deposit", labelKey: "history.load" as const satisfies MessageKey, filterKey: "history.filterLoad" as const satisfies MessageKey },
+  { key: "topup", labelKey: "history.topup" as const satisfies MessageKey, filterKey: "history.filterTopup" as const satisfies MessageKey },
+  { key: "transfer", labelKey: "history.transfer" as const satisfies MessageKey, filterKey: "history.filterTransfer" as const satisfies MessageKey },
 ] as const;
 
 function HistoryPage() {
+  const { t, locale } = useI18n();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
@@ -45,12 +47,18 @@ function HistoryPage() {
     refetchInterval: LIVE_REFETCH_MS,
   });
 
-  const items = (txQuery.data ? buildActivity(txQuery.data) : []).filter(
-    (i) => filter === "all" || i.kind === (filter as ActivityKind),
+  const items = useMemo(
+    () =>
+      (txQuery.data ? buildActivity(txQuery.data, t) : []).filter(
+        (i) => filter === "all" || i.kind === (filter as ActivityKind),
+      ),
+    [txQuery.data, t, locale, filter],
   );
 
+  const filterMeta = FILTERS.find((f) => f.key === filter);
+
   return (
-    <UserShell title="History">
+    <UserShell title={t("history.title")}>
       <div className="space-y-4">
         <div className="grid grid-cols-4 gap-1 rounded-xl bg-muted p-1">
           {FILTERS.map((f) => (
@@ -63,21 +71,22 @@ function HistoryPage() {
                 filter === f.key ? "bg-surface text-brand-dark shadow-card" : "text-muted-foreground",
               )}
             >
-              {f.label}
+              {t(f.labelKey)}
             </button>
           ))}
         </div>
 
         {txQuery.isLoading ? (
           <div className="inset-group px-6 py-14 text-center text-sm text-muted-foreground">
-            Loading…
+            {t("common.loading")}
           </div>
         ) : items.length === 0 ? (
           <div className="inset-group px-6 py-14 text-center">
-            <p className="text-[17px] font-medium">Nothing here yet</p>
+            <p className="text-[17px] font-medium">{t("history.emptyTitle")}</p>
             <p className="mt-1 text-[15px] text-muted-foreground">
-              Your {FILTERS.find((f) => f.key === filter)?.label.toLowerCase()} transactions will
-              appear here.
+              {t("history.emptyBody", {
+                filter: filterMeta ? t(filterMeta.filterKey) : "",
+              })}
             </p>
           </div>
         ) : (

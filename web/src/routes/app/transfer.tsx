@@ -17,8 +17,9 @@ import { formatNPR, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
-import { ACCOUNT_PENDING_MESSAGE, isAccountPending } from "@/lib/account-status";
+import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
+import { useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/app/transfer")({
   head: () => ({
@@ -44,15 +45,16 @@ type TransferMethod = "bank" | "phone";
 function Transfer() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { t, locale } = useI18n();
   const accountPending = isAccountPending(user);
-  const errorPopup = useErrorPopup("Transfer failed");
+  const errorPopup = useErrorPopup(t("transfer.failed"));
   const [method, setMethod] = useState<TransferMethod>("bank");
   const [bank, setBank] = useState("");
   const [accNo, setAccNo] = useState("");
   const [accName, setAccName] = useState("");
   const [phone, setPhone] = useState("");
   const [amount, setAmount] = useState("");
-  const [remarks, setRemarks] = useState("Fund Transfer");
+  const [remarks, setRemarks] = useState(() => t("transfer.defaultRemarks"));
   const [verified, setVerified] = useState(false);
   const [merchantTxnId, setMerchantTxnId] = useState<string | undefined>();
   const [charge, setCharge] = useState("0.00");
@@ -87,8 +89,8 @@ function Transfer() {
   useEffect(() => {
     if (!banksQuery.isError) return;
     errorPopup.showError(banksQuery.error, {
-      title: "Could not load banks",
-      fallback: "Failed to fetch bank list from HimalPay",
+      title: t("transfer.banksFailed"),
+      fallback: t("transfer.banksFailedFallback"),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [banksQuery.isError, banksQuery.error]);
@@ -117,13 +119,20 @@ function Transfer() {
   }, [method]);
 
   useEffect(() => {
+    setRemarks((prev) =>
+      prev === "Fund Transfer" || prev === "फन्ड ट्रान्सफर" ? t("transfer.defaultRemarks") : prev,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale]);
+
+  useEffect(() => {
     if (!transfersEnabled || amt < minTransfer) {
       setCharge("0.00");
       setCashback("0.00");
       setTotalDebited("0.00");
       return;
     }
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       apiClient
         .calculateTransfer(amt)
         .then((res) => {
@@ -138,12 +147,12 @@ function Transfer() {
           if (err instanceof ApiError) {
             const msg = err.message.toLowerCase();
             if (msg.includes("ip not") || msg.includes("allowlist") || err.status === 403) {
-              errorPopup.showError(err, { title: "Payment provider error" });
+              errorPopup.showError(err, { title: t("transfer.providerError") });
             }
           }
         });
     }, 350);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amt, transfersEnabled, minTransfer]);
 
@@ -151,11 +160,11 @@ function Transfer() {
 
   const submitMutation = useMutation({
     mutationFn: () => {
-      if (accountPending) throw new Error(ACCOUNT_PENDING_MESSAGE);
-      if (!transfersEnabled) throw new Error("Bank transfers are currently disabled.");
-      if (amt < minTransfer) throw new Error(`Minimum transfer is Rs. ${minTransfer}`);
+      if (accountPending) throw new Error(t("account.pending"));
+      if (!transfersEnabled) throw new Error(t("transfer.disabledError"));
+      if (amt < minTransfer) throw new Error(t("transfer.minError", { min: minTransfer }));
       if (maxTransfer > 0 && amt > maxTransfer) {
-        throw new Error(`Maximum transfer is Rs. ${maxTransfer}`);
+        throw new Error(t("transfer.maxError", { max: maxTransfer }));
       }
       const body: Record<string, unknown> = {
         amount: amt,
@@ -164,14 +173,16 @@ function Transfer() {
         destination_acc_no: destinationNumber,
         destination_acc_name: accName,
         is_destination_mobile: isMobile,
-        transaction_remarks: remarks || "Fund Transfer",
+        transaction_remarks: remarks || t("transfer.defaultRemarks"),
       };
       if (merchantTxnId) body["merchant_txn_id"] = merchantTxnId;
       return apiClient.createTransfer(body);
     },
     onSuccess: (res) => {
-      toast.success(res.message || "Transfer submitted", {
-        description: `Total debited ${formatNPR(res.data.total_debited || totalDebited)}`,
+      toast.success(res.message || t("transfer.submitted"), {
+        description: t("transfer.debited", {
+          amount: formatNPR(res.data.total_debited || totalDebited),
+        }),
       });
       setAccNo("");
       setPhone("");
@@ -183,29 +194,33 @@ function Transfer() {
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
     onError: (err) => {
-      errorPopup.showError(err, { title: "Transfer failed", fallback: "Transfer failed" });
+      errorPopup.showError(err, { title: t("transfer.failed"), fallback: t("transfer.failed") });
     },
   });
 
   async function verifyDestination() {
     if (accountPending) {
-      errorPopup.showMessage(ACCOUNT_PENDING_MESSAGE, { title: "Account pending" });
+      errorPopup.showMessage(t("account.pending"), { title: t("transfer.accountPendingTitle") });
       return;
     }
     if (!bank || !accName.trim()) {
-      errorPopup.showMessage("Enter bank and account holder name", { title: "Missing details" });
+      errorPopup.showMessage(t("transfer.enterBankAndName"), {
+        title: t("transfer.missingDetails"),
+      });
       return;
     }
     if (isMobile) {
       const digits = phone.replace(/\D/g, "");
       if (digits.length < 10) {
-        errorPopup.showMessage("Enter a valid Nepali mobile number", {
-          title: "Invalid phone number",
+        errorPopup.showMessage(t("transfer.invalidNepaliMobile"), {
+          title: t("transfer.invalidPhone"),
         });
         return;
       }
     } else if (accNo.trim().length < 5) {
-      errorPopup.showMessage("Enter a valid account number", { title: "Invalid account" });
+      errorPopup.showMessage(t("transfer.enterValidAccount"), {
+        title: t("transfer.invalidAccount"),
+      });
       return;
     }
     setVerifying(true);
@@ -218,7 +233,9 @@ function Transfer() {
       });
       if (!res.data?.verified) {
         setVerified(false);
-        errorPopup.showMessage("Account could not be verified", { title: "Verification failed" });
+        errorPopup.showMessage(t("transfer.couldNotVerify"), {
+          title: t("transfer.verifyFailed"),
+        });
         return;
       }
       // Use the bank-returned original account holder name for the transfer
@@ -228,19 +245,22 @@ function Transfer() {
       setMerchantTxnId(res.data?.merchant_txn_id);
       toast.success(
         originalName !== accName.trim()
-          ? `Verified as ${originalName}`
-          : res.message || "Account verified",
+          ? t("transfer.verifiedAs", { name: originalName })
+          : res.message || t("transfer.accountVerified"),
       );
     } catch (err) {
       setVerified(false);
-      errorPopup.showError(err, { title: "Verification failed", fallback: "Verification failed" });
+      errorPopup.showError(err, {
+        title: t("transfer.verifyFailed"),
+        fallback: t("transfer.verifyFailed"),
+      });
     } finally {
       setVerifying(false);
     }
   }
 
   return (
-    <UserShell title="Fund Transfer" back="/app">
+    <UserShell title={t("transfer.title")} back="/app">
       {errorPopup.popup}
       <div className="grid gap-5 lg:grid-cols-2">
         {accountPending ? (
@@ -250,10 +270,8 @@ function Transfer() {
         ) : null}
         {!transfersEnabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
-            <p className="text-[15px] font-medium text-destructive">Transfers temporarily unavailable</p>
-            <p className="mt-1 text-[13px] text-muted-foreground">
-              Fund transfers are currently disabled by the administrator.
-            </p>
+            <p className="text-[15px] font-medium text-destructive">{t("transfer.disabledTitle")}</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">{t("transfer.disabledBody")}</p>
           </section>
         ) : null}
         <section className="inset-group p-4">
@@ -264,10 +282,10 @@ function Transfer() {
           >
             <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl">
               <TabsTrigger value="bank" className="rounded-lg" disabled={!transfersEnabled}>
-                Bank account
+                {t("transfer.tabBank")}
               </TabsTrigger>
               <TabsTrigger value="phone" className="rounded-lg" disabled={!transfersEnabled}>
-                Phone number
+                {t("transfer.tabPhone")}
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -277,24 +295,22 @@ function Transfer() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!verified) {
-                errorPopup.showMessage(
-                  isMobile
-                    ? "Verify the destination phone number first"
-                    : "Verify the destination account first",
-                  { title: "Verification required" },
-                );
+                errorPopup.showMessage(t("transfer.verifyFirst"), {
+                  title: t("transfer.verifyRequired"),
+                });
                 return;
               }
               submitMutation.mutate();
             }}
           >
             <div className="space-y-1.5">
-              <Label>Destination bank</Label>
+              <Label>{t("transfer.destBank")}</Label>
               <BankCombobox
                 banks={banks}
                 value={bank}
                 loading={banksQuery.isLoading}
                 disabled={!transfersEnabled}
+                placeholder={t("transfer.selectBank")}
                 onChange={(v) => {
                   setBank(v);
                   setVerified(false);
@@ -303,7 +319,7 @@ function Transfer() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="accName">Account holder name</Label>
+              <Label htmlFor="accName">{t("transfer.accHolder")}</Label>
               <Input
                 id="accName"
                 value={accName}
@@ -319,12 +335,12 @@ function Transfer() {
 
             {isMobile ? (
               <div className="space-y-1.5">
-                <Label htmlFor="phone">Destination phone number</Label>
+                <Label htmlFor="phone">{t("transfer.destPhone")}</Label>
                 <div className="flex gap-2">
                   <Input
                     id="phone"
                     inputMode="tel"
-                    placeholder="98XXXXXXXX"
+                    placeholder={t("transfer.phonePlaceholder")}
                     value={phone}
                     onChange={(e) => {
                       setPhone(e.target.value);
@@ -341,21 +357,19 @@ function Transfer() {
                     disabled={verifying || !transfersEnabled}
                     onClick={verifyDestination}
                   >
-                    {verifying ? "…" : "Verify"}
+                    {verifying ? "…" : t("transfer.verify")}
                   </Button>
                 </div>
-                <p className="text-[12px] text-muted-foreground">
-                  Send to a bank account linked to this mobile number (same-bank style transfer).
-                </p>
+                <p className="text-[12px] text-muted-foreground">{t("transfer.phoneHelp")}</p>
                 {verified && (
                   <p className="text-[13px] text-success">
-                    Verified account: {accName} (original name from bank)
+                    {t("transfer.verifiedAccount", { name: accName })}
                   </p>
                 )}
               </div>
             ) : (
               <div className="space-y-1.5">
-                <Label htmlFor="acc">Destination account number</Label>
+                <Label htmlFor="acc">{t("transfer.destAccount")}</Label>
                 <div className="flex gap-2">
                   <Input
                     id="acc"
@@ -375,23 +389,23 @@ function Transfer() {
                     disabled={verifying || !transfersEnabled}
                     onClick={verifyDestination}
                   >
-                    {verifying ? "…" : "Verify"}
+                    {verifying ? "…" : t("transfer.verify")}
                   </Button>
                 </div>
                 {verified && (
                   <p className="text-[13px] text-success">
-                    Verified account: {accName} (original name from bank)
+                    {t("transfer.verifiedAccount", { name: accName })}
                   </p>
                 )}
               </div>
             )}
 
             <div className="space-y-1.5">
-              <Label htmlFor="tamount">Amount (NPR)</Label>
+              <Label htmlFor="tamount">{t("common.amountNpr")}</Label>
               <Input
                 id="tamount"
                 inputMode="decimal"
-                placeholder="0.00"
+                placeholder={t("common.amountPlaceholder")}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className="tabular h-12 rounded-xl text-[22px] font-semibold"
@@ -399,14 +413,16 @@ function Transfer() {
                 disabled={!transfersEnabled}
               />
               <p className="text-[12px] text-muted-foreground">
-                Min Rs. {minTransfer}
-                {maxTransfer > 0 ? ` · Max Rs. ${maxTransfer}` : ""}
-                {dailyLimit > 0 ? ` · Daily limit Rs. ${dailyLimit}` : ""}
+                {t("common.minMaxDaily", {
+                  min: minTransfer,
+                  max: maxTransfer,
+                  daily: dailyLimit,
+                })}
               </p>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="remarks">Transaction remarks</Label>
+              <Label htmlFor="remarks">{t("transfer.remarks")}</Label>
               <Input
                 id="remarks"
                 value={remarks}
@@ -417,13 +433,13 @@ function Transfer() {
             </div>
 
             <div className="rounded-xl bg-muted p-3 text-[14px]">
-              <Row label="Amount" value={formatNPR(amt)} />
-              {chargeEnabled ? <Row label="Charge" value={formatNPR(charge)} /> : null}
+              <Row label={t("common.amount")} value={formatNPR(amt)} />
+              {chargeEnabled ? <Row label={t("common.charge")} value={formatNPR(charge)} /> : null}
               {cashbackEnabled ? (
-                <Row label="Cashback" value={`− ${formatNPR(cashback)}`} />
+                <Row label={t("common.cashback")} value={`− ${formatNPR(cashback)}`} />
               ) : null}
               <div className="mt-2 border-t border-separator pt-2">
-                <Row label="Total debited" value={formatNPR(totalDebited)} strong />
+                <Row label={t("common.totalDebited")} value={formatNPR(totalDebited)} strong />
               </div>
             </div>
 
@@ -432,20 +448,20 @@ function Transfer() {
               disabled={submitMutation.isPending || !transfersEnabled}
               className="h-12 w-full rounded-xl text-[17px]"
             >
-              {submitMutation.isPending ? "Processing…" : "Confirm transfer"}
+              {submitMutation.isPending ? t("common.processing") : t("transfer.confirm")}
             </Button>
           </form>
         </section>
 
         <section>
-          <h2 className="mb-2 px-1 text-[17px] font-semibold">Recent transfers</h2>
+          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("transfer.recent")}</h2>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
-              Loading…
+              {t("common.loading")}
             </div>
           ) : !historyQuery.data?.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
-              No transfers yet.
+              {t("transfer.empty")}
             </div>
           ) : (
             <ul className="inset-group divide-y divide-border">
@@ -455,8 +471,9 @@ function Transfer() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[15px] font-medium">{b.destination_acc_name}</p>
                       <p className="truncate text-[13px] text-muted-foreground">
-                        {b.is_destination_mobile ? "Phone · " : ""}
-                        {b.destination_bank_name || b.destination_bank} · {b.destination_acc_no}
+                        {b.is_destination_mobile
+                          ? t("transfer.phonePrefix", { phone: b.destination_acc_no })
+                          : `${b.destination_bank_name || b.destination_bank} · ${b.destination_acc_no}`}
                       </p>
                     </div>
                     <div className="text-right">
@@ -465,8 +482,8 @@ function Transfer() {
                     </div>
                   </div>
                   <p className="mt-1 text-[12px] text-muted-foreground">
-                    {b.merchant_txn_id} · {formatDateTime(b.created_at)} · Debited{" "}
-                    {formatNPR(b.total_debited)}
+                    {b.merchant_txn_id} · {formatDateTime(b.created_at)} ·{" "}
+                    {t("transfer.debited", { amount: formatNPR(b.total_debited) })}
                   </p>
                 </li>
               ))}

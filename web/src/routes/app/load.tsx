@@ -13,8 +13,9 @@ import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
-import { ACCOUNT_PENDING_MESSAGE, isAccountPending } from "@/lib/account-status";
+import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
+import { useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/app/load")({
   head: () => ({
@@ -38,6 +39,7 @@ export const Route = createFileRoute("/app/load")({
 function LoadWallet() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { t } = useI18n();
   const accountPending = isAccountPending(user);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
@@ -64,13 +66,14 @@ function LoadWallet() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (accountPending) throw new Error(ACCOUNT_PENDING_MESSAGE);
-      if (!depositsEnabled) throw new Error("Wallet deposits are currently disabled.");
+      if (accountPending) throw new Error(t("account.pending"));
+      if (!depositsEnabled) throw new Error(t("load.disabledError"));
       const amt = Number(amount);
-      if (!Number.isFinite(amt) || amt <= 0) throw new Error("Enter a valid amount");
-      if (amt < minDeposit) throw new Error(`Minimum deposit is Rs. ${minDeposit}`);
-      if (maxDeposit > 0 && amt > maxDeposit) throw new Error(`Maximum deposit is Rs. ${maxDeposit}`);
-      if (requireScreenshot && !file) throw new Error("Screenshot proof is required");
+      if (!Number.isFinite(amt) || amt <= 0) throw new Error(t("load.validAmount"));
+      if (amt < minDeposit) throw new Error(t("load.minError", { min: minDeposit }));
+      if (maxDeposit > 0 && amt > maxDeposit)
+        throw new Error(t("load.maxError", { max: maxDeposit }));
+      if (requireScreenshot && !file) throw new Error(t("load.screenshotRequired"));
       const fd = new FormData();
       fd.append("amount", amount);
       if (note.trim()) fd.append("note", note.trim());
@@ -78,7 +81,7 @@ function LoadWallet() {
       return apiClient.createDeposit(fd);
     },
     onSuccess: () => {
-      toast.success("Deposit submitted", { description: "Status: pending admin approval" });
+      toast.success(t("load.submitted"), { description: t("load.pendingApproval") });
       setAmount("");
       setNote("");
       setFile(null);
@@ -86,7 +89,9 @@ function LoadWallet() {
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
     },
     onError: (err) => {
-      toast.error(err instanceof ApiError || err instanceof Error ? err.message : "Submit failed");
+      toast.error(
+        err instanceof ApiError || err instanceof Error ? err.message : t("load.submitFailed"),
+      );
     },
   });
 
@@ -94,7 +99,7 @@ function LoadWallet() {
   const bankEntries = Object.entries(bank).filter(([, v]) => v);
 
   return (
-    <UserShell title="Load Wallet" back="/app">
+    <UserShell title={t("load.title")} back="/app">
       <div className="grid gap-5 lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
@@ -103,15 +108,13 @@ function LoadWallet() {
         ) : null}
         {!depositsEnabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
-            <p className="text-[15px] font-medium text-destructive">Deposits temporarily unavailable</p>
-            <p className="mt-1 text-[13px] text-muted-foreground">
-              Wallet deposits are currently disabled by the administrator. Please try again later.
-            </p>
+            <p className="text-[15px] font-medium text-destructive">{t("load.disabledTitle")}</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">{t("load.disabledBody")}</p>
           </section>
         ) : null}
 
         <section className="inset-group p-4">
-          <h2 className="text-[15px] font-semibold">Pay to MySewa</h2>
+          <h2 className="text-[15px] font-semibold">{t("load.payTo")}</h2>
           {instructions ? (
             <p className="mt-2 text-[13px] text-muted-foreground whitespace-pre-wrap">{instructions}</p>
           ) : null}
@@ -120,7 +123,7 @@ function LoadWallet() {
               {settingsQuery.data?.qr_code_url ? (
                 <img
                   src={settingsQuery.data.qr_code_url}
-                  alt="Deposit QR"
+                  alt={t("load.qrAlt")}
                   className="size-full object-contain"
                 />
               ) : (
@@ -129,9 +132,9 @@ function LoadWallet() {
             </div>
             <dl className="flex-1 space-y-1.5 text-[14px]">
               {settingsQuery.isLoading ? (
-                <p className="text-muted-foreground">Loading bank details…</p>
+                <p className="text-muted-foreground">{t("load.loadingBank")}</p>
               ) : bankEntries.length === 0 ? (
-                <p className="text-muted-foreground">Bank details not configured yet.</p>
+                <p className="text-muted-foreground">{t("load.bankNotConfigured")}</p>
               ) : (
                 bankEntries.map(([k, v]) => (
                   <div key={k} className="flex justify-between gap-3">
@@ -153,11 +156,11 @@ function LoadWallet() {
             }}
           >
             <div className="space-y-1.5">
-              <Label htmlFor="amount">Amount (NPR)</Label>
+              <Label htmlFor="amount">{t("common.amountNpr")}</Label>
               <Input
                 id="amount"
                 inputMode="decimal"
-                placeholder="0.00"
+                placeholder={t("common.amountPlaceholder")}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className="tabular h-12 rounded-xl text-[22px] font-semibold"
@@ -165,31 +168,30 @@ function LoadWallet() {
                 disabled={!depositsEnabled}
               />
               <p className="text-[12px] text-muted-foreground">
-                Min Rs. {minDeposit}
-                {maxDeposit > 0 ? ` · Max Rs. ${maxDeposit}` : ""}
+                {t("common.minMax", { min: minDeposit, max: maxDeposit })}
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="note">Note (optional)</Label>
+              <Label htmlFor="note">{t("load.noteOptional")}</Label>
               <Textarea
                 id="note"
                 rows={2}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 className="rounded-xl"
-                placeholder="e.g. Remittance from Qatar"
+                placeholder={t("load.notePlaceholder")}
                 disabled={!depositsEnabled}
               />
             </div>
             {requireScreenshot ? (
               <div className="space-y-1.5">
-                <Label htmlFor="proof">Screenshot proof</Label>
+                <Label htmlFor="proof">{t("load.screenshot")}</Label>
                 <label
                   htmlFor="proof"
                   className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
                 >
                   <Upload className="size-5" />
-                  {file?.name ?? "Upload payment screenshot"}
+                  {file?.name ?? t("load.uploadScreenshot")}
                 </label>
                 <input
                   id="proof"
@@ -203,13 +205,15 @@ function LoadWallet() {
               </div>
             ) : (
               <div className="space-y-1.5">
-                <Label htmlFor="proof">Screenshot proof (optional)</Label>
+                <Label htmlFor="proof">
+                  {t("load.screenshot")} {t("load.screenshotOptional")}
+                </Label>
                 <label
                   htmlFor="proof"
                   className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
                 >
                   <Upload className="size-5" />
-                  {file?.name ?? "Upload payment screenshot"}
+                  {file?.name ?? t("load.uploadScreenshot")}
                 </label>
                 <input
                   id="proof"
@@ -226,20 +230,20 @@ function LoadWallet() {
               disabled={createMutation.isPending || !depositsEnabled}
               className="h-12 w-full rounded-xl text-[17px]"
             >
-              {createMutation.isPending ? "Submitting…" : "Submit deposit"}
+              {createMutation.isPending ? t("common.submitting") : t("load.submit")}
             </Button>
           </form>
         </section>
 
         <section className="lg:col-span-2">
-          <h2 className="mb-2 px-1 text-[17px] font-semibold">My deposits</h2>
+          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("load.myDeposits")}</h2>
           {depositsQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
-              Loading…
+              {t("common.loading")}
             </div>
           ) : !depositsQuery.data?.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
-              No deposits yet.
+              {t("load.empty")}
             </div>
           ) : (
             <ul className="inset-group divide-y divide-border">
@@ -253,11 +257,11 @@ function LoadWallet() {
                       </span>
                     </p>
                     <p className="truncate text-[13px] text-muted-foreground">
-                      {d.note ?? "No note"} · {formatDateTime(d.created_at)}
+                      {d.note ?? t("common.noNote")} · {formatDateTime(d.created_at)}
                     </p>
                     {d.status === "rejected" && d.rejection_reason ? (
                       <p className="mt-0.5 text-[13px] text-destructive">
-                        Reason: {d.rejection_reason}
+                        {t("common.reason", { reason: d.rejection_reason })}
                       </p>
                     ) : null}
                   </div>

@@ -12,6 +12,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { BankOption } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 
 export function BankCombobox({
   banks,
@@ -19,7 +20,7 @@ export function BankCombobox({
   onChange,
   disabled,
   loading,
-  placeholder = "Select bank",
+  placeholder,
 }: {
   banks: BankOption[];
   value: string;
@@ -28,11 +29,13 @@ export function BankCombobox({
   loading?: boolean;
   placeholder?: string;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const selected = useMemo(
     () => banks.find((b) => b.bank_code === value),
     [banks, value],
   );
+  const resolvedPlaceholder = placeholder ?? t("transfer.selectBank");
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -47,19 +50,19 @@ export function BankCombobox({
         >
           <span className={cn("truncate", !selected && "text-muted-foreground")}>
             {loading
-              ? "Loading banks…"
+              ? t("transfer.loadingBanks")
               : selected
                 ? `${selected.bank_name} (${selected.bank_code})`
-                : placeholder}
+                : resolvedPlaceholder}
           </span>
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search bank…" />
+          <CommandInput placeholder={t("transfer.searchBank")} />
           <CommandList>
-            <CommandEmpty>No bank found.</CommandEmpty>
+            <CommandEmpty>{t("transfer.noBank")}</CommandEmpty>
             <CommandGroup>
               {banks.map((b) => (
                 <CommandItem

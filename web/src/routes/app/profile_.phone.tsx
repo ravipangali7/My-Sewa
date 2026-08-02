@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/app/profile_/phone")({
   head: () => ({
@@ -24,6 +25,7 @@ export const Route = createFileRoute("/app/profile_/phone")({
 });
 
 function ChangePhonePage() {
+  const t = useT();
   const navigate = useNavigate();
   const { user, refreshProfile } = useAuth();
   const [newPhone, setNewPhone] = useState("");
@@ -31,7 +33,7 @@ function ChangePhonePage() {
   const [saving, setSaving] = useState(false);
 
   return (
-    <UserShell title="Change phone" back="/app/profile">
+    <UserShell title={t("profile.changePhone")} back="/app/profile">
       <form
         className="inset-group space-y-4 p-4"
         onSubmit={async (e) => {
@@ -43,10 +45,10 @@ function ChangePhonePage() {
               current_password: phonePassword,
             });
             await refreshProfile();
-            toast.success("Phone updated");
+            toast.success(t("profile.phoneUpdated"));
             navigate({ to: "/app/profile" });
           } catch (err) {
-            toast.error(err instanceof ApiError ? err.message : "Update failed");
+            toast.error(err instanceof ApiError ? err.message : t("profile.updateFailed"));
           } finally {
             setSaving(false);
           }
@@ -55,13 +57,13 @@ function ChangePhonePage() {
         {user?.phone ? (
           <div className="rounded-xl bg-muted/70 px-3.5 py-3">
             <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
-              Current phone
+              {t("profile.currentPhone")}
             </p>
             <p className="mt-0.5 text-[15px] font-medium">{user.phone}</p>
           </div>
         ) : null}
         <div className="space-y-1.5">
-          <Label htmlFor="new_phone">New phone</Label>
+          <Label htmlFor="new_phone">{t("profile.newPhone")}</Label>
           <Input
             id="new_phone"
             value={newPhone}
@@ -72,7 +74,7 @@ function ChangePhonePage() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="phone_password">Current password</Label>
+          <Label htmlFor="phone_password">{t("profile.currentPassword")}</Label>
           <PasswordInput
             id="phone_password"
             value={phonePassword}
@@ -82,7 +84,7 @@ function ChangePhonePage() {
           />
         </div>
         <Button type="submit" className="w-full" disabled={saving}>
-          {saving ? "Updating…" : "Update phone"}
+          {saving ? t("common.updating") : t("profile.updatePhone")}
         </Button>
       </form>
     </UserShell>

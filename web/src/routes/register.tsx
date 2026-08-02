@@ -8,6 +8,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 import { useSiteBranding } from "@/hooks/use-site-branding";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/register")({
   head: () => ({
@@ -27,6 +28,7 @@ function RegisterPage() {
   const navigate = useNavigate();
   const { register, token, user, isStaff, isLoading } = useAuth();
   const { logoUrl } = useSiteBranding();
+  const t = useT();
   const [phone, setPhone] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -49,12 +51,9 @@ function RegisterPage() {
         </div>
         <div className="max-w-md">
           <h2 className="text-4xl leading-tight font-bold text-primary-foreground">
-            Join MySewa
+            {t("auth.join")}
           </h2>
-          <p className="mt-4 text-primary-foreground/80">
-            Create your wallet in seconds. New accounts stay Pending until a Super Admin activates
-            them — you can sign in right away, but transactions unlock after approval.
-          </p>
+          <p className="mt-4 text-primary-foreground/80">{t("auth.joinBlurb")}</p>
         </div>
         <p className="text-xs text-primary-foreground/60">
           © {new Date().getFullYear()} MySewa Pvt. Ltd. · Kathmandu, Nepal
@@ -65,9 +64,11 @@ function RegisterPage() {
         <div className="w-full max-w-sm">
           <div className="mb-8 flex flex-col items-center lg:items-start">
             <img src={logoUrl} alt="MySewa" className="size-14 rounded-2xl object-cover lg:hidden" />
-            <h1 className="mt-4 text-[34px] font-bold tracking-tight lg:mt-0">Create account</h1>
+            <h1 className="mt-4 text-[34px] font-bold tracking-tight lg:mt-0">
+              {t("auth.registerTitle")}
+            </h1>
             <p className="mt-1 text-[15px] text-muted-foreground">
-              Register with your phone number
+              {t("auth.registerSubtitle")}
             </p>
           </div>
 
@@ -76,11 +77,11 @@ function RegisterPage() {
             onSubmit={async (e) => {
               e.preventDefault();
               if (password !== password2) {
-                toast.error("Passwords do not match");
+                toast.error(t("auth.passwordsMismatch"));
                 return;
               }
               if (password.length < 8) {
-                toast.error("Password must be at least 8 characters");
+                toast.error(t("auth.passwordMin"));
                 return;
               }
               setSubmitting(true);
@@ -92,12 +93,12 @@ function RegisterPage() {
                   first_name: firstName.trim(),
                   last_name: lastName.trim(),
                 });
-                toast.success("Account created", {
-                  description: "Your account is Pending until an admin activates it.",
+                toast.success(t("auth.accountCreated"), {
+                  description: t("auth.pendingDesc"),
                 });
                 navigate({ to: "/app" });
               } catch (err) {
-                const msg = err instanceof ApiError ? err.message : "Registration failed";
+                const msg = err instanceof ApiError ? err.message : t("auth.registerFailed");
                 toast.error(msg);
               } finally {
                 setSubmitting(false);
@@ -105,7 +106,7 @@ function RegisterPage() {
             }}
           >
             <div className="space-y-1.5">
-              <Label htmlFor="phone">Phone</Label>
+              <Label htmlFor="phone">{t("auth.phone")}</Label>
               <Input
                 id="phone"
                 inputMode="tel"
@@ -118,7 +119,7 @@ function RegisterPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="first_name">First name</Label>
+                <Label htmlFor="first_name">{t("profile.firstName")}</Label>
                 <Input
                   id="first_name"
                   value={firstName}
@@ -128,7 +129,7 @@ function RegisterPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="last_name">Last name</Label>
+                <Label htmlFor="last_name">{t("profile.lastName")}</Label>
                 <Input
                   id="last_name"
                   value={lastName}
@@ -139,7 +140,7 @@ function RegisterPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t("auth.password")}</Label>
               <PasswordInput
                 id="password"
                 value={password}
@@ -151,7 +152,7 @@ function RegisterPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password2">Confirm password</Label>
+              <Label htmlFor="password2">{t("profile.confirmPassword")}</Label>
               <PasswordInput
                 id="password2"
                 value={password2}
@@ -167,14 +168,14 @@ function RegisterPage() {
               disabled={submitting}
               className="h-12 w-full rounded-xl text-[17px]"
             >
-              {submitting ? "Creating…" : "Register"}
+              {submitting ? t("auth.creating") : t("auth.register")}
             </Button>
           </form>
 
           <p className="mt-6 text-center text-[13px] text-muted-foreground">
-            Already have an account?{" "}
+            {t("auth.haveAccount")}{" "}
             <Link to="/" className="font-semibold text-foreground underline-offset-2 hover:underline">
-              Log in
+              {t("auth.logIn")}
             </Link>
           </p>
         </div>

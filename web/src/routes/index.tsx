@@ -8,6 +8,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 import { useSiteBranding } from "@/hooks/use-site-branding";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -33,6 +34,7 @@ function LoginPage() {
   const navigate = useNavigate();
   const { login, token, user, isStaff, isLoading } = useAuth();
   const { logoUrl } = useSiteBranding();
+  const t = useT();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -52,12 +54,9 @@ function LoginPage() {
         </div>
         <div className="max-w-md">
           <h2 className="text-4xl leading-tight font-bold text-primary-foreground">
-            सजिलो, सुरक्षित, हाम्रो सँग
+            {t("auth.tagline")}
           </h2>
-          <p className="mt-4 text-primary-foreground/80">
-            Receive remittance into your wallet, transfer to any Nepali bank account and recharge
-            NTC or NCELL — all from one balance.
-          </p>
+          <p className="mt-4 text-primary-foreground/80">{t("auth.heroBlurb")}</p>
         </div>
         <p className="text-xs text-primary-foreground/60">
           © {new Date().getFullYear()} MySewa Pvt. Ltd. · Kathmandu, Nepal
@@ -68,8 +67,10 @@ function LoginPage() {
         <div className="w-full max-w-sm">
           <div className="mb-8 flex flex-col items-center lg:items-start">
             <img src={logoUrl} alt="MySewa" className="size-14 rounded-2xl object-cover lg:hidden" />
-            <h1 className="mt-4 text-[34px] font-bold tracking-tight lg:mt-0">Welcome back</h1>
-            <p className="mt-1 text-[15px] text-muted-foreground">Sign in with your phone number</p>
+            <h1 className="mt-4 text-[34px] font-bold tracking-tight lg:mt-0">
+              {t("auth.welcomeBack")}
+            </h1>
+            <p className="mt-1 text-[15px] text-muted-foreground">{t("auth.signInWithPhone")}</p>
           </div>
 
           <form
@@ -80,10 +81,10 @@ function LoginPage() {
               try {
                 const profile = await login(phone.trim(), password);
                 const staff = profile.is_staff || profile.is_superuser;
-                toast.success("Login successful");
+                toast.success(t("auth.loginSuccess"));
                 navigate({ to: staff ? "/admin" : "/app" });
               } catch (err) {
-                const msg = err instanceof ApiError ? err.message : "Login failed";
+                const msg = err instanceof ApiError ? err.message : t("auth.loginFailed");
                 toast.error(msg);
               } finally {
                 setSubmitting(false);
@@ -91,7 +92,7 @@ function LoginPage() {
             }}
           >
             <div className="space-y-1.5">
-              <Label htmlFor="phone">Phone</Label>
+              <Label htmlFor="phone">{t("auth.phone")}</Label>
               <Input
                 id="phone"
                 inputMode="tel"
@@ -104,12 +105,12 @@ function LoginPage() {
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t("auth.password")}</Label>
                 <Link
                   to="/forgot-password"
                   className="text-[13px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                 >
-                  Forgot password?
+                  {t("auth.forgotPassword")}
                 </Link>
               </div>
               <PasswordInput
@@ -125,17 +126,17 @@ function LoginPage() {
               disabled={submitting}
               className="h-12 w-full rounded-xl text-[17px]"
             >
-              {submitting ? "Signing in…" : "Log in"}
+              {submitting ? t("auth.signingIn") : t("auth.logIn")}
             </Button>
           </form>
 
           <p className="mt-6 text-center text-[13px] text-muted-foreground">
-            New to MySewa?{" "}
+            {t("auth.newTo")}{" "}
             <Link
               to="/register"
               className="font-semibold text-foreground underline-offset-2 hover:underline"
             >
-              Create an account
+              {t("auth.createAccount")}
             </Link>
           </p>
         </div>
