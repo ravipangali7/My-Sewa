@@ -214,6 +214,9 @@ export const apiClient = {
     api<{
       wallet_service_name: string;
       amount: string;
+      amount_paisa?: number;
+      provider_charge?: string;
+      platform_charge?: string;
       charge: string;
       cashback: string;
       total_debited: string;
@@ -223,18 +226,42 @@ export const apiClient = {
     }),
 
   topupNtc: (body: { mobile_number: string; amount: number; product_id: 1 }) =>
-    api<{ message: string; data: import("./types").TopupTransaction }>("/api/topup/ntc/", {
+    api<{
+      message: string;
+      pending_message?: string;
+      data: import("./types").TopupTransaction;
+    }>("/api/topup/ntc/", {
       method: "POST",
       body,
     }),
 
   topupNcell: (body: { mobile_number: string; amount: number; product_id: 2 }) =>
-    api<{ message: string; data: import("./types").TopupTransaction }>("/api/topup/ncell/", {
+    api<{
+      message: string;
+      pending_message?: string;
+      data: import("./types").TopupTransaction;
+    }>("/api/topup/ncell/", {
       method: "POST",
       body,
     }),
 
   topupHistory: () => api<import("./types").TopupTransaction[]>("/api/topup/history/"),
+
+  topupStatus: (merchant_transaction_id: string) =>
+    api<{
+      status: import("./types").TxnStatus;
+      himalpay_status?: string;
+      data: Record<string, unknown>;
+      local_topup: import("./types").TopupTransaction | null;
+    }>("/api/topup/status/", {
+      method: "POST",
+      body: { merchant_transaction_id },
+    }),
+
+  topupServices: () =>
+    api<{
+      services: Array<{ id: number; name: string; logo_image_url?: string | null }>;
+    }>("/api/topup/services/"),
 
   listBanks: () =>
     api<{

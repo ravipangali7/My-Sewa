@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import { useErrorPopup } from "@/components/ErrorPopup";
 import { apiClient, ApiError } from "@/lib/api";
 import {
   OPERATORS,
+  TOPUP_AMOUNT_PRESETS,
   normalizeNepalMobile,
   validateOperatorMobile,
 } from "@/lib/constants";
@@ -21,6 +22,7 @@ import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
+import type { TopupTransaction } from "@/lib/types";
 
 export const Route = createFileRoute("/app/topup")({
   head: () => ({
@@ -51,10 +53,14 @@ function TopUp() {
   const [mobile, setMobile] = useState("");
   const [amount, setAmount] = useState("");
   const [charge, setCharge] = useState("0.00");
+  const [providerCharge, setProviderCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
+  const [platformCharge, setPlatformCharge] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
+  const [feeLoading, setFeeLoading] = useState(false);
   const [touchedMobile, setTouchedMobile] = useState(false);
   const [providerBlocked, setProviderBlocked] = useState(false);
+  const [refreshingId, setRefreshingId] = useState<number | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -65,14 +71,32 @@ function TopUp() {
   const minTopup = settingsQuery.data?.config?.transactions?.min_topup ?? 10;
   const maxTopup = settingsQuery.data?.config?.transactions?.max_topup ?? 5000;
 
+  const walletQuery = useQuery({
+    queryKey: ["wallet", "balance"],
+    queryFn: () => apiClient.walletBalance(),
+    refetchInterval: LIVE_REFETCH_MS,
+  });
+
   const historyQuery = useQuery({
     queryKey: ["topups"],
     queryFn: () => apiClient.topupHistory(),
     refetchInterval: LIVE_REFETCH_MS,
   });
 
+  const servicesQuery = useQuery({
+    queryKey: ["topup", "services"],
+    queryFn: () => apiClient.topupServices(),
+    enabled: topupsEnabled,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
   const amt = Number(amount) || 0;
   const serviceName = productId === 1 ? "NTC" : "NCELL";
+  const walletBalance = Number(walletQuery.data?.balance ?? 0);
+  const totalDue = Number(totalDebited) || amt;
+  const insufficient =
+    amt >= minTopup && totalDue > 0 && walletBalance < totalDue;
   const mobileError = useMemo(
     () => validateOperatorMobile(productId, mobile),
     [productId, mobile],
@@ -82,25 +106,54 @@ function TopUp() {
   const mobileReady =
     normalizedMobile.length === 10 && mobileError === null;
 
+  const availableOperators = useMemo(() => {
+    const services = servicesQuery.data?.services ?? [];
+    const names = new Set(
+      services.map((s) => String(s.name || "").toUpperCase()).filter(Boolean),
+    );
+    if (!names.size) return [1, 2] as const;
+    const ids: Array<1 | 2> = [];
+    if (names.has("NTC")) ids.push(1);
+    if (names.has("NCELL")) ids.push(2);
+    return (ids.length ? ids : ([1, 2] as const)) as ReadonlyArray<1 | 2>;
+  }, [servicesQuery.data]);
+
+  useEffect(() => {
+    if (!availableOperators.includes(productId) && availableOperators[0]) {
+      setProductId(availableOperators[0]);
+    }
+  }, [availableOperators, productId]);
+
   useEffect(() => {
     if (!topupsEnabled || amt < minTopup) {
       setCharge("0.00");
+      setProviderCharge("0.00");
       setCashback("0.00");
+      setPlatformCharge("0.00");
       setTotalDebited("0.00");
+      setFeeLoading(false);
       return;
     }
+    let cancelled = false;
+    setFeeLoading(true);
     const timer = setTimeout(() => {
       apiClient
         .calculateCharge(serviceName, amt)
         .then((res) => {
+          if (cancelled) return;
           setProviderBlocked(false);
           setCharge(String(res.charge));
+          setProviderCharge(String(res.provider_charge ?? res.charge));
           setCashback(String(res.cashback));
+          setPlatformCharge(String(res.platform_charge ?? "0.00"));
           setTotalDebited(String(res.total_debited));
         })
         .catch((err) => {
+          if (cancelled) return;
           setCharge("0.00");
+          setProviderCharge("0.00");
           setCashback("0.00");
+          setPlatformCharge("0.00");
           setTotalDebited(amt.toFixed(2));
           if (err instanceof ApiError) {
             const msg = err.message.toLowerCase();
@@ -109,12 +162,79 @@ function TopUp() {
               errorPopup.showError(err, { title: t("topup.providerError") });
             }
           }
+        })
+        .finally(() => {
+          if (!cancelled) setFeeLoading(false);
         });
     }, 350);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
     // intentionally omit errorPopup — show once per failed fetch
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amt, serviceName, topupsEnabled, minTopup]);
+
+  // Auto-poll HimalPay status for pending top-ups (docs: wallet-service-reseller-status)
+  useEffect(() => {
+    const pending = (historyQuery.data ?? []).filter((item) => item.status === "pending");
+    if (!pending.length) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      let changed = false;
+      for (const item of pending.slice(0, 5)) {
+        try {
+          const res = await apiClient.topupStatus(item.merchant_txn_id);
+          if (
+            res.local_topup &&
+            res.local_topup.status !== "pending" &&
+            res.local_topup.status !== item.status
+          ) {
+            changed = true;
+          }
+        } catch {
+          // ignore transient status errors while polling
+        }
+        if (cancelled) return;
+      }
+      if (changed && !cancelled) {
+        queryClient.invalidateQueries({ queryKey: ["topups"] });
+        queryClient.invalidateQueries({ queryKey: ["wallet"] });
+      }
+    };
+
+    const timer = setInterval(poll, Math.max(LIVE_REFETCH_MS, 8000));
+    void poll();
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [historyQuery.data, queryClient]);
+
+  const refreshStatus = async (item: TopupTransaction) => {
+    setRefreshingId(item.id);
+    try {
+      const res = await apiClient.topupStatus(item.merchant_txn_id);
+      const local = res.local_topup;
+      if (local?.status === "success") {
+        toast.success(t("topup.statusSuccess"));
+      } else if (local?.status === "failed") {
+        toast.error(t("topup.statusFailed"));
+      } else {
+        toast.message(t("topup.statusPending"));
+      }
+      queryClient.invalidateQueries({ queryKey: ["topups"] });
+      queryClient.invalidateQueries({ queryKey: ["wallet"] });
+    } catch (err) {
+      errorPopup.showError(err, {
+        title: t("topup.statusFailedTitle"),
+        fallback: t("topup.statusFailedTitle"),
+      });
+    } finally {
+      setRefreshingId(null);
+    }
+  };
 
   const submitMutation = useMutation({
     mutationFn: async () => {
@@ -129,6 +249,14 @@ function TopUp() {
       }
       if (amt < minTopup) throw new Error(t("topup.minError", { min: minTopup }));
       if (maxTopup > 0 && amt > maxTopup) throw new Error(t("topup.maxError", { max: maxTopup }));
+      if (insufficient) {
+        throw new Error(
+          t("topup.insufficient", {
+            required: formatNPR(totalDue),
+            available: formatNPR(walletBalance),
+          }),
+        );
+      }
       const body = {
         mobile_number: normalizedMobile,
         amount: amt,
@@ -138,24 +266,51 @@ function TopUp() {
       return apiClient.topupNcell({ ...body, product_id: 2 });
     },
     onSuccess: (res) => {
-      toast.success(res.message || t("topup.submitted", { operator: OPERATORS[productId] }), {
-        description: t("transfer.debited", {
-          amount: formatNPR(res.data.total_debited || totalDebited),
-        }),
-      });
+      const isPending = res.data.status === "pending";
+      if (isPending) {
+        toast.message(res.message || t("topup.pendingTitle", { operator: OPERATORS[productId] }), {
+          description: res.pending_message || t("topup.pendingBody"),
+        });
+      } else {
+        toast.success(res.message || t("topup.submitted", { operator: OPERATORS[productId] }), {
+          description: t("transfer.debited", {
+            amount: formatNPR(res.data.total_debited || totalDebited),
+          }),
+        });
+      }
       setMobile("");
       setAmount("");
       setTouchedMobile(false);
+      setCharge("0.00");
+      setProviderCharge("0.00");
+      setCashback("0.00");
+      setPlatformCharge("0.00");
+      setTotalDebited("0.00");
       queryClient.invalidateQueries({ queryKey: ["topups"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
     onError: (err) => {
+      if (err instanceof ApiError && err.body && typeof err.body === "object") {
+        const body = err.body as Record<string, unknown>;
+        if (body["error"] === "Insufficient balance") {
+          errorPopup.showError(err, {
+            title: t("topup.failed"),
+            fallback: t("topup.insufficient", {
+              required: formatNPR(String(body["required"] ?? totalDue)),
+              available: formatNPR(String(body["available"] ?? walletBalance)),
+            }),
+          });
+          return;
+        }
+      }
       errorPopup.showError(err, {
         title: t("topup.failed"),
         fallback: t("topup.failed"),
       });
     },
   });
+
+  const myPhone = normalizeNepalMobile(user?.phone || "").slice(-10);
 
   return (
     <UserShell title={t("topup.title")} back="/app">
@@ -178,7 +333,25 @@ function TopUp() {
             <p className="mt-1 text-[13px] text-muted-foreground">{t("topup.providerBlockedBody")}</p>
           </section>
         ) : null}
+
         <section className="inset-group p-4">
+          <div className="mb-4 flex items-center justify-between rounded-xl bg-muted px-3 py-2.5">
+            <div>
+              <p className="text-[12px] text-muted-foreground">{t("topup.walletLabel")}</p>
+              <p className="tabular text-[17px] font-semibold">
+                {walletQuery.isLoading ? "…" : formatNPR(walletBalance)}
+              </p>
+            </div>
+            {insufficient ? (
+              <Link
+                to="/app/load"
+                className="text-[13px] font-medium text-brand underline-offset-2 hover:underline"
+              >
+                {t("topup.loadWallet")}
+              </Link>
+            ) : null}
+          </div>
+
           <form
             className="space-y-4"
             onSubmit={(e) => {
@@ -187,7 +360,7 @@ function TopUp() {
             }}
           >
             <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
-              {([1, 2] as const).map((id) => (
+              {availableOperators.map((id) => (
                 <button
                   key={id}
                   type="button"
@@ -209,10 +382,26 @@ function TopUp() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="mobile_number">{t("topup.mobileLabel")}</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="mobile_number">{t("topup.mobileLabel")}</Label>
+                {myPhone.length === 10 ? (
+                  <button
+                    type="button"
+                    disabled={!topupsEnabled}
+                    onClick={() => {
+                      setMobile(myPhone);
+                      setTouchedMobile(true);
+                    }}
+                    className="text-[12px] font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
+                  >
+                    {t("topup.useMyNumber")}
+                  </button>
+                ) : null}
+              </div>
               <Input
                 id="mobile_number"
                 inputMode="tel"
+                autoComplete="tel"
                 placeholder={productId === 1 ? "984XXXXXXX" : "980XXXXXXX"}
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
@@ -235,6 +424,7 @@ function TopUp() {
                 </p>
               )}
             </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="topup_amount">{t("common.amountNpr")}</Label>
               <Input
@@ -242,11 +432,32 @@ function TopUp() {
                 inputMode="decimal"
                 placeholder={t("common.amountPlaceholder")}
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
                 className="tabular h-12 rounded-xl text-[22px] font-semibold"
                 required
                 disabled={!topupsEnabled}
               />
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {TOPUP_AMOUNT_PRESETS.filter(
+                  (preset) =>
+                    preset >= minTopup && (maxTopup <= 0 || preset <= maxTopup),
+                ).map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    disabled={!topupsEnabled}
+                    onClick={() => setAmount(String(preset))}
+                    className={cn(
+                      "rounded-lg border px-2.5 py-1 text-[13px] font-medium transition-colors",
+                      Number(amount) === preset
+                        ? "border-brand bg-brand/10 text-brand-dark"
+                        : "border-border bg-surface text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
               <p className="text-[12px] text-muted-foreground">
                 {t("common.minMax", { min: minTopup, max: maxTopup })}
               </p>
@@ -254,21 +465,47 @@ function TopUp() {
 
             <div className="rounded-xl bg-muted p-3 text-[14px]">
               <Row label={t("common.amount")} value={formatNPR(amt)} />
-              <Row label={t("common.charge")} value={formatNPR(charge)} />
-              <Row label={t("common.cashback")} value={`− ${formatNPR(cashback)}`} />
+              <Row
+                label={t("topup.providerCharge")}
+                value={feeLoading ? "…" : formatNPR(providerCharge)}
+              />
+              {Number(platformCharge) > 0 ? (
+                <Row
+                  label={t("topup.platformCharge")}
+                  value={feeLoading ? "…" : formatNPR(platformCharge)}
+                />
+              ) : null}
+              <Row
+                label={t("common.cashback")}
+                value={feeLoading ? "…" : `− ${formatNPR(cashback)}`}
+              />
               <div className="mt-2 border-t border-separator pt-2">
-                <Row label={t("common.totalDebited")} value={formatNPR(totalDebited)} strong />
+                <Row
+                  label={t("common.totalDebited")}
+                  value={feeLoading ? "…" : formatNPR(totalDebited || charge)}
+                  strong
+                />
               </div>
+              {insufficient ? (
+                <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
+                  {t("topup.insufficient", {
+                    required: formatNPR(totalDue),
+                    available: formatNPR(walletBalance),
+                  })}
+                </p>
+              ) : null}
             </div>
 
             <Button
               type="submit"
               disabled={
                 submitMutation.isPending ||
+                feeLoading ||
                 !topupsEnabled ||
                 !mobileReady ||
                 amt < minTopup ||
-                providerBlocked
+                providerBlocked ||
+                insufficient
               }
               className="h-12 w-full rounded-xl text-[17px]"
             >
@@ -305,13 +542,27 @@ function TopUp() {
                       <StatusChip status={item.status} compact className="mt-1" />
                     </div>
                   </div>
-                  <p className="mt-1 text-[12px] text-muted-foreground">
-                    {t("topup.chargeLine", {
-                      charge: formatNPR(item.charge),
-                      cashback: formatNPR(item.cashback),
-                      debited: formatNPR(item.total_debited),
-                    })}
-                  </p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p className="text-[12px] text-muted-foreground">
+                      {t("topup.chargeLine", {
+                        charge: formatNPR(item.charge),
+                        cashback: formatNPR(item.cashback),
+                        debited: formatNPR(item.total_debited),
+                      })}
+                    </p>
+                    {item.status === "pending" ? (
+                      <button
+                        type="button"
+                        disabled={refreshingId === item.id}
+                        onClick={() => void refreshStatus(item)}
+                        className="shrink-0 text-[12px] font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
+                      >
+                        {refreshingId === item.id
+                          ? t("common.processing")
+                          : t("topup.checkStatus")}
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>

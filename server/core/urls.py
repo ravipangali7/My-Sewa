@@ -37,6 +37,7 @@ urlpatterns = [
     path('api/topup/ntc/', topup_views.topup_ntc, name='topup_ntc'),
     path('api/topup/ncell/', topup_views.topup_ncell, name='topup_ncell'),
     path('api/topup/history/', topup_views.topup_history, name='topup_history'),
+    path('api/topup/services/', topup_views.topup_services, name='topup_services'),
     path('api/topup/calculate-charge/', topup_views.calculate_charge, name='topup_calculate_charge'),
     path('api/topup/status/', topup_views.check_transaction_status, name='topup_status'),
 

@@ -40,19 +40,25 @@ def _get_or_create_wallet(user):
         return Wallet.objects.create(user=user, balance=Decimal('0.00'))
 
 
-def _apply_fee_fields(topup_txn, himalpay: HimalPayAPI, response: dict, amount):
+def _apply_fee_fields(topup_txn, himalpay: HimalPayAPI, response: dict, amount, platform_fee: Decimal = Decimal('0.00')):
     charge_paisa = response.get('charge', response.get('applied_charge', 0)) or 0
     cashback_paisa = response.get('cashback', response.get('applied_cashback', 0)) or 0
     total_paisa = response.get(
         'total_debited',
         response.get('net_amount', himalpay.to_paisa(amount) + int(charge_paisa) - int(cashback_paisa)),
     )
-    topup_txn.charge = himalpay.to_rupees(charge_paisa)
+    topup_txn.charge = himalpay.to_rupees(charge_paisa) + (platform_fee or Decimal('0.00'))
     topup_txn.cashback = himalpay.to_rupees(cashback_paisa)
-    topup_txn.total_debited = himalpay.to_rupees(total_paisa)
+    topup_txn.total_debited = himalpay.to_rupees(total_paisa) + (platform_fee or Decimal('0.00'))
     topup_txn.service_hub_txn_id = himalpay.extract_transaction_id(response)
     topup_txn.reference_id = himalpay.extract_reference_id(response)
     topup_txn.provider_response = response
+
+
+def _platform_fee_for_amount(amount) -> Decimal:
+    cfg = get_app_config()
+    tx_cfg = cfg.get('transactions') or {}
+    return platform_topup_charge(amount, tx_cfg.get('topup_charge_percent', 0))
 
 
 def _process_topup(request, product_id: int, service_label: str):
@@ -78,9 +84,7 @@ def _process_topup(request, product_id: int, service_label: str):
     amount = serializer.validated_data['amount']
     wallet = _get_or_create_wallet(request.user)
 
-    cfg = get_app_config()
-    tx_cfg = cfg.get('transactions') or {}
-    platform_fee = platform_topup_charge(amount, tx_cfg.get('topup_charge_percent', 0))
+    platform_fee = _platform_fee_for_amount(amount)
 
     himalpay = HimalPayAPI()
     service_name = HimalPayAPI.SERVICE_NTC if product_id == 1 else HimalPayAPI.SERVICE_NCELL
@@ -112,6 +116,10 @@ def _process_topup(request, product_id: int, service_label: str):
         return Response(
             {
                 'error': 'Insufficient balance',
+                'message': (
+                    f'Insufficient balance. Required Rs. {total_required}, '
+                    f'available Rs. {wallet.balance}.'
+                ),
                 'required': str(total_required),
                 'available': str(wallet.balance),
                 'charge': str(charge),
@@ -140,13 +148,7 @@ def _process_topup(request, product_id: int, service_label: str):
             response = himalpay.topup_ncell(mobile_number, amount, merchant_txn_id)
 
         txn_status = himalpay.normalize_status(response)
-        _apply_fee_fields(topup_txn, himalpay, response, amount)
-        # Re-apply platform fee on top of provider fees
-        if platform_fee > 0:
-            topup_txn.charge = (topup_txn.charge or Decimal('0.00')) + platform_fee
-            topup_txn.total_debited = (
-                (topup_txn.total_debited or amount) + platform_fee
-            )
+        _apply_fee_fields(topup_txn, himalpay, response, amount, platform_fee=platform_fee)
 
         if txn_status == 'failed':
             topup_txn.status = 'failed'
@@ -161,6 +163,7 @@ def _process_topup(request, product_id: int, service_label: str):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        cfg = get_app_config()
         local_status = resolve_provider_outcome(txn_status, is_auto_status_verified(cfg))
 
         if local_status == 'success':
@@ -262,6 +265,54 @@ def topup_history(request):
     return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def topup_services(request):
+    """
+    List HimalPay reseller services available for mobile top-up (NTC / NCELL).
+    Matches GET /details/my-reseller-services filtered to top-up operators.
+    """
+    blocked = require_feature_enabled('topups')
+    if blocked:
+        return blocked
+
+    himalpay = HimalPayAPI()
+    try:
+        services = himalpay.list_services()
+        if not isinstance(services, list):
+            services = []
+        allowed = {HimalPayAPI.SERVICE_NTC, HimalPayAPI.SERVICE_NCELL}
+        filtered = [
+            {
+                'id': item.get('id'),
+                'name': item.get('name'),
+                'logo_image_url': item.get('logo_image_url'),
+            }
+            for item in services
+            if isinstance(item, dict) and str(item.get('name', '')).upper() in allowed
+        ]
+        # Fallback to doc-defined operators when provider returns none
+        if not filtered:
+            filtered = [
+                {'id': 1, 'name': HimalPayAPI.SERVICE_NTC, 'logo_image_url': None},
+                {'id': 2, 'name': HimalPayAPI.SERVICE_NCELL, 'logo_image_url': None},
+            ]
+        return Response({'services': filtered}, status=status.HTTP_200_OK)
+    except HimalPayError as exc:
+        return Response(
+            {
+                'error': exc.message,
+                'error_code': exc.error_code,
+                'error_type': exc.error_type,
+                'services': [
+                    {'id': 1, 'name': HimalPayAPI.SERVICE_NTC, 'logo_image_url': None},
+                    {'id': 2, 'name': HimalPayAPI.SERVICE_NCELL, 'logo_image_url': None},
+                ],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def calculate_charge(request):
@@ -285,7 +336,8 @@ def calculate_charge(request):
     )
     try:
         result = himalpay.calculate_cashback_and_charge(service, amount)
-        charge = himalpay.to_rupees(result.get('charge', 0) or 0) + platform_fee
+        provider_charge = himalpay.to_rupees(result.get('charge', 0) or 0)
+        charge = provider_charge + platform_fee
         cashback = himalpay.to_rupees(result.get('cashback', 0) or 0)
         total = amount + charge - cashback
         return Response(
@@ -293,9 +345,10 @@ def calculate_charge(request):
                 'wallet_service_name': service,
                 'amount': str(amount),
                 'amount_paisa': himalpay.to_paisa(amount),
+                'provider_charge': str(provider_charge),
+                'platform_charge': str(platform_fee),
                 'charge': str(charge),
                 'cashback': str(cashback),
-                'platform_charge': str(platform_fee),
                 'total_debited': str(total),
                 'raw': result,
             },
@@ -330,6 +383,7 @@ def check_transaction_status(request):
         if topup and topup.status == 'pending' and normalized in ('success', 'failed', 'pending'):
             auto = is_auto_status_verified()
             local_status = resolve_provider_outcome(normalized, auto)
+            platform_fee = _platform_fee_for_amount(topup.amount)
             # Skip no-op poll while still waiting on provider and auto is off
             if normalized == 'pending' and not auto:
                 pass
@@ -337,7 +391,9 @@ def check_transaction_status(request):
                 with transaction.atomic():
                     topup = TopupTransaction.objects.select_for_update().get(pk=topup.pk)
                     if topup.status == 'pending':
-                        _apply_fee_fields(topup, himalpay, result, topup.amount)
+                        _apply_fee_fields(
+                            topup, himalpay, result, topup.amount, platform_fee=platform_fee,
+                        )
                         if local_status == 'success':
                             wallet = _get_or_create_wallet(request.user)
                             wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)

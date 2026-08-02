@@ -6,6 +6,9 @@ export const NTC_PREFIXES = ["984", "985", "986", "974", "975", "976"] as const;
 /** Nepal Ncell prefixes */
 export const NCELL_PREFIXES = ["980", "981", "982", "970"] as const;
 
+/** Common top-up amount presets (NPR) */
+export const TOPUP_AMOUNT_PRESETS = [50, 100, 200, 500, 1000] as const;
+
 /**
  * Normalize a Nepal mobile input to 10 local digits (strip +977 / 977).
  */

@@ -464,6 +464,7 @@ class TopupCreateSerializer(serializers.Serializer):
     def validate(self, attrs):
         product_id = attrs.get('product_id')
         mobile = attrs.get('mobile_number', '')
+        # Align with Nepal GSM ranges used by HimalPay NTC / NCELL top-up
         ntc_prefixes = ('984', '985', '986', '974', '975', '976')
         ncell_prefixes = ('980', '981', '982', '970')
         if product_id == 1 and not mobile.startswith(ntc_prefixes):
