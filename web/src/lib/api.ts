@@ -276,6 +276,32 @@ export const apiClient = {
   transferHistory: () =>
     api<import("./types").BankTransferTransaction[]>("/api/bank-transfer/history/"),
 
+  lookupRemittance: (body: { ref_no: string }) =>
+    api<{
+      message: string;
+      data: import("./types").RemittanceLookup;
+      lookup_response?: unknown;
+    }>("/api/remittance/lookup/", { method: "POST", body }),
+
+  receiveRemittance: (body: Record<string, unknown>) =>
+    api<{ message: string; data: import("./types").RemittanceTransaction }>(
+      "/api/remittance/receive/",
+      { method: "POST", body },
+    ),
+
+  remittanceHistory: () =>
+    api<import("./types").RemittanceTransaction[]>("/api/remittance/history/"),
+
+  remittanceStatus: (merchant_transaction_id: string) =>
+    api<{
+      message: string;
+      provider_status: string;
+      data: import("./types").RemittanceTransaction;
+    }>("/api/remittance/status/", {
+      method: "POST",
+      body: { merchant_transaction_id },
+    }),
+
   adminDashboard: () => api<import("./types").AdminDashboard>("/api/admin/dashboard/"),
   adminUsers: () => api<import("./types").AdminUser[]>("/api/admin/users/"),
   adminGetUser: (id: number) => api<import("./types").AdminUser>(`/api/admin/users/${id}/`),
@@ -331,6 +357,17 @@ export const apiClient = {
   adminUpdateTransferStatus: (id: number, status: import("./types").TxnStatus) =>
     api<{ message: string; data: import("./types").BankTransferTransaction }>(
       `/api/admin/transfers/${id}/status/`,
+      { method: "POST", body: { status } },
+    ),
+  adminRemittances: (status?: string) =>
+    api<import("./types").RemittanceTransaction[]>(
+      status ? `/api/admin/remittances/?status=${status}` : "/api/admin/remittances/",
+    ),
+  adminGetRemittance: (id: number) =>
+    api<import("./types").RemittanceTransaction>(`/api/admin/remittances/${id}/`),
+  adminUpdateRemittanceStatus: (id: number, status: import("./types").TxnStatus) =>
+    api<{ message: string; data: import("./types").RemittanceTransaction }>(
+      `/api/admin/remittances/${id}/status/`,
       { method: "POST", body: { status } },
     ),
   adminGetSettings: () => api<import("./types").AppSettings>("/api/admin/settings/"),

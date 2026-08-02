@@ -6,6 +6,7 @@ from .views import (
     settings_views,
     topup_views,
     bank_transfer_views,
+    remittance_views,
     admin_views,
 )
 
@@ -47,6 +48,12 @@ urlpatterns = [
     path('api/bank-transfer/history/', bank_transfer_views.bank_transfer_history, name='bank_transfer_history'),
     path('api/bank-transfer/status/', bank_transfer_views.bank_transfer_status, name='bank_transfer_status'),
 
+    # Remittance endpoints (HimalPay Samsara)
+    path('api/remittance/lookup/', remittance_views.lookup_remittance, name='remittance_lookup'),
+    path('api/remittance/receive/', remittance_views.receive_remittance, name='remittance_receive'),
+    path('api/remittance/history/', remittance_views.remittance_history, name='remittance_history'),
+    path('api/remittance/status/', remittance_views.remittance_status, name='remittance_status'),
+
     # Admin / staff console
     path('api/admin/dashboard/', admin_views.admin_dashboard, name='admin_dashboard'),
     path('api/admin/users/', admin_views.admin_list_users, name='admin_list_users'),
@@ -62,6 +69,9 @@ urlpatterns = [
     path('api/admin/topups/<int:topup_id>/status/', admin_views.admin_update_topup_status, name='admin_update_topup_status'),
     path('api/admin/transfers/', admin_views.admin_list_transfers, name='admin_list_transfers'),
     path('api/admin/transfers/<int:transfer_id>/status/', admin_views.admin_update_transfer_status, name='admin_update_transfer_status'),
+    path('api/admin/remittances/', admin_views.admin_list_remittances, name='admin_list_remittances'),
+    path('api/admin/remittances/<int:remittance_id>/', admin_views.admin_get_remittance, name='admin_get_remittance'),
+    path('api/admin/remittances/<int:remittance_id>/status/', admin_views.admin_update_remittance_status, name='admin_update_remittance_status'),
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
     path('api/admin/himalpay/status/', admin_views.admin_himalpay_status, name='admin_himalpay_status'),
 ]

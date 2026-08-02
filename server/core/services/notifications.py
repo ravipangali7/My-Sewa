@@ -108,6 +108,34 @@ def notify_topup_success(topup) -> None:
     _send_email(subject, body, [topup.user.email])
 
 
+def notify_remittance_success(remittance) -> None:
+    cfg = get_app_config().get('notifications') or {}
+    site = get_app_config().get('site') or {}
+    site_name = site.get('site_name') or 'MySewa'
+    credited = remittance.total_credited or remittance.amount
+    message = (
+        f'{site_name}: Remittance {remittance.ref_no} of Rs. {credited} '
+        f'has been credited to your wallet.'
+    )
+    if cfg.get('sms_on_deposit_approved'):
+        _send_sms(remittance.user.phone, message)
+    if remittance.user.email:
+        _send_email(f'[{site_name}] Remittance credited', message, [remittance.user.email])
+    admin_email = (cfg.get('admin_alert_email') or '').strip()
+    if admin_email and cfg.get('email_on_deposit'):
+        _send_email(
+            f'[{site_name}] Remittance received #{remittance.id}',
+            (
+                f'Remittance payout completed.\n\n'
+                f'ID: {remittance.id}\n'
+                f'User: {remittance.user.phone}\n'
+                f'Ref: {remittance.ref_no}\n'
+                f'Amount: Rs. {credited}\n'
+            ),
+            [admin_email],
+        )
+
+
 def notify_low_balance_if_needed(wallet) -> None:
     cfg = get_app_config().get('notifications') or {}
     if not cfg.get('notify_low_balance'):

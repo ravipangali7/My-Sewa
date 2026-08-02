@@ -11,6 +11,7 @@ import {
   User,
   LogOut,
   ChevronDown,
+  ArrowDownToLine,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,7 @@ const NAV = [
   { to: "/admin/users", label: "Users", icon: Users },
   { to: "/admin/wallets", label: "Wallets", icon: Wallet },
   { to: "/admin/deposits", label: "Deposits", icon: Inbox },
+  { to: "/admin/remittances", label: "Remittances", icon: ArrowDownToLine },
   { to: "/admin/topups", label: "Top-ups", icon: Smartphone },
   { to: "/admin/transfers", label: "Bank transfers", icon: Banknote },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },

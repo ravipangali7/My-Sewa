@@ -15,6 +15,7 @@ import { Route as RegisterRouteImport } from './routes/register'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminDepositsRouteImport } from './routes/admin/deposits'
 import { Route as AdminProfileRouteImport } from './routes/admin/profile'
+import { Route as AdminRemittancesRouteImport } from './routes/admin/remittances'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminTopupsRouteImport } from './routes/admin/topups'
 import { Route as AdminTransfersRouteImport } from './routes/admin/transfers'
@@ -25,6 +26,7 @@ import { Route as AppHistoryRouteImport } from './routes/app/history'
 import { Route as AppLoadRouteImport } from './routes/app/load'
 import { Route as AppNotificationsRouteImport } from './routes/app/notifications'
 import { Route as AppProfileRouteImport } from './routes/app/profile'
+import { Route as AppRemittanceRouteImport } from './routes/app/remittance'
 import { Route as AppServicesRouteImport } from './routes/app/services'
 import { Route as AppTopupRouteImport } from './routes/app/topup'
 import { Route as AppTransferRouteImport } from './routes/app/transfer'
@@ -69,6 +71,11 @@ const AdminDepositsRoute = AdminDepositsRouteImport.update({
 const AdminProfileRoute = AdminProfileRouteImport.update({
   id: '/admin/profile',
   path: '/admin/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRemittancesRoute = AdminRemittancesRouteImport.update({
+  id: '/admin/remittances',
+  path: '/admin/remittances',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminSettingsRoute = AdminSettingsRouteImport.update({
@@ -119,6 +126,11 @@ const AppNotificationsRoute = AppNotificationsRouteImport.update({
 const AppProfileRoute = AppProfileRouteImport.update({
   id: '/app/profile',
   path: '/app/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppRemittanceRoute = AppRemittanceRouteImport.update({
+  id: '/app/remittance',
+  path: '/app/remittance',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppServicesRoute = AppServicesRouteImport.update({
@@ -205,6 +217,7 @@ export interface FileRoutesByFullPath {
   '/register': typeof RegisterRoute
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/profile': typeof AdminProfileRoute
+  '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/topups': typeof AdminTopupsRoute
   '/admin/transfers': typeof AdminTransfersRoute
@@ -214,6 +227,7 @@ export interface FileRoutesByFullPath {
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
+  '/app/remittance': typeof AppRemittanceRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
@@ -238,6 +252,7 @@ export interface FileRoutesByTo {
   '/register': typeof RegisterRoute
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/profile': typeof AdminProfileRoute
+  '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/topups': typeof AdminTopupsRoute
   '/admin/transfers': typeof AdminTransfersRoute
@@ -247,6 +262,7 @@ export interface FileRoutesByTo {
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
+  '/app/remittance': typeof AppRemittanceRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
@@ -272,6 +288,7 @@ export interface FileRoutesById {
   '/register': typeof RegisterRoute
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/profile': typeof AdminProfileRoute
+  '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/topups': typeof AdminTopupsRoute
   '/admin/transfers': typeof AdminTransfersRoute
@@ -281,6 +298,7 @@ export interface FileRoutesById {
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
+  '/app/remittance': typeof AppRemittanceRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
@@ -307,6 +325,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/admin/deposits'
     | '/admin/profile'
+    | '/admin/remittances'
     | '/admin/settings'
     | '/admin/topups'
     | '/admin/transfers'
@@ -316,6 +335,7 @@ export interface FileRouteTypes {
     | '/app/load'
     | '/app/notifications'
     | '/app/profile'
+    | '/app/remittance'
     | '/app/services'
     | '/app/topup'
     | '/app/transfer'
@@ -340,6 +360,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/admin/deposits'
     | '/admin/profile'
+    | '/admin/remittances'
     | '/admin/settings'
     | '/admin/topups'
     | '/admin/transfers'
@@ -349,6 +370,7 @@ export interface FileRouteTypes {
     | '/app/load'
     | '/app/notifications'
     | '/app/profile'
+    | '/app/remittance'
     | '/app/services'
     | '/app/topup'
     | '/app/transfer'
@@ -373,6 +395,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/admin/deposits'
     | '/admin/profile'
+    | '/admin/remittances'
     | '/admin/settings'
     | '/admin/topups'
     | '/admin/transfers'
@@ -382,6 +405,7 @@ export interface FileRouteTypes {
     | '/app/load'
     | '/app/notifications'
     | '/app/profile'
+    | '/app/remittance'
     | '/app/services'
     | '/app/topup'
     | '/app/transfer'
@@ -407,6 +431,7 @@ export interface RootRouteChildren {
   RegisterRoute: typeof RegisterRoute
   AdminDepositsRoute: typeof AdminDepositsRoute
   AdminProfileRoute: typeof AdminProfileRoute
+  AdminRemittancesRoute: typeof AdminRemittancesRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminTopupsRoute: typeof AdminTopupsRoute
   AdminTransfersRoute: typeof AdminTransfersRoute
@@ -416,6 +441,7 @@ export interface RootRouteChildren {
   AppLoadRoute: typeof AppLoadRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppProfileRoute: typeof AppProfileRoute
+  AppRemittanceRoute: typeof AppRemittanceRoute
   AppServicesRoute: typeof AppServicesRoute
   AppTopupRoute: typeof AppTopupRoute
   AppTransferRoute: typeof AppTransferRoute
@@ -475,6 +501,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/profile'
       fullPath: '/admin/profile'
       preLoaderRoute: typeof AdminProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/remittances': {
+      id: '/admin/remittances'
+      path: '/admin/remittances'
+      fullPath: '/admin/remittances'
+      preLoaderRoute: typeof AdminRemittancesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/settings': {
@@ -545,6 +578,13 @@ declare module '@tanstack/react-router' {
       path: '/app/profile'
       fullPath: '/app/profile'
       preLoaderRoute: typeof AppProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/remittance': {
+      id: '/app/remittance'
+      path: '/app/remittance'
+      fullPath: '/app/remittance'
+      preLoaderRoute: typeof AppRemittanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/services': {
@@ -683,6 +723,7 @@ const rootRouteChildren: RootRouteChildren = {
   RegisterRoute: RegisterRoute,
   AdminDepositsRoute: AdminDepositsRoute,
   AdminProfileRoute: AdminProfileRoute,
+  AdminRemittancesRoute: AdminRemittancesRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminTopupsRoute: AdminTopupsRoute,
   AdminTransfersRoute: AdminTransfersRoute,
@@ -692,6 +733,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppLoadRoute: AppLoadRoute,
   AppNotificationsRoute: AppNotificationsRoute,
   AppProfileRoute: AppProfileRoute,
+  AppRemittanceRoute: AppRemittanceRoute,
   AppServicesRoute: AppServicesRoute,
   AppTopupRoute: AppTopupRoute,
   AppTransferRoute: AppTransferRoute,

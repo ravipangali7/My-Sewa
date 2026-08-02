@@ -1,6 +1,6 @@
 export type DepositStatus = "pending" | "approved" | "rejected";
 export type TxnStatus = "pending" | "success" | "failed";
-export type ActivityKind = "deposit" | "topup" | "transfer";
+export type ActivityKind = "deposit" | "remittance" | "topup" | "transfer";
 
 /** Account approval status — pending users can log in but cannot transact. */
 export type AccountStatus = "pending" | "approved";
@@ -53,6 +53,7 @@ export interface PaymentConfig {
   deposits_enabled: boolean;
   topups_enabled: boolean;
   transfers_enabled: boolean;
+  remittances_enabled: boolean;
   min_deposit: number;
   max_deposit: number;
   deposit_instructions: string;
@@ -97,6 +98,20 @@ export interface IntegrationsConfig {
   himalpay_base_url: string;
 }
 
+export interface RemittanceAgentConfig {
+  payout_location_name: string;
+  payout_agent_state: string;
+  payout_agent_district: string;
+  payout_agent_municipality: string;
+  payout_agent_ward_number: string;
+  payout_agent_pan_number: string;
+  teller_contact: string;
+  payout_payment_type: string;
+  payout_payment_number: string;
+  payout_payment_bank_name: string;
+  payout_payment_bank_branch: string;
+}
+
 export interface AppConfig {
   site: SiteConfig;
   payment: PaymentConfig;
@@ -104,6 +119,7 @@ export interface AppConfig {
   notifications: NotificationsConfig;
   security: SecurityConfig;
   integrations?: IntegrationsConfig;
+  remittance?: RemittanceAgentConfig;
 }
 
 export interface AppSettings {
@@ -185,8 +201,84 @@ export interface BankTransferTransaction {
   updated_at: string;
 }
 
+export interface RemittanceLookup {
+  ref_no: string;
+  samsara_link_id: string;
+  amount: string;
+  payout_currency: string;
+  sender_name: string;
+  sender_address: string;
+  sender_city: string;
+  sender_country: string;
+  sender_mobile: string;
+  receiver_name: string;
+  receiver_phone: string;
+  receiver_address: string;
+  receiver_city: string;
+  receiver_country: string;
+  payment_type: string;
+  send_agent: string;
+  txn_date: string;
+  status: string;
+}
+
+export interface RemittanceTransaction {
+  id: number;
+  user: string;
+  user_id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  ref_no: string;
+  samsara_link_id: string;
+  amount: string;
+  payout_currency: string;
+  sender_name: string;
+  sender_address: string;
+  sender_city: string;
+  sender_country: string;
+  receiver_name: string;
+  receiver_phone: string;
+  receiver_country: string;
+  payment_type: string;
+  txn_date: string;
+  beneficiary_gender: string;
+  beneficiary_nationality: string;
+  beneficiary_state: string;
+  beneficiary_district: string;
+  beneficiary_municipality: string;
+  beneficiary_ward_number: string;
+  beneficiary_city: string;
+  beneficiary_address: string;
+  beneficiary_relation: string;
+  beneficiary_occupation: string;
+  beneficiary_citizenship_number: string;
+  beneficiary_citizenship_issuing_district: string;
+  beneficiary_id_type: string;
+  beneficiary_id_number: string;
+  beneficiary_id_issue_date: string;
+  beneficiary_id_issue_by: string;
+  beneficiary_mobile_no: string;
+  beneficiary_dob: string;
+  remittance_purpose: string;
+  status: TxnStatus;
+  status_display: string;
+  merchant_txn_id: string;
+  provider_txn_id: string | null;
+  reference_id: string | null;
+  charge: string;
+  cashback: string;
+  total_credited: string;
+  wallet_credited: boolean;
+  lookup_response?: Record<string, unknown> | null;
+  provider_response?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface WalletTransactions {
   deposits: Deposit[];
+  remittances?: RemittanceTransaction[];
   topups: TopupTransaction[];
   bank_transfers: BankTransferTransaction[];
 }

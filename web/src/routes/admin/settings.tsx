@@ -11,6 +11,7 @@ import {
   QrCode,
   Save,
   Shield,
+  ArrowDownToLine,
 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { useErrorPopup } from "@/components/ErrorPopup";
@@ -59,6 +60,7 @@ const DEFAULT_CONFIG: AppConfig = {
     deposits_enabled: true,
     topups_enabled: true,
     transfers_enabled: true,
+    remittances_enabled: true,
     min_deposit: 100,
     max_deposit: 100000,
     deposit_instructions: "",
@@ -97,6 +99,19 @@ const DEFAULT_CONFIG: AppConfig = {
     himalpay_api_key: "",
     himalpay_base_url: "https://uatapi.himalpay.com.np/api/v1",
   },
+  remittance: {
+    payout_location_name: "MySewa",
+    payout_agent_state: "Bagmati",
+    payout_agent_district: "Kathmandu",
+    payout_agent_municipality: "Kathmandu Metropolitan City",
+    payout_agent_ward_number: "10",
+    payout_agent_pan_number: "",
+    teller_contact: "",
+    payout_payment_type: "Cash",
+    payout_payment_number: "",
+    payout_payment_bank_name: "",
+    payout_payment_bank_branch: "",
+  },
 };
 
 type BankForm = {
@@ -110,6 +125,7 @@ const SECTIONS = [
   { id: "site", label: "General", icon: Building2 },
   { id: "payment", label: "Payments", icon: CreditCard },
   { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
+  { id: "remittance", label: "Remittance agent", icon: ArrowDownToLine },
   { id: "deposit", label: "Deposit account", icon: QrCode },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "security", label: "Security", icon: Shield },
@@ -156,6 +172,10 @@ function SettingsPage() {
       integrations: {
         ...DEFAULT_CONFIG.integrations!,
         ...(remote?.integrations ?? {}),
+      },
+      remittance: {
+        ...DEFAULT_CONFIG.remittance!,
+        ...(remote?.remittance ?? {}),
       },
     });
     const b = settingsQuery.data.bank_details ?? {};
@@ -530,6 +550,17 @@ function SettingsPage() {
                     }))
                   }
                 />
+                <ToggleRow
+                  label="Remittance payouts"
+                  description="Allow Samsara remittance lookup and wallet credit"
+                  checked={config.payment.remittances_enabled !== false}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      payment: { ...c.payment, remittances_enabled: v },
+                    }))
+                  }
+                />
               </div>
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <NumberField
@@ -717,6 +748,57 @@ function SettingsPage() {
                   }
                 />
               </div>
+            </SettingsPanel>
+          </TabsContent>
+
+          <TabsContent value="remittance">
+            <SettingsPanel
+              title="Remittance agent (Samsara)"
+              description="Branch / agent fields sent with HimalPay SAMSARA_PAY. Customers only enter beneficiary KYC."
+              onSave={() =>
+                saveConfigSection("remittance", config.remittance ?? DEFAULT_CONFIG.remittance!)
+              }
+              saving={saving}
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                {(
+                  [
+                    ["payout_location_name", "Payout location name"],
+                    ["payout_agent_state", "Agent state / province"],
+                    ["payout_agent_district", "Agent district"],
+                    ["payout_agent_municipality", "Agent municipality"],
+                    ["payout_agent_ward_number", "Agent ward number"],
+                    ["payout_agent_pan_number", "Agent PAN number"],
+                    ["teller_contact", "Teller contact"],
+                    ["payout_payment_type", "Payment type"],
+                    ["payout_payment_number", "Payment number"],
+                    ["payout_payment_bank_name", "Payment bank name"],
+                    ["payout_payment_bank_branch", "Payment bank branch"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <div key={key} className="space-y-1.5">
+                    <Label htmlFor={key}>{label}</Label>
+                    <Input
+                      id={key}
+                      value={config.remittance?.[key] ?? ""}
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          remittance: {
+                            ...(c.remittance ?? DEFAULT_CONFIG.remittance!),
+                            [key]: e.target.value,
+                          },
+                        }))
+                      }
+                      className="rounded-xl"
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-[13px] text-muted-foreground">
+                Agent PAN and teller contact are required before customers can receive remittances
+                (unless HimalPay bypass mode is on).
+              </p>
             </SettingsPanel>
           </TabsContent>
 

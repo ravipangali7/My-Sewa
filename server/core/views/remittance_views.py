@@ -1,0 +1,461 @@
+"""
+Remittance views: HimalPay Samsara SAMSARA_GET / SAMSARA_PAY (inbound credit).
+"""
+import uuid
+import logging
+
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from ..models import RemittanceTransaction, Settings
+from ..serializers import (
+    RemittanceTransactionSerializer,
+    RemittanceLookupSerializer,
+    RemittanceReceiveSerializer,
+    TransactionStatusSerializer,
+)
+from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.app_config import (
+    get_app_config,
+    require_feature_enabled,
+    require_account_approved,
+)
+from ..services.notifications import notify_remittance_success
+from ..services.txn_status import apply_inbound_status_change
+
+logger = logging.getLogger(__name__)
+
+BENEFICIARY_FIELDS = (
+    'beneficiary_gender',
+    'beneficiary_nationality',
+    'beneficiary_state',
+    'beneficiary_district',
+    'beneficiary_municipality',
+    'beneficiary_ward_number',
+    'beneficiary_city',
+    'beneficiary_address',
+    'beneficiary_relation',
+    'beneficiary_occupation',
+    'beneficiary_citizenship_number',
+    'beneficiary_citizenship_issuing_district',
+    'beneficiary_id_type',
+    'beneficiary_id_number',
+    'beneficiary_id_issue_date',
+    'beneficiary_id_issue_by',
+    'beneficiary_mobile_no',
+    'beneficiary_dob',
+    'remittance_purpose',
+)
+
+
+def _agent_defaults() -> dict:
+    cfg = get_app_config().get('remittance') or {}
+    site = get_app_config().get('site') or {}
+    settings = Settings.load()
+    bank = settings.bank_details if isinstance(settings.bank_details, dict) else {}
+    support_phone = str(site.get('support_phone') or '').strip()
+    return {
+        'payout_location_name': str(cfg.get('payout_location_name') or site.get('site_name') or 'MySewa'),
+        'payout_agent_state': str(cfg.get('payout_agent_state') or 'Bagmati'),
+        'payout_agent_district': str(cfg.get('payout_agent_district') or 'Kathmandu'),
+        'payout_agent_municipality': str(
+            cfg.get('payout_agent_municipality') or 'Kathmandu Metropolitan City'
+        ),
+        'payout_agent_ward_number': str(cfg.get('payout_agent_ward_number') or '10'),
+        'payout_agent_pan_number': str(cfg.get('payout_agent_pan_number') or ''),
+        'teller_contact': str(cfg.get('teller_contact') or support_phone or ''),
+        'payout_payment_type': str(cfg.get('payout_payment_type') or 'Cash'),
+        'payout_payment_number': str(cfg.get('payout_payment_number') or ''),
+        'payout_payment_bank_name': str(
+            cfg.get('payout_payment_bank_name') or bank.get('bank_name') or ''
+        ),
+        'payout_payment_bank_branch': str(
+            cfg.get('payout_payment_bank_branch') or bank.get('branch') or ''
+        ),
+    }
+
+
+def _apply_load_fields(txn: RemittanceTransaction, himalpay: HimalPayAPI, response: dict):
+    charge_paisa = response.get('charge', response.get('applied_charge', 0)) or 0
+    cashback_paisa = response.get('cashback', response.get('applied_cashback', 0)) or 0
+    credited_paisa = response.get('total_credited', response.get('amount', 0)) or 0
+    txn.charge = himalpay.to_rupees(charge_paisa)
+    txn.cashback = himalpay.to_rupees(cashback_paisa)
+    txn.total_credited = himalpay.to_rupees(credited_paisa) or txn.amount
+    txn.provider_txn_id = himalpay.extract_transaction_id(response) or None
+    txn.reference_id = himalpay.extract_reference_id(response) or txn.ref_no
+    txn.provider_response = response
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def lookup_remittance(request):
+    """Step 1: Look up a remittance by ref_no via SAMSARA_GET."""
+    blocked = require_feature_enabled('remittances')
+    if blocked:
+        return blocked
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
+
+    serializer = RemittanceLookupSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    ref_no = serializer.validated_data['ref_no']
+
+    if RemittanceTransaction.objects.filter(ref_no=ref_no, status='success').exists():
+        return Response(
+            {
+                'error': 'Already received',
+                'message': f'Remittance {ref_no} has already been credited.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    himalpay = HimalPayAPI()
+    try:
+        raw = himalpay.lookup_remittance(ref_no)
+        parsed = himalpay.parse_remittance_lookup(raw)
+    except HimalPayError as exc:
+        logger.error(
+            'Remittance lookup failed: %s code=%s type=%s',
+            exc.message, exc.error_code, exc.error_type,
+        )
+        return Response(
+            {
+                'error': 'Remittance lookup failed',
+                'message': exc.message,
+                'error_code': exc.error_code,
+                'error_type': exc.error_type,
+            },
+            status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
+        )
+
+    if not parsed.get('samsara_link_id'):
+        return Response(
+            {
+                'error': 'Invalid remittance',
+                'message': 'Remittance details could not be resolved. Check the reference number.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if parsed['payout_amt'] <= 0:
+        return Response(
+            {
+                'error': 'Invalid amount',
+                'message': 'Remittance payout amount is missing or zero.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    lookup_status = str(parsed.get('status') or '').upper()
+    if lookup_status and lookup_status not in (
+        'SUCCESS', 'SUCCESSFUL', 'OK', 'PENDING', 'UNKNOWN', '',
+    ):
+        return Response(
+            {
+                'error': 'Remittance not available',
+                'message': f'Remittance status is {lookup_status}.',
+                'data': {
+                    'ref_no': parsed.get('ref_no') or ref_no,
+                    'status': lookup_status,
+                },
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response(
+        {
+            'message': 'Remittance details retrieved',
+            'data': {
+                'ref_no': parsed.get('ref_no') or ref_no,
+                'samsara_link_id': parsed['samsara_link_id'],
+                'amount': str(parsed['payout_amt']),
+                'payout_currency': parsed.get('payout_currency') or 'NPR',
+                'sender_name': parsed.get('sender_name') or '',
+                'sender_address': parsed.get('sender_address') or '',
+                'sender_city': parsed.get('sender_city') or '',
+                'sender_country': parsed.get('sender_country') or '',
+                'sender_mobile': parsed.get('sender_mobile') or '',
+                'receiver_name': parsed.get('receiver_name') or '',
+                'receiver_phone': parsed.get('receiver_phone') or '',
+                'receiver_address': parsed.get('receiver_address') or '',
+                'receiver_city': parsed.get('receiver_city') or '',
+                'receiver_country': parsed.get('receiver_country') or '',
+                'payment_type': parsed.get('payment_type') or '',
+                'send_agent': parsed.get('send_agent') or '',
+                'txn_date': parsed.get('txn_date') or '',
+                'status': parsed.get('status') or '',
+            },
+            'lookup_response': parsed.get('raw') or raw,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def receive_remittance(request):
+    """Step 2: Confirm remittance payout via SAMSARA_PAY and credit wallet."""
+    blocked = require_feature_enabled('remittances')
+    if blocked:
+        return blocked
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
+
+    serializer = RemittanceReceiveSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    data = serializer.validated_data
+    ref_no = data['ref_no']
+    samsara_link_id = data['samsara_link_id']
+    amount = data['amount']
+
+    if RemittanceTransaction.objects.filter(ref_no=ref_no, status='success').exists():
+        return Response(
+            {
+                'error': 'Already received',
+                'message': f'Remittance {ref_no} has already been credited.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    agent = _agent_defaults()
+    from django.conf import settings as django_settings
+    bypass = getattr(django_settings, 'HIMALPAY_BYPASS_API', False)
+    if bypass:
+        agent.setdefault('payout_agent_pan_number', agent.get('payout_agent_pan_number') or '123456789')
+        agent.setdefault('teller_contact', agent.get('teller_contact') or '9800000000')
+        if not agent.get('payout_agent_pan_number'):
+            agent['payout_agent_pan_number'] = '123456789'
+        if not agent.get('teller_contact'):
+            agent['teller_contact'] = '9800000000'
+    elif not agent.get('payout_agent_pan_number'):
+        return Response(
+            {
+                'error': 'Agent not configured',
+                'message': (
+                    'Remittance agent PAN is not configured. '
+                    'Ask an admin to set it under Settings → Remittance agent.'
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    elif not agent.get('teller_contact'):
+        return Response(
+            {
+                'error': 'Agent not configured',
+                'message': (
+                    'Teller contact is not configured. '
+                    'Ask an admin to set it under Settings → Remittance agent.'
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    merchant_txn_id = f"MYSEWA_REM_{uuid.uuid4().hex[:16].upper()}"
+    beneficiary = {field: data.get(field) or '' for field in BENEFICIARY_FIELDS}
+    if not beneficiary['beneficiary_mobile_no']:
+        beneficiary['beneficiary_mobile_no'] = request.user.phone
+
+    txn = RemittanceTransaction.objects.create(
+        user=request.user,
+        ref_no=ref_no,
+        samsara_link_id=samsara_link_id,
+        amount=amount,
+        payout_currency=data.get('payout_currency') or 'NPR',
+        sender_name=data.get('sender_name') or '',
+        sender_address=data.get('sender_address') or '',
+        sender_city=data.get('sender_city') or '',
+        sender_country=data.get('sender_country') or '',
+        receiver_name=data.get('receiver_name') or '',
+        receiver_phone=data.get('receiver_phone') or '',
+        receiver_country=data.get('receiver_country') or '',
+        payment_type=data.get('payment_type') or '',
+        txn_date=data.get('txn_date') or '',
+        status='pending',
+        merchant_txn_id=merchant_txn_id,
+        total_credited=amount,
+        **beneficiary,
+    )
+
+    pay_data = {
+        'samsara_link_id': samsara_link_id,
+        **agent,
+        **beneficiary,
+    }
+    meta_data = [
+        {
+            'title': 'Payment Details',
+            'details': [
+                {
+                    'receiver_country': data.get('receiver_country') or 'NEPAL',
+                    'receiver_name': data.get('receiver_name') or '',
+                    'receiver_phone': data.get('receiver_phone') or '',
+                    'ref_no': ref_no,
+                    'send_agent': data.get('send_agent') or '',
+                    'sender_address': data.get('sender_address') or '',
+                    'sender_city': data.get('sender_city') or '',
+                    'sender_country': data.get('sender_country') or '',
+                }
+            ],
+        }
+    ]
+
+    himalpay = HimalPayAPI()
+    try:
+        response = himalpay.receive_remittance(
+            amount_rupees=amount,
+            merchant_transaction_id=merchant_txn_id,
+            data=pay_data,
+            meta_data=meta_data,
+        )
+        txn_status = himalpay.normalize_status(response)
+        _apply_load_fields(txn, himalpay, response)
+
+        if txn_status == 'failed':
+            txn.status = 'failed'
+            txn.save()
+            return Response(
+                {
+                    'error': 'Remittance payout failed',
+                    'message': response.get('error') or response.get('message') or 'Payout failed',
+                    'data': RemittanceTransactionSerializer(txn).data,
+                    'himalpay_response': response,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if txn_status == 'success':
+            ok, err = apply_inbound_status_change(txn, 'success')
+            if not ok:
+                txn.status = 'pending'
+                txn.save(update_fields=['status', 'updated_at'])
+                return Response(
+                    {
+                        'error': 'Wallet credit failed',
+                        'message': err or 'Could not credit wallet after successful payout.',
+                        'data': RemittanceTransactionSerializer(txn).data,
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+            txn.refresh_from_db()
+            notify_remittance_success(txn)
+            return Response(
+                {
+                    'message': 'Remittance received and credited to wallet',
+                    'data': RemittanceTransactionSerializer(txn).data,
+                    'himalpay_response': response,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # Provider pending / unknown — keep local pending, do not credit yet
+        txn.status = 'pending'
+        txn.save()
+        return Response(
+            {
+                'message': 'Remittance payout is being processed',
+                'pending_message': response.get(
+                    'message',
+                    'Your remittance is being processed. Check status shortly.',
+                ),
+                'data': RemittanceTransactionSerializer(txn).data,
+                'himalpay_response': response,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    except HimalPayError as exc:
+        txn.status = 'failed'
+        txn.provider_response = exc.response_data
+        txn.save()
+        logger.error(
+            'Remittance HimalPay error: %s code=%s type=%s',
+            exc.message, exc.error_code, exc.error_type,
+        )
+        return Response(
+            {
+                'error': 'Remittance payout failed',
+                'message': exc.message,
+                'error_code': exc.error_code,
+                'error_type': exc.error_type,
+                'data': RemittanceTransactionSerializer(txn).data,
+            },
+            status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as exc:
+        txn.status = 'failed'
+        txn.save()
+        logger.exception('Unexpected remittance error: %s', exc)
+        return Response(
+            {
+                'error': 'Remittance payout failed',
+                'message': 'An unexpected error occurred while processing remittance.',
+                'data': RemittanceTransactionSerializer(txn).data,
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def remittance_history(request):
+    qs = RemittanceTransaction.objects.filter(user=request.user).order_by('-created_at')
+    return Response(RemittanceTransactionSerializer(qs, many=True).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def remittance_status(request):
+    serializer = TransactionStatusSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    merchant_txn_id = serializer.validated_data['merchant_transaction_id']
+    try:
+        txn = RemittanceTransaction.objects.get(
+            user=request.user, merchant_txn_id=merchant_txn_id,
+        )
+    except RemittanceTransaction.DoesNotExist:
+        return Response({'error': 'Remittance not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    himalpay = HimalPayAPI()
+    try:
+        response = himalpay.check_transaction_status(merchant_txn_id)
+        provider_status = himalpay.normalize_status(response)
+        _apply_load_fields(txn, himalpay, response)
+
+        if provider_status == 'success' and txn.status != 'success':
+            apply_inbound_status_change(txn, 'success')
+            txn.refresh_from_db()
+            notify_remittance_success(txn)
+        elif provider_status == 'failed' and txn.status != 'failed':
+            apply_inbound_status_change(txn, 'failed')
+            txn.refresh_from_db()
+        else:
+            txn.save()
+
+        return Response(
+            {
+                'message': 'Status checked',
+                'provider_status': provider_status,
+                'data': RemittanceTransactionSerializer(txn).data,
+                'himalpay_response': response,
+            }
+        )
+    except HimalPayError as exc:
+        return Response(
+            {
+                'error': 'Status check failed',
+                'message': exc.message,
+                'data': RemittanceTransactionSerializer(txn).data,
+            },
+            status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
+        )

@@ -53,7 +53,7 @@ function detailRows(
     const d = tx.deposits.find((x) => `dep-${x.id}` === item.id);
     if (!d) return [];
     return [
-      { label: t("common.type"), value: t("notif.typeRemittance") },
+      { label: t("common.type"), value: t("notif.typeDeposit") },
       { label: t("common.amount"), value: formatNPR(d.amount) },
       { label: t("common.status"), value: translateStatus(d.status, t) },
       { label: t("common.note"), value: d.note || "—" },
@@ -61,6 +61,23 @@ function detailRows(
         ? [{ label: t("notif.rejectionReason"), value: d.rejection_reason }]
         : []),
       { label: t("common.date"), value: formatDateTime(d.created_at) },
+    ];
+  }
+  if (item.kind === "remittance") {
+    const r = (tx.remittances ?? []).find((x) => `rem-${x.id}` === item.id);
+    if (!r) return [];
+    return [
+      { label: t("common.type"), value: t("notif.typeRemittance") },
+      { label: t("remittance.refNo"), value: r.ref_no },
+      { label: t("remittance.sender"), value: r.sender_name || "—" },
+      { label: t("common.amount"), value: formatNPR(r.amount) },
+      {
+        label: t("history.totalCredited"),
+        value: formatNPR(r.total_credited),
+      },
+      { label: t("common.status"), value: translateStatus(r.status, t) },
+      { label: t("common.txnId"), value: r.merchant_txn_id },
+      { label: t("common.date"), value: formatDateTime(r.created_at) },
     ];
   }
   if (item.kind === "topup") {
@@ -129,6 +146,32 @@ function notificationCopy(
     return {
       title: t("notif.depositReview"),
       body: t("notif.depositReviewBody", { amount: formatNPR(item.amount) }),
+    };
+  }
+  if (item.kind === "remittance") {
+    if (item.status === "success") {
+      return {
+        title: t("notif.remittanceCredited"),
+        body: t("notif.remittanceCreditedBody", {
+          amount: formatNPR(item.amount),
+        }),
+      };
+    }
+    if (item.status === "failed") {
+      return {
+        title: t("remittance.failed"),
+        body: t("notif.remittanceFailedBody", {
+          subtitle: item.subtitle,
+          amount: formatNPR(item.amount),
+        }),
+      };
+    }
+    return {
+      title: t("notif.remittancePending"),
+      body: t("notif.remittancePendingBody", {
+        subtitle: item.subtitle,
+        amount: formatNPR(item.amount),
+      }),
     };
   }
   if (item.kind === "topup") {

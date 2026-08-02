@@ -21,6 +21,7 @@ from ..models import (
     Settings,
     TopupTransaction,
     BankTransferTransaction,
+    RemittanceTransaction,
     merge_app_config,
 )
 from ..serializers import (
@@ -32,10 +33,12 @@ from ..serializers import (
     TopupTransactionSerializer,
     AdminTopupSerializer,
     BankTransferTransactionSerializer,
+    RemittanceTransactionSerializer,
+    AdminRemittanceSerializer,
     SettingsSerializer,
 )
 from ..services.himalpay import HimalPayAPI, HimalPayError, get_outbound_public_ip
-from ..services.txn_status import apply_outbound_status_change
+from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
 
 User = get_user_model()
 
@@ -369,6 +372,51 @@ def admin_update_topup_status(request, topup_id):
     return Response({
         'message': f'Top-up status updated to {topup.status}',
         'data': AdminTopupSerializer(topup).data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_list_remittances(request):
+    qs = RemittanceTransaction.objects.select_related('user').order_by('-created_at')
+    status_filter = request.query_params.get('status')
+    if status_filter in ('pending', 'success', 'failed'):
+        qs = qs.filter(status=status_filter)
+    return Response(RemittanceTransactionSerializer(qs, many=True).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_get_remittance(request, remittance_id):
+    try:
+        rem = RemittanceTransaction.objects.select_related('user').get(pk=remittance_id)
+    except RemittanceTransaction.DoesNotExist:
+        return Response({'error': 'Remittance not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(AdminRemittanceSerializer(rem).data)
+
+
+@api_view(['POST', 'PATCH'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_update_remittance_status(request, remittance_id):
+    try:
+        rem = RemittanceTransaction.objects.select_related('user').get(pk=remittance_id)
+    except RemittanceTransaction.DoesNotExist:
+        return Response({'error': 'Remittance not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    new_status = (request.data.get('status') or '').strip().lower()
+    old_status = rem.status
+    ok, err = apply_inbound_status_change(rem, new_status)
+    if not ok:
+        return Response({'error': err}, status=status.HTTP_400_BAD_REQUEST)
+
+    rem.refresh_from_db()
+    if old_status != 'success' and rem.status == 'success':
+        from ..services.notifications import notify_remittance_success
+        notify_remittance_success(rem)
+
+    return Response({
+        'message': f'Remittance status updated to {rem.status}',
+        'data': RemittanceTransactionSerializer(rem).data,
     })
 
 

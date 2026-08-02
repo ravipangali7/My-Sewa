@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from .models import Wallet, Deposit, Settings, TopupTransaction, BankTransferTransaction
+from .models import Wallet, Deposit, Settings, TopupTransaction, BankTransferTransaction, RemittanceTransaction
 
 User = get_user_model()
 
@@ -123,6 +123,24 @@ class BankTransferTransactionAdmin(admin.ModelAdmin):
         'charge', 'cashback', 'total_debited', 'verified', 'provider_response',
         'created_at', 'updated_at',
     )
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(RemittanceTransaction)
+class RemittanceTransactionAdmin(admin.ModelAdmin):
+    list_display = (
+        'user', 'ref_no', 'amount', 'status', 'total_credited',
+        'merchant_txn_id', 'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    search_fields = (
+        'user__phone', 'ref_no', 'merchant_txn_id', 'provider_txn_id',
+        'reference_id', 'receiver_name', 'sender_name',
+    )
+    readonly_fields = [f.name for f in RemittanceTransaction._meta.fields]
     ordering = ('-created_at',)
 
     def has_add_permission(self, request):

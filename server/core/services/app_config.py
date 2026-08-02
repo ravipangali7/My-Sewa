@@ -26,6 +26,7 @@ def payment_disabled_response(feature: str) -> Response:
         'deposits': 'Wallet deposits are currently disabled.',
         'topups': 'Mobile top-ups are currently disabled.',
         'transfers': 'Bank transfers are currently disabled.',
+        'remittances': 'Remittance payouts are currently disabled.',
     }
     return Response(
         {
@@ -147,7 +148,7 @@ def resolve_transfer_fees(amount, provider_charge, provider_cashback, tx_cfg=Non
 
 def require_feature_enabled(feature: str) -> Optional[Response]:
     """
-    feature: 'deposits' | 'topups' | 'transfers'
+    feature: 'deposits' | 'topups' | 'transfers' | 'remittances'
     Returns a Response if disabled, else None.
     """
     payment = get_app_config().get('payment') or {}
@@ -155,6 +156,7 @@ def require_feature_enabled(feature: str) -> Optional[Response]:
         'deposits': 'deposits_enabled',
         'topups': 'topups_enabled',
         'transfers': 'transfers_enabled',
+        'remittances': 'remittances_enabled',
     }.get(feature)
     if key and not payment.get(key, True):
         return payment_disabled_response(feature)

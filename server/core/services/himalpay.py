@@ -112,6 +112,8 @@ class HimalPayAPI:
     SERVICE_BANK_TRANSFER = 'BANK_TRANSFER'
     SERVICE_BANK_TRANSFER_LIST = 'BANK_TRANSFER_LIST'
     SERVICE_BANK_TRANSFER_VERIFICATION = 'BANK_TRANSFER_VERIFICATION'
+    SERVICE_SAMSARA_GET = 'SAMSARA_GET'
+    SERVICE_SAMSARA_PAY = 'SAMSARA_PAY'
 
     def __init__(self):
         from .app_config import get_himalpay_credentials
@@ -400,6 +402,123 @@ class HimalPayAPI:
             data=data,
         )
 
+    def process_load(
+        self,
+        wallet_service_name: str,
+        amount_rupees,
+        merchant_transaction_id: str,
+        data: Dict,
+        meta_data: Optional[List] = None,
+    ) -> Dict:
+        """Credit/load endpoint used by Samsara remittance payout."""
+        amount_paisa = self.to_paisa(amount_rupees)
+        payload: Dict[str, Any] = {
+            'wallet_service_name': wallet_service_name,
+            'amount': amount_paisa,
+            'merchant_transaction_id': merchant_transaction_id,
+            'data': data,
+        }
+        if meta_data is not None:
+            payload['meta_data'] = meta_data
+
+        if self.bypass_api:
+            return self._bypass_load(
+                wallet_service_name=wallet_service_name,
+                amount_paisa=amount_paisa,
+                merchant_transaction_id=merchant_transaction_id,
+                data=data,
+            )
+
+        return self._request(
+            'POST',
+            '/loads/wallet-service-reseller-load',
+            payload,
+        )
+
+    def lookup_remittance(self, ref_no: str) -> Dict:
+        """Step 1: SAMSARA_GET — look up remittance by reference number."""
+        return self.fetch_service_details(
+            self.SERVICE_SAMSARA_GET,
+            data={'ref_no': (ref_no or '').strip()},
+        )
+
+    def receive_remittance(
+        self,
+        amount_rupees,
+        merchant_transaction_id: str,
+        data: Dict,
+        meta_data: Optional[List] = None,
+    ) -> Dict:
+        """Step 2: SAMSARA_PAY — process remittance payout load."""
+        return self.process_load(
+            wallet_service_name=self.SERVICE_SAMSARA_PAY,
+            amount_rupees=amount_rupees,
+            merchant_transaction_id=merchant_transaction_id,
+            data=data,
+            meta_data=meta_data,
+        )
+
+    @staticmethod
+    def parse_remittance_lookup(response: Any) -> Dict[str, Any]:
+        """
+        Normalize SAMSARA_GET response into flat fields for UI / payout.
+        payout_amt from the vendor is in rupees; samsara_link_id is core_transaction_uuid.
+        """
+        root = response if isinstance(response, dict) else {}
+        outer = root.get('data') if isinstance(root.get('data'), dict) else root
+        inner = outer.get('data') if isinstance(outer.get('data'), dict) else {}
+
+        link_id = (
+            outer.get('core_transaction_uuid')
+            or outer.get('core_transaction_id')
+            or root.get('core_transaction_uuid')
+            or ''
+        )
+        payout_raw = (
+            inner.get('payout_amt')
+            or outer.get('payout_amt')
+            or root.get('payout_amt')
+            or '0'
+        )
+        try:
+            payout_amt = Decimal(str(payout_raw)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        except Exception:
+            payout_amt = Decimal('0.00')
+
+        ref_no = (
+            inner.get('ref_no')
+            or outer.get('reference_id')
+            or root.get('reference_id')
+            or ''
+        )
+
+        return {
+            'samsara_link_id': str(link_id or ''),
+            'ref_no': str(ref_no or ''),
+            'payout_amt': payout_amt,
+            'payout_currency': str(inner.get('payout_currency') or 'NPR'),
+            'sender_name': str(inner.get('sender_name') or ''),
+            'sender_address': str(inner.get('sender_address') or ''),
+            'sender_city': str(inner.get('sender_city') or ''),
+            'sender_country': str(inner.get('sender_country') or ''),
+            'sender_mobile': str(inner.get('sender_mobile') or ''),
+            'receiver_name': str(inner.get('receiver_name') or ''),
+            'receiver_phone': str(inner.get('receiver_phone') or ''),
+            'receiver_address': str(inner.get('receiver_address') or ''),
+            'receiver_city': str(inner.get('receiver_city') or ''),
+            'receiver_country': str(inner.get('receiver_country') or ''),
+            'payment_type': str(inner.get('payment_type') or ''),
+            'send_agent': str(inner.get('send_agent') or ''),
+            'txn_date': str(inner.get('txn_date') or ''),
+            'status': str(
+                outer.get('status')
+                or root.get('status')
+                or outer.get('ms_status')
+                or ''
+            ),
+            'raw': root,
+        }
+
     @staticmethod
     def normalize_status(response: Dict) -> str:
         """Normalize HimalPay status to lowercase success/failed/pending."""
@@ -532,7 +651,73 @@ class HimalPayAPI:
                 'message': 'Account verified successfully (bypass)',
             }
 
+        if wallet_service_name == self.SERVICE_SAMSARA_GET:
+            ref = (data.get('ref_no') or 'S1001227917').strip() or 'S1001227917'
+            link_id = f'bypass{ref[-12:]}'.ljust(32, '0')[:32]
+            return {
+                'status': 'SUCCESS',
+                'data': {
+                    'core_transaction_id': link_id,
+                    'core_transaction_uuid': link_id,
+                    'data': {
+                        'agent_session_id': '9779800000000',
+                        'bank_name': '',
+                        'pay_token_id': '279606',
+                        'payment_type': 'Cash Pay',
+                        'payout_amt': '1500.0000',
+                        'payout_currency': 'NPR',
+                        'process_id': '',
+                        'receiver_address': 'Kathmandu',
+                        'receiver_city': 'Kathmandu',
+                        'receiver_country': 'NEPAL',
+                        'receiver_name': 'TEST RECEIVER',
+                        'receiver_phone': '9779800000000',
+                        'ref_no': ref,
+                        'send_agent': 'BYPASS AGENT',
+                        'sender_address': 'testaddress',
+                        'sender_city': 'testcity',
+                        'sender_country': 'NEPAL',
+                        'sender_id_exp_date': '',
+                        'sender_id_no': '',
+                        'sender_id_type': '',
+                        'sender_mobile': '',
+                        'sender_name': 'TEST SENDER',
+                        'tran_no': '',
+                        'trans_mode': '',
+                        'txn_date': '8/2/2026 9:00:00 AM',
+                    },
+                    'microservice_transaction_id': '2',
+                    'ms_status': 'SUCCESS',
+                    'reference_id': ref,
+                    'status': 'SUCCESS',
+                    'vendor_state': '',
+                    'vendor_status': '0',
+                },
+            }
+
         return {'message': f'Bypass detail for {wallet_service_name}', 'data': data}
+
+    def _bypass_load(
+        self,
+        wallet_service_name: str,
+        amount_paisa: int,
+        merchant_transaction_id: str,
+        data: Dict,
+    ) -> Dict:
+        ref = str(data.get('samsara_link_id') or merchant_transaction_id)[-12:]
+        return {
+            'transaction_id': f'BYPASS-LOAD-{merchant_transaction_id[-10:]}',
+            'status': 'SUCCESS',
+            'amount': amount_paisa,
+            'charge': 0,
+            'cashback': 0,
+            'total_credited': amount_paisa,
+            'reference_id': f'S{ref}',
+            'message': f'{wallet_service_name} load successful (bypass)',
+            'created_at': '2026-08-02T00:00:00+05:45',
+            'merchant_transaction_id': merchant_transaction_id,
+            'data': data,
+        }
 
     def _bypass_payment(
         self,

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Send, Smartphone, ChevronRight } from "lucide-react";
+import { Download, Send, Smartphone, ChevronRight, ArrowDownToLine } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -15,12 +15,12 @@ export const Route = createFileRoute("/app/services")({
       {
         name: "description",
         content:
-          "Load your MySewa wallet, recharge NTC or NCELL and send money to any Nepali bank account.",
+          "Receive remittance, load your MySewa wallet, recharge NTC or NCELL and send money to any Nepali bank account.",
       },
       { property: "og:title", content: "Services — MySewa Wallet" },
       {
         property: "og:description",
-        content: "Wallet load, mobile top-up and bank transfer services in one hub.",
+        content: "Remittance, wallet load, mobile top-up and bank transfer services in one hub.",
       },
     ],
   }),
@@ -41,6 +41,15 @@ function Services() {
   const bankEntries = Object.entries(bank).filter(([, v]) => v);
 
   const services = [
+    {
+      to: "/app/remittance" as const,
+      title: t("services.remittance"),
+      desc: accountPending
+        ? t("services.unavailablePending")
+        : t("services.remittanceDesc"),
+      icon: ArrowDownToLine,
+      enabled: payment?.remittances_enabled !== false && !accountPending,
+    },
     {
       to: "/app/load" as const,
       title: t("services.loadWallet"),

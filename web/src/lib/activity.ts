@@ -1,6 +1,7 @@
 import type {
   ActivityItem,
   Deposit,
+  RemittanceTransaction,
   TopupTransaction,
   BankTransferTransaction,
   WalletTransactions,
@@ -14,11 +15,12 @@ export function buildActivity(
   tx: WalletTransactions,
   t: TranslateFn = (key) => key,
 ): ActivityItem[] {
+  const remittances = tx.remittances ?? [];
   const items: ActivityItem[] = [
     ...tx.deposits.map((d: Deposit) => ({
       id: `dep-${d.id}`,
       kind: "deposit" as const,
-      title: t("activity.remittanceReceived"),
+      title: t("activity.walletLoad"),
       subtitle:
         d.status === "rejected" && d.rejection_reason
           ? t("activity.rejected", { reason: d.rejection_reason })
@@ -27,6 +29,18 @@ export function buildActivity(
       credit: true,
       status: d.status,
       created_at: d.created_at,
+    })),
+    ...remittances.map((r: RemittanceTransaction) => ({
+      id: `rem-${r.id}`,
+      kind: "remittance" as const,
+      title: t("activity.remittanceReceived"),
+      subtitle: r.sender_name
+        ? `${r.ref_no} · ${r.sender_name}`
+        : r.ref_no,
+      amount: r.total_credited !== "0.00" ? r.total_credited : r.amount,
+      credit: true,
+      status: r.status,
+      created_at: r.created_at,
     })),
     ...tx.topups.map((top: TopupTransaction) => ({
       id: `top-${top.id}`,
@@ -96,7 +110,7 @@ export function buildActivityStatement(
         {
           title: t("history.sectionTxn"),
           rows: [
-            { label: t("common.type"), value: t("notif.typeRemittance") },
+            { label: t("common.type"), value: t("notif.typeDeposit") },
             { label: t("common.status"), value: translateStatus(d.status, t) },
             { label: t("history.submitted"), value: formatDateTime(d.created_at) },
             { label: t("history.updated"), value: formatDateTime(d.updated_at) },
@@ -115,6 +129,64 @@ export function buildActivityStatement(
                   },
                 ]
               : []),
+          ],
+        },
+      ],
+    };
+  }
+
+  if (item.kind === "remittance") {
+    const r = (tx.remittances ?? []).find((x) => `rem-${x.id}` === id);
+    if (!r) return undefined;
+    return {
+      item,
+      reference: r.ref_no || `#${r.id}`,
+      headlineAmount: formatNPR(
+        r.total_credited !== "0.00" ? r.total_credited : r.amount,
+      ),
+      amountCaption: t("history.walletCredit"),
+      footer: t("history.footer"),
+      sections: [
+        {
+          title: t("history.sectionParty"),
+          rows: [
+            { label: t("remittance.sender"), value: r.sender_name || "—" },
+            { label: t("remittance.receiver"), value: r.receiver_name || "—" },
+            { label: t("remittance.receiverPhone"), value: r.receiver_phone || "—" },
+            { label: t("remittance.purpose"), value: r.remittance_purpose || "—" },
+          ],
+        },
+        {
+          title: t("history.sectionTxn"),
+          rows: [
+            { label: t("common.type"), value: t("notif.typeRemittance") },
+            { label: t("common.status"), value: translateStatus(r.status, t) },
+            { label: t("remittance.refNo"), value: r.ref_no || "—", mono: true },
+            {
+              label: t("history.merchantTxn"),
+              value: r.merchant_txn_id || "—",
+              mono: true,
+            },
+            {
+              label: t("history.providerTxn"),
+              value: r.provider_txn_id || "—",
+              mono: true,
+            },
+            { label: t("history.reference"), value: r.reference_id || "—" },
+            { label: t("history.submitted"), value: formatDateTime(r.created_at) },
+            { label: t("history.updated"), value: formatDateTime(r.updated_at) },
+          ],
+        },
+        {
+          title: t("history.sectionSettlement"),
+          rows: [
+            { label: t("common.amount"), value: formatNPR(r.amount) },
+            { label: t("common.charge"), value: formatNPR(r.charge) },
+            { label: t("common.cashback"), value: formatNPR(r.cashback) },
+            {
+              label: t("history.totalCredited"),
+              value: formatNPR(r.total_credited),
+            },
           ],
         },
       ],

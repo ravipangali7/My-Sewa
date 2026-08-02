@@ -58,7 +58,7 @@ const ACTIONS = [
     iconBg: "bg-[#F59E0B]",
   },
   {
-    to: "/app/load",
+    to: "/app/remittance",
     labelKey: "home.receiveRemittance" as const satisfies MessageKey,
     icon: ArrowDownToLine,
     iconBg: "bg-[#2563EB]",
@@ -248,7 +248,9 @@ function WalletHome() {
             {ACTIONS.map((a) => {
               const blocked =
                 accountPending &&
-                (a.to === "/app/transfer" || a.to === "/app/topup" || a.to === "/app/load");
+                (a.to === "/app/transfer" ||
+                  a.to === "/app/topup" ||
+                  a.to === "/app/remittance");
               if (blocked) {
                 return (
                   <button

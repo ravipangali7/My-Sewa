@@ -127,6 +127,7 @@ def default_app_config():
             'deposits_enabled': True,
             'topups_enabled': True,
             'transfers_enabled': True,
+            'remittances_enabled': True,
             'min_deposit': 100,
             'max_deposit': 100000,
             'deposit_instructions': '',
@@ -164,6 +165,20 @@ def default_app_config():
         'integrations': {
             'himalpay_api_key': '',
             'himalpay_base_url': 'https://uatapi.himalpay.com.np/api/v1',
+        },
+        # Agent / branch defaults sent with SAMSARA_PAY (not collected from the user)
+        'remittance': {
+            'payout_location_name': 'MySewa',
+            'payout_agent_state': 'Bagmati',
+            'payout_agent_district': 'Kathmandu',
+            'payout_agent_municipality': 'Kathmandu Metropolitan City',
+            'payout_agent_ward_number': '10',
+            'payout_agent_pan_number': '',
+            'teller_contact': '',
+            'payout_payment_type': 'Cash',
+            'payout_payment_number': '',
+            'payout_payment_bank_name': '',
+            'payout_payment_bank_branch': '',
         },
     }
 
@@ -340,3 +355,84 @@ class BankTransferTransaction(models.Model):
         verbose_name = "Bank Transfer Transaction"
         verbose_name_plural = "Bank Transfer Transactions"
         ordering = ['-created_at']
+
+
+class RemittanceTransaction(models.Model):
+    """Inbound remittance payout via HimalPay Samsara (SAMSARA_GET / SAMSARA_PAY)."""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='remittance_transactions',
+    )
+    ref_no = models.CharField(max_length=100, db_index=True, help_text="Remittance reference number")
+    samsara_link_id = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="core_transaction_uuid from SAMSARA_GET",
+    )
+    amount = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(0.01)],
+        help_text="Payout amount in NPR (rupees)",
+    )
+    payout_currency = models.CharField(max_length=10, blank=True, default='NPR')
+
+    sender_name = models.CharField(max_length=200, blank=True, default='')
+    sender_address = models.CharField(max_length=255, blank=True, default='')
+    sender_city = models.CharField(max_length=100, blank=True, default='')
+    sender_country = models.CharField(max_length=100, blank=True, default='')
+    receiver_name = models.CharField(max_length=200, blank=True, default='')
+    receiver_phone = models.CharField(max_length=50, blank=True, default='')
+    receiver_country = models.CharField(max_length=100, blank=True, default='')
+    payment_type = models.CharField(max_length=50, blank=True, default='')
+    txn_date = models.CharField(max_length=80, blank=True, default='')
+
+    beneficiary_gender = models.CharField(max_length=20, blank=True, default='')
+    beneficiary_nationality = models.CharField(max_length=50, blank=True, default='Nepali')
+    beneficiary_state = models.CharField(max_length=100, blank=True, default='')
+    beneficiary_district = models.CharField(max_length=100, blank=True, default='')
+    beneficiary_municipality = models.CharField(max_length=150, blank=True, default='')
+    beneficiary_ward_number = models.CharField(max_length=20, blank=True, default='')
+    beneficiary_city = models.CharField(max_length=100, blank=True, default='')
+    beneficiary_address = models.CharField(max_length=255, blank=True, default='')
+    beneficiary_relation = models.CharField(max_length=50, blank=True, default='SELF')
+    beneficiary_occupation = models.CharField(max_length=100, blank=True, default='')
+    beneficiary_citizenship_number = models.CharField(max_length=100, blank=True, default='')
+    beneficiary_citizenship_issuing_district = models.CharField(max_length=100, blank=True, default='')
+    beneficiary_id_type = models.CharField(max_length=50, blank=True, default='Citizenship')
+    beneficiary_id_number = models.CharField(max_length=100, blank=True, default='')
+    beneficiary_id_issue_date = models.CharField(max_length=30, blank=True, default='')
+    beneficiary_id_issue_by = models.CharField(max_length=100, blank=True, default='')
+    beneficiary_mobile_no = models.CharField(max_length=50, blank=True, default='')
+    beneficiary_dob = models.CharField(max_length=30, blank=True, default='')
+    remittance_purpose = models.CharField(max_length=80, blank=True, default='FAMILY_SUPPORT')
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    merchant_txn_id = models.CharField(max_length=100, unique=True)
+    provider_txn_id = models.CharField(max_length=100, blank=True, null=True)
+    reference_id = models.CharField(max_length=100, blank=True, null=True)
+    charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_credited = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    wallet_credited = models.BooleanField(default=False)
+    lookup_response = models.JSONField(default=dict, blank=True)
+    provider_response = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.phone} - {self.ref_no} - Rs. {self.amount} - {self.status}"
+
+    class Meta:
+        verbose_name = "Remittance Transaction"
+        verbose_name_plural = "Remittance Transactions"
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['ref_no'],
+                condition=models.Q(status='success'),
+                name='unique_successful_remittance_ref_no',
+            ),
+        ]

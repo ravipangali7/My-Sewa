@@ -1,0 +1,217 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+import { AdminShell } from "@/components/layout/AdminShell";
+import {
+  AdminDataList,
+  AdminEmptyState,
+  AdminMobileCard,
+  AdminMobileCardGrid,
+  AdminMobileMeta,
+} from "@/components/admin/AdminDataList";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { apiClient, ApiError } from "@/lib/api";
+import { formatNPR, formatDateTime } from "@/lib/format";
+import type { TxnStatus } from "@/lib/types";
+
+export const Route = createFileRoute("/admin/remittances")({
+  head: () => ({
+    meta: [
+      { title: "Remittance Ledger — MySewa Admin" },
+      {
+        name: "description",
+        content:
+          "Samsara remittance payout ledger with reference numbers, beneficiary details and wallet credits.",
+      },
+      { property: "og:title", content: "Remittance Ledger — MySewa Admin" },
+      {
+        property: "og:description",
+        content: "Inbound remittance oversight for MySewa operations.",
+      },
+    ],
+  }),
+  component: RemittancesPage,
+});
+
+type StatusTab = "all" | TxnStatus;
+
+const STATUS_TABS: { value: StatusTab; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "success", label: "Success" },
+  { value: "failed", label: "Failed" },
+];
+
+const STATUS_OPTIONS: { value: TxnStatus; label: string }[] = [
+  { value: "pending", label: "Pending" },
+  { value: "success", label: "Success" },
+  { value: "failed", label: "Failed" },
+];
+
+function RemittancesPage() {
+  const queryClient = useQueryClient();
+  const [statusTab, setStatusTab] = useState<StatusTab>("all");
+
+  const remittancesQuery = useQuery({
+    queryKey: ["admin", "remittances"],
+    queryFn: () => apiClient.adminRemittances(),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: TxnStatus }) =>
+      apiClient.adminUpdateRemittanceStatus(id, status),
+    onSuccess: (_res, vars) => {
+      toast.success(`Remittance #${vars.id} marked ${vars.status}`);
+      queryClient.invalidateQueries({ queryKey: ["admin", "remittances"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Status update failed");
+    },
+  });
+
+  const remittances = remittancesQuery.data ?? [];
+  const filtered = useMemo(
+    () =>
+      statusTab === "all" ? remittances : remittances.filter((r) => r.status === statusTab),
+    [remittances, statusTab],
+  );
+
+  const statusSelect = (id: number, status: TxnStatus) => (
+    <Select
+      value={status}
+      disabled={statusMutation.isPending}
+      onValueChange={(value) => {
+        if (value === status) return;
+        statusMutation.mutate({ id, status: value as TxnStatus });
+      }}
+    >
+      <SelectTrigger className="h-8 w-full min-w-[120px]" aria-label={`Status for remittance ${id}`}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {STATUS_OPTIONS.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  return (
+    <AdminShell title="Remittances" description="Samsara inbound remittance payouts">
+      <div className="space-y-4">
+        {remittancesQuery.isLoading && (
+          <p className="text-sm text-muted-foreground">Loading remittances…</p>
+        )}
+        {remittancesQuery.isError && (
+          <p className="text-sm text-destructive">
+            {remittancesQuery.error instanceof ApiError
+              ? remittancesQuery.error.message
+              : "Could not load remittances."}
+          </p>
+        )}
+
+        <Tabs value={statusTab} onValueChange={(v) => setStatusTab(v as StatusTab)}>
+          <TabsList>
+            {STATUS_TABS.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value}>
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        <AdminDataList
+          isEmpty={!remittancesQuery.isLoading && filtered.length === 0}
+          empty={<AdminEmptyState>No remittances found.</AdminEmptyState>}
+          table={
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>User</TableHead>
+                  <TableHead>Ref</TableHead>
+                  <TableHead>Sender</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Credited</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Created</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="text-sm">#{r.id}</TableCell>
+                    <TableCell className="text-sm">{r.phone}</TableCell>
+                    <TableCell className="font-mono text-xs">{r.ref_no}</TableCell>
+                    <TableCell className="text-sm">{r.sender_name || "—"}</TableCell>
+                    <TableCell className="tabular text-right text-sm">
+                      {formatNPR(r.amount)}
+                    </TableCell>
+                    <TableCell className="tabular text-right text-sm">
+                      {formatNPR(r.total_credited || r.amount)}
+                    </TableCell>
+                    <TableCell>{statusSelect(r.id, r.status)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      {formatDateTime(r.created_at)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          }
+          mobile={
+            <AdminMobileCardGrid>
+              {filtered.map((r) => (
+                <AdminMobileCard key={r.id}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium">{r.ref_no}</p>
+                      <p className="text-xs text-muted-foreground">
+                        #{r.id} · {r.phone}
+                      </p>
+                    </div>
+                  </div>
+                  <AdminMobileMeta
+                    items={[
+                      { label: "Amount", value: formatNPR(r.amount) },
+                      {
+                        label: "Credited",
+                        value: formatNPR(r.total_credited || r.amount),
+                      },
+                      { label: "Sender", value: r.sender_name || "—" },
+                      { label: "Receiver", value: r.receiver_name || "—" },
+                      { label: "When", value: formatDateTime(r.created_at) },
+                    ]}
+                  />
+                  <div className="mt-3">{statusSelect(r.id, r.status)}</div>
+                </AdminMobileCard>
+              ))}
+            </AdminMobileCardGrid>
+          }
+        />
+      </div>
+    </AdminShell>
+  );
+}

@@ -4,7 +4,7 @@ DRF Serializers for all models
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
-from .models import Wallet, Deposit, Settings, TopupTransaction, BankTransferTransaction
+from .models import Wallet, Deposit, Settings, TopupTransaction, BankTransferTransaction, RemittanceTransaction
 
 User = get_user_model()
 
@@ -581,3 +581,154 @@ class CalculateChargeSerializer(serializers.Serializer):
 
 class TransactionStatusSerializer(serializers.Serializer):
     merchant_transaction_id = serializers.CharField(max_length=100, required=True)
+
+
+class RemittanceTransactionSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = RemittanceTransaction
+        fields = (
+            'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
+            'ref_no', 'samsara_link_id', 'amount', 'payout_currency',
+            'sender_name', 'sender_address', 'sender_city', 'sender_country',
+            'receiver_name', 'receiver_phone', 'receiver_country',
+            'payment_type', 'txn_date',
+            'beneficiary_gender', 'beneficiary_nationality',
+            'beneficiary_state', 'beneficiary_district', 'beneficiary_municipality',
+            'beneficiary_ward_number', 'beneficiary_city', 'beneficiary_address',
+            'beneficiary_relation', 'beneficiary_occupation',
+            'beneficiary_citizenship_number', 'beneficiary_citizenship_issuing_district',
+            'beneficiary_id_type', 'beneficiary_id_number',
+            'beneficiary_id_issue_date', 'beneficiary_id_issue_by',
+            'beneficiary_mobile_no', 'beneficiary_dob', 'remittance_purpose',
+            'status', 'status_display', 'merchant_txn_id', 'provider_txn_id',
+            'reference_id', 'charge', 'cashback', 'total_credited',
+            'wallet_credited', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+
+class AdminRemittanceSerializer(RemittanceTransactionSerializer):
+    class Meta(RemittanceTransactionSerializer.Meta):
+        fields = RemittanceTransactionSerializer.Meta.fields + (
+            'lookup_response', 'provider_response',
+        )
+
+
+class RemittanceLookupSerializer(serializers.Serializer):
+    ref_no = serializers.CharField(max_length=100, required=True)
+
+    def validate_ref_no(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('Remittance reference number is required.')
+        return value
+
+
+class RemittanceReceiveSerializer(serializers.Serializer):
+    ref_no = serializers.CharField(max_length=100, required=True)
+    samsara_link_id = serializers.CharField(max_length=100, required=True)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, required=True)
+    payout_currency = serializers.CharField(max_length=10, required=False, allow_blank=True, default='NPR')
+    sender_name = serializers.CharField(max_length=200, required=False, allow_blank=True, default='')
+    sender_address = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    sender_city = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    sender_country = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    receiver_name = serializers.CharField(max_length=200, required=False, allow_blank=True, default='')
+    receiver_phone = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+    receiver_country = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    payment_type = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+    send_agent = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
+    txn_date = serializers.CharField(max_length=80, required=False, allow_blank=True, default='')
+
+    beneficiary_gender = serializers.CharField(max_length=20, required=True)
+    beneficiary_nationality = serializers.CharField(max_length=50, required=False, default='Nepali')
+    beneficiary_state = serializers.CharField(max_length=100, required=True)
+    beneficiary_district = serializers.CharField(max_length=100, required=True)
+    beneficiary_municipality = serializers.CharField(max_length=150, required=True)
+    beneficiary_ward_number = serializers.CharField(max_length=20, required=True)
+    beneficiary_city = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    beneficiary_address = serializers.CharField(max_length=255, required=True)
+    beneficiary_relation = serializers.CharField(max_length=50, required=False, default='SELF')
+    beneficiary_occupation = serializers.CharField(max_length=100, required=True)
+    beneficiary_citizenship_number = serializers.CharField(max_length=100, required=True)
+    beneficiary_citizenship_issuing_district = serializers.CharField(max_length=100, required=True)
+    beneficiary_id_type = serializers.CharField(max_length=50, required=False, default='Citizenship')
+    beneficiary_id_number = serializers.CharField(max_length=100, required=True)
+    beneficiary_id_issue_date = serializers.CharField(max_length=30, required=True)
+    beneficiary_id_issue_by = serializers.CharField(max_length=100, required=True)
+    beneficiary_mobile_no = serializers.CharField(max_length=50, required=True)
+    beneficiary_dob = serializers.CharField(max_length=30, required=True)
+    remittance_purpose = serializers.CharField(max_length=80, required=False, default='FAMILY_SUPPORT')
+
+    def validate_ref_no(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('Remittance reference number is required.')
+        return value
+
+    def validate_samsara_link_id(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('Samsara link ID is required. Look up the remittance first.')
+        return value
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Amount must be greater than zero.')
+        return value
+
+    def _require_text(self, value, label):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError(f'{label} is required.')
+        return value
+
+    def validate_beneficiary_gender(self, value):
+        return self._require_text(value, 'Gender')
+
+    def validate_beneficiary_state(self, value):
+        return self._require_text(value, 'State / province')
+
+    def validate_beneficiary_district(self, value):
+        return self._require_text(value, 'District')
+
+    def validate_beneficiary_municipality(self, value):
+        return self._require_text(value, 'Municipality')
+
+    def validate_beneficiary_ward_number(self, value):
+        return self._require_text(value, 'Ward number')
+
+    def validate_beneficiary_address(self, value):
+        return self._require_text(value, 'Address')
+
+    def validate_beneficiary_occupation(self, value):
+        return self._require_text(value, 'Occupation')
+
+    def validate_beneficiary_citizenship_number(self, value):
+        return self._require_text(value, 'Citizenship number')
+
+    def validate_beneficiary_citizenship_issuing_district(self, value):
+        return self._require_text(value, 'Citizenship issuing district')
+
+    def validate_beneficiary_id_number(self, value):
+        return self._require_text(value, 'ID number')
+
+    def validate_beneficiary_id_issue_date(self, value):
+        return self._require_text(value, 'ID issue date')
+
+    def validate_beneficiary_id_issue_by(self, value):
+        return self._require_text(value, 'ID issued by')
+
+    def validate_beneficiary_mobile_no(self, value):
+        return self._require_text(value, 'Mobile number')
+
+    def validate_beneficiary_dob(self, value):
+        return self._require_text(value, 'Date of birth')
+
