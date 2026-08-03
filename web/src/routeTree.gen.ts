@@ -40,8 +40,8 @@ import { Route as AppNotificationsNotificationIdRouteImport } from './routes/app
 import { Route as AppProfileEditRouteImport } from './routes/app/profile_.edit'
 import { Route as AppProfilePasswordRouteImport } from './routes/app/profile_.password'
 import { Route as AppProfilePhoneRouteImport } from './routes/app/profile_.phone'
-import { Route as AdminUsersUserIdEditRouteImport } from './routes/admin/users_.$userId.edit'
-import { Route as AdminWalletsWalletIdEditRouteImport } from './routes/admin/wallets_.$walletId.edit'
+import { Route as AdminUsersUserIdEditRouteImport } from './routes/admin/users_.$userId_.edit'
+import { Route as AdminWalletsWalletIdEditRouteImport } from './routes/admin/wallets_.$walletId_.edit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -200,15 +200,15 @@ const AppProfilePhoneRoute = AppProfilePhoneRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminUsersUserIdEditRoute = AdminUsersUserIdEditRouteImport.update({
-  id: '/edit',
-  path: '/edit',
-  getParentRoute: () => AdminUsersUserIdRoute,
+  id: '/admin/users_/$userId_/edit',
+  path: '/admin/users/$userId/edit',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AdminWalletsWalletIdEditRoute =
   AdminWalletsWalletIdEditRouteImport.update({
-    id: '/edit',
-    path: '/edit',
-    getParentRoute: () => AdminWalletsWalletIdRoute,
+    id: '/admin/wallets_/$walletId_/edit',
+    path: '/admin/wallets/$walletId/edit',
+    getParentRoute: () => rootRouteImport,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -235,9 +235,9 @@ export interface FileRoutesByFullPath {
   '/app/': typeof AppIndexRoute
   '/admin/deposits/$depositId': typeof AdminDepositsDepositIdRoute
   '/admin/topups/$topupId': typeof AdminTopupsTopupIdRoute
-  '/admin/users/$userId': typeof AdminUsersUserIdRouteWithChildren
+  '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
-  '/admin/wallets/$walletId': typeof AdminWalletsWalletIdRouteWithChildren
+  '/admin/wallets/$walletId': typeof AdminWalletsWalletIdRoute
   '/app/history/$activityId': typeof AppHistoryActivityIdRoute
   '/app/notifications/$notificationId': typeof AppNotificationsNotificationIdRoute
   '/app/profile/edit': typeof AppProfileEditRoute
@@ -270,9 +270,9 @@ export interface FileRoutesByTo {
   '/app': typeof AppIndexRoute
   '/admin/deposits/$depositId': typeof AdminDepositsDepositIdRoute
   '/admin/topups/$topupId': typeof AdminTopupsTopupIdRoute
-  '/admin/users/$userId': typeof AdminUsersUserIdRouteWithChildren
+  '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
-  '/admin/wallets/$walletId': typeof AdminWalletsWalletIdRouteWithChildren
+  '/admin/wallets/$walletId': typeof AdminWalletsWalletIdRoute
   '/app/history/$activityId': typeof AppHistoryActivityIdRoute
   '/app/notifications/$notificationId': typeof AppNotificationsNotificationIdRoute
   '/app/profile/edit': typeof AppProfileEditRoute
@@ -306,16 +306,16 @@ export interface FileRoutesById {
   '/app/': typeof AppIndexRoute
   '/admin/deposits_/$depositId': typeof AdminDepositsDepositIdRoute
   '/admin/topups_/$topupId': typeof AdminTopupsTopupIdRoute
-  '/admin/users_/$userId': typeof AdminUsersUserIdRouteWithChildren
+  '/admin/users_/$userId': typeof AdminUsersUserIdRoute
   '/admin/users_/new': typeof AdminUsersNewRoute
-  '/admin/wallets_/$walletId': typeof AdminWalletsWalletIdRouteWithChildren
+  '/admin/wallets_/$walletId': typeof AdminWalletsWalletIdRoute
   '/app/history_/$activityId': typeof AppHistoryActivityIdRoute
   '/app/notifications_/$notificationId': typeof AppNotificationsNotificationIdRoute
   '/app/profile_/edit': typeof AppProfileEditRoute
   '/app/profile_/password': typeof AppProfilePasswordRoute
   '/app/profile_/phone': typeof AppProfilePhoneRoute
-  '/admin/users_/$userId/edit': typeof AdminUsersUserIdEditRoute
-  '/admin/wallets_/$walletId/edit': typeof AdminWalletsWalletIdEditRoute
+  '/admin/users_/$userId_/edit': typeof AdminUsersUserIdEditRoute
+  '/admin/wallets_/$walletId_/edit': typeof AdminWalletsWalletIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -421,8 +421,8 @@ export interface FileRouteTypes {
     | '/app/profile_/edit'
     | '/app/profile_/password'
     | '/app/profile_/phone'
-    | '/admin/users_/$userId/edit'
-    | '/admin/wallets_/$walletId/edit'
+    | '/admin/users_/$userId_/edit'
+    | '/admin/wallets_/$walletId_/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -449,14 +449,16 @@ export interface RootRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AdminDepositsDepositIdRoute: typeof AdminDepositsDepositIdRoute
   AdminTopupsTopupIdRoute: typeof AdminTopupsTopupIdRoute
-  AdminUsersUserIdRoute: typeof AdminUsersUserIdRouteWithChildren
+  AdminUsersUserIdRoute: typeof AdminUsersUserIdRoute
   AdminUsersNewRoute: typeof AdminUsersNewRoute
-  AdminWalletsWalletIdRoute: typeof AdminWalletsWalletIdRouteWithChildren
+  AdminWalletsWalletIdRoute: typeof AdminWalletsWalletIdRoute
   AppHistoryActivityIdRoute: typeof AppHistoryActivityIdRoute
   AppNotificationsNotificationIdRoute: typeof AppNotificationsNotificationIdRoute
   AppProfileEditRoute: typeof AppProfileEditRoute
   AppProfilePasswordRoute: typeof AppProfilePasswordRoute
   AppProfilePhoneRoute: typeof AppProfilePhoneRoute
+  AdminUsersUserIdEditRoute: typeof AdminUsersUserIdEditRoute
+  AdminWalletsWalletIdEditRoute: typeof AdminWalletsWalletIdEditRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -678,44 +680,22 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProfilePhoneRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/users_/$userId/edit': {
-      id: '/admin/users_/$userId/edit'
-      path: '/edit'
+    '/admin/users_/$userId_/edit': {
+      id: '/admin/users_/$userId_/edit'
+      path: '/admin/users/$userId/edit'
       fullPath: '/admin/users/$userId/edit'
       preLoaderRoute: typeof AdminUsersUserIdEditRouteImport
-      parentRoute: typeof AdminUsersUserIdRoute
+      parentRoute: typeof rootRouteImport
     }
-    '/admin/wallets_/$walletId/edit': {
-      id: '/admin/wallets_/$walletId/edit'
-      path: '/edit'
+    '/admin/wallets_/$walletId_/edit': {
+      id: '/admin/wallets_/$walletId_/edit'
+      path: '/admin/wallets/$walletId/edit'
       fullPath: '/admin/wallets/$walletId/edit'
       preLoaderRoute: typeof AdminWalletsWalletIdEditRouteImport
-      parentRoute: typeof AdminWalletsWalletIdRoute
+      parentRoute: typeof rootRouteImport
     }
   }
 }
-
-interface AdminUsersUserIdRouteChildren {
-  AdminUsersUserIdEditRoute: typeof AdminUsersUserIdEditRoute
-}
-
-const AdminUsersUserIdRouteChildren: AdminUsersUserIdRouteChildren = {
-  AdminUsersUserIdEditRoute: AdminUsersUserIdEditRoute,
-}
-
-const AdminUsersUserIdRouteWithChildren =
-  AdminUsersUserIdRoute._addFileChildren(AdminUsersUserIdRouteChildren)
-
-interface AdminWalletsWalletIdRouteChildren {
-  AdminWalletsWalletIdEditRoute: typeof AdminWalletsWalletIdEditRoute
-}
-
-const AdminWalletsWalletIdRouteChildren: AdminWalletsWalletIdRouteChildren = {
-  AdminWalletsWalletIdEditRoute: AdminWalletsWalletIdEditRoute,
-}
-
-const AdminWalletsWalletIdRouteWithChildren =
-  AdminWalletsWalletIdRoute._addFileChildren(AdminWalletsWalletIdRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -741,14 +721,16 @@ const rootRouteChildren: RootRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AdminDepositsDepositIdRoute: AdminDepositsDepositIdRoute,
   AdminTopupsTopupIdRoute: AdminTopupsTopupIdRoute,
-  AdminUsersUserIdRoute: AdminUsersUserIdRouteWithChildren,
+  AdminUsersUserIdRoute: AdminUsersUserIdRoute,
   AdminUsersNewRoute: AdminUsersNewRoute,
-  AdminWalletsWalletIdRoute: AdminWalletsWalletIdRouteWithChildren,
+  AdminWalletsWalletIdRoute: AdminWalletsWalletIdRoute,
   AppHistoryActivityIdRoute: AppHistoryActivityIdRoute,
   AppNotificationsNotificationIdRoute: AppNotificationsNotificationIdRoute,
   AppProfileEditRoute: AppProfileEditRoute,
   AppProfilePasswordRoute: AppProfilePasswordRoute,
   AppProfilePhoneRoute: AppProfilePhoneRoute,
+  AdminUsersUserIdEditRoute: AdminUsersUserIdEditRoute,
+  AdminWalletsWalletIdEditRoute: AdminWalletsWalletIdEditRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

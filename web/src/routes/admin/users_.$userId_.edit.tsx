@@ -7,7 +7,7 @@ import { UserForm } from "@/components/admin/UserForm";
 import { apiClient, ApiError } from "@/lib/api";
 import type { AdminUserWritePayload } from "@/lib/types";
 
-export const Route = createFileRoute("/admin/users_/$userId/edit")({
+export const Route = createFileRoute("/admin/users_/$userId_/edit")({
   head: () => ({
     meta: [
       { title: "Edit User — MySewa Admin" },

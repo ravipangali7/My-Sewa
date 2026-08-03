@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiClient, ApiError } from "@/lib/api";
 
-export const Route = createFileRoute("/admin/wallets_/$walletId/edit")({
+export const Route = createFileRoute("/admin/wallets_/$walletId_/edit")({
   head: () => ({
     meta: [
       { title: "Edit Wallet — MySewa Admin" },
