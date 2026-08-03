@@ -126,6 +126,12 @@ function HistoryPage() {
                       )}
                     >
                       {item.credit ? "+" : "−"} {formatNPR(item.amount)}
+                      {item.charge && Number(item.charge) > 0 ? (
+                        <span className="font-bold">
+                          {" "}
+                          + {formatNPR(item.charge)}
+                        </span>
+                      ) : null}
                     </p>
                     <StatusChip status={item.status} compact className="mt-1" />
                   </div>

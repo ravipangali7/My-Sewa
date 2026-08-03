@@ -192,7 +192,10 @@ function notificationCopy(
         : t("notif.transferUpdate"),
     body: t("notif.transferBody", {
       subtitle: item.subtitle,
-      amount: formatNPR(item.amount),
+      amount:
+        item.charge && Number(item.charge) > 0
+          ? `${formatNPR(item.amount)} + ${formatNPR(item.charge)}`
+          : formatNPR(item.amount),
     }),
   };
 }

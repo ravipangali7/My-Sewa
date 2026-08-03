@@ -305,6 +305,8 @@ export interface ActivityItem {
   title: string;
   subtitle: string;
   amount: string;
+  /** Transfer/top-up fee when applied; shown bold beside the amount. */
+  charge?: string;
   credit: boolean;
   status: DepositStatus | TxnStatus;
   created_at: string;

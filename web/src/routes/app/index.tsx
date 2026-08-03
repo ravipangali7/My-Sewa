@@ -352,11 +352,16 @@ function WalletHome() {
                       </span>
                       <span
                         className={cn(
-                          "tabular shrink-0 text-[13px] font-bold",
+                          "tabular shrink-0 text-right text-[13px] font-bold",
                           item.credit ? "text-[#16A34A]" : "text-[#0B2B4A]",
                         )}
                       >
                         {item.credit ? "+" : "−"} {formatRu(item.amount)}
+                        {item.charge && Number(item.charge) > 0 ? (
+                          <span className="block font-bold">
+                            + {formatRu(item.charge)}
+                          </span>
+                        ) : null}
                       </span>
                       <ChevronRight className="size-4 shrink-0 text-[#C0C7D1]" />
                     </Link>

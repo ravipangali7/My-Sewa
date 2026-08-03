@@ -61,6 +61,7 @@ function Transfer() {
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [verifying, setVerifying] = useState(false);
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
+  const [showAllRecent, setShowAllRecent] = useState(false);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -567,7 +568,18 @@ function Transfer() {
         </section>
 
         <section>
-          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("transfer.recent")}</h2>
+          <div className="mb-2 flex items-center justify-between gap-2 px-1">
+            <h2 className="text-[17px] font-semibold">{t("transfer.recent")}</h2>
+            {(historyQuery.data?.length ?? 0) > 5 ? (
+              <button
+                type="button"
+                onClick={() => setShowAllRecent((v) => !v)}
+                className="text-[13px] font-medium text-brand underline-offset-2 hover:underline"
+              >
+                {showAllRecent ? t("transfer.showLess") : t("transfer.viewAll")}
+              </button>
+            ) : null}
+          </div>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
@@ -578,7 +590,7 @@ function Transfer() {
             </div>
           ) : (
             <ul className="inset-group divide-y divide-border">
-              {historyQuery.data.map((b) => (
+              {(showAllRecent ? historyQuery.data : historyQuery.data.slice(0, 5)).map((b) => (
                 <li key={b.id} className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     <div className="min-w-0 flex-1">
@@ -590,7 +602,15 @@ function Transfer() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="tabular text-[15px] font-semibold">{formatNPR(b.amount)}</p>
+                      <p className="tabular text-[15px] font-semibold">
+                        {formatNPR(b.amount)}
+                        {Number(b.charge) > 0 ? (
+                          <span className="font-bold">
+                            {" "}
+                            + {formatNPR(b.charge)}
+                          </span>
+                        ) : null}
+                      </p>
                       <StatusChip status={b.status} compact className="mt-1" />
                     </div>
                   </div>
