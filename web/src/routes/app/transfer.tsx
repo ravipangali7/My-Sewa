@@ -1,6 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { BankCombobox } from "@/components/BankCombobox";
@@ -20,6 +21,13 @@ import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
+
+function displayTransferTotal(item: BankTransferTransaction) {
+  const total = Number(item.total_debited);
+  if (Number.isFinite(total) && total > 0) return formatNPR(item.total_debited);
+  const combined = Number(item.amount) + Number(item.charge || 0);
+  return formatNPR(Number.isFinite(combined) ? combined : item.amount);
+}
 
 export const Route = createFileRoute("/app/transfer")({
   head: () => ({
@@ -168,6 +176,7 @@ function Transfer() {
 
   useEffect(() => {
     setVerified(false);
+    if (method === "phone") setAccName("");
   }, [method]);
 
   useEffect(() => {
@@ -306,10 +315,11 @@ function Transfer() {
       errorPopup.showMessage(t("account.pending"), { title: t("transfer.accountPendingTitle") });
       return;
     }
-    if (!bank || !accName.trim()) {
-      errorPopup.showMessage(t("transfer.enterBankAndName"), {
-        title: t("transfer.missingDetails"),
-      });
+    if (!bank) {
+      errorPopup.showMessage(
+        isMobile ? t("transfer.enterBankAndPhone") : t("transfer.enterBankAndName"),
+        { title: t("transfer.missingDetails") },
+      );
       return;
     }
     if (isMobile) {
@@ -320,44 +330,66 @@ function Transfer() {
         });
         return;
       }
-    } else if (accNo.trim().length < 5) {
-      errorPopup.showMessage(t("transfer.enterValidAccount"), {
-        title: t("transfer.invalidAccount"),
-      });
-      return;
+    } else {
+      if (!accName.trim()) {
+        errorPopup.showMessage(t("transfer.enterBankAndName"), {
+          title: t("transfer.missingDetails"),
+        });
+        return;
+      }
+      if (accNo.trim().length < 5) {
+        errorPopup.showMessage(t("transfer.enterValidAccount"), {
+          title: t("transfer.invalidAccount"),
+        });
+        return;
+      }
     }
     setVerifying(true);
     try {
       const res = await apiClient.verifyBank({
         bank_code: bank,
-        account_name: accName.trim(),
+        // Phone transfers: name is not required — provider returns the registered holder.
+        ...(isMobile ? {} : { account_name: accName.trim() }),
         account_number: destinationNumber,
         is_mobile: isMobile,
       });
       if (!res.data?.verified) {
         setVerified(false);
-        errorPopup.showMessage(t("transfer.couldNotVerify"), {
-          title: t("transfer.verifyFailed"),
+        errorPopup.showMessage(t("transfer.dontMatch"), {
+          title: t("transfer.dontMatch"),
         });
         return;
       }
-      // Use the bank-returned original account holder name for the transfer
       const originalName = (res.data.account_name || accName).trim();
+      if (!originalName) {
+        setVerified(false);
+        errorPopup.showMessage(t("transfer.dontMatch"), {
+          title: t("transfer.dontMatch"),
+        });
+        return;
+      }
       setAccName(originalName);
       if (res.data.bank_code && res.data.bank_code !== bank) {
         setBank(res.data.bank_code);
       }
       setVerified(true);
       toast.success(
-        originalName !== accName.trim()
-          ? t("transfer.verifiedAs", { name: originalName })
+        isMobile
+          ? t("transfer.verifiedPhone", { name: originalName })
           : res.message || t("transfer.accountVerified"),
       );
     } catch (err) {
       setVerified(false);
+      const mismatch =
+        err instanceof ApiError &&
+        (err.message === "Don't Match" ||
+          (err.body &&
+            typeof err.body === "object" &&
+            ((err.body as Record<string, unknown>).error === "Don't Match" ||
+              (err.body as Record<string, unknown>).mismatch === true)));
       errorPopup.showError(err, {
-        title: t("transfer.verifyFailed"),
-        fallback: t("transfer.verifyFailed"),
+        title: t("transfer.dontMatch"),
+        fallback: mismatch ? t("transfer.dontMatch") : t("transfer.verifyFailed"),
       });
     } finally {
       setVerifying(false);
@@ -424,20 +456,22 @@ function Transfer() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="accName">{t("transfer.accHolder")}</Label>
-              <Input
-                id="accName"
-                value={accName}
-                onChange={(e) => {
-                  setAccName(e.target.value);
-                  setVerified(false);
-                }}
-                className="h-12 rounded-xl"
-                required
-                disabled={!transfersEnabled}
-              />
-            </div>
+            {!isMobile ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="accName">{t("transfer.accHolder")}</Label>
+                <Input
+                  id="accName"
+                  value={accName}
+                  onChange={(e) => {
+                    setAccName(e.target.value);
+                    setVerified(false);
+                  }}
+                  className="h-12 rounded-xl"
+                  required
+                  disabled={!transfersEnabled}
+                />
+              </div>
+            ) : null}
 
             {isMobile ? (
               <div className="space-y-1.5">
@@ -451,6 +485,7 @@ function Transfer() {
                     onChange={(e) => {
                       setPhone(e.target.value);
                       setVerified(false);
+                      setAccName("");
                     }}
                     className="h-12 rounded-xl"
                     required
@@ -467,11 +502,11 @@ function Transfer() {
                   </Button>
                 </div>
                 <p className="text-[12px] text-muted-foreground">{t("transfer.phoneHelp")}</p>
-                {verified && (
+                {verified && accName ? (
                   <p className="text-[13px] text-success">
-                    {t("transfer.verifiedAccount", { name: accName })}
+                    {t("transfer.verifiedPhone", { name: accName })}
                   </p>
-                )}
+                ) : null}
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -498,11 +533,11 @@ function Transfer() {
                     {verifying ? "…" : t("transfer.verify")}
                   </Button>
                 </div>
-                {verified && (
+                {verified ? (
                   <p className="text-[13px] text-success">
                     {t("transfer.verifiedAccount", { name: accName })}
                   </p>
-                )}
+                ) : null}
               </div>
             )}
 
@@ -591,44 +626,47 @@ function Transfer() {
           ) : (
             <ul className="inset-group divide-y divide-border">
               {(showAllRecent ? historyQuery.data : historyQuery.data.slice(0, 5)).map((b) => (
-                <li key={b.id} className="px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[15px] font-medium">{b.destination_acc_name}</p>
-                      <p className="truncate text-[13px] text-muted-foreground">
-                        {b.is_destination_mobile
-                          ? t("transfer.phonePrefix", { phone: b.destination_acc_no })
-                          : `${b.destination_bank_name || b.destination_bank} · ${b.destination_acc_no}`}
+                <li key={b.id}>
+                  <div className="flex items-stretch gap-1 px-2 py-1">
+                    <Link
+                      to="/app/history/$activityId"
+                      params={{ activityId: `bt-${b.id}` }}
+                      className="min-w-0 flex-1 rounded-lg px-2 py-2 transition-colors active:bg-muted/60"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[15px] font-medium">
+                            {b.destination_acc_name || b.destination_acc_no}
+                          </p>
+                          <p className="truncate text-[13px] text-muted-foreground">
+                            {b.is_destination_mobile
+                              ? t("transfer.phonePrefix", { phone: b.destination_acc_no })
+                              : `${b.destination_bank_name || b.destination_bank} · ${b.destination_acc_no}`}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="tabular text-[15px] font-semibold">
+                            {displayTransferTotal(b)}
+                          </p>
+                          <StatusChip status={b.status} compact className="mt-1" />
+                        </div>
+                        <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+                      </div>
+                      <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                        {b.merchant_txn_id} · {formatDateTime(b.created_at)} ·{" "}
+                        {b.status === "failed"
+                          ? t("transfer.notDebited", { amount: formatNPR(b.total_debited) })
+                          : b.status === "pending"
+                            ? t("transfer.pendingDebit", { amount: formatNPR(b.total_debited) })
+                            : t("transfer.debited", { amount: formatNPR(b.total_debited) })}
                       </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="tabular text-[15px] font-semibold">
-                        {formatNPR(b.amount)}
-                        {Number(b.charge) > 0 ? (
-                          <span className="font-bold">
-                            {" "}
-                            + {formatNPR(b.charge)}
-                          </span>
-                        ) : null}
-                      </p>
-                      <StatusChip status={b.status} compact className="mt-1" />
-                    </div>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between gap-2">
-                    <p className="min-w-0 truncate text-[12px] text-muted-foreground">
-                      {b.merchant_txn_id} · {formatDateTime(b.created_at)} ·{" "}
-                      {b.status === "failed"
-                        ? t("transfer.notDebited", { amount: formatNPR(b.total_debited) })
-                        : b.status === "pending"
-                          ? t("transfer.pendingDebit", { amount: formatNPR(b.total_debited) })
-                          : t("transfer.debited", { amount: formatNPR(b.total_debited) })}
-                    </p>
+                    </Link>
                     {b.status === "pending" ? (
                       <button
                         type="button"
                         disabled={refreshingId === b.id}
                         onClick={() => void refreshStatus(b)}
-                        className="shrink-0 text-[12px] font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
+                        className="shrink-0 self-center px-2 text-[12px] font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
                       >
                         {refreshingId === b.id
                           ? t("common.processing")

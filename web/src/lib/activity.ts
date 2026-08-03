@@ -59,8 +59,8 @@ export function buildActivity(
       kind: "transfer" as const,
       title: t("activity.fundTransfer"),
       subtitle: `${b.destination_acc_name} · ${b.destination_bank_name || b.destination_bank}`,
-      amount: b.amount,
-      charge: Number(b.charge) > 0 ? b.charge : undefined,
+      // Show amount + charge as one total (e.g. 105), never "100 + 5".
+      amount: b.total_debited !== "0.00" ? b.total_debited : b.amount,
       credit: false,
       status: b.status,
       created_at: b.created_at,

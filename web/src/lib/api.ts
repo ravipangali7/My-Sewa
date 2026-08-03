@@ -356,13 +356,15 @@ export const apiClient = {
 
   verifyBank: (body: {
     bank_code: string;
-    account_name: string;
+    account_name?: string;
     account_number: string;
     is_mobile?: boolean;
     merchant_txn_id?: string;
   }) =>
     api<{
       message: string;
+      error?: string;
+      mismatch?: boolean;
       data: {
         verified: boolean;
         account_name?: string;

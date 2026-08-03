@@ -501,7 +501,8 @@ class BankTransferTransactionSerializer(serializers.ModelSerializer):
 class BankAccountVerifySerializer(serializers.Serializer):
     """Verify destination bank account before transfer"""
     bank_code = serializers.CharField(max_length=50, required=True)
-    account_name = serializers.CharField(max_length=150, required=True)
+    # Optional for phone/mobile transfers — provider returns the registered name.
+    account_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
     account_number = serializers.CharField(max_length=50, required=True)
     is_mobile = serializers.BooleanField(required=False, default=False)
     merchant_txn_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
@@ -512,14 +513,22 @@ class BankAccountVerifySerializer(serializers.Serializer):
         return value.strip().upper()
 
     def validate_account_name(self, value):
-        if not value or not value.strip():
-            raise serializers.ValidationError("Account name is required.")
-        return value.strip()
+        return (value or '').strip()
 
     def validate_account_number(self, value):
         if not value or not value.strip():
             raise serializers.ValidationError("Account number is required.")
         return value.strip()
+
+    def validate(self, attrs):
+        is_mobile = bool(attrs.get('is_mobile'))
+        name = (attrs.get('account_name') or '').strip()
+        if not is_mobile and not name:
+            raise serializers.ValidationError(
+                {'account_name': 'Account name is required for bank transfers.'}
+            )
+        attrs['account_name'] = name
+        return attrs
 
 
 class BankTransferCreateSerializer(serializers.Serializer):
@@ -528,7 +537,10 @@ class BankTransferCreateSerializer(serializers.Serializer):
     destination_bank = serializers.CharField(max_length=50, required=True)
     destination_bank_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
     destination_acc_no = serializers.CharField(max_length=50, required=True)
-    destination_acc_name = serializers.CharField(max_length=150, required=True)
+    # Optional for phone transfers — filled from provider verify when blank.
+    destination_acc_name = serializers.CharField(
+        max_length=150, required=False, allow_blank=True, default=''
+    )
     is_destination_mobile = serializers.BooleanField(required=False, default=False)
     transaction_remarks = serializers.CharField(max_length=255, required=False, default='Fund Transfer')
     transaction_remarks_2 = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
@@ -561,9 +573,17 @@ class BankTransferCreateSerializer(serializers.Serializer):
         return value.strip()
 
     def validate_destination_acc_name(self, value):
-        if not value or not value.strip():
-            raise serializers.ValidationError("Destination account name is required.")
-        return value.strip()
+        return (value or '').strip()
+
+    def validate(self, attrs):
+        is_mobile = bool(attrs.get('is_destination_mobile'))
+        name = (attrs.get('destination_acc_name') or '').strip()
+        if not is_mobile and not name:
+            raise serializers.ValidationError(
+                {'destination_acc_name': 'Destination account name is required.'}
+            )
+        attrs['destination_acc_name'] = name
+        return attrs
 
 
 class CalculateChargeSerializer(serializers.Serializer):

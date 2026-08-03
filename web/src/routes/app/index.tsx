@@ -357,11 +357,6 @@ function WalletHome() {
                         )}
                       >
                         {item.credit ? "+" : "−"} {formatRu(item.amount)}
-                        {item.charge && Number(item.charge) > 0 ? (
-                          <span className="block font-bold">
-                            + {formatRu(item.charge)}
-                          </span>
-                        ) : null}
                       </span>
                       <ChevronRight className="size-4 shrink-0 text-[#C0C7D1]" />
                     </Link>

@@ -229,7 +229,12 @@ def verify_account(request):
 
     data = serializer.validated_data
     merchant_txn_id = data.get('merchant_txn_id') or f"MYSEWA_VF_{uuid.uuid4().hex[:14].upper()}"
-    is_mobile = 'y' if data.get('is_mobile') else 'n'
+    is_mobile = bool(data.get('is_mobile'))
+    is_mobile_flag = 'y' if is_mobile else 'n'
+    account_name = (data.get('account_name') or '').strip()
+    # HimalPay still expects an account_name field; for phone transfers use the
+    # mobile number as a placeholder when the user did not enter a name.
+    verify_name = account_name or (data['account_number'] if is_mobile else '')
 
     himalpay = HimalPayAPI()
     bank_code = _resolve_destination_bank(
@@ -240,20 +245,16 @@ def verify_account(request):
     try:
         result = himalpay.verify_bank_account(
             bank_code=bank_code,
-            account_name=data['account_name'],
+            account_name=verify_name,
             account_number=data['account_number'],
             merchant_txn_id=merchant_txn_id,
-            is_mobile=is_mobile,
+            is_mobile=is_mobile_flag,
         )
         if not himalpay.is_verification_success(result):
             return Response(
                 {
-                    'error': 'Account verification failed',
-                    'message': (
-                        result.get('message')
-                        or result.get('error')
-                        or 'Could not verify the destination account.'
-                    ),
+                    'error': "Don't Match",
+                    'message': "Don't Match",
                     'verified': False,
                     'merchant_txn_id': merchant_txn_id,
                     'provider': result,
@@ -261,18 +262,43 @@ def verify_account(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Prefer the bank-returned original account holder name
-        verified_name = himalpay.extract_verified_account_name(
-            result, fallback=data['account_name']
+        match = himalpay.verification_details_match(
+            result,
+            bank_code=bank_code,
+            account_number=data['account_number'],
+            account_name=account_name or verify_name,
+            require_name=not is_mobile,
         )
+        if not match['matched']:
+            return Response(
+                {
+                    'error': "Don't Match",
+                    'message': "Don't Match",
+                    'verified': False,
+                    'mismatch': True,
+                    'merchant_txn_id': merchant_txn_id,
+                    'data': {
+                        'verified': False,
+                        'account_name': match['account_name'],
+                        'account_number': match['account_number'],
+                        'bank_code': match['bank_code'],
+                        'bank_ok': match['bank_ok'],
+                        'number_ok': match['number_ok'],
+                        'name_ok': match['name_ok'],
+                    },
+                    'provider': result,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         return Response(
             {
                 'message': 'Account verification completed',
                 'data': {
                     'verified': True,
-                    'account_name': verified_name,
-                    'account_number': data['account_number'],
-                    'bank_code': bank_code,
+                    'account_name': match['account_name'],
+                    'account_number': match['account_number'],
+                    'bank_code': match['bank_code'],
                     'merchant_txn_id': merchant_txn_id,
                     'provider': result,
                 },
@@ -282,8 +308,8 @@ def verify_account(request):
     except HimalPayError as exc:
         return Response(
             {
-                'error': 'Account verification failed',
-                'message': exc.message,
+                'error': "Don't Match",
+                'message': exc.message or "Don't Match",
                 'error_code': exc.error_code,
                 'error_type': exc.error_type,
                 'verified': False,
@@ -526,9 +552,12 @@ def create_bank_transfer(request):
 
     try:
         # Step 1: verify destination with a dedicated verify txn id
+        verify_name = data['destination_acc_name'] or (
+            data['destination_acc_no'] if is_mobile else ''
+        )
         verify_result = himalpay.verify_bank_account(
             bank_code=data['destination_bank'],
-            account_name=data['destination_acc_name'],
+            account_name=verify_name,
             account_number=data['destination_acc_no'],
             merchant_txn_id=verify_merchant_txn_id,
             is_mobile='y' if is_mobile else 'n',
@@ -537,18 +566,11 @@ def create_bank_transfer(request):
             transfer.status = 'failed'
             transfer.provider_response = verify_result if isinstance(verify_result, dict) else {}
             transfer.save()
-            failure = himalpay.extract_failure_details(verify_result)
             return Response(
                 {
-                    'error': 'Account verification failed',
-                    'message': (
-                        failure['message']
-                        if failure['provider_message'] != 'Transaction failed'
-                        else 'Destination account could not be verified. Transfer rejected.'
-                    ),
-                    'provider_message': failure['provider_message'],
-                    'error_code': failure['error_code'],
-                    'error_type': failure['error_type'],
+                    'error': "Don't Match",
+                    'message': "Don't Match",
+                    'verified': False,
                     'wallet_debited': False,
                     'data': BankTransferTransactionSerializer(transfer).data,
                     'provider': verify_result,
@@ -556,9 +578,31 @@ def create_bank_transfer(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        verified_name = himalpay.extract_verified_account_name(
-            verify_result, fallback=data['destination_acc_name']
+        match = himalpay.verification_details_match(
+            verify_result,
+            bank_code=data['destination_bank'],
+            account_number=data['destination_acc_no'],
+            account_name=data['destination_acc_name'] or verify_name,
+            require_name=not is_mobile,
         )
+        if not match['matched']:
+            transfer.status = 'failed'
+            transfer.provider_response = verify_result if isinstance(verify_result, dict) else {}
+            transfer.save()
+            return Response(
+                {
+                    'error': "Don't Match",
+                    'message': "Don't Match",
+                    'verified': False,
+                    'mismatch': True,
+                    'wallet_debited': False,
+                    'data': BankTransferTransactionSerializer(transfer).data,
+                    'provider': verify_result,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        verified_name = match['account_name']
         transfer.destination_acc_name = verified_name
         transfer.verified = True
         transfer.save(update_fields=['destination_acc_name', 'verified', 'updated_at'])

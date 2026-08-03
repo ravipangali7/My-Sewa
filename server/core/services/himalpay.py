@@ -758,48 +758,132 @@ class HimalPayAPI:
         )
 
     @staticmethod
-    def extract_verified_account_name(response: Any, fallback: str = '') -> str:
-        """
-        Pull the bank-verified / original account holder name from a
-        BANK_TRANSFER_VERIFICATION response. Falls back to the provided name.
-        """
-        if not isinstance(response, dict):
-            return (fallback or '').strip()
-
-        candidates = [
-            response.get('account_name'),
-            response.get('AccountName'),
-            response.get('account_holder_name'),
-            response.get('AccountHolderName'),
-            response.get('destination_acc_name'),
-            response.get('name'),
-        ]
-        nested = response.get('data') or response.get('Data') or {}
-        if isinstance(nested, dict):
-            candidates.extend([
-                nested.get('account_name'),
-                nested.get('AccountName'),
-                nested.get('account_holder_name'),
-                nested.get('AccountHolderName'),
-                nested.get('destination_acc_name'),
-                nested.get('name'),
-            ])
-            deeper = nested.get('data') or nested.get('Data') or {}
-            if isinstance(deeper, dict):
-                candidates.extend([
-                    deeper.get('account_name'),
-                    deeper.get('AccountName'),
-                    deeper.get('account_holder_name'),
-                    deeper.get('name'),
-                ])
-
+    def _first_nonempty(*candidates: Any) -> str:
         for value in candidates:
             if value is None:
                 continue
             text = str(value).strip()
             if text:
                 return text
-        return (fallback or '').strip()
+        return ''
+
+    @staticmethod
+    def _nested_dicts(response: Any) -> list:
+        if not isinstance(response, dict):
+            return []
+        layers = [response]
+        nested = response.get('data') or response.get('Data') or {}
+        if isinstance(nested, dict):
+            layers.append(nested)
+            deeper = nested.get('data') or nested.get('Data') or {}
+            if isinstance(deeper, dict):
+                layers.append(deeper)
+        return layers
+
+    @staticmethod
+    def normalize_account_name(name: str) -> str:
+        return ' '.join(str(name or '').casefold().split())
+
+    @staticmethod
+    def normalize_account_number(number: str) -> str:
+        return ''.join(ch for ch in str(number or '') if ch.isalnum()).upper()
+
+    @staticmethod
+    def normalize_bank_code(code: str) -> str:
+        return str(code or '').strip().upper()
+
+    @classmethod
+    def names_match(cls, left: str, right: str) -> bool:
+        a = cls.normalize_account_name(left)
+        b = cls.normalize_account_name(right)
+        return bool(a) and a == b
+
+    @classmethod
+    def extract_verified_account_name(cls, response: Any, fallback: str = '') -> str:
+        """
+        Pull the bank-verified / original account holder name from a
+        BANK_TRANSFER_VERIFICATION response. Falls back to the provided name.
+        """
+        keys = (
+            'account_name',
+            'AccountName',
+            'account_holder_name',
+            'AccountHolderName',
+            'destination_acc_name',
+            'name',
+        )
+        candidates = []
+        for layer in cls._nested_dicts(response):
+            candidates.extend(layer.get(k) for k in keys)
+        return cls._first_nonempty(*candidates) or (fallback or '').strip()
+
+    @classmethod
+    def extract_verified_account_number(cls, response: Any, fallback: str = '') -> str:
+        keys = (
+            'account_number',
+            'AccountNumber',
+            'destination_acc_no',
+            'account_no',
+            'AccountNo',
+        )
+        candidates = []
+        for layer in cls._nested_dicts(response):
+            candidates.extend(layer.get(k) for k in keys)
+        return cls._first_nonempty(*candidates) or (fallback or '').strip()
+
+    @classmethod
+    def extract_verified_bank_code(cls, response: Any, fallback: str = '') -> str:
+        keys = (
+            'bank_code',
+            'BankCode',
+            'destination_bank',
+            'bank',
+        )
+        candidates = []
+        for layer in cls._nested_dicts(response):
+            candidates.extend(layer.get(k) for k in keys)
+        return cls._first_nonempty(*candidates) or (fallback or '').strip()
+
+    @classmethod
+    def verification_details_match(
+        cls,
+        response: Any,
+        *,
+        bank_code: str,
+        account_number: str,
+        account_name: str = '',
+        require_name: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Ensure provider-verified bank, account number, and (when required)
+        account holder name all match the values the user entered.
+        """
+        verified_name = cls.extract_verified_account_name(response, fallback=account_name)
+        verified_number = cls.extract_verified_account_number(
+            response, fallback=account_number
+        )
+        verified_bank = cls.extract_verified_bank_code(response, fallback=bank_code)
+
+        bank_ok = cls.normalize_bank_code(verified_bank) == cls.normalize_bank_code(bank_code)
+        number_ok = cls.normalize_account_number(verified_number) == cls.normalize_account_number(
+            account_number
+        )
+        if require_name:
+            name_ok = cls.names_match(verified_name, account_name)
+        else:
+            # Phone transfers: accept any registered name returned by the provider
+            name_ok = bool(cls.normalize_account_name(verified_name))
+
+        matched = bool(bank_ok and number_ok and name_ok)
+        return {
+            'matched': matched,
+            'bank_ok': bank_ok,
+            'number_ok': number_ok,
+            'name_ok': name_ok,
+            'account_name': verified_name,
+            'account_number': verified_number or account_number,
+            'bank_code': verified_bank or bank_code,
+        }
 
     @staticmethod
     def is_verification_success(response: Any) -> bool:
