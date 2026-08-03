@@ -435,6 +435,7 @@ class HimalPayAPI:
         merchant_txn_id: str,
         is_mobile: str = 'n',
     ) -> Any:
+        is_mobile_flag = 'y' if str(is_mobile).lower() in ('y', 'yes', 'true', '1') else 'n'
         return self.fetch_service_details(
             self.SERVICE_BANK_TRANSFER_VERIFICATION,
             data={
@@ -442,7 +443,7 @@ class HimalPayAPI:
                 'account_name': account_name,
                 'account_number': account_number,
                 'merchant_txn_id': merchant_txn_id,
-                'is_mobile': is_mobile,
+                'is_mobile': is_mobile_flag,
             },
         )
 
@@ -458,21 +459,26 @@ class HimalPayAPI:
         transaction_remarks_2: str = '',
         transaction_remarks_3: str = '',
     ) -> Dict:
+        """
+        BANK_TRANSFER payment — matches HimalPay Reseller three-step flow.
+
+        Top-level ``amount`` is paisa. Nested ``data`` follows the documented
+        contract (amount + destination fields + remarks). Always send
+        remarks_2/remarks_3 (empty string when unused), same as the UAT demo.
+        """
         rupees = self.normalize_rupees(amount_rupees)
         amount_paisa = self.to_paisa(rupees)
-        # Top-level amount + data.amount both in paisa (HimalPay bank-transfer contract).
+        is_mobile = 'y' if str(is_destination_mobile).lower() in ('y', 'yes', 'true', '1') else 'n'
         data = {
             'amount': amount_paisa,
             'destination_bank': destination_bank,
             'destination_acc_no': destination_acc_no,
             'destination_acc_name': destination_acc_name,
-            'is_destination_mobile': is_destination_mobile,
-            'transaction_remarks': transaction_remarks,
+            'is_destination_mobile': is_mobile,
+            'transaction_remarks': transaction_remarks or 'Fund Transfer',
+            'transaction_remarks_2': transaction_remarks_2 or '',
+            'transaction_remarks_3': transaction_remarks_3 or '',
         }
-        if transaction_remarks_2:
-            data['transaction_remarks_2'] = transaction_remarks_2
-        if transaction_remarks_3:
-            data['transaction_remarks_3'] = transaction_remarks_3
 
         return self.process_payment(
             wallet_service_name=self.SERVICE_BANK_TRANSFER,

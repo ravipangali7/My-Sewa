@@ -29,9 +29,16 @@ class RupeesPaisaConversionTests(SimpleTestCase):
             destination_bank='LXBLNPKA',
             destination_acc_no='1845008000023',
             destination_acc_name='Test User',
+            is_destination_mobile='n',
+            transaction_remarks='Fund Transfer',
         )
         self.assertEqual(response['amount'], 10000)
         self.assertEqual(response['data']['amount'], 10000)
+        self.assertEqual(response['data']['destination_bank'], 'LXBLNPKA')
+        self.assertEqual(response['data']['is_destination_mobile'], 'n')
+        self.assertEqual(response['data']['transaction_remarks'], 'Fund Transfer')
+        self.assertEqual(response['data']['transaction_remarks_2'], '')
+        self.assertEqual(response['data']['transaction_remarks_3'], '')
 
     def test_process_payment_never_sends_rupees_as_amount(self):
         client = HimalPayAPI()

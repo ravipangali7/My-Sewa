@@ -380,14 +380,26 @@ export const apiClient = {
     }>("/api/bank-transfer/calculate/", { method: "POST", body: { amount } }),
 
   createTransfer: (body: Record<string, unknown>) =>
-    api<{ message: string; data: import("./types").BankTransferTransaction }>(
-      "/api/bank-transfer/create/",
-      { method: "POST", body },
-    ),
+    api<{
+      message: string;
+      pending_message?: string;
+      merchant_transaction_id?: string;
+      data: import("./types").BankTransferTransaction;
+    }>("/api/bank-transfer/create/", { method: "POST", body }),
 
   transferHistory: () =>
     api<import("./types").BankTransferTransaction[]>("/api/bank-transfer/history/"),
 
+  transferStatus: (merchant_transaction_id: string) =>
+    api<{
+      status: import("./types").TxnStatus;
+      himalpay_status?: string;
+      data: Record<string, unknown>;
+      local_transfer: import("./types").BankTransferTransaction | null;
+    }>("/api/bank-transfer/status/", {
+      method: "POST",
+      body: { merchant_transaction_id },
+    }),
   lookupRemittance: (body: { ref_no: string }) =>
     api<{
       message: string;

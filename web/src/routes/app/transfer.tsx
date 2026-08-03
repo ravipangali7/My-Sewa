@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useErrorPopup } from "@/components/ErrorPopup";
 import { apiClient, ApiError } from "@/lib/api";
 import { mergeBankLists } from "@/lib/nepali-banks";
-import type { BankOption } from "@/lib/types";
+import type { BankOption, BankTransferTransaction } from "@/lib/types";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -56,11 +56,11 @@ function Transfer() {
   const [amount, setAmount] = useState("");
   const [remarks, setRemarks] = useState(() => t("transfer.defaultRemarks"));
   const [verified, setVerified] = useState(false);
-  const [merchantTxnId, setMerchantTxnId] = useState<string | undefined>();
   const [charge, setCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [verifying, setVerifying] = useState(false);
+  const [refreshingId, setRefreshingId] = useState<number | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -107,6 +107,43 @@ function Transfer() {
     refetchInterval: LIVE_REFETCH_MS,
   });
 
+  // Auto-poll HimalPay status for pending transfers (wallet-service-reseller-status)
+  useEffect(() => {
+    const pending = (historyQuery.data ?? []).filter((item) => item.status === "pending");
+    if (!pending.length) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      let changed = false;
+      for (const item of pending.slice(0, 5)) {
+        try {
+          const res = await apiClient.transferStatus(item.merchant_txn_id);
+          if (
+            res.local_transfer &&
+            res.local_transfer.status !== "pending" &&
+            res.local_transfer.status !== item.status
+          ) {
+            changed = true;
+          }
+        } catch {
+          // ignore transient status errors while polling
+        }
+        if (cancelled) return;
+      }
+      if (changed && !cancelled) {
+        queryClient.invalidateQueries({ queryKey: ["transfers"] });
+        queryClient.invalidateQueries({ queryKey: ["wallet"] });
+      }
+    };
+
+    const timer = setInterval(poll, Math.max(LIVE_REFETCH_MS, 8000));
+    void poll();
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [historyQuery.data, queryClient]);
+
   const banks = useMemo(
     () => mergeBankLists(banksQuery.data ?? []),
     [banksQuery.data],
@@ -125,7 +162,6 @@ function Transfer() {
 
   useEffect(() => {
     setVerified(false);
-    setMerchantTxnId(undefined);
   }, [method]);
 
   useEffect(() => {
@@ -168,6 +204,30 @@ function Transfer() {
 
   const selectedBank = banks.find((b) => b.bank_code === bank);
 
+  const refreshStatus = async (item: BankTransferTransaction) => {
+    setRefreshingId(item.id);
+    try {
+      const res = await apiClient.transferStatus(item.merchant_txn_id);
+      const local = res.local_transfer;
+      if (local?.status === "success") {
+        toast.success(t("transfer.statusSuccess"));
+      } else if (local?.status === "failed") {
+        toast.error(t("transfer.statusFailed"));
+      } else {
+        toast.message(t("transfer.statusPending"));
+      }
+      queryClient.invalidateQueries({ queryKey: ["transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["wallet"] });
+    } catch (err) {
+      errorPopup.showError(err, {
+        title: t("transfer.failed"),
+        fallback: t("transfer.statusPending"),
+      });
+    } finally {
+      setRefreshingId(null);
+    }
+  };
+
   const submitMutation = useMutation({
     mutationFn: () => {
       if (accountPending) throw new Error(t("account.pending"));
@@ -184,8 +244,9 @@ function Transfer() {
           }),
         );
       }
-      const body: Record<string, unknown> = {
-        // Always send rupees with 2 decimals; server converts to paisa (×100) for HimalPay.
+      // HimalPay flow via Django: banks → verify → charge → BANK_TRANSFER → status poll.
+      // Do NOT reuse the verify merchant_txn_id for payment (must be unique).
+      return apiClient.createTransfer({
         amount: Number(amt.toFixed(2)),
         destination_bank: bank,
         destination_bank_name: selectedBank?.bank_name || "",
@@ -193,22 +254,26 @@ function Transfer() {
         destination_acc_name: accName,
         is_destination_mobile: isMobile,
         transaction_remarks: remarks || t("transfer.defaultRemarks"),
-      };
-      if (merchantTxnId) body["merchant_txn_id"] = merchantTxnId;
-      return apiClient.createTransfer(body);
+      });
     },
     onSuccess: (res) => {
-      toast.success(res.message || t("transfer.submitted"), {
-        description: t("transfer.debited", {
-          amount: formatNPR(res.data.total_debited || totalDebited),
-        }),
-      });
+      const isPending = res.data.status === "pending";
+      if (isPending) {
+        toast.message(res.message || t("transfer.pendingTitle"), {
+          description: res.pending_message || t("transfer.pendingBody"),
+        });
+      } else {
+        toast.success(res.message || t("transfer.submitted"), {
+          description: t("transfer.debited", {
+            amount: formatNPR(res.data.total_debited || totalDebited),
+          }),
+        });
+      }
       setAccNo("");
       setPhone("");
       setAccName("");
       setAmount("");
       setVerified(false);
-      setMerchantTxnId(undefined);
       queryClient.invalidateQueries({ queryKey: ["transfers"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
@@ -274,7 +339,6 @@ function Transfer() {
       const originalName = (res.data.account_name || accName).trim();
       setAccName(originalName);
       setVerified(true);
-      setMerchantTxnId(res.data?.merchant_txn_id);
       toast.success(
         originalName !== accName.trim()
           ? t("transfer.verifiedAs", { name: originalName })
@@ -307,6 +371,7 @@ function Transfer() {
           </section>
         ) : null}
         <section className="inset-group p-4">
+          <p className="mb-3 text-[12px] text-muted-foreground">{t("transfer.workflowHint")}</p>
           <Tabs
             value={method}
             onValueChange={(v) => setMethod(v as TransferMethod)}
@@ -521,14 +586,28 @@ function Transfer() {
                       <StatusChip status={b.status} compact className="mt-1" />
                     </div>
                   </div>
-                  <p className="mt-1 text-[12px] text-muted-foreground">
-                    {b.merchant_txn_id} · {formatDateTime(b.created_at)} ·{" "}
-                    {b.status === "failed"
-                      ? t("transfer.notDebited", { amount: formatNPR(b.total_debited) })
-                      : b.status === "pending"
-                        ? t("transfer.pendingDebit", { amount: formatNPR(b.total_debited) })
-                        : t("transfer.debited", { amount: formatNPR(b.total_debited) })}
-                  </p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p className="min-w-0 truncate text-[12px] text-muted-foreground">
+                      {b.merchant_txn_id} · {formatDateTime(b.created_at)} ·{" "}
+                      {b.status === "failed"
+                        ? t("transfer.notDebited", { amount: formatNPR(b.total_debited) })
+                        : b.status === "pending"
+                          ? t("transfer.pendingDebit", { amount: formatNPR(b.total_debited) })
+                          : t("transfer.debited", { amount: formatNPR(b.total_debited) })}
+                    </p>
+                    {b.status === "pending" ? (
+                      <button
+                        type="button"
+                        disabled={refreshingId === b.id}
+                        onClick={() => void refreshStatus(b)}
+                        className="shrink-0 text-[12px] font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
+                      >
+                        {refreshingId === b.id
+                          ? t("common.processing")
+                          : t("transfer.checkStatus")}
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>

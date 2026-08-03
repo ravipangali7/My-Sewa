@@ -1,13 +1,13 @@
 """
 Bank Transfer views via HimalPay Reseller API
 
-Flow:
-1. GET  /api/bank-transfer/banks/     — list available banks
-2. POST /api/bank-transfer/verify/    — verify destination account
-3. POST /api/bank-transfer/calculate/ — preview charge/cashback
-4. POST /api/bank-transfer/create/    — process transfer
-5. GET  /api/bank-transfer/history/   — user history
-6. POST /api/bank-transfer/status/    — poll transaction status
+Matches the UAT demo 5-step fund-transfer workflow:
+1. GET  /api/bank-transfer/banks/     — BANK_TRANSFER_LIST
+2. POST /api/bank-transfer/verify/    — BANK_TRANSFER_VERIFICATION
+3. POST /api/bank-transfer/calculate/ — reseller-calculate-cashback-and-charge
+4. POST /api/bank-transfer/create/    — BANK_TRANSFER payment
+5. POST /api/bank-transfer/status/    — wallet-service-reseller-status
+6. GET  /api/bank-transfer/history/   — user history
 """
 import uuid
 import logging
@@ -386,9 +386,22 @@ def create_bank_transfer(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    merchant_txn_id = data.get('merchant_txn_id') or f"MYSEWA_BT_{uuid.uuid4().hex[:14].upper()}"
-    if BankTransferTransaction.objects.filter(merchant_txn_id=merchant_txn_id).exists():
+    # Payment merchant_transaction_id must be unique across ALL HimalPay calls.
+    # Never reuse a verify-step merchant_txn_id (BANK_TRANSFER_VERIFICATION) for
+    # the BANK_TRANSFER payment — same rule as the UAT demo server.
+    requested_txn = (data.get('merchant_txn_id') or '').strip()
+    if (
+        requested_txn
+        and not requested_txn.upper().startswith('MYSEWA_VF_')
+        and not BankTransferTransaction.objects.filter(merchant_txn_id=requested_txn).exists()
+    ):
+        merchant_txn_id = requested_txn
+    else:
         merchant_txn_id = f"MYSEWA_BT_{uuid.uuid4().hex[:14].upper()}"
+        while BankTransferTransaction.objects.filter(merchant_txn_id=merchant_txn_id).exists():
+            merchant_txn_id = f"MYSEWA_BT_{uuid.uuid4().hex[:14].upper()}"
+
+    verify_merchant_txn_id = f"MYSEWA_VF_{uuid.uuid4().hex[:14].upper()}"
 
     is_mobile = bool(data.get('is_destination_mobile'))
     transfer = BankTransferTransaction.objects.create(
@@ -411,12 +424,12 @@ def create_bank_transfer(request):
     )
 
     try:
-        # Step 1: verify destination — only proceed with the bank-original name
+        # Step 1: verify destination with a dedicated verify txn id
         verify_result = himalpay.verify_bank_account(
             bank_code=data['destination_bank'],
             account_name=data['destination_acc_name'],
             account_number=data['destination_acc_no'],
-            merchant_txn_id=merchant_txn_id,
+            merchant_txn_id=verify_merchant_txn_id,
             is_mobile='y' if is_mobile else 'n',
         )
         if not himalpay.is_verification_success(verify_result):
@@ -520,6 +533,7 @@ def create_bank_transfer(request):
             return Response(
                 {
                     'message': 'Bank transfer successful',
+                    'merchant_transaction_id': merchant_txn_id,
                     'amount': str(amount),
                     'amount_paisa': amount_paisa,
                     'data': BankTransferTransactionSerializer(transfer).data,
@@ -528,16 +542,17 @@ def create_bank_transfer(request):
                 status=status.HTTP_200_OK,
             )
 
-        # Awaiting Super Admin verification
+        # Provider accepted but not final yet — client should poll /status/
         transfer.status = 'pending'
         transfer.save()
         return Response(
             {
-                'message': 'Bank transfer is awaiting verification',
+                'message': 'Bank transfer is being processed',
                 'pending_message': response.get(
                     'message',
-                    'Your transfer is being processed and awaits admin verification.',
+                    'Your transfer is being processed. Check status with the merchant transaction ID.',
                 ),
+                'merchant_transaction_id': merchant_txn_id,
                 'amount': str(amount),
                 'amount_paisa': amount_paisa,
                 'data': BankTransferTransactionSerializer(transfer).data,
