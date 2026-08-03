@@ -212,7 +212,7 @@ def get_himalpay_credentials() -> Dict[str, str]:
     env_key = (getattr(django_settings, 'HIMALPAY_API_KEY', '') or '').strip()
     env_base = (
         getattr(django_settings, 'HIMALPAY_BASE_URL', '')
-        or 'https://uatapi.himalpay.com.np/api/v1'
+        or 'https://api.himalpay.com.np/api/v1'
     ).strip()
 
     try:

@@ -97,7 +97,7 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   integrations: {
     himalpay_api_key: "",
-    himalpay_base_url: "https://uatapi.himalpay.com.np/api/v1",
+    himalpay_base_url: "https://api.himalpay.com.np/api/v1",
   },
   remittance: {
     payout_location_name: "MySewa",
@@ -880,7 +880,7 @@ function SettingsPage() {
                       <Input
                         id="himalpay_base_url"
                         type="url"
-                        placeholder="https://uatapi.himalpay.com.np/api/v1"
+                        placeholder="https://api.himalpay.com.np/api/v1"
                         value={
                           config.integrations?.himalpay_base_url ||
                           DEFAULT_CONFIG.integrations!.himalpay_base_url
@@ -896,7 +896,8 @@ function SettingsPage() {
                         }
                       />
                       <p className="text-xs text-muted-foreground">
-                        UAT: https://uatapi.himalpay.com.np/api/v1 — authenticate with header
+                        LIVE: https://api.himalpay.com.np/api/v1 — UAT:
+                        https://uatapi.himalpay.com.np/api/v1. Authenticate with header
                         X-API-Key.
                       </p>
                     </div>

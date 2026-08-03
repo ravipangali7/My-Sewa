@@ -242,7 +242,7 @@ SERVICE_HUB_BYPASS_API = True  # Set to True to bypass API calls and return mock
 # HimalPay Reseller API Configuration (loaded from .env)
 HIMALPAY_BASE_URL = os.environ.get(
     'HIMALPAY_BASE_URL',
-    'https://uatapi.himalpay.com.np/api/v1',
+    'https://api.himalpay.com.np/api/v1',
 )
 HIMALPAY_API_KEY = os.environ.get('HIMALPAY_API_KEY', '').strip()
 HIMALPAY_BYPASS_API = os.environ.get('HIMALPAY_BYPASS_API', 'false').lower() in ('1', 'true', 'yes')

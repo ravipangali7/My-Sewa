@@ -43,7 +43,7 @@ if [[ ! -f .env ]]; then
     cp .env.example .env
   else
     cat > .env <<'EOF'
-HIMALPAY_BASE_URL=https://uatapi.himalpay.com.np/api/v1
+HIMALPAY_BASE_URL=https://api.himalpay.com.np/api/v1
 HIMALPAY_API_KEY=
 HIMALPAY_BYPASS_API=true
 HIMALPAY_TIMEOUT=60

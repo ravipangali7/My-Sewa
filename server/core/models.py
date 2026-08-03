@@ -164,7 +164,7 @@ def default_app_config():
         },
         'integrations': {
             'himalpay_api_key': '',
-            'himalpay_base_url': 'https://uatapi.himalpay.com.np/api/v1',
+            'himalpay_base_url': 'https://api.himalpay.com.np/api/v1',
         },
         # Agent / branch defaults sent with SAMSARA_PAY (not collected from the user)
         'remittance': {
