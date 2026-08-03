@@ -185,7 +185,8 @@ function Transfer() {
         );
       }
       const body: Record<string, unknown> = {
-        amount: amt,
+        // Always send rupees with 2 decimals; server converts to paisa (×100) for HimalPay.
+        amount: Number(amt.toFixed(2)),
         destination_bank: bank,
         destination_bank_name: selectedBank?.bank_name || "",
         destination_acc_no: destinationNumber,

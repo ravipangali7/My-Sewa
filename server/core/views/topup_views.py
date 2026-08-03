@@ -81,13 +81,20 @@ def _process_topup(request, product_id: int, service_label: str):
         )
 
     mobile_number = serializer.validated_data['mobile_number']
-    amount = serializer.validated_data['amount']
+    amount = HimalPayAPI.normalize_rupees(serializer.validated_data['amount'])
     wallet = _get_or_create_wallet(request.user)
 
     platform_fee = _platform_fee_for_amount(amount)
 
     himalpay = HimalPayAPI()
     service_name = HimalPayAPI.SERVICE_NTC if product_id == 1 else HimalPayAPI.SERVICE_NCELL
+    logger.info(
+        '%s topup: Rs. %s → %s paisa (user=%s)',
+        service_label,
+        amount,
+        himalpay.to_paisa(amount),
+        getattr(request.user, 'pk', None),
+    )
 
     # Pre-calculate charge so we can validate sufficient balance
     try:

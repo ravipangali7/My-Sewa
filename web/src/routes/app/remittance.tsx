@@ -201,7 +201,8 @@ function ReceiveRemittance() {
       return apiClient.receiveRemittance({
         ref_no: lookup.ref_no,
         samsara_link_id: lookup.samsara_link_id,
-        amount: Number(lookup.amount),
+        // Rupees; server converts to paisa (×100) for HimalPay SAMSARA_PAY load.
+        amount: Number(Number(lookup.amount).toFixed(2)),
         payout_currency: lookup.payout_currency,
         sender_name: lookup.sender_name,
         sender_address: lookup.sender_address,

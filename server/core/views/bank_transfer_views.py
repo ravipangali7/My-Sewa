@@ -217,8 +217,15 @@ def calculate_transfer_charge(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     amount = serializer.validated_data['amount']
+    amount_paisa = HimalPayAPI.to_paisa(amount)
     tx_cfg = get_app_config().get('transactions') or {}
     himalpay = HimalPayAPI()
+    logger.info(
+        'Transfer charge preview: Rs. %s → %s paisa (user=%s)',
+        amount,
+        amount_paisa,
+        getattr(request.user, 'pk', None),
+    )
     try:
         result = himalpay.calculate_cashback_and_charge(
             HimalPayAPI.SERVICE_BANK_TRANSFER,
@@ -231,6 +238,7 @@ def calculate_transfer_charge(request):
             {
                 'data': {
                     'amount': str(amount),
+                    'amount_paisa': amount_paisa,
                     'charge': str(fees['charge']),
                     'cashback': str(fees['cashback']),
                     'platform_charge': str(fees['platform_charge']),
@@ -261,6 +269,7 @@ def calculate_transfer_charge(request):
                 {
                     'data': {
                         'amount': str(amount),
+                        'amount_paisa': amount_paisa,
                         'charge': str(fees['charge']),
                         'cashback': str(fees['cashback']),
                         'platform_charge': str(fees['platform_charge']),
@@ -295,9 +304,17 @@ def create_bank_transfer(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     data = serializer.validated_data
-    amount = data['amount']
+    amount = HimalPayAPI.normalize_rupees(data['amount'])
+    amount_paisa = HimalPayAPI.to_paisa(amount)
     wallet = _get_or_create_wallet(request.user)
     himalpay = HimalPayAPI()
+
+    logger.info(
+        'Bank transfer create: Rs. %s → %s paisa (user=%s)',
+        amount,
+        amount_paisa,
+        getattr(request.user, 'pk', None),
+    )
 
     tx_cfg = get_app_config().get('transactions') or {}
     daily_limit = Decimal(str(tx_cfg.get('daily_transfer_limit') or 0))
@@ -472,6 +489,8 @@ def create_bank_transfer(request):
                     'error_code': failure['error_code'],
                     'error_type': failure['error_type'],
                     'wallet_debited': False,
+                    'amount': str(amount),
+                    'amount_paisa': amount_paisa,
                     'data': BankTransferTransactionSerializer(transfer).data,
                     'himalpay_response': response,
                 },
@@ -501,6 +520,8 @@ def create_bank_transfer(request):
             return Response(
                 {
                     'message': 'Bank transfer successful',
+                    'amount': str(amount),
+                    'amount_paisa': amount_paisa,
                     'data': BankTransferTransactionSerializer(transfer).data,
                     'himalpay_response': response,
                 },
@@ -517,6 +538,8 @@ def create_bank_transfer(request):
                     'message',
                     'Your transfer is being processed and awaits admin verification.',
                 ),
+                'amount': str(amount),
+                'amount_paisa': amount_paisa,
                 'data': BankTransferTransactionSerializer(transfer).data,
                 'himalpay_response': response,
             },
@@ -548,6 +571,8 @@ def create_bank_transfer(request):
                 'error_code': failure['error_code'] if failure['error_code'] is not None else exc.error_code,
                 'error_type': failure['error_type'] or exc.error_type,
                 'wallet_debited': False,
+                'amount': str(amount),
+                'amount_paisa': amount_paisa,
                 'data': BankTransferTransactionSerializer(transfer).data,
             },
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,

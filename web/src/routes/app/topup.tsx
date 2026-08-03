@@ -259,7 +259,8 @@ function TopUp() {
       }
       const body = {
         mobile_number: normalizedMobile,
-        amount: amt,
+        // Rupees with 2 decimals; server converts to paisa (×100) for HimalPay.
+        amount: Number(amt.toFixed(2)),
         product_id: productId,
       };
       if (productId === 1) return apiClient.topupNtc({ ...body, product_id: 1 });

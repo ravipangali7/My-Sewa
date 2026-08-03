@@ -290,6 +290,7 @@ export interface BankOption {
 
 export interface ChargePreview {
   amount: string;
+  amount_paisa?: number;
   charge: string;
   cashback: string;
   total_debited: string;

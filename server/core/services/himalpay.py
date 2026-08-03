@@ -145,17 +145,53 @@ class HimalPayAPI:
     # ------------------------------------------------------------------
     # Amount helpers (rupees <-> paisa)
     # ------------------------------------------------------------------
+    # MySewa stores and accepts amounts in NPR rupees (e.g. 100.00).
+    # HimalPay payment / charge / load APIs require integer paisa
+    # (e.g. Rs. 100.00 → 10000). Always convert at the HimalPay boundary.
+
+    @staticmethod
+    def normalize_rupees(amount_rupees) -> Decimal:
+        """Normalize any rupee input to Decimal with exactly 2 decimal places."""
+        if amount_rupees is None or amount_rupees == '':
+            raise HimalPayError('Amount is required', status_code=400)
+        try:
+            value = Decimal(str(amount_rupees).strip() if isinstance(amount_rupees, str) else str(amount_rupees))
+        except Exception as exc:
+            raise HimalPayError(f'Invalid amount: {amount_rupees}', status_code=400) from exc
+        if not value.is_finite():
+            raise HimalPayError(f'Invalid amount: {amount_rupees}', status_code=400)
+        return value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     @staticmethod
     def to_paisa(amount_rupees) -> int:
-        """Convert rupees (Decimal/float/str) to integer paisa."""
-        value = Decimal(str(amount_rupees)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        return int(value * 100)
+        """
+        Convert MySewa rupees to HimalPay paisa.
+
+        Example: Rs. 100.00 → 10000 paisa (100 × 100).
+        """
+        value = HimalPayAPI.normalize_rupees(amount_rupees)
+        if value < 0:
+            raise HimalPayError('Amount cannot be negative', status_code=400)
+        paisa = int((value * Decimal('100')).to_integral_value(rounding=ROUND_HALF_UP))
+        # Round-trip check: paisa / 100 must equal the normalized rupees.
+        round_trip = (Decimal(paisa) / Decimal('100')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        if round_trip != value:
+            raise HimalPayError(
+                f'Amount conversion mismatch: Rs. {value} → {paisa} paisa',
+                status_code=400,
+            )
+        return paisa
 
     @staticmethod
     def to_rupees(amount_paisa) -> Decimal:
-        """Convert integer paisa to Decimal rupees."""
-        return (Decimal(int(amount_paisa)) / Decimal('100')).quantize(Decimal('0.01'))
+        """Convert HimalPay integer paisa to MySewa Decimal rupees."""
+        try:
+            paisa = int(amount_paisa)
+        except (TypeError, ValueError) as exc:
+            raise HimalPayError(f'Invalid paisa amount: {amount_paisa}', status_code=400) from exc
+        return (Decimal(paisa) / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     # ------------------------------------------------------------------
     # HTTP layer
@@ -261,7 +297,14 @@ class HimalPayAPI:
         wallet_service_name: str,
         amount_rupees,
     ) -> Dict:
-        amount_paisa = self.to_paisa(amount_rupees)
+        rupees = self.normalize_rupees(amount_rupees)
+        amount_paisa = self.to_paisa(rupees)
+        logger.info(
+            'HimalPay charge calc %s: Rs. %s → %s paisa',
+            wallet_service_name,
+            rupees,
+            amount_paisa,
+        )
         if self.bypass_api:
             charge = 500 if wallet_service_name == self.SERVICE_BANK_TRANSFER else 0
             cashback = 0
@@ -303,12 +346,26 @@ class HimalPayAPI:
         data: Dict,
         meta_data: Optional[List] = None,
     ) -> Dict:
-        amount_paisa = self.to_paisa(amount_rupees)
+        rupees = self.normalize_rupees(amount_rupees)
+        amount_paisa = self.to_paisa(rupees)
+        # Keep nested data.amount in sync when present (paisa), never send rupees.
+        payload_data = dict(data or {})
+        if 'amount' in payload_data:
+            payload_data['amount'] = amount_paisa
+
+        logger.info(
+            'HimalPay payment %s txn=%s: Rs. %s → amount=%s paisa',
+            wallet_service_name,
+            merchant_transaction_id,
+            rupees,
+            amount_paisa,
+        )
+
         payload: Dict[str, Any] = {
             'wallet_service_name': wallet_service_name,
             'amount': amount_paisa,
             'merchant_transaction_id': merchant_transaction_id,
-            'data': data,
+            'data': payload_data,
         }
         if meta_data is not None:
             payload['meta_data'] = meta_data
@@ -318,7 +375,7 @@ class HimalPayAPI:
                 wallet_service_name=wallet_service_name,
                 amount_paisa=amount_paisa,
                 merchant_transaction_id=merchant_transaction_id,
-                data=data,
+                data=payload_data,
             )
 
         return self._request(
@@ -401,7 +458,11 @@ class HimalPayAPI:
         transaction_remarks_2: str = '',
         transaction_remarks_3: str = '',
     ) -> Dict:
+        rupees = self.normalize_rupees(amount_rupees)
+        amount_paisa = self.to_paisa(rupees)
+        # Top-level amount + data.amount both in paisa (HimalPay bank-transfer contract).
         data = {
+            'amount': amount_paisa,
             'destination_bank': destination_bank,
             'destination_acc_no': destination_acc_no,
             'destination_acc_name': destination_acc_name,
@@ -415,7 +476,7 @@ class HimalPayAPI:
 
         return self.process_payment(
             wallet_service_name=self.SERVICE_BANK_TRANSFER,
-            amount_rupees=amount_rupees,
+            amount_rupees=rupees,
             merchant_transaction_id=merchant_transaction_id,
             data=data,
         )
@@ -429,12 +490,25 @@ class HimalPayAPI:
         meta_data: Optional[List] = None,
     ) -> Dict:
         """Credit/load endpoint used by Samsara remittance payout."""
-        amount_paisa = self.to_paisa(amount_rupees)
+        rupees = self.normalize_rupees(amount_rupees)
+        amount_paisa = self.to_paisa(rupees)
+        payload_data = dict(data or {})
+        if 'amount' in payload_data:
+            payload_data['amount'] = amount_paisa
+
+        logger.info(
+            'HimalPay load %s txn=%s: Rs. %s → amount=%s paisa',
+            wallet_service_name,
+            merchant_transaction_id,
+            rupees,
+            amount_paisa,
+        )
+
         payload: Dict[str, Any] = {
             'wallet_service_name': wallet_service_name,
             'amount': amount_paisa,
             'merchant_transaction_id': merchant_transaction_id,
-            'data': data,
+            'data': payload_data,
         }
         if meta_data is not None:
             payload['meta_data'] = meta_data
@@ -444,7 +518,7 @@ class HimalPayAPI:
                 wallet_service_name=wallet_service_name,
                 amount_paisa=amount_paisa,
                 merchant_transaction_id=merchant_transaction_id,
-                data=data,
+                data=payload_data,
             )
 
         return self._request(

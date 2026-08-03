@@ -215,7 +215,7 @@ def receive_remittance(request):
     data = serializer.validated_data
     ref_no = data['ref_no']
     samsara_link_id = data['samsara_link_id']
-    amount = data['amount']
+    amount = HimalPayAPI.normalize_rupees(data['amount'])
 
     if RemittanceTransaction.objects.filter(ref_no=ref_no, status='success').exists():
         return Response(
