@@ -87,11 +87,99 @@ def _normalize_banks(raw) -> list:
         )
         if code:
             banks.append({
-                'bank_code': str(code),
+                'bank_code': str(code).strip().upper(),
                 'bank_name': str(name),
                 'raw': item,
             })
     return banks
+
+
+# Legacy short tickers → HimalPay SWIFT codes (used when list lookup fails)
+_LEGACY_BANK_CODE_MAP = {
+    'NABIL': 'NARBNPKA',
+    'NIBL': 'NIBLNPKA',
+    'SCB': 'SCBLNPKA',
+    'HBL': 'HIMANPKA',
+    'EBL': 'EVBLNPKA',
+    'NMB': 'NMBBNPKA',
+    'PCBL': 'PCBLNPKA',
+    'SANIMA': 'SNMANPKA',
+    'SBI': 'NSBINPKA',
+    'MBL': 'MBLNNPKA',
+    'KBL': 'KMBLNPKA',
+    'LBL': 'LXBLNPKA',
+    'CBL': 'CIVLNPKA',
+    'CTZN': 'CTZNNPKA',
+    'NICA': 'NICENPKA',
+    'GBIME': 'GLBBNPKA',
+    'PRVU': 'PRVUNPKA',
+    'ADBL': 'ADBLNPKA',
+    'RBB': 'RBBENPKA',
+    'NBL': 'NEBLNPKA',
+    'SBL': 'SIDDNPKA',
+    'BOK': 'BOKLNPKA',
+    'CCBL': 'CCBNNPKA',
+}
+
+
+def _resolve_destination_bank(himalpay: HimalPayAPI, code: str, bank_name: str = '') -> str:
+    """
+    Map short/legacy bank codes (e.g. CTZN) to HimalPay SWIFT codes (CTZNNPKA).
+
+    HimalPay BANK_TRANSFER expects codes from BANK_TRANSFER_LIST. Short tickers
+    can pass a lenient verify step then fail payment with "amount refunded".
+    """
+    code_u = (code or '').strip().upper()
+    name_u = (bank_name or '').strip().upper()
+    if not code_u:
+        return code_u
+
+    banks = []
+    try:
+        banks = _normalize_banks(himalpay.list_banks())
+    except Exception as exc:
+        logger.warning('Could not load bank list for code resolve: %s', exc)
+
+    if banks:
+        for b in banks:
+            if b['bank_code'] == code_u:
+                return b['bank_code']
+
+        # Short code prefix: CTZN → CTZNNPKA
+        if len(code_u) >= 3 and len(code_u) < 8:
+            prefix_hits = [
+                b for b in banks
+                if b['bank_code'].startswith(code_u)
+            ]
+            if len(prefix_hits) == 1:
+                logger.info(
+                    'Resolved bank code %s → %s via prefix match',
+                    code_u,
+                    prefix_hits[0]['bank_code'],
+                )
+                return prefix_hits[0]['bank_code']
+
+        if name_u:
+            name_hits = [
+                b for b in banks
+                if name_u in b['bank_name'].upper()
+                or b['bank_name'].upper() in name_u
+            ]
+            if len(name_hits) == 1:
+                logger.info(
+                    'Resolved bank code %s → %s via name %r',
+                    code_u,
+                    name_hits[0]['bank_code'],
+                    bank_name,
+                )
+                return name_hits[0]['bank_code']
+
+    mapped = _LEGACY_BANK_CODE_MAP.get(code_u)
+    if mapped:
+        logger.info('Resolved bank code %s → %s via legacy map', code_u, mapped)
+        return mapped
+
+    return code_u
 
 
 @api_view(['GET'])
@@ -144,9 +232,14 @@ def verify_account(request):
     is_mobile = 'y' if data.get('is_mobile') else 'n'
 
     himalpay = HimalPayAPI()
+    bank_code = _resolve_destination_bank(
+        himalpay,
+        data['bank_code'],
+        data.get('bank_name') or '',
+    )
     try:
         result = himalpay.verify_bank_account(
-            bank_code=data['bank_code'],
+            bank_code=bank_code,
             account_name=data['account_name'],
             account_number=data['account_number'],
             merchant_txn_id=merchant_txn_id,
@@ -179,7 +272,7 @@ def verify_account(request):
                     'verified': True,
                     'account_name': verified_name,
                     'account_number': data['account_number'],
-                    'bank_code': data['bank_code'],
+                    'bank_code': bank_code,
                     'merchant_txn_id': merchant_txn_id,
                     'provider': result,
                 },
@@ -302,11 +395,26 @@ def create_bank_transfer(request):
     wallet = _get_or_create_wallet(request.user)
     himalpay = HimalPayAPI()
 
+    # Map short/legacy tickers (CTZN) → HimalPay SWIFT codes (CTZNNPKA)
+    resolved_bank = _resolve_destination_bank(
+        himalpay,
+        data['destination_bank'],
+        data.get('destination_bank_name') or '',
+    )
+    if resolved_bank != data['destination_bank']:
+        logger.info(
+            'Bank transfer bank code remapped %s → %s',
+            data['destination_bank'],
+            resolved_bank,
+        )
+        data['destination_bank'] = resolved_bank
+
     logger.info(
-        'Bank transfer create: Rs. %s → %s paisa (user=%s)',
+        'Bank transfer create: Rs. %s → %s paisa (user=%s, bank=%s)',
         amount,
         amount_paisa,
         getattr(request.user, 'pk', None),
+        resolved_bank,
     )
 
     tx_cfg = get_app_config().get('transactions') or {}

@@ -157,7 +157,12 @@ function Transfer() {
   const destinationNumber = isMobile ? phone.trim() : accNo.trim();
 
   useEffect(() => {
-    if (!bank && banks[0]) setBank(banks[0].bank_code);
+    if (!banks.length) return;
+    if (bank && banks.some((b) => b.bank_code === bank)) return;
+    // Remap stale short codes (e.g. CTZN → CTZNNPKA) when provider list loads
+    const remapped =
+      (bank && banks.find((b) => b.bank_code.startsWith(bank))) || banks[0];
+    setBank(remapped.bank_code);
   }, [banks, bank]);
 
   useEffect(() => {
@@ -338,6 +343,9 @@ function Transfer() {
       // Use the bank-returned original account holder name for the transfer
       const originalName = (res.data.account_name || accName).trim();
       setAccName(originalName);
+      if (res.data.bank_code && res.data.bank_code !== bank) {
+        setBank(res.data.bank_code);
+      }
       setVerified(true);
       toast.success(
         originalName !== accName.trim()

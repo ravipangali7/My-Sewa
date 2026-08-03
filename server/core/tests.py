@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.test import SimpleTestCase
 
 from .services.himalpay import HimalPayAPI, HimalPayError
+from .views.bank_transfer_views import _resolve_destination_bank
 
 
 class RupeesPaisaConversionTests(SimpleTestCase):
@@ -78,3 +79,28 @@ class RupeesPaisaConversionTests(SimpleTestCase):
             HimalPayAPI.to_paisa('not-a-number')
         with self.assertRaises(HimalPayError):
             HimalPayAPI.to_paisa(None)
+
+
+class BankCodeResolveTests(SimpleTestCase):
+    """Short tickers like CTZN must become HimalPay SWIFT codes."""
+
+    def test_legacy_ctzn_maps_to_swifts(self):
+        client = HimalPayAPI()
+        client.bypass_api = True
+        self.assertEqual(
+            _resolve_destination_bank(client, 'CTZN', 'Citizens Bank International'),
+            'CTZNNPKA',
+        )
+
+    def test_already_swift_unchanged(self):
+        client = HimalPayAPI()
+        client.bypass_api = True
+        self.assertEqual(
+            _resolve_destination_bank(client, 'LXBLNPKA', 'Laxmi Sunrise Bank'),
+            'LXBLNPKA',
+        )
+
+    def test_legacy_map_without_list(self):
+        client = HimalPayAPI()
+        client.bypass_api = True
+        self.assertEqual(_resolve_destination_bank(client, 'NICA', ''), 'NICENPKA')

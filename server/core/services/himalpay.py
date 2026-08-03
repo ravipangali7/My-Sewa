@@ -839,6 +839,7 @@ class HimalPayAPI:
                     {'bank_code': 'SCBLNPKA', 'bank_name': 'Standard Chartered Bank'},
                     {'bank_code': 'NICENPKA', 'bank_name': 'NIC Asia Bank'},
                     {'bank_code': 'HIMANPKA', 'bank_name': 'Himalayan Bank'},
+                    {'bank_code': 'CTZNNPKA', 'bank_name': 'Citizens Bank International'},
                 ],
                 'message': 'Bypass bank list',
             }
