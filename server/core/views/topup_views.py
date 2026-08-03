@@ -153,10 +153,15 @@ def _process_topup(request, product_id: int, service_label: str):
         if txn_status == 'failed':
             topup_txn.status = 'failed'
             topup_txn.save()
+            failure = himalpay.extract_failure_details(response)
             return Response(
                 {
                     'error': f'{service_label} topup failed',
-                    'message': response.get('error') or response.get('message') or 'Transaction failed',
+                    'message': failure['message'],
+                    'provider_message': failure['provider_message'],
+                    'error_code': failure['error_code'],
+                    'error_type': failure['error_type'],
+                    'wallet_debited': False,
                     'data': TopupTransactionSerializer(topup_txn).data,
                     'himalpay_response': response,
                 },

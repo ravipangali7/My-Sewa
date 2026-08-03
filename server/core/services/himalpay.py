@@ -538,6 +538,102 @@ class HimalPayAPI:
         return 'pending'
 
     @staticmethod
+    def extract_failure_details(response: Any) -> Dict[str, Any]:
+        """
+        Pull the best provider failure message + codes from a HimalPay payload.
+
+        Prefer specific ``error`` / nested reasons over a bare status label.
+        """
+        root = response if isinstance(response, dict) else {}
+        nested = root.get('data') if isinstance(root.get('data'), dict) else {}
+        deeper = nested.get('data') if isinstance(nested.get('data'), dict) else {}
+
+        def _text(*values) -> str:
+            for value in values:
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text:
+                    return text
+            return ''
+
+        provider_message = _text(
+            root.get('error'),
+            nested.get('error'),
+            deeper.get('error'),
+            root.get('message'),
+            nested.get('message'),
+            deeper.get('message'),
+            root.get('detail'),
+            nested.get('detail'),
+            root.get('reason'),
+            nested.get('reason'),
+            deeper.get('reason'),
+            root.get('status_message'),
+            nested.get('status_message'),
+        ) or 'Transaction failed'
+
+        # Keep a secondary status line when it adds refund/outcome context
+        status_line = _text(
+            root.get('message'),
+            nested.get('message'),
+            deeper.get('message'),
+        )
+        if (
+            status_line
+            and status_line.lower() != provider_message.lower()
+            and (
+                'refund' in status_line.lower()
+                or 'payment failed' in status_line.lower()
+            )
+        ):
+            provider_message = f'{provider_message}. {status_line}'
+
+        error_code = (
+            root.get('error_code')
+            or nested.get('error_code')
+            or deeper.get('error_code')
+        )
+        error_type = _text(
+            root.get('error_type'),
+            nested.get('error_type'),
+            deeper.get('error_type'),
+        ) or None
+
+        if isinstance(error_code, str) and error_code.isdigit():
+            error_code = int(error_code)
+        if not isinstance(error_code, int):
+            error_code = None
+
+        message = format_himalpay_error_message(
+            provider_message, error_code, error_type
+        )
+        lowered = f'{message} {status_line}'.lower()
+        if 'amount refunded' in lowered or 'payment failed' in lowered:
+            # HimalPay refunded the reseller float — MySewa never debited the user.
+            message = (
+                f'{message.rstrip(".")}. '
+                'The payment provider could not complete this payment, '
+                'so the amount was returned on the provider side. '
+                'Your MySewa wallet was not charged.'
+            )
+
+        meta_bits = []
+        if error_code is not None:
+            meta_bits.append(f'Provider error code: {error_code}')
+        if error_type:
+            meta_bits.append(f'Error type: {error_type}')
+        if meta_bits:
+            message = f'{message}\n\n' + '\n'.join(meta_bits)
+
+        return {
+            'message': message,
+            'provider_message': provider_message,
+            'error_code': error_code,
+            'error_type': error_type,
+        }
+
+    @staticmethod
     def extract_transaction_id(response: Dict) -> str:
         return str(
             response.get('transaction_id')

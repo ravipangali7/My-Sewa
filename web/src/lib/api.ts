@@ -33,19 +33,80 @@ export function setToken(token: string | null) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
 function extractMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
   const b = body as Record<string, unknown>;
-  if (typeof b["message"] === "string") return b["message"];
-  if (typeof b["error"] === "string") return b["error"];
-  if (typeof b["detail"] === "string") return b["detail"];
+  const nested =
+    asRecord(b["himalpay_response"]) ||
+    asRecord(b["provider"]) ||
+    asRecord(b["data"]);
+  const deeper = nested ? asRecord(nested["data"]) : null;
+
+  const primary = firstString(
+    b["message"],
+    b["provider_message"],
+    nested?.["error"],
+    nested?.["message"],
+    deeper?.["error"],
+    deeper?.["message"],
+    b["error"],
+    b["detail"],
+  );
+
+  const secondary = firstString(b["error"], b["provider_message"]);
+  const parts: string[] = [];
+  if (primary) parts.push(primary);
+  // Include a distinct short error label when it adds information
+  if (
+    secondary &&
+    primary &&
+    secondary !== primary &&
+    !primary.includes(secondary) &&
+    secondary !== "Bank transfer failed" &&
+    secondary !== "Account verification failed"
+  ) {
+    parts.push(secondary);
+  }
+
+  const errorCode = b["error_code"] ?? nested?.["error_code"] ?? deeper?.["error_code"];
+  const errorType = firstString(b["error_type"], nested?.["error_type"], deeper?.["error_type"]);
+  const meta: string[] = [];
+  if (typeof errorCode === "number" || (typeof errorCode === "string" && errorCode.trim())) {
+    // Avoid duplicating meta the backend already appended
+    const codeLine = `Provider error code: ${errorCode}`;
+    if (!parts.some((p) => p.includes(String(errorCode)))) meta.push(codeLine);
+  }
+  if (errorType && !parts.some((p) => p.includes(errorType))) {
+    meta.push(`Error type: ${errorType}`);
+  }
+  if (b["wallet_debited"] === false && !parts.some((p) => /wallet was not charged/i.test(p))) {
+    meta.push("Your MySewa wallet was not charged.");
+  }
+
+  if (meta.length) parts.push(meta.join("\n"));
+
+  if (parts.length) return parts.join("\n\n");
+
   if (b["errors"] && typeof b["errors"] === "object") {
-    const parts: string[] = [];
+    const errParts: string[] = [];
     for (const [k, v] of Object.entries(b["errors"] as Record<string, unknown>)) {
       const msg = Array.isArray(v) ? v.join(" ") : String(v);
-      parts.push(`${k}: ${msg}`);
+      errParts.push(`${k}: ${msg}`);
     }
-    if (parts.length) return parts.join(" ");
+    if (errParts.length) return errParts.join(" ");
   }
   // DRF serializer field errors: { mobile_number: ["Invalid Number"] }
   const fieldParts: string[] = [];

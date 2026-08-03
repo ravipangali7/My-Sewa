@@ -402,15 +402,19 @@ def create_bank_transfer(request):
             transfer.status = 'failed'
             transfer.provider_response = verify_result if isinstance(verify_result, dict) else {}
             transfer.save()
+            failure = himalpay.extract_failure_details(verify_result)
             return Response(
                 {
                     'error': 'Account verification failed',
                     'message': (
-                        (verify_result or {}).get('message')
-                        if isinstance(verify_result, dict)
-                        else None
-                    )
-                    or 'Destination account could not be verified. Transfer rejected.',
+                        failure['message']
+                        if failure['provider_message'] != 'Transaction failed'
+                        else 'Destination account could not be verified. Transfer rejected.'
+                    ),
+                    'provider_message': failure['provider_message'],
+                    'error_code': failure['error_code'],
+                    'error_type': failure['error_type'],
+                    'wallet_debited': False,
                     'data': BankTransferTransactionSerializer(transfer).data,
                     'provider': verify_result,
                 },
@@ -455,10 +459,15 @@ def create_bank_transfer(request):
         if txn_status == 'failed':
             transfer.status = 'failed'
             transfer.save()
+            failure = himalpay.extract_failure_details(response)
             return Response(
                 {
                     'error': 'Bank transfer failed',
-                    'message': response.get('error') or response.get('message') or 'Transaction failed',
+                    'message': failure['message'],
+                    'provider_message': failure['provider_message'],
+                    'error_code': failure['error_code'],
+                    'error_type': failure['error_type'],
+                    'wallet_debited': False,
                     'data': BankTransferTransactionSerializer(transfer).data,
                     'himalpay_response': response,
                 },
@@ -518,12 +527,23 @@ def create_bank_transfer(request):
             'Bank transfer HimalPay error: %s code=%s type=%s',
             exc.message, exc.error_code, exc.error_type,
         )
+        failure = himalpay.extract_failure_details(
+            {
+                **(exc.response_data or {}),
+                'error': (exc.response_data or {}).get('error') or exc.message,
+                'message': (exc.response_data or {}).get('message') or exc.message,
+                'error_code': exc.error_code,
+                'error_type': exc.error_type,
+            }
+        )
         return Response(
             {
                 'error': 'Bank transfer failed',
-                'message': exc.message,
-                'error_code': exc.error_code,
-                'error_type': exc.error_type,
+                'message': failure['message'] or exc.message,
+                'provider_message': failure['provider_message'] or exc.message,
+                'error_code': failure['error_code'] if failure['error_code'] is not None else exc.error_code,
+                'error_type': failure['error_type'] or exc.error_type,
+                'wallet_debited': False,
                 'data': BankTransferTransactionSerializer(transfer).data,
             },
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
@@ -534,7 +554,11 @@ def create_bank_transfer(request):
         transfer.save()
         logger.error('Bank transfer failed: %s\n%s', exc, traceback.format_exc())
         return Response(
-            {'error': 'Bank transfer request failed', 'message': str(exc)},
+            {
+                'error': 'Bank transfer request failed',
+                'message': str(exc),
+                'wallet_debited': False,
+            },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 

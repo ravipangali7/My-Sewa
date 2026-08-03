@@ -483,7 +483,11 @@ function Transfer() {
                   </div>
                   <p className="mt-1 text-[12px] text-muted-foreground">
                     {b.merchant_txn_id} · {formatDateTime(b.created_at)} ·{" "}
-                    {t("transfer.debited", { amount: formatNPR(b.total_debited) })}
+                    {b.status === "failed"
+                      ? t("transfer.notDebited", { amount: formatNPR(b.total_debited) })
+                      : b.status === "pending"
+                        ? t("transfer.pendingDebit", { amount: formatNPR(b.total_debited) })
+                        : t("transfer.debited", { amount: formatNPR(b.total_debited) })}
                   </p>
                 </li>
               ))}

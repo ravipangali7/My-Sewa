@@ -39,7 +39,12 @@ export function ErrorPopup({
           <AlertDialogTitle className="text-[17px] leading-snug text-destructive">
             {title || t("common.somethingWrong")}
           </AlertDialogTitle>
-          <AlertDialogDescription className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground">
+          <AlertDialogDescription
+            className={cn(
+              "whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground",
+              "max-h-[50dvh] overflow-y-auto",
+            )}
+          >
             {message}
           </AlertDialogDescription>
         </AlertDialogHeader>
