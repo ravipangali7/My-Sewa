@@ -6,6 +6,7 @@ cashback/charge calculation, and transaction status checks.
 """
 import logging
 import time
+import uuid
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -296,12 +297,19 @@ class HimalPayAPI:
         self,
         wallet_service_name: str,
         amount_rupees,
+        merchant_transaction_id: Optional[str] = None,
     ) -> Dict:
         rupees = self.normalize_rupees(amount_rupees)
         amount_paisa = self.to_paisa(rupees)
+        # HimalPay reseller API requires merchant_transaction_id on calculate.
+        # Use a CALC-prefixed id so it is never reused for payment/verify calls.
+        calc_txn_id = (merchant_transaction_id or '').strip() or (
+            f"MYSEWA_CALC_{uuid.uuid4().hex[:14].upper()}"
+        )
         logger.info(
-            'HimalPay charge calc %s: Rs. %s → %s paisa',
+            'HimalPay charge calc %s txn=%s: Rs. %s → %s paisa',
             wallet_service_name,
+            calc_txn_id,
             rupees,
             amount_paisa,
         )
@@ -311,6 +319,7 @@ class HimalPayAPI:
             return {
                 'wallet_service_name': wallet_service_name,
                 'amount': amount_paisa,
+                'merchant_transaction_id': calc_txn_id,
                 'applied_cashback': cashback,
                 'applied_charge': charge,
                 'net_amount': amount_paisa + charge - cashback,
@@ -323,6 +332,7 @@ class HimalPayAPI:
         payload = {
             'wallet_service_name': wallet_service_name,
             'amount': amount_paisa,
+            'merchant_transaction_id': calc_txn_id,
         }
         result = self._request(
             'POST',
@@ -336,6 +346,7 @@ class HimalPayAPI:
         result['charge'] = charge
         result['cashback'] = cashback
         result['total_debited'] = net
+        result.setdefault('merchant_transaction_id', calc_txn_id)
         return result
 
     def process_payment(

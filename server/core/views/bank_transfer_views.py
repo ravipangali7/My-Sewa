@@ -260,30 +260,23 @@ def calculate_transfer_charge(request):
                 },
                 status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
             )
-        # Still honour admin fees when provider preview fails
+        # Still honour admin fees when provider preview fails (keep UI usable)
         fees = resolve_transfer_fees(amount, 0, 0, tx_cfg)
-        if fees['charge'] > 0 or fees['cashback'] > 0 or not bool(
-            tx_cfg.get('transfer_charge_enabled', True)
-        ):
-            return Response(
-                {
-                    'data': {
-                        'amount': str(amount),
-                        'amount_paisa': amount_paisa,
-                        'charge': str(fees['charge']),
-                        'cashback': str(fees['cashback']),
-                        'platform_charge': str(fees['platform_charge']),
-                        'total_debited': str(fees['total_debited']),
-                        'charge_enabled': bool(tx_cfg.get('transfer_charge_enabled', True)),
-                        'cashback_enabled': bool(tx_cfg.get('cashback_enabled', True)),
-                    },
-                    'warning': exc.message,
-                },
-                status=status.HTTP_200_OK,
-            )
         return Response(
-            {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
-            status=status.HTTP_400_BAD_REQUEST,
+            {
+                'data': {
+                    'amount': str(amount),
+                    'amount_paisa': amount_paisa,
+                    'charge': str(fees['charge']),
+                    'cashback': str(fees['cashback']),
+                    'platform_charge': str(fees['platform_charge']),
+                    'total_debited': str(fees['total_debited']),
+                    'charge_enabled': bool(tx_cfg.get('transfer_charge_enabled', True)),
+                    'cashback_enabled': bool(tx_cfg.get('cashback_enabled', True)),
+                },
+                'warning': exc.message,
+            },
+            status=status.HTTP_200_OK,
         )
 
 

@@ -60,6 +60,18 @@ class RupeesPaisaConversionTests(SimpleTestCase):
             100,
         )
         self.assertEqual(result['amount'], 10000)
+        self.assertTrue(result['merchant_transaction_id'].startswith('MYSEWA_CALC_'))
+
+    def test_calculate_charge_accepts_merchant_txn_id(self):
+        client = HimalPayAPI()
+        client.bypass_api = True
+        result = client.calculate_cashback_and_charge(
+            HimalPayAPI.SERVICE_BANK_TRANSFER,
+            100,
+            merchant_transaction_id='MYSEWA_CALC_CUSTOM01',
+        )
+        self.assertEqual(result['merchant_transaction_id'], 'MYSEWA_CALC_CUSTOM01')
+        self.assertEqual(result['amount'], 10000)
 
     def test_invalid_amount_rejected(self):
         with self.assertRaises(HimalPayError):
