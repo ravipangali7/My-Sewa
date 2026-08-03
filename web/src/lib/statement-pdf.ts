@@ -1,4 +1,10 @@
 import type { ActivityStatement } from "./activity";
+import {
+  hasNativeFileBridge,
+  isEmbeddedWebView,
+  isMySewaNativeApp,
+  waitForNativeFileBridge,
+} from "./native-app";
 
 /** A4 at 2× for crisp output (points → CSS px ≈ 96/72). */
 const SCALE = 2;
@@ -126,7 +132,6 @@ function wrapText(
       current = next;
     } else {
       if (current) lines.push(current);
-      // Long unbroken tokens (txn ids) — hard-split by width
       if (ctx.measureText(word).width > maxWidth) {
         let chunk = "";
         for (const ch of word) {
@@ -154,7 +159,7 @@ function safeFilename(reference: string): string {
 }
 
 /** Minimal single-page PDF wrapping a JPEG image (no external deps). */
-function jpegToPdfBlob(jpeg: Uint8Array, widthPx: number, heightPx: number): Blob {
+function jpegToPdfBytes(jpeg: Uint8Array, widthPx: number, heightPx: number): Uint8Array {
   const pageW = widthPx / SCALE;
   const pageH = heightPx / SCALE;
   const encoder = new TextEncoder();
@@ -207,7 +212,7 @@ function jpegToPdfBlob(jpeg: Uint8Array, widthPx: number, heightPx: number): Blo
     merged.set(part, offset);
     offset += part.length;
   }
-  return new Blob([merged], { type: "application/pdf" });
+  return merged;
 }
 
 function canvasToJpegBytes(
@@ -230,16 +235,106 @@ function canvasToJpegBytes(
   });
 }
 
-function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunk = 0x8000;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += chunk) {
+    const slice = bytes.subarray(i, i + chunk);
+    let binary = "";
+    for (let j = 0; j < slice.length; j++) {
+      binary += String.fromCharCode(slice[j]!);
+    }
+    parts.push(binary);
+  }
+  return btoa(parts.join(""));
+}
+
+/** Hand the file to the Flutter shell (share sheet / Files app). */
+function downloadViaNativeBridge(
+  bytes: Uint8Array,
+  filename: string,
+  mime: string,
+): boolean {
+  if (!hasNativeFileBridge()) return false;
+
+  const payload = {
+    type: "download",
+    filename,
+    mime,
+    base64: bytesToBase64(bytes),
+  };
+  const serialized = JSON.stringify(payload);
+
+  try {
+    if (window.MySewaNative?.downloadFile?.(payload)) return true;
+  } catch {
+    // fall through
+  }
+
+  try {
+    if (window.MySewaBridge?.postMessage) {
+      window.MySewaBridge.postMessage(serialized);
+      return true;
+    }
+  } catch {
+    // fall through
+  }
+
+  return false;
+}
+
+/**
+ * Browser / WebView-safe download.
+ * Never navigates the main frame to blob: (that breaks Flutter WebView).
+ */
+async function triggerDownload(bytes: Uint8Array, filename: string, mime: string) {
+  if (isMySewaNativeApp()) {
+    await waitForNativeFileBridge();
+  }
+  if (downloadViaNativeBridge(bytes, filename, mime)) return;
+
+  const copy = new Uint8Array(bytes);
+  const blob = new Blob([copy], { type: mime });
+
+  const nav = window.navigator as Navigator & {
+    msSaveOrOpenBlob?: (blob: Blob, name?: string) => boolean;
+  };
+  if (typeof nav.msSaveOrOpenBlob === "function") {
+    nav.msSaveOrOpenBlob(blob, filename);
+    return;
+  }
+
+  // Desktop / normal browsers
+  if (!isEmbeddedWebView() && !isMySewaNativeApp()) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return;
+  }
+
+  // Embedded WebView without bridge: data URL via hidden iframe (no main-frame nav)
+  const dataUrl = `data:${mime};base64,${bytesToBase64(bytes)}`;
+  const iframe = document.createElement("iframe");
+  iframe.style.display = "none";
+  iframe.src = dataUrl;
+  document.body.appendChild(iframe);
+  window.setTimeout(() => iframe.remove(), 60_000);
+
   const a = document.createElement("a");
-  a.href = url;
+  a.href = dataUrl;
   a.download = filename;
   a.rel = "noopener";
+  a.style.display = "none";
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
 }
 
 export interface StatementPdfOptions {
@@ -343,6 +438,6 @@ export async function downloadStatementPdf({
   ctx.fillText(brandName, MARGIN + contentW, PAGE_H - 24 * SCALE);
 
   const jpeg = await canvasToJpegBytes(canvas);
-  const pdf = jpegToPdfBlob(jpeg, PAGE_W, PAGE_H);
-  triggerDownload(pdf, safeFilename(statement.reference));
+  const pdfBytes = jpegToPdfBytes(jpeg, PAGE_W, PAGE_H);
+  await triggerDownload(pdfBytes, safeFilename(statement.reference), "application/pdf");
 }

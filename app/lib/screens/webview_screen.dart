@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -39,6 +43,27 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function() {
   try {
     window.dispatchEvent(new CustomEvent('mysewa-app-resume'));
+  } catch (e) {}
+})();
+''';
+
+  /// Exposes a download bridge the web app can call from JS.
+  static const _installNativeBridgeJs = '''
+(function() {
+  try {
+    window.MySewaNative = window.MySewaNative || {};
+    window.MySewaNative.downloadFile = function(payload) {
+      try {
+        if (window.MySewaBridge && window.MySewaBridge.postMessage) {
+          window.MySewaBridge.postMessage(
+            typeof payload === 'string' ? payload : JSON.stringify(payload)
+          );
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    };
+    window.MySewaNative.hasBridge = true;
   } catch (e) {}
 })();
 ''';
@@ -95,6 +120,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _isOnline && _controller != null) {
       _controller!.runJavaScript(_dispatchAppResumeJs);
+      _controller!.runJavaScript(_installNativeBridgeJs);
     }
   }
 
@@ -125,10 +151,18 @@ class _WebViewScreenState extends State<WebViewScreen>
     final defaultUa = await controller.getUserAgent() ?? '';
     await controller.setUserAgent('$defaultUa MySewaApp/1.0');
 
+    await controller.addJavaScriptChannel(
+      'MySewaBridge',
+      onMessageReceived: (message) {
+        unawaited(_handleNativeBridgeMessage(message.message));
+      },
+    );
+
     await controller.setNavigationDelegate(
       NavigationDelegate(
         onPageFinished: (_) async {
           await controller.runJavaScript(_disableZoomJs);
+          await controller.runJavaScript(_installNativeBridgeJs);
           if (mounted) {
             final padding = MediaQuery.paddingOf(context);
             await controller.runJavaScript(_safeAreaCssJs(padding));
@@ -137,7 +171,15 @@ class _WebViewScreenState extends State<WebViewScreen>
           _pageReady = true;
           await _dismissSplashWhenReady();
         },
+        onPageStarted: (_) async {
+          await controller.runJavaScript(_installNativeBridgeJs);
+        },
         onWebResourceError: (error) async {
+          // Blob/data "downloads" must never leave the user on an error page.
+          final failing = error.url ?? '';
+          if (failing.startsWith('blob:') || failing.startsWith('data:')) {
+            return;
+          }
           if (error.isForMainFrame != true) return;
           final online = await _hasConnection();
           if (!mounted) return;
@@ -156,6 +198,13 @@ class _WebViewScreenState extends State<WebViewScreen>
           final uri = Uri.tryParse(request.url);
           if (uri == null) return NavigationDecision.prevent;
 
+          final scheme = uri.scheme.toLowerCase();
+
+          // Never navigate the WebView to blob:/data: — downloads go via bridge.
+          if (scheme == 'blob' || scheme == 'data') {
+            return NavigationDecision.prevent;
+          }
+
           if (_isAppHost(uri)) {
             return NavigationDecision.navigate;
           }
@@ -165,7 +214,12 @@ class _WebViewScreenState extends State<WebViewScreen>
             return NavigationDecision.prevent;
           }
 
-          if (uri.scheme == 'http' || uri.scheme == 'https') {
+          if (scheme == 'http' || scheme == 'https') {
+            // Treat likely file downloads as external opens instead of in-app nav.
+            if (_looksLikeDownload(uri)) {
+              await _openExternal(uri);
+              return NavigationDecision.prevent;
+            }
             await _openExternal(uri);
             return NavigationDecision.prevent;
           }
@@ -230,10 +284,16 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   bool _isAppHost(Uri uri) {
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != 'http' && scheme != 'https') return false;
     final host = uri.host.toLowerCase();
-    return host.isEmpty ||
-        host == AppConfig.host ||
-        host.endsWith('.${AppConfig.host}');
+    return host == AppConfig.host || host.endsWith('.${AppConfig.host}');
+  }
+
+  bool _looksLikeDownload(Uri uri) {
+    final path = uri.path.toLowerCase();
+    const exts = ['.pdf', '.png', '.jpg', '.jpeg', '.csv', '.xlsx', '.zip'];
+    return exts.any(path.endsWith);
   }
 
   bool _shouldOpenExternally(Uri uri) {
@@ -253,6 +313,54 @@ class _WebViewScreenState extends State<WebViewScreen>
     try {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {}
+  }
+
+  Future<void> _handleNativeBridgeMessage(String raw) async {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final type = decoded['type']?.toString();
+      if (type != 'download') return;
+
+      final filename = _sanitizeFilename(
+        decoded['filename']?.toString() ?? 'MySewa_file.pdf',
+      );
+      final base64Data = decoded['base64']?.toString() ?? '';
+      final mime = decoded['mime']?.toString() ?? 'application/octet-stream';
+      if (base64Data.isEmpty) return;
+
+      final bytes = base64Decode(base64Data);
+      await _saveAndShareBytes(bytes, filename, mime);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not save the file. Please try again.')),
+      );
+    }
+  }
+
+  String _sanitizeFilename(String name) {
+    final cleaned = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    if (cleaned.isEmpty) return 'MySewa_file.pdf';
+    return cleaned.length > 120 ? cleaned.substring(0, 120) : cleaned;
+  }
+
+  Future<void> _saveAndShareBytes(
+    List<int> bytes,
+    String filename,
+    String mime,
+  ) async {
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/$filename');
+    await file.writeAsBytes(bytes, flush: true);
+
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path, mimeType: mime, name: filename)],
+        subject: filename,
+        text: 'MySewa statement',
+      ),
+    );
   }
 
   Future<bool> _hasConnection() async {
