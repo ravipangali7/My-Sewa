@@ -83,15 +83,31 @@ export interface ActivityStatement {
   reference: string;
   headlineAmount: string;
   amountCaption: string;
-  sections: Array<{ title: string; rows: StatementRow[] }>;
+  /** Flat receipt rows (label left / value right), matching the statement view layout. */
+  details: StatementRow[];
   proofUrl?: string | null;
   footer: string;
+}
+
+function pushDetail(
+  rows: StatementRow[],
+  label: string,
+  value: string | null | undefined,
+  opts?: { mono?: boolean; danger?: boolean; skipEmpty?: boolean },
+) {
+  const trimmed = value?.trim();
+  if (opts?.skipEmpty && (!trimmed || trimmed === "—")) return;
+  const row: StatementRow = { label, value: trimmed || "—" };
+  if (opts?.mono) row.mono = true;
+  if (opts?.danger) row.danger = true;
+  rows.push(row);
 }
 
 export function buildActivityStatement(
   tx: WalletTransactions,
   id: string,
   t: TranslateFn = (key) => key,
+  initiator?: string,
 ): ActivityStatement | undefined {
   const item = findActivity(tx, id, t);
   if (!item) return undefined;
@@ -99,97 +115,74 @@ export function buildActivityStatement(
   if (item.kind === "deposit") {
     const d = tx.deposits.find((x) => `dep-${x.id}` === id);
     if (!d) return undefined;
+    const reference = `#${d.id}`;
+    const details: StatementRow[] = [];
+    pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("history.dateTime"), formatDateTime(d.created_at));
+    pushDetail(details, t("history.channel"), t("history.channelOnline"));
+    pushDetail(details, t("history.serviceName"), t("notif.typeDeposit"));
+    pushDetail(details, t("common.status"), translateStatus(d.status, t));
+    pushDetail(details, t("common.amountNpr"), formatNPR(d.amount));
+    pushDetail(details, t("common.note"), d.note?.trim() || "—");
+    if (d.rejection_reason) {
+      pushDetail(details, t("history.rejection"), d.rejection_reason, {
+        danger: true,
+      });
+    }
+    pushDetail(details, t("history.updated"), formatDateTime(d.updated_at));
+    pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
     return {
       item,
-      reference: `#${d.id}`,
+      reference,
       headlineAmount: formatNPR(d.amount),
       amountCaption: t("history.walletCredit"),
       proofUrl: d.screenshot_proof,
       footer: t("history.footer"),
-      sections: [
-        {
-          title: t("history.sectionTxn"),
-          rows: [
-            { label: t("common.type"), value: t("notif.typeDeposit") },
-            { label: t("common.status"), value: translateStatus(d.status, t) },
-            { label: t("history.submitted"), value: formatDateTime(d.created_at) },
-            { label: t("history.updated"), value: formatDateTime(d.updated_at) },
-          ],
-        },
-        {
-          title: t("history.sectionNarrative"),
-          rows: [
-            { label: t("common.note"), value: d.note?.trim() || "—" },
-            ...(d.rejection_reason
-              ? [
-                  {
-                    label: t("history.rejection"),
-                    value: d.rejection_reason,
-                    danger: true,
-                  },
-                ]
-              : []),
-          ],
-        },
-      ],
+      details,
     };
   }
 
   if (item.kind === "remittance") {
     const r = (tx.remittances ?? []).find((x) => `rem-${x.id}` === id);
     if (!r) return undefined;
+    const reference = r.ref_no || r.merchant_txn_id || `#${r.id}`;
+    const details: StatementRow[] = [];
+    pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("history.dateTime"), formatDateTime(r.created_at));
+    pushDetail(details, t("history.channel"), t("history.channelOnline"));
+    pushDetail(details, t("history.serviceName"), t("notif.typeRemittance"));
+    pushDetail(details, t("common.status"), translateStatus(r.status, t));
+    pushDetail(details, t("remittance.sender"), r.sender_name || "—");
+    pushDetail(details, t("remittance.receiver"), r.receiver_name || "—");
+    pushDetail(details, t("remittance.receiverPhone"), r.receiver_phone || "—");
+    pushDetail(details, t("remittance.purpose"), r.remittance_purpose, {
+      skipEmpty: true,
+    });
+    pushDetail(details, t("common.amountNpr"), formatNPR(r.amount));
+    pushDetail(details, t("common.charge"), formatNPR(r.charge));
+    pushDetail(details, t("common.cashback"), formatNPR(r.cashback));
+    pushDetail(details, t("history.totalCredited"), formatNPR(r.total_credited));
+    pushDetail(details, t("history.merchantTxn"), r.merchant_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.providerTxn"), r.provider_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.reference"), r.reference_id, {
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
     return {
       item,
-      reference: r.ref_no || `#${r.id}`,
+      reference,
       headlineAmount: formatNPR(
         r.total_credited !== "0.00" ? r.total_credited : r.amount,
       ),
       amountCaption: t("history.walletCredit"),
       footer: t("history.footer"),
-      sections: [
-        {
-          title: t("history.sectionParty"),
-          rows: [
-            { label: t("remittance.sender"), value: r.sender_name || "—" },
-            { label: t("remittance.receiver"), value: r.receiver_name || "—" },
-            { label: t("remittance.receiverPhone"), value: r.receiver_phone || "—" },
-            { label: t("remittance.purpose"), value: r.remittance_purpose || "—" },
-          ],
-        },
-        {
-          title: t("history.sectionTxn"),
-          rows: [
-            { label: t("common.type"), value: t("notif.typeRemittance") },
-            { label: t("common.status"), value: translateStatus(r.status, t) },
-            { label: t("remittance.refNo"), value: r.ref_no || "—", mono: true },
-            {
-              label: t("history.merchantTxn"),
-              value: r.merchant_txn_id || "—",
-              mono: true,
-            },
-            {
-              label: t("history.providerTxn"),
-              value: r.provider_txn_id || "—",
-              mono: true,
-            },
-            { label: t("history.reference"), value: r.reference_id || "—" },
-            { label: t("history.submitted"), value: formatDateTime(r.created_at) },
-            { label: t("history.updated"), value: formatDateTime(r.updated_at) },
-          ],
-        },
-        {
-          title: t("history.sectionSettlement"),
-          rows: [
-            { label: t("common.amount"), value: formatNPR(r.amount) },
-            { label: t("common.charge"), value: formatNPR(r.charge) },
-            { label: t("common.cashback"), value: formatNPR(r.cashback) },
-            {
-              label: t("history.totalCredited"),
-              value: formatNPR(r.total_credited),
-            },
-          ],
-        },
-      ],
+      details,
     };
   }
 
@@ -197,137 +190,105 @@ export function buildActivityStatement(
     const top = tx.topups.find((x) => `top-${x.id}` === id);
     if (!top) return undefined;
     const operator = top.product_name || OPERATORS[top.product_id];
+    const reference =
+      top.merchant_txn_id || top.reference_id || top.service_hub_txn_id || `#${top.id}`;
+    const details: StatementRow[] = [];
+    pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("history.dateTime"), formatDateTime(top.created_at));
+    pushDetail(details, t("history.channel"), t("history.channelOnline"));
+    pushDetail(details, t("history.paymentAttribute"), top.mobile_number);
+    pushDetail(
+      details,
+      t("history.serviceName"),
+      t("activity.topUp", { operator }),
+    );
+    pushDetail(details, t("common.status"), translateStatus(top.status, t));
+    pushDetail(details, t("common.amountNpr"), formatNPR(top.amount));
+    pushDetail(details, t("common.charge"), formatNPR(top.charge));
+    pushDetail(details, t("common.cashback"), formatNPR(top.cashback));
+    pushDetail(details, t("common.totalDebited"), formatNPR(top.total_debited));
+    pushDetail(details, t("history.merchantTxn"), top.merchant_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.providerTxn"), top.service_hub_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.reference"), top.reference_id, {
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
     return {
       item,
-      reference: `#${top.id}`,
+      reference,
       headlineAmount: formatNPR(
         top.total_debited !== "0.00" ? top.total_debited : top.amount,
       ),
       amountCaption: t("history.totalDebited"),
       footer: t("history.footer"),
-      sections: [
-        {
-          title: t("history.sectionParty"),
-          rows: [
-            { label: t("common.operator"), value: operator },
-            { label: t("common.mobile"), value: top.mobile_number },
-            { label: t("history.product"), value: String(top.product_id) },
-          ],
-        },
-        {
-          title: t("history.sectionTxn"),
-          rows: [
-            { label: t("common.type"), value: t("notif.typeTopup") },
-            { label: t("common.status"), value: translateStatus(top.status, t) },
-            {
-              label: t("history.merchantTxn"),
-              value: top.merchant_txn_id || "—",
-              mono: true,
-            },
-            {
-              label: t("history.providerTxn"),
-              value: top.service_hub_txn_id || "—",
-              mono: true,
-            },
-            { label: t("history.reference"), value: top.reference_id || "—" },
-            { label: t("history.submitted"), value: formatDateTime(top.created_at) },
-            { label: t("history.updated"), value: formatDateTime(top.updated_at) },
-          ],
-        },
-        {
-          title: t("history.sectionSettlement"),
-          rows: [
-            { label: t("common.amount"), value: formatNPR(top.amount) },
-            { label: t("common.charge"), value: formatNPR(top.charge) },
-            { label: t("common.cashback"), value: formatNPR(top.cashback) },
-            {
-              label: t("common.totalDebited"),
-              value: formatNPR(top.total_debited),
-            },
-          ],
-        },
-      ],
+      details,
     };
   }
 
   const b = tx.bank_transfers.find((x) => `bt-${x.id}` === id);
   if (!b) return undefined;
+  const reference =
+    b.merchant_txn_id || b.reference_id || b.provider_txn_id || `#${b.id}`;
+  const details: StatementRow[] = [];
+  pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+  pushDetail(details, t("history.dateTime"), formatDateTime(b.created_at));
+  pushDetail(details, t("history.channel"), t("history.channelOnline"));
+  pushDetail(
+    details,
+    t("history.serviceName"),
+    b.is_destination_mobile
+      ? t("notif.typePhoneTransfer")
+      : t("notif.typeBankTransfer"),
+  );
+  pushDetail(details, t("common.status"), translateStatus(b.status, t));
+  pushDetail(details, t("common.recipient"), b.destination_acc_name);
+  pushDetail(
+    details,
+    b.is_destination_mobile ? t("history.destPhone") : t("history.destAccount"),
+    b.destination_acc_no,
+    { mono: true },
+  );
+  pushDetail(
+    details,
+    t("common.bank"),
+    b.destination_bank_name || b.destination_bank,
+  );
+  pushDetail(
+    details,
+    t("history.verified"),
+    b.verified ? t("history.yes") : t("history.no"),
+  );
+  pushDetail(details, t("common.amountNpr"), formatNPR(b.amount));
+  pushDetail(details, t("common.charge"), formatNPR(b.charge));
+  pushDetail(details, t("common.cashback"), formatNPR(b.cashback));
+  pushDetail(details, t("common.totalDebited"), formatNPR(b.total_debited));
+  pushDetail(details, t("common.remarks"), b.transaction_remarks?.trim() || "—");
+  pushDetail(details, t("history.merchantTxn"), b.merchant_txn_id, {
+    mono: true,
+    skipEmpty: true,
+  });
+  pushDetail(details, t("history.providerTxn"), b.provider_txn_id, {
+    mono: true,
+    skipEmpty: true,
+  });
+  pushDetail(details, t("history.reference"), b.reference_id, {
+    skipEmpty: true,
+  });
+  pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
   return {
     item,
-    reference: `#${b.id}`,
+    reference,
     headlineAmount: formatNPR(
       b.total_debited !== "0.00" ? b.total_debited : b.amount,
     ),
     amountCaption: t("history.totalDebited"),
     footer: t("history.footer"),
-    sections: [
-      {
-        title: t("history.sectionParty"),
-        rows: [
-          { label: t("common.recipient"), value: b.destination_acc_name },
-          {
-            label: b.is_destination_mobile
-              ? t("history.destPhone")
-              : t("history.destAccount"),
-            value: b.destination_acc_no,
-            mono: true,
-          },
-          {
-            label: t("common.bank"),
-            value: b.destination_bank_name || b.destination_bank,
-          },
-          {
-            label: t("history.verified"),
-            value: b.verified ? t("history.yes") : t("history.no"),
-          },
-        ],
-      },
-      {
-        title: t("history.sectionTxn"),
-        rows: [
-          {
-            label: t("common.type"),
-            value: b.is_destination_mobile
-              ? t("notif.typePhoneTransfer")
-              : t("notif.typeBankTransfer"),
-          },
-          { label: t("common.status"), value: translateStatus(b.status, t) },
-          {
-            label: t("history.merchantTxn"),
-            value: b.merchant_txn_id || "—",
-            mono: true,
-          },
-          {
-            label: t("history.providerTxn"),
-            value: b.provider_txn_id || "—",
-            mono: true,
-          },
-          { label: t("history.reference"), value: b.reference_id || "—" },
-          { label: t("history.submitted"), value: formatDateTime(b.created_at) },
-          { label: t("history.updated"), value: formatDateTime(b.updated_at) },
-        ],
-      },
-      {
-        title: t("history.sectionSettlement"),
-        rows: [
-          { label: t("common.amount"), value: formatNPR(b.amount) },
-          { label: t("common.charge"), value: formatNPR(b.charge) },
-          { label: t("common.cashback"), value: formatNPR(b.cashback) },
-          {
-            label: t("common.totalDebited"),
-            value: formatNPR(b.total_debited),
-          },
-        ],
-      },
-      {
-        title: t("history.sectionNarrative"),
-        rows: [
-          {
-            label: t("common.remarks"),
-            value: b.transaction_remarks?.trim() || "—",
-          },
-        ],
-      },
-    ],
+    details,
   };
 }

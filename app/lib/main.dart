@@ -29,7 +29,7 @@ class MySewaApp extends StatelessWidget {
           primary: const Color(AppConfig.brand),
           surface: const Color(AppConfig.bg),
         ),
-        scaffoldBackgroundColor: const Color(AppConfig.bg),
+        scaffoldBackgroundColor: const Color(AppConfig.brandSoft),
       ),
       home: const WebViewScreen(),
     );
