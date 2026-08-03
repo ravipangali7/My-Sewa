@@ -46,6 +46,23 @@ function firstString(...values: unknown[]): string | null {
   return null;
 }
 
+function stripTechnicalErrorMeta(text: string): string {
+  // Remove lines dumped for debugging (provider code / ServiceLevel.* enums).
+  return text
+    .split("\n")
+    .filter((line) => {
+      const t = line.trim();
+      if (!t) return true;
+      if (/^Provider error code:/i.test(t)) return false;
+      if (/^Error type:/i.test(t)) return false;
+      if (/^ServiceLevel\./i.test(t)) return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function extractMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
   const b = body as Record<string, unknown>;
@@ -68,35 +85,42 @@ function extractMessage(body: unknown, fallback: string): string {
 
   const secondary = firstString(b["error"], b["provider_message"]);
   const parts: string[] = [];
-  if (primary) parts.push(primary);
+
+  // Local wallet shortfall — surface need vs available clearly.
+  const required = b["required"];
+  const available = b["available"];
+  const isLocalInsufficient =
+    (typeof b["error"] === "string" && /insufficient balance/i.test(b["error"])) ||
+    (typeof primary === "string" &&
+      /^insufficient (mysewa wallet )?balance/i.test(primary) &&
+      required != null &&
+      available != null);
+  if (isLocalInsufficient && required != null && available != null) {
+    const clear =
+      firstString(b["message"]) ||
+      `Insufficient MySewa wallet balance. Need Rs. ${required}, have Rs. ${available}.`;
+    parts.push(stripTechnicalErrorMeta(clear));
+  } else if (primary) {
+    parts.push(stripTechnicalErrorMeta(primary));
+  }
+
   // Include a distinct short error label when it adds information
   if (
+    !isLocalInsufficient &&
     secondary &&
     primary &&
     secondary !== primary &&
     !primary.includes(secondary) &&
     secondary !== "Bank transfer failed" &&
-    secondary !== "Account verification failed"
+    secondary !== "Account verification failed" &&
+    secondary !== "Insufficient balance"
   ) {
-    parts.push(secondary);
+    parts.push(stripTechnicalErrorMeta(secondary));
   }
 
-  const errorCode = b["error_code"] ?? nested?.["error_code"] ?? deeper?.["error_code"];
-  const errorType = firstString(b["error_type"], nested?.["error_type"], deeper?.["error_type"]);
-  const meta: string[] = [];
-  if (typeof errorCode === "number" || (typeof errorCode === "string" && errorCode.trim())) {
-    // Avoid duplicating meta the backend already appended
-    const codeLine = `Provider error code: ${errorCode}`;
-    if (!parts.some((p) => p.includes(String(errorCode)))) meta.push(codeLine);
-  }
-  if (errorType && !parts.some((p) => p.includes(errorType))) {
-    meta.push(`Error type: ${errorType}`);
-  }
   if (b["wallet_debited"] === false && !parts.some((p) => /wallet was not charged/i.test(p))) {
-    meta.push("Your MySewa wallet was not charged.");
+    parts.push("Your MySewa wallet was not charged.");
   }
-
-  if (meta.length) parts.push(meta.join("\n"));
 
   if (parts.length) return parts.join("\n\n");
 

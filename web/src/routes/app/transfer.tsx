@@ -76,6 +76,12 @@ function Transfer() {
   const cashbackEnabled =
     settingsQuery.data?.config?.transactions?.cashback_enabled !== false;
 
+  const walletQuery = useQuery({
+    queryKey: ["wallet", "balance"],
+    queryFn: () => apiClient.walletBalance(),
+    refetchInterval: LIVE_REFETCH_MS,
+  });
+
   const banksQuery = useQuery({
     queryKey: ["banks"],
     queryFn: async () => {
@@ -106,6 +112,10 @@ function Transfer() {
     [banksQuery.data],
   );
   const amt = Number(amount) || 0;
+  const walletBalance = Number(walletQuery.data?.balance ?? 0);
+  const totalDue = Number(totalDebited) || amt;
+  const insufficient =
+    amt >= minTransfer && totalDue > 0 && walletBalance < totalDue;
   const isMobile = method === "phone";
   const destinationNumber = isMobile ? phone.trim() : accNo.trim();
 
@@ -166,6 +176,14 @@ function Transfer() {
       if (maxTransfer > 0 && amt > maxTransfer) {
         throw new Error(t("transfer.maxError", { max: maxTransfer }));
       }
+      if (insufficient) {
+        throw new Error(
+          t("transfer.insufficient", {
+            required: formatNPR(totalDue),
+            available: formatNPR(walletBalance),
+          }),
+        );
+      }
       const body: Record<string, unknown> = {
         amount: amt,
         destination_bank: bank,
@@ -194,6 +212,19 @@ function Transfer() {
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
     onError: (err) => {
+      if (err instanceof ApiError && err.body && typeof err.body === "object") {
+        const body = err.body as Record<string, unknown>;
+        if (body["error"] === "Insufficient balance") {
+          errorPopup.showError(err, {
+            title: t("transfer.failed"),
+            fallback: t("transfer.insufficient", {
+              required: formatNPR(String(body["required"] ?? totalDue)),
+              available: formatNPR(String(body["available"] ?? walletBalance)),
+            }),
+          });
+          return;
+        }
+      }
       errorPopup.showError(err, { title: t("transfer.failed"), fallback: t("transfer.failed") });
     },
   });
@@ -441,11 +472,19 @@ function Transfer() {
               <div className="mt-2 border-t border-separator pt-2">
                 <Row label={t("common.totalDebited")} value={formatNPR(totalDebited)} strong />
               </div>
+              {insufficient ? (
+                <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
+                  {t("transfer.insufficient", {
+                    required: formatNPR(totalDue),
+                    available: formatNPR(walletBalance),
+                  })}
+                </p>
+              ) : null}
             </div>
 
             <Button
               type="submit"
-              disabled={submitMutation.isPending || !transfersEnabled}
+              disabled={submitMutation.isPending || !transfersEnabled || insufficient}
               className="h-12 w-full rounded-xl text-[17px]"
             >
               {submitMutation.isPending ? t("common.processing") : t("transfer.confirm")}

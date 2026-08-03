@@ -64,6 +64,16 @@ def is_ip_not_allowed_error(
     )
 
 
+def is_insufficient_balance_error(message: str = '') -> bool:
+    text = (message or '').lower()
+    return (
+        'insufficient balance' in text
+        or 'insufficient fund' in text
+        or 'not enough balance' in text
+        or 'low balance' in text
+    )
+
+
 def format_himalpay_error_message(
     message: str,
     error_code: Optional[int] = None,
@@ -71,6 +81,14 @@ def format_himalpay_error_message(
 ) -> str:
     """Human-readable HimalPay error; IP blocks include the outbound IP to allowlist."""
     base = (message or 'HimalPay request failed').strip()
+
+    # Provider/reseller float or destination-side insufficient funds (often code 7004).
+    if is_insufficient_balance_error(base):
+        return (
+            'Transaction failed due to insufficient balance at the payment provider. '
+            'Please try again later or contact MySewa support if this continues.'
+        )
+
     if not is_ip_not_allowed_error(base, error_code, error_type):
         return base
 
@@ -608,7 +626,7 @@ class HimalPayAPI:
         message = format_himalpay_error_message(
             provider_message, error_code, error_type
         )
-        lowered = f'{message} {status_line}'.lower()
+        lowered = f'{message} {status_line} {provider_message}'.lower()
         if 'amount refunded' in lowered or 'payment failed' in lowered:
             # HimalPay refunded the reseller float — MySewa never debited the user.
             message = (
@@ -618,13 +636,9 @@ class HimalPayAPI:
                 'Your MySewa wallet was not charged.'
             )
 
-        meta_bits = []
-        if error_code is not None:
-            meta_bits.append(f'Provider error code: {error_code}')
-        if error_type:
-            meta_bits.append(f'Error type: {error_type}')
-        if meta_bits:
-            message = f'{message}\n\n' + '\n'.join(meta_bits)
+        # Keep error_code / error_type in the structured response for clients/logs.
+        # Do not append technical enums (e.g. ServiceLevel.TransactionFailed) into the
+        # user-facing message — that made failures look cryptic in the app UI.
 
         return {
             'message': message,
