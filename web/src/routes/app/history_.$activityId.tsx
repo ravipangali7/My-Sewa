@@ -1,18 +1,21 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Check,
   Clock,
   ExternalLink,
   FileDown,
   ImageIcon,
+  Loader2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { buildActivityStatement } from "@/lib/activity";
+import { downloadStatementPdf } from "@/lib/statement-pdf";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
@@ -62,6 +65,7 @@ function HistoryStatementPage() {
   const { t, locale } = useI18n();
   const { user } = useAuth();
   const { logoUrl } = useSiteBranding();
+  const [downloading, setDownloading] = useState(false);
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
@@ -91,6 +95,24 @@ function HistoryStatementPage() {
     ? t(statusHeadlineKey(statement.item.status))
     : t("history.detailTitle");
 
+  async function handleDownloadPdf() {
+    if (!statement || downloading) return;
+    setDownloading(true);
+    try {
+      await downloadStatementPdf({
+        statement,
+        title: pageTitle,
+        detailsHeading: t("history.transactionDetails"),
+        logoUrl,
+        brandName: t("history.statementBrand"),
+      });
+    } catch {
+      toast.error(t("history.downloadPdfFailed"));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <UserShell title={pageTitle} back="/app/history" hideHeader>
       {txQuery.isLoading ? (
@@ -106,13 +128,17 @@ function HistoryStatementPage() {
         </div>
       ) : (
         <article className="relative mx-auto min-h-[calc(100dvh-7rem)] max-w-lg bg-surface px-5 pb-8 pt-[max(20px,var(--safe-area-top,env(safe-area-inset-top,0px)))] sm:px-8 print:min-h-0 print:max-w-none">
-          {/* Faint brand watermark */}
-          <img
-            src={logoUrl}
-            alt=""
+          {/* Faint circular brand watermark over transaction details */}
+          <div
             aria-hidden
-            className="pointer-events-none absolute bottom-24 left-1/2 size-[260px] -translate-x-1/2 object-contain opacity-[0.07] select-none print:hidden"
-          />
+            className="pointer-events-none absolute bottom-28 left-1/2 size-[240px] -translate-x-1/2 overflow-hidden rounded-full select-none print:hidden"
+          >
+            <img
+              src={logoUrl}
+              alt=""
+              className="size-full object-cover opacity-[0.08]"
+            />
+          </div>
 
           <div className="relative flex flex-col items-center">
             <h1 className="text-center text-[20px] font-semibold tracking-tight text-foreground">
@@ -141,11 +167,17 @@ function HistoryStatementPage() {
             </h2>
             <button
               type="button"
-              onClick={() => window.print()}
-              aria-label={t("history.downloadStatement")}
-              className="inline-flex size-9 items-center justify-center rounded-lg text-brand transition-colors hover:bg-brand-soft print:hidden"
+              onClick={() => void handleDownloadPdf()}
+              disabled={downloading}
+              aria-label={t("history.downloadPdf")}
+              title={t("history.downloadPdf")}
+              className="inline-flex size-9 items-center justify-center rounded-lg text-brand transition-colors hover:bg-brand-soft disabled:opacity-60 print:hidden"
             >
-              <FileDown className="size-5" />
+              {downloading ? (
+                <Loader2 className="size-5 animate-spin" />
+              ) : (
+                <FileDown className="size-5" />
+              )}
             </button>
           </div>
 
