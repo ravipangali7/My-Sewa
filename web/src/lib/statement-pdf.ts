@@ -1,23 +1,37 @@
-import { jsPDF } from "jspdf";
 import type { ActivityStatement } from "./activity";
 
-const PAGE_WIDTH = 210;
-const PAGE_HEIGHT = 297;
-const MARGIN_X = 18;
-const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_X * 2;
+/** A4 at 2× for crisp output (points → CSS px ≈ 96/72). */
+const SCALE = 2;
+const PAGE_W = Math.round(595 * SCALE); // A4 width in pt → px
+const PAGE_H = Math.round(842 * SCALE);
+const MARGIN = Math.round(48 * SCALE);
 
 const COLORS = {
-  brand: [10, 122, 75] as const,
-  text: [28, 28, 30] as const,
-  muted: [142, 142, 147] as const,
-  line: [229, 229, 234] as const,
-  danger: [220, 38, 38] as const,
-  white: [255, 255, 255] as const,
-  success: [10, 122, 75] as const,
-  warning: [217, 119, 6] as const,
+  brand: "#0a7a4b",
+  text: "#1c1c1e",
+  muted: "#8e8e93",
+  line: "#e5e5ea",
+  danger: "#dc2626",
+  white: "#ffffff",
+  success: "#0a7a4b",
+  warning: "#d97706",
+  surface: "#ffffff",
 };
 
 type Tone = "success" | "danger" | "warning";
+
+function statusTone(status: string): Tone {
+  const key = status.toLowerCase();
+  if (key === "success" || key === "approved") return "success";
+  if (key === "failed" || key === "rejected") return "danger";
+  return "warning";
+}
+
+function toneColor(tone: Tone): string {
+  if (tone === "success") return COLORS.success;
+  if (tone === "danger") return COLORS.danger;
+  return COLORS.warning;
+}
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -29,94 +43,203 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/** Circular, light logo watermark as a PNG data URL. */
-async function createCircularWatermark(
+async function drawCircularWatermark(
+  ctx: CanvasRenderingContext2D,
   logoUrl: string,
-  sizePx = 720,
-  opacity = 0.12,
-): Promise<string> {
+  cx: number,
+  cy: number,
+  size: number,
+  opacity = 0.1,
+) {
   const img = await loadImage(logoUrl);
-  const canvas = document.createElement("canvas");
-  canvas.width = sizePx;
-  canvas.height = sizePx;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas unavailable");
+  const radius = size / 2;
 
-  const cx = sizePx / 2;
-  const cy = sizePx / 2;
-  const radius = sizePx / 2 - 4;
-
-  ctx.clearRect(0, 0, sizePx, sizePx);
-
-  // Soft circular plate behind the logo
+  ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.closePath();
   ctx.fillStyle = `rgba(10, 122, 75, ${opacity * 0.35})`;
   ctx.fill();
 
-  ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.closePath();
   ctx.clip();
   ctx.globalAlpha = opacity;
-  ctx.drawImage(img, 0, 0, sizePx, sizePx);
+  ctx.drawImage(img, cx - radius, cy - radius, size, size);
   ctx.restore();
 
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.strokeStyle = `rgba(10, 122, 75, ${opacity * 1.1})`;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 2 * SCALE;
   ctx.stroke();
-
-  return canvas.toDataURL("image/png");
-}
-
-function statusTone(status: string): Tone {
-  const key = status.toLowerCase();
-  if (key === "success" || key === "approved") return "success";
-  if (key === "failed" || key === "rejected") return "danger";
-  return "warning";
-}
-
-function toneRgb(tone: Tone): readonly [number, number, number] {
-  if (tone === "success") return COLORS.success;
-  if (tone === "danger") return COLORS.danger;
-  return COLORS.warning;
 }
 
 function drawStatusBadge(
-  doc: jsPDF,
+  ctx: CanvasRenderingContext2D,
   cx: number,
   cy: number,
   radius: number,
   tone: Tone,
 ) {
-  const [r, g, b] = toneRgb(tone);
-  doc.setFillColor(r, g, b);
-  doc.circle(cx, cy, radius, "F");
-  doc.setDrawColor(...COLORS.white);
-  doc.setLineWidth(2.4);
-  doc.setLineCap("round");
-  doc.setLineJoin("round");
+  ctx.fillStyle = toneColor(tone);
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = COLORS.white;
+  ctx.lineWidth = 3.2 * SCALE;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
 
   if (tone === "success") {
-    doc.line(cx - 5.5, cy + 0.5, cx - 1.5, cy + 4.5);
-    doc.line(cx - 1.5, cy + 4.5, cx + 6.5, cy - 4);
+    ctx.moveTo(cx - 7 * SCALE, cy + 0.5 * SCALE);
+    ctx.lineTo(cx - 2 * SCALE, cy + 6 * SCALE);
+    ctx.lineTo(cx + 8 * SCALE, cy - 5 * SCALE);
   } else if (tone === "danger") {
-    doc.line(cx - 5, cy - 5, cx + 5, cy + 5);
-    doc.line(cx + 5, cy - 5, cx - 5, cy + 5);
+    ctx.moveTo(cx - 6 * SCALE, cy - 6 * SCALE);
+    ctx.lineTo(cx + 6 * SCALE, cy + 6 * SCALE);
+    ctx.moveTo(cx + 6 * SCALE, cy - 6 * SCALE);
+    ctx.lineTo(cx - 6 * SCALE, cy + 6 * SCALE);
   } else {
-    // Clock hands
-    doc.line(cx, cy, cx, cy - 5.5);
-    doc.line(cx, cy, cx + 4.5, cy + 2.5);
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx, cy - 7 * SCALE);
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + 6 * SCALE, cy + 3 * SCALE);
   }
+  ctx.stroke();
+}
+
+function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (ctx.measureText(next).width <= maxWidth) {
+      current = next;
+    } else {
+      if (current) lines.push(current);
+      // Long unbroken tokens (txn ids) — hard-split by width
+      if (ctx.measureText(word).width > maxWidth) {
+        let chunk = "";
+        for (const ch of word) {
+          const trial = chunk + ch;
+          if (ctx.measureText(trial).width > maxWidth && chunk) {
+            lines.push(chunk);
+            chunk = ch;
+          } else {
+            chunk = trial;
+          }
+        }
+        current = chunk;
+      } else {
+        current = word;
+      }
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [text];
 }
 
 function safeFilename(reference: string): string {
   const cleaned = reference.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
   return `MySewa_Statement_${cleaned || "transaction"}.pdf`;
+}
+
+/** Minimal single-page PDF wrapping a JPEG image (no external deps). */
+function jpegToPdfBlob(jpeg: Uint8Array, widthPx: number, heightPx: number): Blob {
+  const pageW = widthPx / SCALE;
+  const pageH = heightPx / SCALE;
+  const encoder = new TextEncoder();
+
+  const out: Uint8Array[] = [];
+  let pos = 0;
+  const write = (data: string | Uint8Array) => {
+    const bytes = typeof data === "string" ? encoder.encode(data) : data;
+    out.push(bytes);
+    pos += bytes.length;
+  };
+  const objOffsets: number[] = [];
+
+  write("%PDF-1.4\n");
+
+  objOffsets[1] = pos;
+  write("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+
+  objOffsets[2] = pos;
+  write("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+
+  objOffsets[3] = pos;
+  write(
+    `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >>\nendobj\n`,
+  );
+
+  const content = `q\n${pageW} 0 0 ${pageH} 0 0 cm\n/Im0 Do\nQ\n`;
+  objOffsets[4] = pos;
+  write(`4 0 obj\n<< /Length ${content.length} >>\nstream\n${content}endstream\nendobj\n`);
+
+  objOffsets[5] = pos;
+  write(
+    `5 0 obj\n<< /Type /XObject /Subtype /Image /Width ${widthPx} /Height ${heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`,
+  );
+  write(jpeg);
+  write("\nendstream\nendobj\n");
+
+  const xrefPos = pos;
+  write(`xref\n0 6\n`);
+  write("0000000000 65535 f \n");
+  for (let i = 1; i <= 5; i++) {
+    write(`${String(objOffsets[i]).padStart(10, "0")} 00000 n \n`);
+  }
+  write(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
+
+  const total = out.reduce((n, b) => n + b.length, 0);
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const part of out) {
+    merged.set(part, offset);
+    offset += part.length;
+  }
+  return new Blob([merged], { type: "application/pdf" });
+}
+
+function canvasToJpegBytes(
+  canvas: HTMLCanvasElement,
+  quality = 0.92,
+): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      async (blob) => {
+        if (!blob) {
+          reject(new Error("Failed to encode PDF image"));
+          return;
+        }
+        const buffer = await blob.arrayBuffer();
+        resolve(new Uint8Array(buffer));
+      },
+      "image/jpeg",
+      quality,
+    );
+  });
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export interface StatementPdfOptions {
@@ -134,90 +257,92 @@ export async function downloadStatementPdf({
   logoUrl,
   brandName = "MySewa",
 }: StatementPdfOptions): Promise<void> {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const canvas = document.createElement("canvas");
+  canvas.width = PAGE_W;
+  canvas.height = PAGE_H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable");
+
   const tone = statusTone(statement.item.status);
+  const contentW = PAGE_W - MARGIN * 2;
 
-  // Title
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.setTextColor(...COLORS.text);
-  doc.text(title, PAGE_WIDTH / 2, 28, { align: "center" });
+  ctx.fillStyle = COLORS.surface;
+  ctx.fillRect(0, 0, PAGE_W, PAGE_H);
 
-  // Status badge
-  drawStatusBadge(doc, PAGE_WIDTH / 2, 48, 12, tone);
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `600 ${18 * SCALE}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(title, PAGE_W / 2, 56 * SCALE);
 
-  // Details heading
-  let y = 72;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.setTextColor(...COLORS.brand);
-  doc.text(detailsHeading, MARGIN_X, y);
+  drawStatusBadge(ctx, PAGE_W / 2, 100 * SCALE, 22 * SCALE, tone);
 
-  y += 6;
+  let y = 150 * SCALE;
+  ctx.textAlign = "left";
+  ctx.fillStyle = COLORS.brand;
+  ctx.font = `600 ${12 * SCALE}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  ctx.fillText(detailsHeading, MARGIN, y);
+
+  y += 18 * SCALE;
   const detailsTop = y;
-  const rowH = 9;
-  const detailsBottom = detailsTop + statement.details.length * rowH + 4;
-  const watermarkSize = 78;
-  const watermarkY =
-    detailsTop + Math.max(8, (detailsBottom - detailsTop - watermarkSize) / 2);
+  const estimatedBottom = detailsTop + statement.details.length * 28 * SCALE;
+  const watermarkSize = 160 * SCALE;
+  const watermarkCy =
+    detailsTop + Math.max(watermarkSize / 2, (estimatedBottom - detailsTop) / 2);
 
-  // Circular logo watermark behind detail rows
   try {
-    const watermark = await createCircularWatermark(logoUrl);
-    doc.addImage(
-      watermark,
-      "PNG",
-      (PAGE_WIDTH - watermarkSize) / 2,
-      watermarkY,
+    await drawCircularWatermark(
+      ctx,
+      logoUrl,
+      PAGE_W / 2,
+      watermarkCy,
       watermarkSize,
-      watermarkSize,
-      undefined,
-      "FAST",
     );
   } catch {
-    // Continue without watermark if logo cannot be loaded (CORS / offline).
+    // Continue without watermark if logo cannot be loaded.
   }
 
-  // Detail rows
+  const valueMaxW = contentW * 0.55;
   for (const row of statement.details) {
-    doc.setDrawColor(...COLORS.line);
-    doc.setLineWidth(0.25);
-    doc.line(MARGIN_X, y + 5.5, MARGIN_X + CONTENT_WIDTH, y + 5.5);
+    ctx.strokeStyle = COLORS.line;
+    ctx.lineWidth = 1 * SCALE;
+    ctx.beginPath();
+    ctx.moveTo(MARGIN, y + 14 * SCALE);
+    ctx.lineTo(MARGIN + contentW, y + 14 * SCALE);
+    ctx.stroke();
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(...COLORS.muted);
-    doc.text(row.label, MARGIN_X, y + 3.8);
+    ctx.textAlign = "left";
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = `400 ${10 * SCALE}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    ctx.fillText(row.label, MARGIN, y + 8 * SCALE);
 
-    doc.setFont("helvetica", row.mono ? "normal" : "bold");
-    doc.setFontSize(row.mono ? 9 : 10);
-    if (row.danger) {
-      doc.setTextColor(...COLORS.danger);
-    } else {
-      doc.setTextColor(...COLORS.text);
-    }
+    ctx.textAlign = "right";
+    ctx.fillStyle = row.danger ? COLORS.danger : COLORS.text;
+    ctx.font = row.mono
+      ? `400 ${9 * SCALE}px ui-monospace, SFMono-Regular, Menlo, monospace`
+      : `600 ${10 * SCALE}px system-ui, -apple-system, Segoe UI, sans-serif`;
 
-    const valueLines = doc.splitTextToSize(row.value, CONTENT_WIDTH * 0.55);
-    doc.text(valueLines, MARGIN_X + CONTENT_WIDTH, y + 3.8, {
-      align: "right",
+    const lines = wrapText(ctx, row.value, valueMaxW);
+    lines.forEach((line, i) => {
+      ctx.fillText(line, MARGIN + contentW, y + 8 * SCALE + i * 12 * SCALE);
     });
 
-    y += Math.max(rowH, valueLines.length * 4.2 + 4);
-    if (y > PAGE_HEIGHT - 28) {
-      doc.addPage();
-      y = 24;
-    }
+    y += Math.max(28 * SCALE, lines.length * 12 * SCALE + 12 * SCALE);
   }
 
-  // Footer
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(...COLORS.muted);
-  const footer = doc.splitTextToSize(statement.footer, CONTENT_WIDTH);
-  doc.text(footer, MARGIN_X, PAGE_HEIGHT - 18);
-  doc.text(brandName, MARGIN_X + CONTENT_WIDTH, PAGE_HEIGHT - 12, {
-    align: "right",
+  ctx.textAlign = "left";
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = `400 ${8 * SCALE}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  const footerLines = wrapText(ctx, statement.footer, contentW);
+  let footerY = PAGE_H - 40 * SCALE;
+  footerLines.forEach((line) => {
+    ctx.fillText(line, MARGIN, footerY);
+    footerY += 11 * SCALE;
   });
+  ctx.textAlign = "right";
+  ctx.fillText(brandName, MARGIN + contentW, PAGE_H - 24 * SCALE);
 
-  doc.save(safeFilename(statement.reference));
+  const jpeg = await canvasToJpegBytes(canvas);
+  const pdf = jpegToPdfBlob(jpeg, PAGE_W, PAGE_H);
+  triggerDownload(pdf, safeFilename(statement.reference));
 }
