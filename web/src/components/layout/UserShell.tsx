@@ -41,11 +41,15 @@ export function UserShell({
   title,
   children,
   back,
+  onBack,
+  headerLeading,
   hideHeader = false,
 }: {
   title: string;
   children: ReactNode;
   back?: string;
+  onBack?: () => void;
+  headerLeading?: ReactNode;
   hideHeader?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -148,22 +152,39 @@ export function UserShell({
       <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col">
         {!hideHeader && (
           <header className="sticky top-0 z-30 bg-hero-gradient px-4 pt-[max(14px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-5 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
-            <div className="flex items-center gap-3">
-              {back && (
-                <Link
-                  to={back}
-                  aria-label={t("common.goBack")}
-                  className={cn(
-                    "group -ml-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur transition-all duration-200",
-                    "hover:bg-white/25 hover:shadow-md",
-                    "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
-                  )}
-                >
-                  <ArrowLeft className="size-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
-                </Link>
+            <div className="flex min-w-0 items-center gap-3">
+              {headerLeading ? <div className="shrink-0">{headerLeading}</div> : null}
+              {(back || onBack) && (
+                onBack ? (
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    aria-label={t("common.goBack")}
+                    className={cn(
+                      "group -ml-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur transition-all duration-200",
+                      "hover:bg-white/25 hover:shadow-md",
+                      "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
+                    )}
+                  >
+                    <ArrowLeft className="size-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
+                  </button>
+                ) : (
+                  <Link
+                    to={back!}
+                    aria-label={t("common.goBack")}
+                    className={cn(
+                      "group -ml-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur transition-all duration-200",
+                      "hover:bg-white/25 hover:shadow-md",
+                      "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
+                    )}
+                  >
+                    <ArrowLeft className="size-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
+                  </Link>
+                )
               )}
-              <h1 className="text-[28px] font-bold tracking-tight text-primary-foreground lg:text-[22px] lg:text-foreground">
+              <h1 className="min-w-0 flex-1 truncate text-[28px] font-bold tracking-tight text-primary-foreground lg:text-[22px] lg:text-foreground">
                 {title}
               </h1>
             </div>

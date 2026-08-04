@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, Info, Search, Signal } from "lucide-react";
+import { Check, Search, Signal } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
@@ -18,6 +18,7 @@ import {
   validateOperatorMobile,
 } from "@/lib/constants";
 import {
+  buildPackDescription,
   getCategoriesForOperator,
   matchesCategory,
   operatorDisplayName,
@@ -67,6 +68,8 @@ function DataTopUp() {
   const { filters, setFilters, debounced } = useListFilters();
   const [exporting, setExporting] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [packageSearchOpen, setPackageSearchOpen] = useState(false);
+  const [packageSearchQuery, setPackageSearchQuery] = useState("");
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
 
@@ -242,9 +245,28 @@ function DataTopUp() {
     () => packages.filter((pkg) => matchesCategory(pkg, activeCategory)),
     [packages, activeCategory],
   );
+  const searchedPackages = useMemo(() => {
+    const q = packageSearchQuery.trim().toLowerCase();
+    if (!q) return filteredPackages;
+    return filteredPackages.filter((pkg) => {
+      const haystack = [
+        pkg.name,
+        pkg.description,
+        pkg.volume,
+        pkg.package_id,
+        buildPackDescription(pkg),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [filteredPackages, packageSearchQuery]);
 
   const selectPackage = (pkg: DataPackOption) => {
     setSelectedPackage(pkg);
+    setPackageSearchOpen(false);
+    setPackageSearchQuery("");
     setStep("mobile");
   };
 
@@ -260,12 +282,37 @@ function DataTopUp() {
     if (step === "mobile") return t("dataTopup.stepMobile");
     return t("dataTopup.stepPay");
   }, [step, t]);
-  const packHeaderTitle = `${operatorDisplayName(operator)} Packs`;
+  const packHeaderTitle = t("dataTopup.packsTitle", { operator: operatorDisplayName(operator) });
+  const isPackagesStep = step === "packages";
+  const shellBack = step === "operator" ? "/app" : undefined;
+  const shellOnBack = step === "operator" ? undefined : goBack;
+
+  const headerSearchButton = isPackagesStep ? (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className={cn(
+        "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
+        "hover:bg-white/25",
+        "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+      )}
+      onClick={() => setPackageSearchOpen(true)}
+      aria-label={t("dataTopup.searchPackages")}
+    >
+      <Search className="size-4" />
+    </Button>
+  ) : null;
 
   const myPhone = normalizeNepalMobile(user?.phone || "").slice(-10);
 
   return (
-    <UserShell title={step === "packages" ? packHeaderTitle : t("dataTopup.title")} back="/app">
+    <UserShell
+      title={isPackagesStep ? packHeaderTitle : t("dataTopup.title")}
+      back={shellBack}
+      onBack={shellOnBack}
+      headerLeading={headerSearchButton}
+    >
       <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
@@ -279,22 +326,15 @@ function DataTopUp() {
           </section>
         ) : null}
 
-        <section className={cn("min-w-0", "inset-group", step === "packages" ? "overflow-hidden p-0" : "p-4")}>
-          {step !== "packages" ? (
+        <section
+          className={cn(
+            "min-w-0",
+            isPackagesStep ? "-mx-4 lg:mx-0" : "inset-group p-4",
+          )}
+        >
+          {!isPackagesStep ? (
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="text-[15px] font-semibold">{stepTitle}</h2>
-              {step !== "operator" ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-1 px-2 text-[13px]"
-                  onClick={goBack}
-                >
-                  <ArrowLeft className="size-3.5" />
-                  {t("common.goBack")}
-                </Button>
-              ) : null}
             </div>
           ) : null}
 
@@ -337,34 +377,8 @@ function DataTopUp() {
           ) : null}
 
           {step === "packages" ? (
-            <div className="overflow-hidden">
-              <div
-                className={cn(
-                  "flex items-center justify-between px-4 py-3 text-white",
-                  theme.header,
-                )}
-              >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-9 shrink-0 text-white hover:bg-white/15"
-                  onClick={goBack}
-                >
-                  <ArrowLeft className="size-5" />
-                </Button>
-                <h3 className="text-[16px] font-semibold">
-                  {packHeaderTitle}
-                </h3>
-                <span
-                  className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15"
-                  title={t("dataTopup.livePackagesHint")}
-                >
-                  <Info className="size-4" />
-                </span>
-              </div>
-
-              <div className="bg-surface px-3 pb-3 pt-3">
+            <div>
+              <div className="bg-surface px-4 pb-3 pt-1 lg:rounded-2xl lg:border lg:border-border/60 lg:p-4">
                 <div className="overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <div className="flex w-max min-w-full gap-1 rounded-full bg-muted p-1">
                     {categories.map((category) => (
@@ -386,21 +400,23 @@ function DataTopUp() {
                 </div>
 
                 <p className="mt-2 px-1 text-[12px] text-muted-foreground">
-                  {t("dataTopup.livePackagesHint")} · {packages.length}{" "}
-                  {packages.length === 1 ? "package" : "packages"}
+                  {t("dataTopup.livePackagesHint")} · {searchedPackages.length}{" "}
+                  {searchedPackages.length === 1 ? "package" : "packages"}
                 </p>
 
                 <ul className="mt-3 max-h-[65dvh] space-y-3 overflow-y-auto pr-0.5 lg:max-h-[520px]">
-                  {filteredPackages.map((pkg) => (
+                  {searchedPackages.map((pkg) => (
                     <li key={pkg.id}>
                       <DataPackCard pkg={pkg} operator={operator} onBuy={selectPackage} />
                     </li>
                   ))}
                 </ul>
 
-                {!filteredPackages.length ? (
+                {!searchedPackages.length ? (
                   <div className="rounded-xl bg-muted/60 px-4 py-8 text-center text-[14px] text-muted-foreground">
-                    {t("dataTopup.noPackagesInCategory")}
+                    {packageSearchQuery.trim()
+                      ? t("dataTopup.noSearchResults")
+                      : t("dataTopup.noPackagesInCategory")}
                   </div>
                 ) : null}
               </div>
@@ -542,7 +558,7 @@ function DataTopUp() {
           ) : null}
         </section>
 
-        <section className="min-w-0">
+        <section className={cn("min-w-0", isPackagesStep && "hidden lg:block")}>
           {lastReceiptId ? (
             <div className="mb-3">
               <TransactionResultBanner
@@ -662,6 +678,42 @@ function DataTopUp() {
           )}
         </section>
       </div>
+      <Sheet
+        open={packageSearchOpen}
+        onOpenChange={(open) => {
+          setPackageSearchOpen(open);
+          if (!open) setPackageSearchQuery("");
+        }}
+      >
+        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
+          <SheetHeader className="mb-4 text-left">
+            <SheetTitle>{t("dataTopup.searchPackages")}</SheetTitle>
+          </SheetHeader>
+          <div className="space-y-4">
+            <Input
+              autoFocus
+              value={packageSearchQuery}
+              onChange={(e) => setPackageSearchQuery(e.target.value)}
+              placeholder={t("dataTopup.searchPackagesPlaceholder")}
+              className="h-12 rounded-xl"
+            />
+            <ul className="max-h-[50dvh] space-y-3 overflow-y-auto">
+              {searchedPackages.map((pkg) => (
+                <li key={pkg.id}>
+                  <DataPackCard pkg={pkg} operator={operator} onBuy={selectPackage} />
+                </li>
+              ))}
+            </ul>
+            {!searchedPackages.length ? (
+              <p className="py-6 text-center text-[14px] text-muted-foreground">
+                {packageSearchQuery.trim()
+                  ? t("dataTopup.noSearchResults")
+                  : t("dataTopup.noPackagesInCategory")}
+              </p>
+            ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
       <Sheet open={mobileSearchOpen} onOpenChange={setMobileSearchOpen}>
         <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
           <SheetHeader className="mb-4 text-left">

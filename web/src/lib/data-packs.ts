@@ -71,23 +71,13 @@ export function operatorDisplayName(operator: DataPackOperator): string {
   return operator === "NTC" ? "Ntc" : "Ncell";
 }
 
-export function operatorTheme(operator: DataPackOperator) {
-  if (operator === "NTC") {
-    return {
-      header: "bg-[#0A7A4B]",
-      buy: "bg-[#0A7A4B] hover:bg-[#065F3A]",
-      viewMore: "bg-[#E8F6EF] text-[#065F3A] hover:bg-[#d4ede0]",
-      badgeBg: "bg-white border border-[#C6E8D8]",
-      badgeAccent: "text-[#0A7A4B]",
-      tabActive: "bg-[#0A7A4B] text-white",
-    };
-  }
+export function operatorTheme(_operator: DataPackOperator) {
   return {
-    header: "bg-[#5C2483]",
-    buy: "bg-[#E91E8C] hover:bg-[#C41775]",
-    viewMore: "bg-[#F3E5F8] text-[#5C2483] hover:bg-[#E8D4F0]",
-    badgeBg: "bg-[#5C2483]",
-    badgeAccent: "text-white",
-    tabActive: "bg-[#5C2483] text-white",
+    header: "bg-brand",
+    buy: "bg-brand hover:bg-brand-dark",
+    viewMore: "bg-brand-soft text-brand-dark hover:bg-brand-soft/80",
+    badgeBg: "bg-white border border-brand/20",
+    badgeAccent: "text-brand-dark",
+    tabActive: "bg-brand text-primary-foreground",
   };
 }

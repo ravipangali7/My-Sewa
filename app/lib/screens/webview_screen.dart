@@ -316,13 +316,9 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   WebViewWidget _createWebViewWidget(WebViewController controller) {
     if (WebViewPlatform.instance is AndroidWebViewPlatform) {
-      final params = AndroidWebViewWidgetCreationParams(
-        controller: controller.platform as AndroidWebViewController,
-        // Texture-backed composition is usually smoother than full hybrid
-        // composition for scrolling and transitions.
-        displayWithHybridComposition: false,
-      );
-      return WebViewWidget.fromPlatformCreationParams(params: params);
+      // Prefer default Android composition path. In some runtime/plugin combos
+      // the texture-backed path can surface null platform callback payloads.
+      return WebViewWidget(controller: controller);
     }
 
     return WebViewWidget(controller: controller);

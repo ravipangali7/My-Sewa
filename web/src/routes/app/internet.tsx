@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Search, Wifi, ChevronRight, Check } from "lucide-react";
+import { ArrowLeft, Search, Wifi, ChevronRight, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
@@ -56,6 +56,7 @@ function InternetBillPayment() {
   );
   const { filters, setFilters, debounced } = useListFilters();
   const [exporting, setExporting] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
 
@@ -240,6 +241,23 @@ function InternetBillPayment() {
   }, [step, t]);
 
   const isps = ispsQuery.data?.isps ?? [];
+  const ispLogoDomainByName: Record<string, string> = {
+    worldlink: "worldlink.com.np",
+    vianet: "vianet.com.np",
+    subisu: "subisu.net.np",
+    "dish home": "dishhome.com.np",
+    dishhome: "dishhome.com.np",
+  };
+
+  const resolveIspLogo = (isp: IspOption) => {
+    if (isp.logo_image_url) return isp.logo_image_url;
+    const normalizedName = isp.name.toLowerCase();
+    const matched = Object.entries(ispLogoDomainByName).find(([key]) =>
+      normalizedName.includes(key),
+    );
+    if (!matched) return null;
+    return `https://logo.clearbit.com/${matched[1]}`;
+  };
 
   return (
     <UserShell title={t("internet.title")} back="/app">
@@ -275,7 +293,7 @@ function InternetBillPayment() {
               {ispsQuery.isLoading ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">{t("common.loading")}</p>
               ) : (
-                <ul className="grid gap-2 sm:grid-cols-2">
+                <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
                   {isps.map((isp) => (
                     <li key={isp.id}>
                       <button
@@ -285,16 +303,25 @@ function InternetBillPayment() {
                           setSelectedIsp(isp);
                           setStep("customer");
                         }}
-                        className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface px-3 py-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:opacity-50"
+                        className="flex w-full items-center gap-3 rounded-2xl border border-border bg-surface px-3 py-3 text-left shadow-card transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:opacity-50"
                       >
                         <span
-                          className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl text-white"
-                          style={{ backgroundColor: isp.color || "#2563EB" }}
+                          className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-border"
                         >
-                          {isp.logo_image_url ? (
-                            <img src={isp.logo_image_url} alt="" className="size-full object-cover" />
+                          {resolveIspLogo(isp) ? (
+                            <img
+                              src={resolveIspLogo(isp)!}
+                              alt={`${isp.name} logo`}
+                              className="size-full object-contain p-1"
+                              loading="lazy"
+                            />
                           ) : (
-                            <Wifi className="size-5" />
+                            <span
+                              className="flex size-full items-center justify-center rounded-full text-white"
+                              style={{ backgroundColor: isp.color || "#2563EB" }}
+                            >
+                              <Wifi className="size-5" />
+                            </span>
                           )}
                         </span>
                         <span className="min-w-0 flex-1">
@@ -322,10 +349,23 @@ function InternetBillPayment() {
             >
               <div className="flex items-center gap-3 rounded-xl bg-muted/60 px-3 py-2.5">
                 <span
-                  className="flex size-9 items-center justify-center rounded-lg text-white"
-                  style={{ backgroundColor: selectedIsp.color || "#2563EB" }}
+                  className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-border"
                 >
-                  <Wifi className="size-4" />
+                  {resolveIspLogo(selectedIsp) ? (
+                    <img
+                      src={resolveIspLogo(selectedIsp)!}
+                      alt={`${selectedIsp.name} logo`}
+                      className="size-full object-contain p-1"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span
+                      className="flex size-full items-center justify-center rounded-full text-white"
+                      style={{ backgroundColor: selectedIsp.color || "#2563EB" }}
+                    >
+                      <Wifi className="size-4" />
+                    </span>
+                  )}
                 </span>
                 <div>
                   <p className="text-[14px] font-semibold">{selectedIsp.name}</p>
@@ -503,30 +543,73 @@ function InternetBillPayment() {
               />
             </div>
           ) : null}
-          <ListPageToolbar
-            stats={internetStats}
-            filters={filters}
-            onFiltersChange={setFilters}
-            onExport={async () => {
-              setExporting(true);
-              try {
-                await downloadCsvExport("/api/internet/history/", debounced, "internet-bills.csv");
-              } finally {
-                setExporting(false);
-              }
-            }}
-            exporting={exporting}
-            searchPlaceholder="Search"
-            exportLabel={t("list.exportCsv")}
-            statsLabels={{
-              total: t("list.statsTotal"),
-              success: t("list.statsSuccess"),
-              pending: t("list.statsPending"),
-              failed: t("list.statsFailed"),
-            }}
-            statusOptions={[...TXN_STATUS_OPTIONS]}
-          />
-          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("internet.history")}</h2>
+          <div className="hidden lg:block">
+            <ListPageToolbar
+              stats={internetStats}
+              filters={filters}
+              onFiltersChange={setFilters}
+              onExport={async () => {
+                setExporting(true);
+                try {
+                  await downloadCsvExport("/api/internet/history/", debounced, "internet-bills.csv");
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              exporting={exporting}
+              searchPlaceholder="Search"
+              exportLabel={t("list.exportCsv")}
+              statsLabels={{
+                total: t("list.statsTotal"),
+                success: t("list.statsSuccess"),
+                pending: t("list.statsPending"),
+                failed: t("list.statsFailed"),
+              }}
+              statusOptions={[...TXN_STATUS_OPTIONS]}
+            />
+          </div>
+          <div className="mb-2 mt-4 flex items-center justify-between gap-2 px-1">
+            <h2 className="text-[17px] font-semibold">{t("internet.history")}</h2>
+            <Button
+              type="button"
+              variant={mobileSearchOpen ? "secondary" : "outline"}
+              size="sm"
+              className="h-9 gap-1.5 rounded-full px-3 lg:hidden"
+              onClick={() => setMobileSearchOpen((open) => !open)}
+              aria-expanded={mobileSearchOpen}
+              aria-label={mobileSearchOpen ? "Close search panel" : "Open search panel"}
+            >
+              {mobileSearchOpen ? <X className="size-4" /> : <Search className="size-4" />}
+              {mobileSearchOpen ? "Close" : "Search"}
+            </Button>
+          </div>
+          {mobileSearchOpen ? (
+            <div className="mb-3 rounded-xl border border-border/70 bg-background/95 p-2 lg:hidden">
+              <ListPageToolbar
+                stats={internetStats}
+                filters={filters}
+                onFiltersChange={setFilters}
+                onExport={async () => {
+                  setExporting(true);
+                  try {
+                    await downloadCsvExport("/api/internet/history/", debounced, "internet-bills.csv");
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+                exporting={exporting}
+                searchPlaceholder="Search"
+                exportLabel={t("list.exportCsv")}
+                statsLabels={{
+                  total: t("list.statsTotal"),
+                  success: t("list.statsSuccess"),
+                  pending: t("list.statsPending"),
+                  failed: t("list.statsFailed"),
+                }}
+                statusOptions={[...TXN_STATUS_OPTIONS]}
+              />
+            </div>
+          ) : null}
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
