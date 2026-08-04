@@ -145,7 +145,7 @@ export function UserShell({
         </div>
       </aside>
 
-      <div className="flex min-w-0 w-full max-w-full flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col">
         {!hideHeader && (
           <header className="sticky top-0 z-30 bg-hero-gradient px-4 pt-[max(14px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-5 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
             <div className="flex items-center gap-3">
@@ -172,7 +172,7 @@ export function UserShell({
 
         <main
           className={cn(
-            "min-w-0 max-w-full flex-1 overflow-y-auto lg:px-8 lg:pb-10",
+            "min-h-0 min-w-0 max-w-full flex-1 overflow-y-auto lg:px-8 lg:pb-10",
             hideHeader ? "px-0 pb-28" : "px-4 pb-28",
           )}
         >

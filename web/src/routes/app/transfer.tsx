@@ -454,7 +454,6 @@ function Transfer() {
           </section>
         ) : null}
         <section className="inset-group p-4">
-          <p className="mb-3 text-[12px] text-muted-foreground">{t("transfer.workflowHint")}</p>
           <Tabs
             value={method}
             onValueChange={(v) => setMethod(v as TransferMethod)}
@@ -693,29 +692,31 @@ function Transfer() {
               />
             </div>
           ) : null}
-          <ListPageToolbar
-            stats={transferStats}
-            filters={filters}
-            onFiltersChange={setFilters}
-            onExport={async () => {
-              setExporting(true);
-              try {
-                await downloadCsvExport("/api/bank-transfer/history/", debounced, "transfers.csv");
-              } finally {
-                setExporting(false);
-              }
-            }}
-            exporting={exporting}
-            searchPlaceholder="Search"
-            exportLabel={t("list.exportCsv")}
-            statsLabels={{
-              total: t("list.statsTotal"),
-              success: t("list.statsSuccess"),
-              pending: t("list.statsPending"),
-              failed: t("list.statsFailed"),
-            }}
-            statusOptions={[...TXN_STATUS_OPTIONS]}
-          />
+          <div className="sticky bottom-[calc(var(--safe-area-bottom,env(safe-area-inset-bottom,0px))+76px)] z-20 -mx-1 rounded-xl border border-border/70 bg-background/95 p-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <ListPageToolbar
+              stats={transferStats}
+              filters={filters}
+              onFiltersChange={setFilters}
+              onExport={async () => {
+                setExporting(true);
+                try {
+                  await downloadCsvExport("/api/bank-transfer/history/", debounced, "transfers.csv");
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              exporting={exporting}
+              searchPlaceholder="Search"
+              exportLabel={t("list.exportCsv")}
+              statsLabels={{
+                total: t("list.statsTotal"),
+                success: t("list.statsSuccess"),
+                pending: t("list.statsPending"),
+                failed: t("list.statsFailed"),
+              }}
+              statusOptions={[...TXN_STATUS_OPTIONS]}
+            />
+          </div>
           <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("transfer.recent")}</h2>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">

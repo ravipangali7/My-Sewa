@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, Info, Signal } from "lucide-react";
+import { ArrowLeft, Check, Info, Search, Signal } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
@@ -9,6 +9,7 @@ import { DataPackCard } from "@/components/data-packs/DataPackCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import {
@@ -65,6 +66,7 @@ function DataTopUp() {
   );
   const { filters, setFilters, debounced } = useListFilters();
   const [exporting, setExporting] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
 
@@ -258,11 +260,12 @@ function DataTopUp() {
     if (step === "mobile") return t("dataTopup.stepMobile");
     return t("dataTopup.stepPay");
   }, [step, t]);
+  const packHeaderTitle = `${operatorDisplayName(operator)} Packs`;
 
   const myPhone = normalizeNepalMobile(user?.phone || "").slice(-10);
 
   return (
-    <UserShell title={t("dataTopup.title")} back="/app">
+    <UserShell title={step === "packages" ? packHeaderTitle : t("dataTopup.title")} back="/app">
       <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
@@ -351,7 +354,7 @@ function DataTopUp() {
                   <ArrowLeft className="size-5" />
                 </Button>
                 <h3 className="text-[16px] font-semibold">
-                  {t("dataTopup.packsTitle", { operator: operatorDisplayName(operator) })}
+                  {packHeaderTitle}
                 </h3>
                 <span
                   className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15"
@@ -387,7 +390,7 @@ function DataTopUp() {
                   {packages.length === 1 ? "package" : "packages"}
                 </p>
 
-                <ul className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-0.5">
+                <ul className="mt-3 max-h-[65dvh] space-y-3 overflow-y-auto pr-0.5 lg:max-h-[520px]">
                   {filteredPackages.map((pkg) => (
                     <li key={pkg.id}>
                       <DataPackCard pkg={pkg} operator={operator} onBuy={selectPackage} />
@@ -562,30 +565,60 @@ function DataTopUp() {
               />
             </div>
           ) : null}
-          <ListPageToolbar
-            stats={dataPackStats}
-            filters={filters}
-            onFiltersChange={setFilters}
-            onExport={async () => {
-              setExporting(true);
-              try {
-                await downloadCsvExport("/api/data-pack/history/", debounced, "data-packs.csv");
-              } finally {
-                setExporting(false);
-              }
-            }}
-            exporting={exporting}
-            searchPlaceholder="Search"
-            exportLabel={t("list.exportCsv")}
-            statsLabels={{
-              total: t("list.statsTotal"),
-              success: t("list.statsSuccess"),
-              pending: t("list.statsPending"),
-              failed: t("list.statsFailed"),
-            }}
-            statusOptions={[...TXN_STATUS_OPTIONS]}
-          />
-          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("dataTopup.recent")}</h2>
+          <div className="hidden lg:block">
+            <ListPageToolbar
+              stats={dataPackStats}
+              filters={filters}
+              onFiltersChange={setFilters}
+              onExport={async () => {
+                setExporting(true);
+                try {
+                  await downloadCsvExport("/api/data-pack/history/", debounced, "data-packs.csv");
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              exporting={exporting}
+              searchPlaceholder="Search"
+              exportLabel={t("list.exportCsv")}
+              statsLabels={{
+                total: t("list.statsTotal"),
+                success: t("list.statsSuccess"),
+                pending: t("list.statsPending"),
+                failed: t("list.statsFailed"),
+              }}
+              statusOptions={[...TXN_STATUS_OPTIONS]}
+            />
+          </div>
+          <div className="mb-2 mt-4 flex items-center justify-between gap-2 px-1">
+            <h2 className="text-[17px] font-semibold">{t("dataTopup.recent")}</h2>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-9 rounded-full lg:hidden"
+              onClick={() => setMobileSearchOpen(true)}
+              aria-label="Open search"
+            >
+              <Search className="size-4" />
+            </Button>
+          </div>
+          <div className="mb-3 rounded-xl border border-border/70 bg-background/95 p-2 lg:hidden">
+            <div className="flex flex-wrap gap-1.5">
+              <span className="rounded-md bg-muted px-2 py-1 text-[11px] font-medium">
+                {t("list.statsTotal")}: {dataPackStats?.total ?? 0}
+              </span>
+              <span className="rounded-md bg-muted px-2 py-1 text-[11px] font-medium">
+                {t("list.statsSuccess")}: {dataPackStats?.success ?? 0}
+              </span>
+              <span className="rounded-md bg-muted px-2 py-1 text-[11px] font-medium">
+                {t("list.statsPending")}: {dataPackStats?.pending ?? 0}
+              </span>
+              <span className="rounded-md bg-muted px-2 py-1 text-[11px] font-medium">
+                {t("list.statsFailed")}: {dataPackStats?.failed ?? 0}
+              </span>
+            </div>
+          </div>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
@@ -629,6 +662,36 @@ function DataTopUp() {
           )}
         </section>
       </div>
+      <Sheet open={mobileSearchOpen} onOpenChange={setMobileSearchOpen}>
+        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
+          <SheetHeader className="mb-4 text-left">
+            <SheetTitle>Search</SheetTitle>
+          </SheetHeader>
+          <ListPageToolbar
+            stats={dataPackStats}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/data-pack/history/", debounced, "data-packs.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder="Search"
+            exportLabel={t("list.exportCsv")}
+            statsLabels={{
+              total: t("list.statsTotal"),
+              success: t("list.statsSuccess"),
+              pending: t("list.statsPending"),
+              failed: t("list.statsFailed"),
+            }}
+            statusOptions={[...TXN_STATUS_OPTIONS]}
+          />
+        </SheetContent>
+      </Sheet>
     </UserShell>
   );
 }

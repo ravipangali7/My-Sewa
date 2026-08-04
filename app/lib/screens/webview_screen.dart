@@ -506,6 +506,15 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   String? _detectPaymentOutcome(Uri uri) {
+    final path = uri.path.toLowerCase();
+
+    // Statement/history pages must always open as-is regardless of status.
+    // Do not infer payment outcomes from these URLs.
+    final isStatementPath =
+        path.contains('statement') ||
+        (path.contains('history') && path.contains('transaction'));
+    if (isStatementPath) return null;
+
     String? fromValue(String? value) {
       if (value == null) return null;
       final normalized = value.toLowerCase();
@@ -527,7 +536,6 @@ class _WebViewScreenState extends State<WebViewScreen>
       if (detected != null) return detected;
     }
 
-    final path = uri.path.toLowerCase();
     final isPaymentLike =
         path.contains('payment') || path.contains('transaction');
     if (!isPaymentLike) return null;
