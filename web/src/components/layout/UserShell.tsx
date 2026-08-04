@@ -43,6 +43,7 @@ export function UserShell({
   back,
   onBack,
   headerLeading,
+  headerTrailing,
   hideHeader = false,
 }: {
   title: string;
@@ -50,6 +51,7 @@ export function UserShell({
   back?: string;
   onBack?: () => void;
   headerLeading?: ReactNode;
+  headerTrailing?: ReactNode;
   hideHeader?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -187,6 +189,7 @@ export function UserShell({
               <h1 className="min-w-0 flex-1 truncate text-[28px] font-bold tracking-tight text-primary-foreground lg:text-[22px] lg:text-foreground">
                 {title}
               </h1>
+              {headerTrailing ? <div className="shrink-0">{headerTrailing}</div> : null}
             </div>
           </header>
         )}

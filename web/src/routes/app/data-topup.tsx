@@ -311,7 +311,7 @@ function DataTopUp() {
       title={isPackagesStep ? packHeaderTitle : t("dataTopup.title")}
       back={shellBack}
       onBack={shellOnBack}
-      headerLeading={headerSearchButton}
+      headerTrailing={headerSearchButton}
     >
       <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
         {accountPending ? (
@@ -404,7 +404,7 @@ function DataTopUp() {
                   {searchedPackages.length === 1 ? "package" : "packages"}
                 </p>
 
-                <ul className="mt-3 max-h-[65dvh] space-y-3 overflow-y-auto pr-0.5 lg:max-h-[520px]">
+                <ul className="mt-3 space-y-3 pb-2">
                   {searchedPackages.map((pkg) => (
                     <li key={pkg.id}>
                       <DataPackCard pkg={pkg} operator={operator} onBuy={selectPackage} />

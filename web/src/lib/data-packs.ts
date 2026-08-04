@@ -71,13 +71,24 @@ export function operatorDisplayName(operator: DataPackOperator): string {
   return operator === "NTC" ? "Ntc" : "Ncell";
 }
 
-export function operatorTheme(_operator: DataPackOperator) {
+/** NTC primary blue · Ncell primary purple — used for Buy CTA and operator chrome */
+export function operatorTheme(operator: DataPackOperator) {
+  if (operator === "NTC") {
+    return {
+      header: "bg-[#1B4F8C]",
+      buy: "bg-[#1B4F8C] hover:bg-[#163F70]",
+      viewMore: "bg-[#E8F1FA] text-[#1B4F8C] hover:bg-[#D6E6F5]",
+      badgeBg: "bg-black",
+      badgeAccent: "text-white/95",
+      tabActive: "bg-[#1B4F8C] text-white",
+    };
+  }
   return {
-    header: "bg-brand",
-    buy: "bg-brand hover:bg-brand-dark",
-    viewMore: "bg-brand-soft text-brand-dark hover:bg-brand-soft/80",
-    badgeBg: "bg-white border border-brand/20",
-    badgeAccent: "text-brand-dark",
-    tabActive: "bg-brand text-primary-foreground",
+    header: "bg-[#5C2483]",
+    buy: "bg-[#5C2483] hover:bg-[#4A1C6A]",
+    viewMore: "bg-[#F3EAF8] text-[#5C2483] hover:bg-[#E8D7F2]",
+    badgeBg: "bg-black",
+    badgeAccent: "text-white/95",
+    tabActive: "bg-[#5C2483] text-white",
   };
 }
