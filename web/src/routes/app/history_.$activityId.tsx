@@ -2,12 +2,23 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
 import {
+  BadgeCheck,
+  CalendarDays,
+  CircleDollarSign,
   Check,
   Clock,
   ExternalLink,
   FileDown,
+  Hash,
   ImageIcon,
+  Landmark,
   Loader2,
+  Phone,
+  ReceiptText,
+  ShieldCheck,
+  Tag,
+  UserRound,
+  Wallet,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,15 +56,20 @@ function statusHeadlineKey(status: string): MessageKey {
 
 function StatementRow({
   label,
+  icon,
   children,
 }: {
   label: string;
+  icon: ReactNode;
   children: ReactNode;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-border/60 py-4 last:border-0">
-      <dt className="shrink-0 text-[13px] font-medium tracking-wide text-muted-foreground/90">
-        {label}
+      <dt className="flex min-w-0 items-center gap-2.5 text-[13px] font-medium tracking-wide text-muted-foreground/90">
+        <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+          {icon}
+        </span>
+        <span className="truncate">{label}</span>
       </dt>
       <dd className="min-w-0 text-right text-[14px] font-semibold break-words text-foreground">
         {children}
@@ -104,6 +120,35 @@ function HistoryStatementPage() {
     ? t(statusHeadlineKey(statement.item.status))
     : t("history.detailTitle");
 
+  const summaryMeta = statement
+    ? {
+        dateTime: statement.details.find((r) => r.label === t("history.dateTime"))?.value ?? "—",
+        channel: statement.details.find((r) => r.label === t("history.channel"))?.value ?? "—",
+        service: statement.details.find((r) => r.label === t("history.serviceName"))?.value ?? "—",
+      }
+    : undefined;
+
+  function detailIcon(label: string) {
+    const byLabel: Record<string, ReactNode> = {
+      [t("history.referenceCode")]: <Hash className="size-4" />,
+      [t("history.dateTime")]: <CalendarDays className="size-4" />,
+      [t("history.channel")]: <ShieldCheck className="size-4" />,
+      [t("history.serviceName")]: <ReceiptText className="size-4" />,
+      [t("history.paymentAttribute")]: <Phone className="size-4" />,
+      [t("common.status")]: <BadgeCheck className="size-4" />,
+      [t("common.amountNpr")]: <Wallet className="size-4" />,
+      [t("common.charge")]: <CircleDollarSign className="size-4" />,
+      [t("common.cashback")]: <Tag className="size-4" />,
+      [t("common.totalDebited")]: <Landmark className="size-4" />,
+      [t("history.totalCredited")]: <Landmark className="size-4" />,
+      [t("history.merchantTxn")]: <Hash className="size-4" />,
+      [t("history.providerTxn")]: <Hash className="size-4" />,
+      [t("history.reference")]: <Hash className="size-4" />,
+      [t("history.initiator")]: <UserRound className="size-4" />,
+    };
+    return byLabel[label] ?? <ReceiptText className="size-4" />;
+  }
+
   async function handleDownloadPdf() {
     if (!statement || downloading) return;
     setDownloading(true);
@@ -136,7 +181,7 @@ function HistoryStatementPage() {
           </Link>
         </div>
       ) : (
-        <article className="relative mx-auto min-h-[calc(100dvh-7rem)] max-w-xl bg-gradient-to-b from-background via-background to-brand-soft/20 px-4 pb-8 pt-[max(16px,var(--safe-area-top,env(safe-area-inset-top,0px)))] sm:px-6 print:min-h-0 print:max-w-none">
+        <article className="relative mx-auto min-h-[calc(100dvh-7rem)] max-w-xl bg-gradient-to-b from-background to-muted/25 px-4 pb-8 pt-[max(16px,var(--safe-area-top,env(safe-area-inset-top,0px)))] sm:px-6 print:min-h-0 print:max-w-none">
           {/* Faint circular brand watermark over transaction details */}
           <div
             aria-hidden
@@ -149,7 +194,7 @@ function HistoryStatementPage() {
             />
           </div>
 
-          <div className="relative overflow-hidden rounded-3xl border border-border/60 bg-card/95 p-5 shadow-[0_16px_40px_-24px_rgba(2,8,23,0.35)] backdrop-blur sm:p-7">
+          <div className="relative overflow-hidden rounded-3xl border border-border/70 bg-card p-5 shadow-[0_18px_45px_-28px_rgba(2,8,23,0.35)] sm:p-7">
             <div
               aria-hidden
               className="absolute inset-x-0 top-0 h-20 bg-gradient-to-r from-brand/10 via-brand/5 to-transparent"
@@ -157,7 +202,7 @@ function HistoryStatementPage() {
             <div className="relative flex flex-col items-center text-center">
               <span
                 className={cn(
-                  "flex size-[78px] items-center justify-center rounded-full",
+                  "flex size-[82px] items-center justify-center rounded-full ring-4 ring-white/70",
                   toneIconClass,
                 )}
                 aria-hidden
@@ -170,11 +215,11 @@ function HistoryStatementPage() {
                   <Clock className="size-10 stroke-[2.75]" />
                 )}
               </span>
-              <h1 className="mt-4 text-balance text-[26px] font-semibold tracking-tight text-foreground sm:text-[30px]">
+              <h1 className="mt-4 text-balance text-[24px] font-semibold tracking-tight text-foreground sm:text-[28px]">
                 {pageTitle}
               </h1>
-              <p className="mt-1 text-sm text-muted-foreground">{statement.amountCaption}</p>
-              <p className="mt-1 text-[30px] font-semibold tracking-tight text-foreground sm:text-[34px]">
+              <p className="mt-2 text-sm text-muted-foreground">{statement.amountCaption}</p>
+              <p className="mt-1 text-[32px] font-semibold tracking-tight text-foreground sm:text-[36px]">
                 {statement.headlineAmount}
               </p>
               <div
@@ -184,6 +229,30 @@ function HistoryStatementPage() {
                 )}
               >
                 {statement.item.status}
+              </div>
+            </div>
+
+            <div className="relative mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-border/70 bg-background p-3">
+                <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <CalendarDays className="size-3.5" />
+                  {t("history.dateTime")}
+                </div>
+                <p className="text-sm font-semibold text-foreground">{summaryMeta?.dateTime}</p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background p-3">
+                <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <ShieldCheck className="size-3.5" />
+                  {t("history.channel")}
+                </div>
+                <p className="text-sm font-semibold text-foreground">{summaryMeta?.channel}</p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background p-3">
+                <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <ReceiptText className="size-3.5" />
+                  {t("history.serviceName")}
+                </div>
+                <p className="text-sm font-semibold text-foreground">{summaryMeta?.service}</p>
               </div>
             </div>
 
@@ -207,9 +276,13 @@ function HistoryStatementPage() {
               </button>
             </div>
 
-            <dl className="relative rounded-2xl border border-border/60 bg-background/70 px-4 sm:px-5">
+            <dl className="relative rounded-2xl border border-border/70 bg-background px-4 sm:px-5">
               {statement.details.map((row, index) => (
-                <StatementRow key={`${row.label}-${index}`} label={row.label}>
+                <StatementRow
+                  key={`${row.label}-${index}`}
+                  label={row.label}
+                  icon={detailIcon(row.label)}
+                >
                   <span
                     className={cn(
                       row.mono && "font-mono text-[13px]",
@@ -224,9 +297,10 @@ function HistoryStatementPage() {
           </div>
 
           {statement.item.kind === "deposit" && (
-            <section className="relative mt-5 rounded-2xl border border-border/60 bg-card/95 p-4 shadow-sm sm:p-5">
+            <section className="relative mt-5 rounded-2xl border border-border/70 bg-card p-4 shadow-sm sm:p-5">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <h3 className="text-[13px] font-semibold tracking-[0.04em] text-brand/95 uppercase">
+                <h3 className="flex items-center gap-2 text-[13px] font-semibold tracking-[0.04em] text-brand/95 uppercase">
+                  <ImageIcon className="size-4" />
                   {t("history.sectionProof")}
                 </h3>
                 {statement.proofUrl ? (

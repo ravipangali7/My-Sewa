@@ -31,6 +31,7 @@ class WebViewScreen extends StatefulWidget {
 class _WebViewScreenState extends State<WebViewScreen>
     with WidgetsBindingObserver {
   WebViewController? _controller;
+  WebViewWidget? _webViewWidget;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
   bool _isReady = false;
@@ -268,6 +269,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (!mounted) return;
 
     _controller = controller;
+    _webViewWidget = _createWebViewWidget(controller);
     setState(() {
       _isReady = true;
       _isOnline = online;
@@ -294,6 +296,19 @@ class _WebViewScreenState extends State<WebViewScreen>
         .where((f) => f.path != null)
         .map((f) => Uri.file(f.path!).toString())
         .toList();
+  }
+
+  WebViewWidget _createWebViewWidget(WebViewController controller) {
+    if (WebViewPlatform.instance is AndroidWebViewPlatform) {
+      final params = AndroidWebViewWidgetCreationParams(
+        controller: controller.platform as AndroidWebViewController,
+        // More stable on some OEM GPUs than the legacy strategy.
+        displayWithHybridComposition: true,
+      );
+      return WebViewWidget.fromPlatformCreationParams(params: params);
+    }
+
+    return WebViewWidget(controller: controller);
   }
 
   bool _isAppHost(Uri uri) {
@@ -543,7 +558,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                   fit: StackFit.expand,
                   children: [
                     if (_isReady && _controller != null)
-                      WebViewWidget(controller: _controller!),
+                      _webViewWidget!,
                     if (_showSplash) _buildSplash(),
                   ],
                 ),
