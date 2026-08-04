@@ -104,3 +104,80 @@ class BankCodeResolveTests(SimpleTestCase):
         client = HimalPayAPI()
         client.bypass_api = True
         self.assertEqual(_resolve_destination_bank(client, 'NICA', ''), 'NICENPKA')
+
+
+class RemittanceLookupParseTests(SimpleTestCase):
+    """SAMSARA_GET responses vary in nesting; parser must still find payout_amt."""
+
+    def test_docs_shape(self):
+        parsed = HimalPayAPI.parse_remittance_lookup({
+            'status': 'SUCCESS',
+            'data': {
+                'core_transaction_uuid': 'abc123',
+                'reference_id': 'S1001',
+                'data': {
+                    'payout_amt': '50.0000',
+                    'ref_no': 'S1001',
+                    'receiver_name': 'TEST',
+                    'sender_name': 'SENDER',
+                },
+            },
+        })
+        self.assertEqual(parsed['samsara_link_id'], 'abc123')
+        self.assertEqual(parsed['payout_amt'], Decimal('50.00'))
+        self.assertEqual(parsed['receiver_name'], 'TEST')
+
+    def test_stringified_inner_data(self):
+        import json
+        parsed = HimalPayAPI.parse_remittance_lookup({
+            'status': 'SUCCESS',
+            'data': {
+                'core_transaction_uuid': 'abc123',
+                'data': json.dumps({
+                    'payout_amt': '1500.0000',
+                    'ref_no': 'S1002',
+                    'receiver_name': 'NESTED',
+                }),
+            },
+        })
+        self.assertEqual(parsed['samsara_link_id'], 'abc123')
+        self.assertEqual(parsed['payout_amt'], Decimal('1500.00'))
+        self.assertEqual(parsed['receiver_name'], 'NESTED')
+
+    def test_list_wrapped_inner_data(self):
+        parsed = HimalPayAPI.parse_remittance_lookup({
+            'status': 'SUCCESS',
+            'data': {
+                'core_transaction_uuid': 'abc123',
+                'data': [{'payout_amt': '99.50', 'ref_no': 'S1003', 'receiver_name': 'LIST'}],
+            },
+        })
+        self.assertEqual(parsed['payout_amt'], Decimal('99.50'))
+        self.assertEqual(parsed['ref_no'], 'S1003')
+
+    def test_extra_nesting_and_formatted_amount(self):
+        parsed = HimalPayAPI.parse_remittance_lookup({
+            'data': {
+                'status': 'SUCCESS',
+                'data': {
+                    'core_transaction_uuid': 'link-1',
+                    'data': {
+                        'data': {
+                            'payout_amt': 'NPR 1,250.5000',
+                            'ref_no': 'S1004',
+                            'receiver_name': 'DEEP',
+                        }
+                    },
+                },
+            },
+        })
+        self.assertEqual(parsed['samsara_link_id'], 'link-1')
+        self.assertEqual(parsed['payout_amt'], Decimal('1250.50'))
+
+    def test_bypass_lookup_shape(self):
+        client = HimalPayAPI()
+        client.bypass_api = True
+        raw = client.lookup_remittance('S1001227917')
+        parsed = HimalPayAPI.parse_remittance_lookup(raw)
+        self.assertTrue(parsed['samsara_link_id'])
+        self.assertGreater(parsed['payout_amt'], 0)

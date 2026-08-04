@@ -4,11 +4,12 @@ HimalPay Reseller API client.
 Handles X-API-Key auth, paisa conversion, payments, service details,
 cashback/charge calculation, and transaction status checks.
 """
+import json
 import logging
 import re
 import time
 import uuid
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -688,63 +689,197 @@ class HimalPayAPI:
         )
 
     @staticmethod
+    def _coerce_mapping(value: Any) -> Dict[str, Any]:
+        """Normalize dict / JSON-string / single-item list payloads into a dict."""
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+            except (TypeError, ValueError):
+                return {}
+            return HimalPayAPI._coerce_mapping(parsed)
+        if isinstance(value, list):
+            for item in value:
+                mapped = HimalPayAPI._coerce_mapping(item)
+                if mapped:
+                    return mapped
+        return {}
+
+    @staticmethod
+    def _iter_nested_dicts(value: Any, depth: int = 0):
+        """Yield nested dict layers (including JSON-string / list wrappers)."""
+        if depth > 8:
+            return
+        mapping = HimalPayAPI._coerce_mapping(value)
+        if not mapping:
+            return
+        yield mapping
+        for key in ('data', 'details', 'result', 'payload', 'response'):
+            nested = mapping.get(key)
+            if nested is None or nested is mapping:
+                continue
+            yield from HimalPayAPI._iter_nested_dicts(nested, depth + 1)
+
+    @staticmethod
+    def _first_present(mapping: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
+        for key in keys:
+            if key not in mapping:
+                continue
+            value = mapping.get(key)
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            return value
+        return None
+
+    @staticmethod
+    def _parse_vendor_rupees(raw: Any) -> Decimal:
+        """
+        Parse vendor remittance amounts (rupees). Accepts '50.0000', '1,500.00', 'NPR 50'.
+        """
+        if raw is None or raw == '':
+            return Decimal('0.00')
+        if isinstance(raw, bool):
+            return Decimal('0.00')
+        if isinstance(raw, (int, float, Decimal)):
+            try:
+                return Decimal(str(raw)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            except (InvalidOperation, ValueError):
+                return Decimal('0.00')
+
+        text = str(raw).strip()
+        if not text:
+            return Decimal('0.00')
+        text = text.replace(',', '')
+        text = re.sub(r'(?i)\b(?:npr|inr|rs\.?|rupees?)\b', '', text).strip()
+        match = re.search(r'-?\d+(?:\.\d+)?', text)
+        if not match:
+            return Decimal('0.00')
+        try:
+            return Decimal(match.group(0)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError):
+            return Decimal('0.00')
+
+    @staticmethod
     def parse_remittance_lookup(response: Any) -> Dict[str, Any]:
         """
         Normalize SAMSARA_GET response into flat fields for UI / payout.
         payout_amt from the vendor is in rupees; samsara_link_id is core_transaction_uuid.
+
+        Live HimalPay payloads sometimes nest or stringify `data`, so this walks nested
+        layers instead of assuming a fixed two-level shape.
         """
-        root = response if isinstance(response, dict) else {}
-        outer = root.get('data') if isinstance(root.get('data'), dict) else root
-        inner = outer.get('data') if isinstance(outer.get('data'), dict) else {}
+        root = HimalPayAPI._coerce_mapping(response)
+        layers = list(HimalPayAPI._iter_nested_dicts(root))
+        if not layers:
+            layers = [root] if root else [{}]
 
-        link_id = (
-            outer.get('core_transaction_uuid')
-            or outer.get('core_transaction_id')
-            or root.get('core_transaction_uuid')
-            or ''
+        link_keys = (
+            'core_transaction_uuid',
+            'core_transaction_id',
+            'samsara_link_id',
+            'transaction_uuid',
         )
-        payout_raw = (
-            inner.get('payout_amt')
-            or outer.get('payout_amt')
-            or root.get('payout_amt')
-            or '0'
+        payout_keys = (
+            'payout_amt',
+            'payout_amount',
+            'PayoutAmt',
+            'PayoutAmount',
+            'pay_amount',
+            'payoutAmt',
         )
-        try:
-            payout_amt = Decimal(str(payout_raw)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        except Exception:
-            payout_amt = Decimal('0.00')
+        detail_marker_keys = (
+            'ref_no',
+            'receiver_name',
+            'sender_name',
+            'payout_amt',
+            'payout_amount',
+            'receiver_phone',
+        )
 
+        link_id = ''
+        for layer in layers:
+            found = HimalPayAPI._first_present(layer, link_keys)
+            if found is not None:
+                link_id = str(found).strip()
+                break
+
+        payout_raw = None
+        for layer in layers:
+            found = HimalPayAPI._first_present(layer, payout_keys)
+            if found is not None:
+                payout_raw = found
+                break
+        # Only accept generic `amount` from the vendor detail blob (has remittance fields).
+        if payout_raw is None:
+            for layer in layers:
+                if not any(k in layer for k in detail_marker_keys):
+                    continue
+                found = HimalPayAPI._first_present(layer, ('amount', 'Amount'))
+                if found is not None:
+                    payout_raw = found
+                    break
+
+        payout_amt = HimalPayAPI._parse_vendor_rupees(payout_raw)
+
+        detail: Dict[str, Any] = {}
+        for layer in reversed(layers):
+            if any(k in layer for k in detail_marker_keys):
+                detail = layer
+                break
+        if not detail:
+            detail = layers[-1] if layers else {}
+
+        outer = layers[1] if len(layers) > 1 else layers[0]
         ref_no = (
-            inner.get('ref_no')
-            or outer.get('reference_id')
-            or root.get('reference_id')
+            HimalPayAPI._first_present(detail, ('ref_no', 'reference_id', 'reference_no'))
+            or HimalPayAPI._first_present(outer, ('reference_id', 'ref_no'))
+            or HimalPayAPI._first_present(root, ('reference_id', 'ref_no'))
             or ''
         )
+
+        status = (
+            HimalPayAPI._first_present(outer, ('status', 'ms_status'))
+            or HimalPayAPI._first_present(root, ('status', 'ms_status'))
+            or HimalPayAPI._first_present(detail, ('status', 'ms_status'))
+            or ''
+        )
+
+        if not link_id or payout_amt <= 0:
+            logger.warning(
+                'SAMSARA_GET parse incomplete link_id=%s payout_raw=%r payout_amt=%s keys=%s',
+                link_id or '(none)',
+                payout_raw,
+                payout_amt,
+                [sorted(layer.keys()) for layer in layers[:4]],
+            )
 
         return {
             'samsara_link_id': str(link_id or ''),
             'ref_no': str(ref_no or ''),
             'payout_amt': payout_amt,
-            'payout_currency': str(inner.get('payout_currency') or 'NPR'),
-            'sender_name': str(inner.get('sender_name') or ''),
-            'sender_address': str(inner.get('sender_address') or ''),
-            'sender_city': str(inner.get('sender_city') or ''),
-            'sender_country': str(inner.get('sender_country') or ''),
-            'sender_mobile': str(inner.get('sender_mobile') or ''),
-            'receiver_name': str(inner.get('receiver_name') or ''),
-            'receiver_phone': str(inner.get('receiver_phone') or ''),
-            'receiver_address': str(inner.get('receiver_address') or ''),
-            'receiver_city': str(inner.get('receiver_city') or ''),
-            'receiver_country': str(inner.get('receiver_country') or ''),
-            'payment_type': str(inner.get('payment_type') or ''),
-            'send_agent': str(inner.get('send_agent') or ''),
-            'txn_date': str(inner.get('txn_date') or ''),
-            'status': str(
-                outer.get('status')
-                or root.get('status')
-                or outer.get('ms_status')
-                or ''
+            'payout_currency': str(
+                HimalPayAPI._first_present(detail, ('payout_currency', 'currency')) or 'NPR'
             ),
+            'sender_name': str(detail.get('sender_name') or ''),
+            'sender_address': str(detail.get('sender_address') or ''),
+            'sender_city': str(detail.get('sender_city') or ''),
+            'sender_country': str(detail.get('sender_country') or ''),
+            'sender_mobile': str(detail.get('sender_mobile') or ''),
+            'receiver_name': str(detail.get('receiver_name') or ''),
+            'receiver_phone': str(detail.get('receiver_phone') or ''),
+            'receiver_address': str(detail.get('receiver_address') or ''),
+            'receiver_city': str(detail.get('receiver_city') or ''),
+            'receiver_country': str(detail.get('receiver_country') or ''),
+            'payment_type': str(detail.get('payment_type') or ''),
+            'send_agent': str(detail.get('send_agent') or ''),
+            'txn_date': str(detail.get('txn_date') or ''),
+            'status': str(status or ''),
             'raw': root,
         }
 

@@ -135,6 +135,11 @@ def lookup_remittance(request):
         )
 
     if not parsed.get('samsara_link_id'):
+        logger.error(
+            'Remittance lookup missing samsara_link_id ref_no=%s raw_keys=%s',
+            ref_no,
+            list((parsed.get('raw') or {}).keys()) if isinstance(parsed.get('raw'), dict) else type(raw),
+        )
         return Response(
             {
                 'error': 'Invalid remittance',
@@ -144,6 +149,13 @@ def lookup_remittance(request):
         )
 
     if parsed['payout_amt'] <= 0:
+        logger.error(
+            'Remittance lookup missing/zero payout_amt ref_no=%s link_id=%s status=%s raw=%s',
+            ref_no,
+            parsed.get('samsara_link_id'),
+            parsed.get('status'),
+            parsed.get('raw') or raw,
+        )
         return Response(
             {
                 'error': 'Invalid amount',
