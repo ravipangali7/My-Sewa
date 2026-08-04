@@ -30,6 +30,7 @@ class WebViewScreen extends StatefulWidget {
 
 class _WebViewScreenState extends State<WebViewScreen>
     with WidgetsBindingObserver {
+  final Connectivity _connectivity = Connectivity();
   WebViewController? _controller;
   WebViewWidget? _webViewWidget;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
@@ -41,11 +42,14 @@ class _WebViewScreenState extends State<WebViewScreen>
   bool _pageReady = false;
   bool _exitDialogOpen = false;
   bool _isHandlingDownload = false;
+  bool _bridgeInstalled = false;
+  final Set<String> _dispatchedPaymentOutcomeKeys = <String>{};
   DateTime? _splashStartedAt;
   DateTime? _lastResumeBridgeSyncAt;
 
   static const _minSplashDuration = Duration(milliseconds: 900);
   static const _resumeBridgeSyncMinGap = Duration(milliseconds: 700);
+  static const _connectivityDebounce = Duration(milliseconds: 250);
 
   /// Ask the embedded web app to refetch data (pull-to-refresh / live updates).
   static const _dispatchAppResumeJs = '''
@@ -122,18 +126,28 @@ class _WebViewScreenState extends State<WebViewScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _splashStartedAt = DateTime.now();
+    // Avoid first-paint stutter by decoding splash asset before initial frames.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(precacheImage(const AssetImage('assets/logo.png'), context));
+    });
     _bootstrap();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _isOnline && _controller != null) {
+    if (state == AppLifecycleState.resumed &&
+        _isOnline &&
+        _controller != null) {
       final now = DateTime.now();
       final last = _lastResumeBridgeSyncAt;
       if (last == null || now.difference(last) >= _resumeBridgeSyncMinGap) {
         _lastResumeBridgeSyncAt = now;
         unawaited(_controller!.runJavaScript(_dispatchAppResumeJs));
-        unawaited(_controller!.runJavaScript(_installNativeBridgeJs));
+        if (!_bridgeInstalled) {
+          _bridgeInstalled = true;
+          unawaited(_controller!.runJavaScript(_installNativeBridgeJs));
+        }
       }
     }
   }
@@ -175,8 +189,18 @@ class _WebViewScreenState extends State<WebViewScreen>
     await controller.setNavigationDelegate(
       NavigationDelegate(
         onPageFinished: (_) async {
+          final currentUrl = await controller.currentUrl();
+          if (currentUrl != null) {
+            final uri = Uri.tryParse(currentUrl);
+            if (uri != null) {
+              await _dispatchPaymentOutcomeToWeb(uri);
+            }
+          }
           await controller.runJavaScript(_disableZoomJs);
-          await controller.runJavaScript(_installNativeBridgeJs);
+          if (!_bridgeInstalled) {
+            _bridgeInstalled = true;
+            await controller.runJavaScript(_installNativeBridgeJs);
+          }
           if (mounted) {
             final padding = MediaQuery.paddingOf(context);
             await controller.runJavaScript(_safeAreaCssJs(padding));
@@ -185,9 +209,7 @@ class _WebViewScreenState extends State<WebViewScreen>
           _pageReady = true;
           await _dismissSplashWhenReady();
         },
-        onPageStarted: (_) async {
-          await controller.runJavaScript(_installNativeBridgeJs);
-        },
+        onPageStarted: (_) {},
         onWebResourceError: (error) async {
           // Blob/data "downloads" must never leave the user on an error page.
           final failing = error.url ?? '';
@@ -211,6 +233,7 @@ class _WebViewScreenState extends State<WebViewScreen>
         onNavigationRequest: (request) async {
           final uri = Uri.tryParse(request.url);
           if (uri == null) return NavigationDecision.prevent;
+          await _dispatchPaymentOutcomeToWeb(uri);
 
           final scheme = uri.scheme.toLowerCase();
 
@@ -302,8 +325,9 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (WebViewPlatform.instance is AndroidWebViewPlatform) {
       final params = AndroidWebViewWidgetCreationParams(
         controller: controller.platform as AndroidWebViewController,
-        // More stable on some OEM GPUs than the legacy strategy.
-        displayWithHybridComposition: true,
+        // Texture-backed composition is usually smoother than full hybrid
+        // composition for scrolling and transitions.
+        displayWithHybridComposition: false,
       );
       return WebViewWidget.fromPlatformCreationParams(params: params);
     }
@@ -348,22 +372,42 @@ class _WebViewScreenState extends State<WebViewScreen>
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return;
-      final type = decoded['type']?.toString();
-      if (type != 'download') return;
+      final type = decoded['type']?.toString().toLowerCase() ?? 'download';
+      const allowedTypes = {
+        'download',
+        'receipt',
+        'transaction_receipt',
+        'transactionreceipt',
+        'payment_receipt',
+        'paymentreceipt',
+      };
+      if (!allowedTypes.contains(type)) return;
 
-      final filename = _sanitizeFilename(
-        decoded['filename']?.toString() ?? 'MySewa_file.pdf',
-      );
-      final base64Data = decoded['base64']?.toString() ?? '';
-      final mime = decoded['mime']?.toString() ?? 'application/octet-stream';
+      final payload = Map<String, dynamic>.from(decoded.cast<String, dynamic>());
+      final mime = payload['mime']?.toString() ?? 'application/octet-stream';
+      final status = payload['status']?.toString().toLowerCase();
+      final transactionId = payload['transactionId']?.toString();
+      final base64Data =
+          payload['base64']?.toString() ??
+          payload['data']?.toString() ??
+          payload['contentBase64']?.toString() ??
+          '';
       if (base64Data.isEmpty) return;
+      final filename = _buildReceiptFilename(
+        rawName: payload['filename']?.toString(),
+        mime: mime,
+        status: status,
+        transactionId: transactionId,
+      );
       _isHandlingDownload = true;
       final bytes = await compute(_decodeBase64InBackground, base64Data);
-      await _saveAndShareBytes(bytes, filename, mime);
+      await _saveReceiptBytes(bytes, filename, mime);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not save the file. Please try again.')),
+        const SnackBar(
+          content: Text('Could not save the file. Please try again.'),
+        ),
       );
     } finally {
       _isHandlingDownload = false;
@@ -376,45 +420,183 @@ class _WebViewScreenState extends State<WebViewScreen>
     return cleaned.length > 120 ? cleaned.substring(0, 120) : cleaned;
   }
 
-  Future<void> _saveAndShareBytes(
+  String _normalizeStatusForFilename(String? status) {
+    if (status == null || status.isEmpty) return 'unknown';
+    if (status.contains('success') || status == 'ok') return 'success';
+    if (status.contains('fail') || status.contains('error')) return 'failed';
+    return 'unknown';
+  }
+
+  String _extensionFromMime(String mime) {
+    final value = mime.toLowerCase();
+    if (value.contains('pdf')) return 'pdf';
+    if (value.contains('png')) return 'png';
+    if (value.contains('jpeg') || value.contains('jpg')) return 'jpg';
+    if (value.contains('json')) return 'json';
+    if (value.contains('csv')) return 'csv';
+    return 'bin';
+  }
+
+  bool _hasKnownExtension(String name) {
+    final lowered = name.toLowerCase();
+    const exts = [
+      '.pdf',
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.csv',
+      '.json',
+      '.txt',
+      '.zip',
+      '.xlsx',
+    ];
+    return exts.any(lowered.endsWith);
+  }
+
+  String _buildReceiptFilename({
+    required String? rawName,
+    required String mime,
+    required String? status,
+    required String? transactionId,
+  }) {
+    final ext = _extensionFromMime(mime);
+    final now = DateTime.now();
+    final stamp =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+    final normalizedStatus = _normalizeStatusForFilename(status);
+    final normalizedTxn = (transactionId ?? '')
+        .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '')
+        .trim();
+
+    if (rawName != null && rawName.trim().isNotEmpty) {
+      final sanitized = _sanitizeFilename(rawName);
+      return _hasKnownExtension(sanitized) ? sanitized : '$sanitized.$ext';
+    }
+
+    final txnPart = normalizedTxn.isEmpty ? '' : '_$normalizedTxn';
+    return 'receipt_$normalizedStatus${txnPart}_$stamp.$ext';
+  }
+
+  Future<void> _saveReceiptBytes(
     List<int> bytes,
     String filename,
     String mime,
   ) async {
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$filename');
+    final root = await getApplicationDocumentsDirectory();
+    final folder = Directory('${root.path}/MySewa/receipts');
+    if (!await folder.exists()) {
+      await folder.create(recursive: true);
+    }
+    final file = File('${folder.path}/$filename');
     await file.writeAsBytes(bytes, flush: true);
 
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(file.path, mimeType: mime, name: filename)],
-        subject: filename,
-        text: 'MySewa statement',
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Receipt downloaded: $filename'),
+        action: SnackBarAction(
+          label: 'Share',
+          onPressed: () {
+            unawaited(
+              SharePlus.instance.share(
+                ShareParams(
+                  files: [XFile(file.path, mimeType: mime, name: filename)],
+                  subject: filename,
+                  text: 'MySewa receipt',
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 
+  String? _detectPaymentOutcome(Uri uri) {
+    String? fromValue(String? value) {
+      if (value == null) return null;
+      final normalized = value.toLowerCase();
+      if (normalized.contains('success') ||
+          normalized == 'ok' ||
+          normalized == 'completed') {
+        return 'success';
+      }
+      if (normalized.contains('fail') ||
+          normalized.contains('error') ||
+          normalized == 'cancelled') {
+        return 'failed';
+      }
+      return null;
+    }
+
+    for (final key in ['status', 'payment_status', 'transaction_status']) {
+      final detected = fromValue(uri.queryParameters[key]);
+      if (detected != null) return detected;
+    }
+
+    final path = uri.path.toLowerCase();
+    final isPaymentLike =
+        path.contains('payment') || path.contains('transaction');
+    if (!isPaymentLike) return null;
+    if (path.contains('success') || path.contains('complete')) return 'success';
+    if (path.contains('fail') || path.contains('error') || path.contains('cancel')) {
+      return 'failed';
+    }
+    return null;
+  }
+
+  Future<void> _dispatchPaymentOutcomeToWeb(Uri uri) async {
+    final status = _detectPaymentOutcome(uri);
+    if (status == null || _controller == null) return;
+
+    final key = '${status}_${uri.toString()}';
+    if (_dispatchedPaymentOutcomeKeys.contains(key)) return;
+    _dispatchedPaymentOutcomeKeys.add(key);
+
+    final urlJson = jsonEncode(uri.toString());
+    final statusJson = jsonEncode(status);
+    await _controller!.runJavaScript('''
+(function() {
+  try {
+    window.dispatchEvent(new CustomEvent('mysewa-payment-result', {
+      detail: { status: $statusJson, url: $urlJson }
+    }));
+  } catch (e) {}
+})();
+''');
+  }
+
   Future<bool> _hasConnection() async {
-    final results = await Connectivity().checkConnectivity();
+    final results = await _connectivity.checkConnectivity();
     return results.any((r) => r != ConnectivityResult.none);
   }
 
   void _watchConnectivity() {
-    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) async {
-      final online = results.any((r) => r != ConnectivityResult.none);
-      if (!mounted) return;
+    _connectivitySub = _connectivity.onConnectivityChanged
+        .distinct(listEquals)
+        .transform(
+          StreamTransformer<
+            List<ConnectivityResult>,
+            List<ConnectivityResult>
+          >.fromBind(
+            (stream) => stream.asyncMap((event) async {
+              await Future<void>.delayed(_connectivityDebounce);
+              return event;
+            }),
+          ),
+        )
+        .listen((results) async {
+          final online = results.any((r) => r != ConnectivityResult.none);
+          if (!mounted || online == _isOnline) return;
 
-      if (!online) {
-        setState(() => _isOnline = false);
-        return;
-      }
+          if (!online) {
+            setState(() => _isOnline = false);
+            return;
+          }
 
-      final wasOffline = !_isOnline;
-      setState(() => _isOnline = true);
-      if (wasOffline) {
-        await _controller?.reload();
-      }
-    });
+          setState(() => _isOnline = true);
+          await _controller?.reload();
+        });
   }
 
   Future<void> _onRetry() async {
@@ -489,7 +671,9 @@ class _WebViewScreenState extends State<WebViewScreen>
       barrierDismissible: true,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Text(
             'Exit ${AppConfig.appName}?',
             style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
@@ -558,8 +742,11 @@ class _WebViewScreenState extends State<WebViewScreen>
                   fit: StackFit.expand,
                   children: [
                     if (_isReady && _controller != null)
-                      _webViewWidget!,
-                    if (_showSplash) _buildSplash(),
+                      RepaintBoundary(child: _webViewWidget!),
+                    if (_showSplash)
+                      IgnorePointer(
+                        child: RepaintBoundary(child: _buildSplash()),
+                      ),
                   ],
                 ),
         ),

@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Eye, MoreHorizontal, Pencil, Search, Trash2, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Eye, MoreHorizontal, Pencil, Trash2, Users } from "lucide-react";
+import { useState } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { ListPageToolbar } from "@/components/list/ListPageToolbar";
 import {
   AdminDataList,
   AdminEmptyState,
@@ -13,7 +14,6 @@ import {
 } from "@/components/admin/AdminDataList";
 import { WalletCard, walletDisplayName } from "@/components/admin/WalletCard";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +42,8 @@ import {
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDateTime, formatNPR } from "@/lib/format";
 import type { AdminWallet } from "@/lib/types";
+import { useListFilters } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
 
 export const Route = createFileRoute("/admin/wallets")({
   head: () => ({
@@ -60,13 +62,14 @@ export const Route = createFileRoute("/admin/wallets")({
 });
 
 function WalletsPage() {
-  const [q, setQ] = useState("");
   const [pendingDelete, setPendingDelete] = useState<AdminWallet | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const { filters, setFilters, debounced } = useListFilters();
   const queryClient = useQueryClient();
 
   const walletsQuery = useQuery({
-    queryKey: ["admin", "wallets"],
-    queryFn: () => apiClient.adminWallets(),
+    queryKey: ["admin", "wallets", debounced],
+    queryFn: () => apiClient.adminWallets(debounced),
   });
 
   const deleteMutation = useMutation({
@@ -81,23 +84,11 @@ function WalletsPage() {
     },
   });
 
-  const wallets = useMemo(() => {
-    const all = walletsQuery.data?.wallets ?? [];
-    const term = q.trim().toLowerCase();
-    if (!term) return all;
-    return all.filter((w) => {
-      const name = [w.first_name, w.last_name].filter(Boolean).join(" ").toLowerCase();
-      return (
-        w.phone.toLowerCase().includes(term) ||
-        name.includes(term) ||
-        String(w.id).includes(term) ||
-        String(w.user_id).includes(term)
-      );
-    });
-  }, [walletsQuery.data?.wallets, q]);
+  const wallets = walletsQuery.data?.items ?? [];
+  const walletStats = walletsQuery.data?.stats;
 
-  const float = walletsQuery.data?.wallet_float ?? "0.00";
-  const totalCount = walletsQuery.data?.wallets?.length ?? 0;
+  const float = walletsQuery.data?.wallet_float ?? walletStats?.wallet_float ?? "0.00";
+  const totalCount = walletStats?.total ?? 0;
 
   const walletActions = (w: AdminWallet) => {
     const walletId = String(w.id);
@@ -144,18 +135,29 @@ function WalletsPage() {
           : `${totalCount} wallet${totalCount === 1 ? "" : "s"} across the platform`
       }
       actions={
-        <div className="relative w-full min-w-[12rem] sm:w-64">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search phone, name, ID…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="h-9 pl-8"
-          />
-        </div>
+        <div className="w-full min-w-[12rem] sm:w-64" />
       }
     >
       <div className="space-y-5">
+        <ListPageToolbar
+          stats={walletStats}
+          filters={filters}
+          onFiltersChange={setFilters}
+          onExport={async () => {
+            setExporting(true);
+            try {
+              await downloadCsvExport("/api/admin/wallets/", debounced, "admin-wallets.csv");
+            } finally {
+              setExporting(false);
+            }
+          }}
+          exporting={exporting}
+          searchPlaceholder="Search phone, name, wallet ID…"
+          exportLabel="Bulk download"
+          statsLabels={{ total: "Total", success: "Non-zero", pending: "Zero balance", failed: "Failed" }}
+          statusOptions={[{ value: "all", label: "All" }]}
+        />
+
         <WalletCard
           size="lg"
           balance={float}
@@ -174,7 +176,7 @@ function WalletsPage() {
           isEmpty={!walletsQuery.isLoading && wallets.length === 0}
           empty={
             <AdminEmptyState>
-              {q.trim() ? "No wallets match your search." : "No wallets found."}
+              {filters.q.trim() ? "No wallets match your search." : "No wallets found."}
             </AdminEmptyState>
           }
           table={

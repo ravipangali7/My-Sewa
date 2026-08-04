@@ -457,3 +457,16 @@ export interface AdminDashboard {
   operator_split: Array<{ name: string; value: number }>;
   pending_deposits: Deposit[];
 }
+
+export interface AdminListStats {
+  total: number;
+  success: number;
+  pending: number;
+  failed: number;
+  wallet_float?: string;
+}
+
+export interface AdminListResponse<T> {
+  items: T[];
+  stats: AdminListStats;
+}

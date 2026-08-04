@@ -1,13 +1,18 @@
 """
 Staff / superuser admin API endpoints for the web console.
 """
+import csv
 import json
 from datetime import timedelta
+from datetime import date as date_type
 from decimal import Decimal
+from io import StringIO
 
 from django.contrib.auth import get_user_model
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.db.models.functions import TruncDate
+from django.http import HttpResponse
+from django.utils.dateparse import parse_date
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, parser_classes
@@ -46,6 +51,49 @@ from ..services.himalpay import (
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
 
 User = get_user_model()
+
+
+def _parse_date_range(request):
+    start_raw = (request.query_params.get('start_date') or '').strip()
+    end_raw = (request.query_params.get('end_date') or '').strip()
+    start = parse_date(start_raw) if start_raw else None
+    end = parse_date(end_raw) if end_raw else None
+    if start and end and start > end:
+        start, end = end, start
+    return start, end
+
+
+def _apply_created_range(qs, start: date_type | None, end: date_type | None):
+    if start:
+        qs = qs.filter(created_at__date__gte=start)
+    if end:
+        qs = qs.filter(created_at__date__lte=end)
+    return qs
+
+
+def _is_csv_export(request):
+    return (request.query_params.get('export') or '').strip().lower() == 'csv'
+
+
+def _csv_response(filename, headers, rows):
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    for row in rows:
+        writer.writerow(row)
+    response = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+def _maybe_id_query(value, *fields):
+    if not value.isdigit():
+        return Q()
+    parsed = int(value)
+    query = Q()
+    for field in fields:
+        query |= Q(**{field: parsed})
+    return query
 
 
 class IsStaffUser(BasePermission):
@@ -149,7 +197,62 @@ def admin_list_users(request):
         )
 
     users = User.objects.select_related('wallet').order_by('-date_joined')
-    return Response(AdminUserSerializer(users, many=True, context={'request': request}).data)
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+
+    if q:
+        users = users.filter(
+            Q(phone__icontains=q)
+            | Q(first_name__icontains=q)
+            | Q(last_name__icontains=q)
+            | Q(email__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    if start:
+        users = users.filter(date_joined__date__gte=start)
+    if end:
+        users = users.filter(date_joined__date__lte=end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-users.csv',
+            [
+                'id', 'phone', 'first_name', 'last_name', 'email',
+                'account_status', 'is_active', 'is_staff', 'is_superuser',
+                'wallet_balance', 'date_joined', 'last_login',
+            ],
+            [
+                [
+                    u.id,
+                    u.phone,
+                    u.first_name,
+                    u.last_name,
+                    u.email or '',
+                    u.account_status,
+                    u.is_active,
+                    u.is_staff,
+                    u.is_superuser,
+                    (u.wallet.balance if hasattr(u, 'wallet') and u.wallet else Decimal('0.00')),
+                    u.date_joined.isoformat() if u.date_joined else '',
+                    u.last_login.isoformat() if u.last_login else '',
+                ]
+                for u in users
+            ],
+        )
+
+    total = users.count()
+    success = users.filter(account_status='approved').count()
+    pending = users.filter(account_status='pending').count()
+    failed = users.filter(is_active=False).count()
+    return Response({
+        'items': AdminUserSerializer(users, many=True, context={'request': request}).data,
+        'stats': {
+            'total': total,
+            'success': success,
+            'pending': pending,
+            'failed': failed,
+        },
+    })
 
 
 @api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
@@ -192,10 +295,46 @@ def admin_user_detail(request, user_id):
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_list_wallets(request):
     wallets = Wallet.objects.select_related('user').order_by('-updated_at')
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+
+    if q:
+        wallets = wallets.filter(
+            Q(user__phone__icontains=q)
+            | Q(user__first_name__icontains=q)
+            | Q(user__last_name__icontains=q)
+            | _maybe_id_query(q, 'id', 'user_id')
+        )
+    wallets = _apply_created_range(wallets, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-wallets.csv',
+            ['id', 'user_id', 'phone', 'first_name', 'last_name', 'balance', 'created_at', 'updated_at'],
+            [
+                [
+                    w.id, w.user_id, w.user.phone, w.user.first_name, w.user.last_name, w.balance,
+                    w.created_at.isoformat() if w.created_at else '',
+                    w.updated_at.isoformat() if w.updated_at else '',
+                ]
+                for w in wallets
+            ],
+        )
+
     total = wallets.aggregate(total=Sum('balance'))['total'] or Decimal('0.00')
+    total_count = wallets.count()
+    non_zero = wallets.exclude(balance=Decimal('0.00')).count()
+    zero_bal = wallets.filter(balance=Decimal('0.00')).count()
     return Response({
+        'items': AdminWalletSerializer(wallets, many=True).data,
+        'stats': {
+            'total': total_count,
+            'success': non_zero,
+            'pending': zero_bal,
+            'failed': 0,
+            'wallet_float': str(total),
+        },
         'wallet_float': str(total),
-        'wallets': AdminWalletSerializer(wallets, many=True).data,
     })
 
 
@@ -234,10 +373,43 @@ def admin_wallet_detail(request, wallet_id):
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_list_deposits(request):
     qs = Deposit.objects.select_related('user').order_by('-created_at')
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
     status_filter = request.query_params.get('status')
     if status_filter in ('pending', 'approved', 'rejected'):
         qs = qs.filter(status=status_filter)
-    return Response(DepositSerializer(qs, many=True, context={'request': request}).data)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(note__icontains=q)
+            | Q(rejection_reason__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-deposits.csv',
+            ['id', 'phone', 'amount', 'status', 'note', 'rejection_reason', 'created_at', 'updated_at'],
+            [
+                [
+                    d.id, d.user.phone, d.amount, d.status, d.note or '', d.rejection_reason or '',
+                    d.created_at.isoformat() if d.created_at else '',
+                    d.updated_at.isoformat() if d.updated_at else '',
+                ]
+                for d in qs
+            ],
+        )
+
+    return Response({
+        'items': DepositSerializer(qs, many=True, context={'request': request}).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status='approved').count(),
+            'pending': qs.filter(status='pending').count(),
+            'failed': qs.filter(status='rejected').count(),
+        },
+    })
 
 
 @api_view(['GET'])
@@ -307,13 +479,50 @@ def admin_reject_deposit(request, deposit_id):
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_list_topups(request):
     qs = TopupTransaction.objects.select_related('user').order_by('-created_at')
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
     status_filter = request.query_params.get('status')
     if status_filter in ('pending', 'success', 'failed'):
         qs = qs.filter(status=status_filter)
     product_filter = request.query_params.get('product_id')
     if product_filter in ('1', '2'):
         qs = qs.filter(product_id=int(product_filter))
-    return Response(TopupTransactionSerializer(qs, many=True).data)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(mobile_number__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-topups.csv',
+            [
+                'id', 'phone', 'mobile_number', 'product_id', 'amount', 'charge', 'cashback',
+                'total_debited', 'merchant_txn_id', 'service_hub_txn_id', 'status', 'created_at',
+            ],
+            [
+                [
+                    t.id, t.user.phone, t.mobile_number, t.product_id, t.amount, t.charge,
+                    t.cashback, t.total_debited, t.merchant_txn_id, t.service_hub_txn_id or '',
+                    t.status, t.created_at.isoformat() if t.created_at else '',
+                ]
+                for t in qs
+            ],
+        )
+
+    return Response({
+        'items': TopupTransactionSerializer(qs, many=True).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status='success').count(),
+            'pending': qs.filter(status='pending').count(),
+            'failed': qs.filter(status='failed').count(),
+        },
+    })
 
 
 @api_view(['GET'])
@@ -330,7 +539,51 @@ def admin_get_topup(request, topup_id):
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_list_transfers(request):
     qs = BankTransferTransaction.objects.select_related('user').order_by('-created_at')
-    return Response(BankTransferTransactionSerializer(qs, many=True).data)
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+    status_filter = request.query_params.get('status')
+    if status_filter in ('pending', 'success', 'failed'):
+        qs = qs.filter(status=status_filter)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(destination_acc_no__icontains=q)
+            | Q(destination_acc_name__icontains=q)
+            | Q(destination_bank_name__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(provider_txn_id__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-transfers.csv',
+            [
+                'id', 'phone', 'amount', 'destination_bank_name', 'destination_acc_no',
+                'destination_acc_name', 'transaction_remarks', 'charge', 'cashback',
+                'total_debited', 'merchant_txn_id', 'provider_txn_id', 'status', 'created_at',
+            ],
+            [
+                [
+                    t.id, t.user.phone, t.amount, t.destination_bank_name, t.destination_acc_no,
+                    t.destination_acc_name, t.transaction_remarks, t.charge, t.cashback,
+                    t.total_debited, t.merchant_txn_id, t.provider_txn_id or '', t.status,
+                    t.created_at.isoformat() if t.created_at else '',
+                ]
+                for t in qs
+            ],
+        )
+
+    return Response({
+        'items': BankTransferTransactionSerializer(qs, many=True).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status='success').count(),
+            'pending': qs.filter(status='pending').count(),
+            'failed': qs.filter(status='failed').count(),
+        },
+    })
 
 
 @api_view(['POST', 'PATCH'])
@@ -384,10 +637,48 @@ def admin_update_topup_status(request, topup_id):
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_list_remittances(request):
     qs = RemittanceTransaction.objects.select_related('user').order_by('-created_at')
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
     status_filter = request.query_params.get('status')
     if status_filter in ('pending', 'success', 'failed'):
         qs = qs.filter(status=status_filter)
-    return Response(RemittanceTransactionSerializer(qs, many=True).data)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(ref_no__icontains=q)
+            | Q(sender_name__icontains=q)
+            | Q(receiver_name__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-remittances.csv',
+            [
+                'id', 'phone', 'ref_no', 'sender_name', 'receiver_name', 'amount',
+                'total_credited', 'merchant_txn_id', 'provider_txn_id', 'status', 'created_at',
+            ],
+            [
+                [
+                    r.id, r.user.phone, r.ref_no, r.sender_name, r.receiver_name, r.amount,
+                    r.total_credited, r.merchant_txn_id, r.provider_txn_id or '', r.status,
+                    r.created_at.isoformat() if r.created_at else '',
+                ]
+                for r in qs
+            ],
+        )
+
+    return Response({
+        'items': RemittanceTransactionSerializer(qs, many=True).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status='success').count(),
+            'pending': qs.filter(status='pending').count(),
+            'failed': qs.filter(status='failed').count(),
+        },
+    })
 
 
 @api_view(['GET'])

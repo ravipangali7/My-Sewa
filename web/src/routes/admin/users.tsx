@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { ListPageToolbar } from "@/components/list/ListPageToolbar";
 import {
   AdminDataList,
   AdminEmptyState,
@@ -35,6 +36,9 @@ import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDate } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import type { AdminUser } from "@/lib/types";
+import { useListFilters } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
+import { useState } from "react";
 
 export const Route = createFileRoute("/admin/users")({
   head: () => ({
@@ -55,10 +59,12 @@ export const Route = createFileRoute("/admin/users")({
 function UsersPage() {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
+  const { filters, setFilters, debounced } = useListFilters();
+  const [exporting, setExporting] = useState(false);
 
   const usersQuery = useQuery({
-    queryKey: ["admin", "users"],
-    queryFn: () => apiClient.adminUsers(),
+    queryKey: ["admin", "users", debounced],
+    queryFn: () => apiClient.adminUsers(debounced),
   });
 
   const statusMutation = useMutation({
@@ -90,7 +96,8 @@ function UsersPage() {
     },
   });
 
-  const users = usersQuery.data ?? [];
+  const users = usersQuery.data?.items ?? [];
+  const userStats = usersQuery.data?.stats;
 
   const deleteDialog = (u: AdminUser) => {
     const isSelf = currentUser?.id === u.id;
@@ -180,6 +187,27 @@ function UsersPage() {
         </Button>
       }
     >
+      <div className="mb-4">
+        <ListPageToolbar
+          stats={userStats}
+          filters={filters}
+          onFiltersChange={setFilters}
+          onExport={async () => {
+            setExporting(true);
+            try {
+              await downloadCsvExport("/api/admin/users/", debounced, "admin-users.csv");
+            } finally {
+              setExporting(false);
+            }
+          }}
+          exporting={exporting}
+          searchPlaceholder="Search phone, name, email…"
+          exportLabel="Bulk download"
+          statsLabels={{ total: "Total", success: "Active", pending: "Pending", failed: "Disabled" }}
+          statusOptions={[{ value: "all", label: "All" }]}
+        />
+      </div>
+
       <AdminDataList
         isEmpty={!usersQuery.isLoading && users.length === 0}
         empty={<AdminEmptyState>No users found.</AdminEmptyState>}

@@ -207,6 +207,27 @@ export async function api<T = unknown>(path: string, options: RequestOptions = {
   return data as T;
 }
 
+type AdminListFilters = Partial<{
+  q: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+}>;
+
+function buildAdminListQuery(filters?: AdminListFilters) {
+  const params = new URLSearchParams();
+  const q = filters?.q?.trim();
+  const status = filters?.status?.trim();
+  const startDate = filters?.startDate?.trim();
+  const endDate = filters?.endDate?.trim();
+  if (q) params.set("q", q);
+  if (status && status !== "all") params.set("status", status);
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 export const apiClient = {
   login: (phone: string, password: string) =>
     api<{
@@ -512,7 +533,10 @@ export const apiClient = {
     }),
 
   adminDashboard: () => api<import("./types").AdminDashboard>("/api/admin/dashboard/"),
-  adminUsers: () => api<import("./types").AdminUser[]>("/api/admin/users/"),
+  adminUsers: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").AdminUser>>(
+      `/api/admin/users/${buildAdminListQuery(filters)}`,
+    ),
   adminGetUser: (id: number) => api<import("./types").AdminUser>(`/api/admin/users/${id}/`),
   adminCreateUser: (body: import("./types").AdminUserWritePayload) =>
     api<{ message: string; data: import("./types").AdminUser }>("/api/admin/users/", {
@@ -526,8 +550,12 @@ export const apiClient = {
     }),
   adminDeleteUser: (id: number) =>
     api<{ message: string }>(`/api/admin/users/${id}/`, { method: "DELETE" }),
-  adminWallets: () =>
-    api<{ wallet_float: string; wallets: import("./types").AdminWallet[] }>("/api/admin/wallets/"),
+  adminWallets: (filters?: AdminListFilters) =>
+    api<
+      import("./types").AdminListResponse<import("./types").AdminWallet> & {
+        wallet_float: string;
+      }
+    >(`/api/admin/wallets/${buildAdminListQuery(filters)}`),
   adminGetWallet: (id: number) =>
     api<import("./types").AdminWallet>(`/api/admin/wallets/${id}/`),
   adminUpdateWallet: (id: number, body: { balance: string | number }) =>
@@ -537,9 +565,9 @@ export const apiClient = {
     }),
   adminDeleteWallet: (id: number) =>
     api<{ message: string }>(`/api/admin/wallets/${id}/`, { method: "DELETE" }),
-  adminDeposits: (status?: string) =>
-    api<import("./types").Deposit[]>(
-      status ? `/api/admin/deposits/?status=${status}` : "/api/admin/deposits/",
+  adminDeposits: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").Deposit>>(
+      `/api/admin/deposits/${buildAdminListQuery(filters)}`,
     ),
   adminGetDeposit: (id: number) =>
     api<import("./types").Deposit>(`/api/admin/deposits/${id}/`),
@@ -553,7 +581,16 @@ export const apiClient = {
       `/api/admin/deposits/${id}/reject/`,
       { method: "POST", body },
     ),
-  adminTopups: () => api<import("./types").TopupTransaction[]>("/api/admin/topups/"),
+  adminTopups: (filters?: AdminListFilters & { productId?: "1" | "2" | "all" }) => {
+    const params = new URLSearchParams(buildAdminListQuery(filters).replace(/^\?/, ""));
+    if (filters?.productId && filters.productId !== "all") {
+      params.set("product_id", filters.productId);
+    }
+    const query = params.toString();
+    return api<import("./types").AdminListResponse<import("./types").TopupTransaction>>(
+      `/api/admin/topups/${query ? `?${query}` : ""}`,
+    );
+  },
   adminGetTopup: (id: number) =>
     api<import("./types").TopupTransaction>(`/api/admin/topups/${id}/`),
   adminUpdateTopupStatus: (id: number, status: import("./types").TxnStatus) =>
@@ -561,16 +598,18 @@ export const apiClient = {
       `/api/admin/topups/${id}/status/`,
       { method: "POST", body: { status } },
     ),
-  adminTransfers: () =>
-    api<import("./types").BankTransferTransaction[]>("/api/admin/transfers/"),
+  adminTransfers: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").BankTransferTransaction>>(
+      `/api/admin/transfers/${buildAdminListQuery(filters)}`,
+    ),
   adminUpdateTransferStatus: (id: number, status: import("./types").TxnStatus) =>
     api<{ message: string; data: import("./types").BankTransferTransaction }>(
       `/api/admin/transfers/${id}/status/`,
       { method: "POST", body: { status } },
     ),
-  adminRemittances: (status?: string) =>
-    api<import("./types").RemittanceTransaction[]>(
-      status ? `/api/admin/remittances/?status=${status}` : "/api/admin/remittances/",
+  adminRemittances: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").RemittanceTransaction>>(
+      `/api/admin/remittances/${buildAdminListQuery(filters)}`,
     ),
   adminGetRemittance: (id: number) =>
     api<import("./types").RemittanceTransaction>(`/api/admin/remittances/${id}/`),

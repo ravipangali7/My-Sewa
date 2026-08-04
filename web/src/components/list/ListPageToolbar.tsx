@@ -82,6 +82,20 @@ export function ListPageToolbar({
             </option>
           ))}
         </select>
+        <Input
+          type="date"
+          value={filters.startDate}
+          onChange={(e) => onFiltersChange({ startDate: e.target.value })}
+          className="sm:w-[160px]"
+          aria-label="Start date"
+        />
+        <Input
+          type="date"
+          value={filters.endDate}
+          onChange={(e) => onFiltersChange({ endDate: e.target.value })}
+          className="sm:w-[160px]"
+          aria-label="End date"
+        />
         {onExport ? (
           <Button type="button" variant="outline" onClick={() => void onExport()} disabled={exporting}>
             {exporting ? <Loader2 className="size-4 animate-spin" /> : null}

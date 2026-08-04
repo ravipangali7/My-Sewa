@@ -5,6 +5,8 @@ export type ListStatus = "all" | "pending" | "success" | "failed" | "approved" |
 export type ListFilters = {
   q: string;
   status: ListStatus;
+  startDate: string;
+  endDate: string;
 };
 
 export type StatusOption = {
@@ -30,11 +32,18 @@ function normalizeFilters(next: Partial<ListFilters>): ListFilters {
   return {
     q: typeof next.q === "string" ? next.q : "",
     status: (next.status as ListStatus) || "all",
+    startDate: typeof next.startDate === "string" ? next.startDate : "",
+    endDate: typeof next.endDate === "string" ? next.endDate : "",
   };
 }
 
 export function useListFilters() {
-  const [filters, setFiltersState] = useState<ListFilters>({ q: "", status: "all" });
+  const [filters, setFiltersState] = useState<ListFilters>({
+    q: "",
+    status: "all",
+    startDate: "",
+    endDate: "",
+  });
   const [debounced, setDebounced] = useState<ListFilters>(filters);
 
   useEffect(() => {
