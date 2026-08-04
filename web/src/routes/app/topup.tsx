@@ -7,7 +7,7 @@ import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useErrorPopup } from "@/components/ErrorPopup";
+import { toastApiError, toastApiMessage } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import {
   OPERATORS,
@@ -48,7 +48,6 @@ function TopUp() {
   const { user } = useAuth();
   const { t } = useI18n();
   const accountPending = isAccountPending(user);
-  const errorPopup = useErrorPopup(t("topup.failed"));
   const [productId, setProductId] = useState<1 | 2>(1);
   const [mobile, setMobile] = useState("");
   const [amount, setAmount] = useState("");
@@ -159,7 +158,10 @@ function TopUp() {
             const msg = err.message.toLowerCase();
             if (msg.includes("ip not") || msg.includes("allowlist") || err.status === 403) {
               setProviderBlocked(true);
-              errorPopup.showError(err, { title: t("topup.providerError") });
+              toastApiError(err, {
+                title: t("topup.providerError"),
+                fallback: t("topup.providerError"),
+              });
             }
           }
         })
@@ -171,7 +173,6 @@ function TopUp() {
       cancelled = true;
       clearTimeout(timer);
     };
-    // intentionally omit errorPopup — show once per failed fetch
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amt, serviceName, topupsEnabled, minTopup]);
 
@@ -186,12 +187,21 @@ function TopUp() {
       for (const item of pending.slice(0, 5)) {
         try {
           const res = await apiClient.topupStatus(item.merchant_txn_id);
-          if (
-            res.local_topup &&
-            res.local_topup.status !== "pending" &&
-            res.local_topup.status !== item.status
-          ) {
+          const next = res.local_topup?.status;
+          if (next && next !== "pending" && next !== item.status) {
             changed = true;
+            if (next === "success") {
+              toast.success(t("topup.statusSuccess"));
+            } else if (next === "failed") {
+              if (res.message) {
+                toastApiMessage(res.message, {
+                  title: t("topup.statusFailed"),
+                  fallback: t("topup.statusFailed"),
+                });
+              } else {
+                toast.error(t("topup.statusFailed"));
+              }
+            }
           }
         } catch {
           // ignore transient status errors while polling
@@ -210,24 +220,31 @@ function TopUp() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [historyQuery.data, queryClient]);
+  }, [historyQuery.data, queryClient, t]);
 
   const refreshStatus = async (item: TopupTransaction) => {
     setRefreshingId(item.id);
     try {
       const res = await apiClient.topupStatus(item.merchant_txn_id);
       const local = res.local_topup;
-      if (local?.status === "success") {
+      if (local?.status === "success" || res.status === "success") {
         toast.success(t("topup.statusSuccess"));
-      } else if (local?.status === "failed") {
-        toast.error(t("topup.statusFailed"));
+      } else if (local?.status === "failed" || res.status === "failed") {
+        if (res.message) {
+          toastApiMessage(res.message, {
+            title: t("topup.statusFailed"),
+            fallback: t("topup.statusFailed"),
+          });
+        } else {
+          toast.error(t("topup.statusFailed"));
+        }
       } else {
         toast.message(t("topup.statusPending"));
       }
       queryClient.invalidateQueries({ queryKey: ["topups"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     } catch (err) {
-      errorPopup.showError(err, {
+      toastApiError(err, {
         title: t("topup.statusFailedTitle"),
         fallback: t("topup.statusFailedTitle"),
       });
@@ -294,7 +311,7 @@ function TopUp() {
       if (err instanceof ApiError && err.body && typeof err.body === "object") {
         const body = err.body as Record<string, unknown>;
         if (body["error"] === "Insufficient balance") {
-          errorPopup.showError(err, {
+          toastApiError(err, {
             title: t("topup.failed"),
             fallback: t("topup.insufficient", {
               required: formatNPR(String(body["required"] ?? totalDue)),
@@ -304,7 +321,7 @@ function TopUp() {
           return;
         }
       }
-      errorPopup.showError(err, {
+      toastApiError(err, {
         title: t("topup.failed"),
         fallback: t("topup.failed"),
       });
@@ -315,7 +332,6 @@ function TopUp() {
 
   return (
     <UserShell title={t("topup.title")} back="/app">
-      {errorPopup.popup}
       <div className="grid gap-5 lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">

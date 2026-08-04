@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useErrorPopup } from "@/components/ErrorPopup";
+import { toastApiError, toastApiMessage } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { mergeBankLists } from "@/lib/nepali-banks";
 import type { BankOption, BankTransferTransaction } from "@/lib/types";
@@ -55,7 +55,6 @@ function Transfer() {
   const { user } = useAuth();
   const { t, locale } = useI18n();
   const accountPending = isAccountPending(user);
-  const errorPopup = useErrorPopup(t("transfer.failed"));
   const [method, setMethod] = useState<TransferMethod>("bank");
   const [bank, setBank] = useState("");
   const [accNo, setAccNo] = useState("");
@@ -103,7 +102,7 @@ function Transfer() {
 
   useEffect(() => {
     if (!banksQuery.isError) return;
-    errorPopup.showError(banksQuery.error, {
+    toastApiError(banksQuery.error, {
       title: t("transfer.banksFailed"),
       fallback: t("transfer.banksFailedFallback"),
     });
@@ -127,12 +126,21 @@ function Transfer() {
       for (const item of pending.slice(0, 5)) {
         try {
           const res = await apiClient.transferStatus(item.merchant_txn_id);
-          if (
-            res.local_transfer &&
-            res.local_transfer.status !== "pending" &&
-            res.local_transfer.status !== item.status
-          ) {
+          const next = res.local_transfer?.status;
+          if (next && next !== "pending" && next !== item.status) {
             changed = true;
+            if (next === "success") {
+              toast.success(t("transfer.statusSuccess"));
+            } else if (next === "failed") {
+              if (res.message) {
+                toastApiMessage(res.message, {
+                  title: t("transfer.statusFailed"),
+                  fallback: t("transfer.statusFailed"),
+                });
+              } else {
+                toast.error(t("transfer.statusFailed"));
+              }
+            }
           }
         } catch {
           // ignore transient status errors while polling
@@ -151,7 +159,7 @@ function Transfer() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [historyQuery.data, queryClient]);
+  }, [historyQuery.data, queryClient, t]);
 
   const banks = useMemo(
     () => mergeBankLists(banksQuery.data ?? []),
@@ -208,7 +216,10 @@ function Transfer() {
           if (err instanceof ApiError) {
             const msg = err.message.toLowerCase();
             if (msg.includes("ip not") || msg.includes("allowlist") || err.status === 403) {
-              errorPopup.showError(err, { title: t("transfer.providerError") });
+              toastApiError(err, {
+                title: t("transfer.providerError"),
+                fallback: t("transfer.providerError"),
+              });
             }
           }
         });
@@ -224,17 +235,24 @@ function Transfer() {
     try {
       const res = await apiClient.transferStatus(item.merchant_txn_id);
       const local = res.local_transfer;
-      if (local?.status === "success") {
+      if (local?.status === "success" || res.status === "success") {
         toast.success(t("transfer.statusSuccess"));
-      } else if (local?.status === "failed") {
-        toast.error(t("transfer.statusFailed"));
+      } else if (local?.status === "failed" || res.status === "failed") {
+        if (res.message) {
+          toastApiMessage(res.message, {
+            title: t("transfer.statusFailed"),
+            fallback: t("transfer.statusFailed"),
+          });
+        } else {
+          toast.error(t("transfer.statusFailed"));
+        }
       } else {
         toast.message(t("transfer.statusPending"));
       }
       queryClient.invalidateQueries({ queryKey: ["transfers"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     } catch (err) {
-      errorPopup.showError(err, {
+      toastApiError(err, {
         title: t("transfer.failed"),
         fallback: t("transfer.statusPending"),
       });
@@ -296,7 +314,7 @@ function Transfer() {
       if (err instanceof ApiError && err.body && typeof err.body === "object") {
         const body = err.body as Record<string, unknown>;
         if (body["error"] === "Insufficient balance") {
-          errorPopup.showError(err, {
+          toastApiError(err, {
             title: t("transfer.failed"),
             fallback: t("transfer.insufficient", {
               required: formatNPR(String(body["required"] ?? totalDue)),
@@ -306,41 +324,34 @@ function Transfer() {
           return;
         }
       }
-      errorPopup.showError(err, { title: t("transfer.failed"), fallback: t("transfer.failed") });
+      toastApiError(err, { title: t("transfer.failed"), fallback: t("transfer.failed") });
     },
   });
 
   async function verifyDestination() {
     if (accountPending) {
-      errorPopup.showMessage(t("account.pending"), { title: t("transfer.accountPendingTitle") });
+      toast.error(t("account.pending"));
       return;
     }
     if (!bank) {
-      errorPopup.showMessage(
+      toast.error(
         isMobile ? t("transfer.enterBankAndPhone") : t("transfer.enterBankAndName"),
-        { title: t("transfer.missingDetails") },
       );
       return;
     }
     if (isMobile) {
       const digits = phone.replace(/\D/g, "");
       if (digits.length < 10) {
-        errorPopup.showMessage(t("transfer.invalidNepaliMobile"), {
-          title: t("transfer.invalidPhone"),
-        });
+        toast.error(t("transfer.invalidNepaliMobile"));
         return;
       }
     } else {
       if (!accName.trim()) {
-        errorPopup.showMessage(t("transfer.enterBankAndName"), {
-          title: t("transfer.missingDetails"),
-        });
+        toast.error(t("transfer.enterBankAndName"));
         return;
       }
       if (accNo.trim().length < 5) {
-        errorPopup.showMessage(t("transfer.enterValidAccount"), {
-          title: t("transfer.invalidAccount"),
-        });
+        toast.error(t("transfer.enterValidAccount"));
         return;
       }
     }
@@ -355,17 +366,13 @@ function Transfer() {
       });
       if (!res.data?.verified) {
         setVerified(false);
-        errorPopup.showMessage(t("transfer.dontMatch"), {
-          title: t("transfer.dontMatch"),
-        });
+        toast.error(t("transfer.dontMatch"));
         return;
       }
       const originalName = (res.data.account_name || accName).trim();
       if (!originalName) {
         setVerified(false);
-        errorPopup.showMessage(t("transfer.dontMatch"), {
-          title: t("transfer.dontMatch"),
-        });
+        toast.error(t("transfer.dontMatch"));
         return;
       }
       setAccName(originalName);
@@ -387,7 +394,7 @@ function Transfer() {
             typeof err.body === "object" &&
             ((err.body as Record<string, unknown>).error === "Don't Match" ||
               (err.body as Record<string, unknown>).mismatch === true)));
-      errorPopup.showError(err, {
+      toastApiError(err, {
         title: t("transfer.dontMatch"),
         fallback: mismatch ? t("transfer.dontMatch") : t("transfer.verifyFailed"),
       });
@@ -398,7 +405,6 @@ function Transfer() {
 
   return (
     <UserShell title={t("transfer.title")} back="/app">
-      {errorPopup.popup}
       <div className="grid gap-5 lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
@@ -433,9 +439,7 @@ function Transfer() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!verified) {
-                errorPopup.showMessage(t("transfer.verifyFirst"), {
-                  title: t("transfer.verifyRequired"),
-                });
+                toast.error(t("transfer.verifyFirst"));
                 return;
               }
               submitMutation.mutate();

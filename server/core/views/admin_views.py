@@ -37,7 +37,12 @@ from ..serializers import (
     AdminRemittanceSerializer,
     SettingsSerializer,
 )
-from ..services.himalpay import HimalPayAPI, HimalPayError, get_outbound_public_ip
+from ..services.himalpay import (
+    HimalPayAPI,
+    HimalPayError,
+    admin_himalpay_ip_hint,
+    get_outbound_public_ip,
+)
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
 
 User = get_user_model()
@@ -542,7 +547,10 @@ def admin_himalpay_status(request):
         )
         return Response(result)
     except HimalPayError as exc:
-        result['message'] = exc.message
+        message = exc.message
+        if getattr(exc, 'is_ip_blocked', False):
+            message = f'{message.rstrip(".")}. {admin_himalpay_ip_hint()}'
+        result['message'] = message
         result['error_code'] = exc.error_code
         result['error_type'] = exc.error_type
         return Response(result)

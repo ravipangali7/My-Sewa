@@ -5,6 +5,7 @@ Handles X-API-Key auth, paisa conversion, payments, service details,
 cashback/charge calculation, and transaction status checks.
 """
 import logging
+import re
 import time
 import uuid
 from decimal import Decimal, ROUND_HALF_UP
@@ -75,13 +76,114 @@ def is_insufficient_balance_error(message: str = '') -> bool:
     )
 
 
+# User-facing copy for known HimalPay error_code values (see himalpay-api.md).
+_HIMALPAY_CODE_MESSAGES: Dict[int, str] = {
+    1000: 'Payment service authentication failed. Please try again later or contact MySewa support.',
+    1001: 'Payment service authentication failed. Please try again later or contact MySewa support.',
+    1002: 'Payment service authentication failed. Please try again later or contact MySewa support.',
+    1009: 'This payment service account is inactive. Please contact MySewa support.',
+    1010: 'Too many attempts. Please wait a moment and try again.',
+    1011: 'Transactions are temporarily on hold. Please try again later or contact MySewa support.',
+    2000: 'Some payment details look invalid. Please check and try again.',
+    2001: 'Some payment details look invalid. Please check and try again.',
+    3000: 'Could not verify the transaction limit. Please try again.',
+    3001: 'This transaction exceeds the allowed limit. Try a smaller amount.',
+    6000: 'Some payment details look invalid. Please check and try again.',
+    6001: 'Required payment details are missing. Please check and try again.',
+    6002: 'Some payment details look invalid. Please check and try again.',
+    6003: 'This request was already submitted. Please wait a moment or check your history.',
+    6004: 'Some payment details look invalid. Please check and try again.',
+    7000: 'This payment service is not available for your account right now.',
+    7001: 'This payment service is temporarily disabled. Please try again later.',
+    7002: 'This payment service is not available right now. Please try again later.',
+    7003: 'This payment service is not available right now. Please try again later.',
+    7004: 'The payment could not be completed. Please try again or contact MySewa support.',
+    8000: 'Something went wrong with the payment service. Please try again later.',
+    9000: 'Payment service is temporarily unavailable. Please try again later or contact MySewa support.',
+    9001: 'Payment service is temporarily unavailable. Please try again later or contact MySewa support.',
+    9002: 'Payment service is temporarily unavailable. Please try again later.',
+    9003: 'Too many requests. Please wait a moment and try again.',
+}
+
+_TECHNICAL_MESSAGE_PATTERNS = (
+    'servicelevel.',
+    'systemlevel.',
+    'jsonschema.',
+    'requestvalidation.',
+    'auth.',
+    'limit.',
+    'ip allowlist',
+    'ip whitelist',
+    'x-api-key',
+    'api key',
+    'api_key',
+    'merchant_transaction_id',
+    'wallet_service_name',
+    'traceback',
+    'exception',
+    'status code',
+    'http ',
+)
+
+# Short HimalPay catalog strings — replace with clearer MySewa copy.
+_PROVIDER_CATALOG_JARGON = frozenset(
+    {
+        'wallet service is not allowed for this user',
+        'wallet service is currently disabled',
+        'wallet service not found',
+        'wallet service is invalid or misconfigured',
+        'transaction failed to process',
+        'an unknown error occurred',
+        'access from this ip address has been blocked',
+        'access from this ip address is not allowed',
+        'the service is currently unavailable',
+        'rate limit exceeded, please try again later',
+        'himalpay request failed',
+        'request failed',
+    }
+)
+
+
+_ENUM_TOKEN_RE = re.compile(r'\b[A-Za-z]+(?:Level)?\.[A-Za-z]+\b')
+
+
+def is_technical_provider_message(message: str = '') -> bool:
+    """True when a provider string is not suitable to show end users as-is."""
+    text = (message or '').strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    if lowered in _PROVIDER_CATALOG_JARGON:
+        return True
+    if any(p in lowered for p in _TECHNICAL_MESSAGE_PATTERNS):
+        return True
+    # Enum-like tokens: ServiceLevel.TransactionFailed, Auth.MissingAuthHeader
+    return bool(_ENUM_TOKEN_RE.search(text))
+
+
+def admin_himalpay_ip_hint() -> str:
+    """Admin-only instruction for HimalPay IP allowlisting."""
+    outbound = get_outbound_public_ip()
+    ip_hint = outbound or "this server's public IP"
+    return (
+        f'Add {ip_hint} to the HimalPay dashboard IP Allowlist. '
+        f'Do not add the API key UUID — only the server public IP address is allowed.'
+    )
+
+
 def format_himalpay_error_message(
     message: str,
     error_code: Optional[int] = None,
     error_type: Optional[str] = None,
 ) -> str:
-    """Human-readable HimalPay error; IP blocks include the outbound IP to allowlist."""
-    base = (message or 'HimalPay request failed').strip()
+    """
+    User-friendly HimalPay error for app toasts / API ``message`` fields.
+
+    Keeps actionable, plain-language provider issues (e.g. refunds, mismatches).
+    Maps known codes and strips technical enums / allowlist instructions
+    (admins get IP hints separately).
+    """
+    base = (message or '').strip()
 
     # Provider/reseller float or destination-side insufficient funds (often code 7004).
     if is_insufficient_balance_error(base):
@@ -90,15 +192,27 @@ def format_himalpay_error_message(
             'Please try again later or contact MySewa support if this continues.'
         )
 
-    if not is_ip_not_allowed_error(base, error_code, error_type):
-        return base
+    if is_ip_not_allowed_error(base, error_code, error_type) or error_code in (9000, 9001):
+        return (
+            'Payment service is temporarily unavailable. '
+            'Please try again later or contact MySewa support.'
+        )
 
-    outbound = get_outbound_public_ip()
-    ip_hint = outbound or "this server's public IP"
+    # Keep specific, readable provider sentences (refunds, invalid account, etc.).
+    if base and not is_technical_provider_message(base):
+        cleaned = base
+        if error_type and error_type in cleaned:
+            cleaned = cleaned.replace(error_type, '').strip(' .-:')
+        if cleaned and not is_technical_provider_message(cleaned):
+            # Capitalize first letter for toast polish.
+            return cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
+
+    if error_code in _HIMALPAY_CODE_MESSAGES:
+        return _HIMALPAY_CODE_MESSAGES[error_code]
+
     return (
-        f'{base.rstrip(".")}. '
-        f'Add {ip_hint} to the HimalPay dashboard IP Allowlist. '
-        f'Do not add the API key UUID - only the server public IP address is allowed.'
+        'The payment could not be completed. '
+        'Please try again or contact MySewa support if this continues.'
     )
 
 
@@ -113,6 +227,7 @@ class HimalPayError(Exception):
         error_type: Optional[str] = None,
         response_data: Optional[Dict] = None,
     ):
+        raw_message = message
         message = format_himalpay_error_message(message, error_code, error_type)
         super().__init__(message)
         self.message = message
@@ -120,7 +235,7 @@ class HimalPayError(Exception):
         self.error_code = error_code
         self.error_type = error_type
         self.response_data = response_data or {}
-        self.is_ip_blocked = is_ip_not_allowed_error(message, error_code, error_type)
+        self.is_ip_blocked = is_ip_not_allowed_error(raw_message, error_code, error_type)
 
 
 class HimalPayAPI:
@@ -201,8 +316,7 @@ class HimalPayAPI:
     def _headers(self) -> Dict[str, str]:
         if not self.api_key and not self.bypass_api:
             raise HimalPayError(
-                'HimalPay API key is not configured. '
-                'Set it under Super Admin → Settings → Deposit account.',
+                'Payment service is not configured yet. Please contact MySewa support.',
                 status_code=500,
             )
         return {
@@ -229,9 +343,15 @@ class HimalPayAPI:
                 timeout=self.timeout,
             )
         except requests.Timeout as exc:
-            raise HimalPayError('HimalPay request timed out', status_code=504) from exc
+            raise HimalPayError(
+                'The payment service took too long to respond. Please try again.',
+                status_code=504,
+            ) from exc
         except requests.RequestException as exc:
-            raise HimalPayError(f'HimalPay network error: {exc}', status_code=502) from exc
+            raise HimalPayError(
+                'Could not reach the payment service. Check your connection and try again.',
+                status_code=502,
+            ) from exc
 
         try:
             data = response.json() if response.content else {}

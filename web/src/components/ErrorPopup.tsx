@@ -8,9 +8,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ApiError } from "@/lib/api";
+import {
+  errorMessageFromUnknown,
+  userFriendlyApiMessage,
+} from "@/lib/api-errors";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
+
+export { errorMessageFromUnknown, userFriendlyApiMessage } from "@/lib/api-errors";
+export { toastApiError, toastApiMessage } from "@/lib/api-errors";
 
 type ErrorPopupProps = {
   open: boolean;
@@ -19,7 +25,7 @@ type ErrorPopupProps = {
   onClose: () => void;
 };
 
-/** Mobile-friendly centered dialog for API / HimalPay errors. */
+/** Mobile-friendly centered dialog for API / HimalPay errors (admin / rare cases). */
 export function ErrorPopup({
   open,
   title,
@@ -61,13 +67,6 @@ export function ErrorPopup({
   );
 }
 
-export function errorMessageFromUnknown(err: unknown, fallback = "Request failed"): string {
-  if (err instanceof ApiError) return err.message || fallback;
-  if (err instanceof Error) return err.message || fallback;
-  if (typeof err === "string" && err.trim()) return err;
-  return fallback;
-}
-
 /** Hook: hold an error popup message and helpers. */
 export function useErrorPopup(defaultTitle = "Something went wrong") {
   const [open, setOpen] = useState(false);
@@ -86,13 +85,13 @@ export function useErrorPopup(defaultTitle = "Something went wrong") {
 
   function showError(err: unknown, opts?: { title?: string; fallback?: string }) {
     setTitle(opts?.title || defaultTitle);
-    setMessage(errorMessageFromUnknown(err, opts?.fallback || "Request failed"));
+    setMessage(userFriendlyApiMessage(err, opts?.fallback || errorMessageFromUnknown(err)));
     setOpen(true);
   }
 
   function showMessage(text: string, opts?: { title?: string }) {
     setTitle(opts?.title || defaultTitle);
-    setMessage(text);
+    setMessage(userFriendlyApiMessage(text, text));
     setOpen(true);
   }
 

@@ -814,6 +814,11 @@ def bank_transfer_status(request):
             {
                 'status': normalized,
                 'himalpay_status': result.get('status'),
+                'message': (
+                    himalpay.extract_failure_details(result)['message']
+                    if normalized == 'failed'
+                    else None
+                ),
                 'data': result,
                 'local_transfer': BankTransferTransactionSerializer(transfer).data if transfer else None,
             },

@@ -435,6 +435,11 @@ def check_transaction_status(request):
             {
                 'status': normalized,
                 'himalpay_status': result.get('status'),
+                'message': (
+                    himalpay.extract_failure_details(result)['message']
+                    if normalized == 'failed'
+                    else None
+                ),
                 'data': result,
                 'local_topup': TopupTransactionSerializer(topup).data if topup else None,
             },

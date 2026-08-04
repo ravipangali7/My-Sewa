@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useErrorPopup } from "@/components/ErrorPopup";
+import { toastApiError } from "@/lib/api-errors";
 import { apiClient } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
@@ -117,7 +117,6 @@ function ReceiveRemittance() {
   const { user } = useAuth();
   const { t } = useI18n();
   const accountPending = isAccountPending(user);
-  const errorPopup = useErrorPopup(t("remittance.failed"));
 
   const [step, setStep] = useState<Step>("lookup");
   const [refNo, setRefNo] = useState("");
@@ -166,7 +165,7 @@ function ReceiveRemittance() {
       toast.success(t("remittance.lookupSuccess"));
     },
     onError: (err) => {
-      errorPopup.showError(err, { title: t("remittance.lookupFailed") });
+      toastApiError(err, { title: t("remittance.lookupFailed"), fallback: t("remittance.lookupFailed") });
     },
   });
 
@@ -234,7 +233,7 @@ function ReceiveRemittance() {
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
     },
     onError: (err) => {
-      errorPopup.showError(err, { title: t("remittance.failed") });
+      toastApiError(err, { title: t("remittance.failed"), fallback: t("remittance.failed") });
     },
   });
 

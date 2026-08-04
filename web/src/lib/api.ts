@@ -56,6 +56,9 @@ function stripTechnicalErrorMeta(text: string): string {
       if (/^Provider error code:/i.test(t)) return false;
       if (/^Error type:/i.test(t)) return false;
       if (/^ServiceLevel\./i.test(t)) return false;
+      if (/^SystemLevel\./i.test(t)) return false;
+      if (/IP Allowlist/i.test(t)) return false;
+      if (/Do not add the API key UUID/i.test(t)) return false;
       return true;
     })
     .join("\n")
@@ -336,6 +339,7 @@ export const apiClient = {
     api<{
       status: import("./types").TxnStatus;
       himalpay_status?: string;
+      message?: string | null;
       data: Record<string, unknown>;
       local_topup: import("./types").TopupTransaction | null;
     }>("/api/topup/status/", {
@@ -396,6 +400,7 @@ export const apiClient = {
     api<{
       status: import("./types").TxnStatus;
       himalpay_status?: string;
+      message?: string | null;
       data: Record<string, unknown>;
       local_transfer: import("./types").BankTransferTransaction | null;
     }>("/api/bank-transfer/status/", {
