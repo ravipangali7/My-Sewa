@@ -143,11 +143,13 @@ class _WebViewScreenState extends State<WebViewScreen>
       final last = _lastResumeBridgeSyncAt;
       if (last == null || now.difference(last) >= _resumeBridgeSyncMinGap) {
         _lastResumeBridgeSyncAt = now;
-        unawaited(_controller!.runJavaScript(_dispatchAppResumeJs));
-        if (!_bridgeInstalled) {
-          _bridgeInstalled = true;
-          unawaited(_controller!.runJavaScript(_installNativeBridgeJs));
-        }
+        unawaited(_safeControllerCall((c) async {
+          await c.runJavaScript(_dispatchAppResumeJs);
+          if (!_bridgeInstalled) {
+            _bridgeInstalled = true;
+            await c.runJavaScript(_installNativeBridgeJs);
+          }
+        }));
       }
     }
   }
@@ -587,13 +589,29 @@ class _WebViewScreenState extends State<WebViewScreen>
           if (!mounted || online == _isOnline) return;
 
           if (!online) {
+            // Keep WebView mounted under the offline overlay so Android
+            // platform callbacks (e.g. onLoadResource) do not hit a disposed
+            // InstanceManager entry and crash with a null check.
             setState(() => _isOnline = false);
             return;
           }
 
           setState(() => _isOnline = true);
-          await _controller?.reload();
+          await _safeControllerCall((c) => c.reload());
         });
+  }
+
+  /// Runs a controller call only while the platform WebView is still alive.
+  Future<void> _safeControllerCall(
+    Future<void> Function(WebViewController controller) action,
+  ) async {
+    final controller = _controller;
+    if (!mounted || controller == null || !_isReady) return;
+    try {
+      await action(controller);
+    } catch (_) {
+      // Ignore races where the native WebView was torn down mid-call.
+    }
   }
 
   Future<void> _onRetry() async {
@@ -610,7 +628,9 @@ class _WebViewScreenState extends State<WebViewScreen>
       }
     });
     if (online) {
-      await _controller?.loadRequest(Uri.parse(AppConfig.webUrl));
+      await _safeControllerCall(
+        (c) => c.loadRequest(Uri.parse(AppConfig.webUrl)),
+      );
     }
   }
 
@@ -733,19 +753,23 @@ class _WebViewScreenState extends State<WebViewScreen>
           // via viewport-fit=cover + CSS env()/--safe-area-* (AdminShell / UserShell).
           // Native SafeArea wraps only non-web chrome so branded pages can paint
           // full-bleed under the status bar when they opt in.
-          body: !_isOnline
-              ? NoInternetScreen(onRetry: _onRetry, isChecking: _isChecking)
-              : Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (_isReady && _controller != null)
-                      RepaintBoundary(child: _webViewWidget!),
-                    if (_showSplash)
-                      IgnorePointer(
-                        child: RepaintBoundary(child: _buildSplash()),
-                      ),
-                  ],
+          //
+          // Always keep WebViewWidget in the tree once created. Replacing it
+          // with NoInternetScreen disposes the Android platform view while
+          // WebViewClient callbacks can still arrive → null bang in pigeon.
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_isReady && _webViewWidget != null)
+                RepaintBoundary(child: _webViewWidget!),
+              if (_showSplash && _isOnline)
+                IgnorePointer(
+                  child: RepaintBoundary(child: _buildSplash()),
                 ),
+              if (!_isOnline)
+                NoInternetScreen(onRetry: _onRetry, isChecking: _isChecking),
+            ],
+          ),
         ),
       ),
     );

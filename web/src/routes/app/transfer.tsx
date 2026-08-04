@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Lock } from "lucide-react";
+import { ChevronRight, Lock, Search } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { BankCombobox } from "@/components/BankCombobox";
@@ -9,6 +9,7 @@ import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toastApiError, toastApiMessage } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
@@ -71,6 +72,7 @@ function Transfer() {
   );
   const { filters, setFilters, debounced } = useListFilters();
   const [exporting, setExporting] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
   const [method, setMethod] = useState<TransferMethod>("bank");
@@ -440,8 +442,27 @@ function Transfer() {
   }
 
   return (
-    <UserShell title={t("transfer.title")} back="/app">
-      <div className="grid gap-5 lg:grid-cols-2">
+    <UserShell
+      title={t("transfer.title")}
+      back="/app"
+      headerTrailing={
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
+            "hover:bg-white/25",
+            "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+          )}
+          onClick={() => setSearchOpen(true)}
+          aria-label={t("transfer.searchTitle")}
+        >
+          <Search className="size-4" />
+        </Button>
+      }
+    >
+      <div className="grid min-w-0 gap-5 lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />
@@ -453,7 +474,7 @@ function Transfer() {
             <p className="mt-1 text-[13px] text-muted-foreground">{t("transfer.disabledBody")}</p>
           </section>
         ) : null}
-        <section className="inset-group p-4">
+        <section className="inset-group min-w-0 p-4">
           <Tabs
             value={method}
             onValueChange={(v) => setMethod(v as TransferMethod)}
@@ -669,7 +690,7 @@ function Transfer() {
           </form>
         </section>
 
-        <section>
+        <section className="min-w-0">
           {lastReceiptId ? (
             <div className="mb-3">
               <TransactionResultBanner
@@ -692,32 +713,27 @@ function Transfer() {
               />
             </div>
           ) : null}
-          <div className="sticky bottom-[calc(var(--safe-area-bottom,env(safe-area-inset-bottom,0px))+76px)] z-20 -mx-1 rounded-xl border border-border/70 bg-background/95 p-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-            <ListPageToolbar
-              stats={transferStats}
-              filters={filters}
-              onFiltersChange={setFilters}
-              onExport={async () => {
-                setExporting(true);
-                try {
-                  await downloadCsvExport("/api/bank-transfer/history/", debounced, "transfers.csv");
-                } finally {
-                  setExporting(false);
-                }
-              }}
-              exporting={exporting}
-              searchPlaceholder="Search"
-              exportLabel={t("list.exportCsv")}
-              statsLabels={{
-                total: t("list.statsTotal"),
-                success: t("list.statsSuccess"),
-                pending: t("list.statsPending"),
-                failed: t("list.statsFailed"),
-              }}
-              statusOptions={[...TXN_STATUS_OPTIONS]}
-            />
+          <div className="mb-2 mt-1 flex items-center justify-between gap-2 px-1">
+            <h2 className="text-[17px] font-semibold">{t("transfer.recent")}</h2>
           </div>
-          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("transfer.recent")}</h2>
+          {(filters.q || filters.status !== "all" || filters.startDate || filters.endDate) ? (
+            <div className="mb-3 rounded-xl border border-border/70 bg-background/95 p-2">
+              <div className="flex flex-wrap gap-1.5">
+                <span className="rounded-md bg-muted px-2 py-1 text-[11px] font-medium">
+                  {t("list.statsTotal")}: {transferStats?.total ?? 0}
+                </span>
+                <span className="rounded-md bg-muted px-2 py-1 text-[11px] font-medium">
+                  {t("list.statsSuccess")}: {transferStats?.success ?? 0}
+                </span>
+                <span className="rounded-md bg-muted px-2 py-1 text-[11px] font-medium">
+                  {t("list.statsPending")}: {transferStats?.pending ?? 0}
+                </span>
+                <span className="rounded-md bg-muted px-2 py-1 text-[11px] font-medium">
+                  {t("list.statsFailed")}: {transferStats?.failed ?? 0}
+                </span>
+              </div>
+            </div>
+          ) : null}
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
@@ -727,7 +743,7 @@ function Transfer() {
               {t("transfer.empty")}
             </div>
           ) : (
-            <ul className="inset-group divide-y divide-border">
+            <ul className="inset-group min-w-0 divide-y divide-border overflow-hidden">
               {transferItems.map((b) => (
                 <li key={b.id}>
                   <div className="flex items-stretch gap-1 px-2 py-1">
@@ -829,6 +845,43 @@ function Transfer() {
           )}
         </section>
       </div>
+      <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
+        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
+          <SheetHeader className="mb-4 text-left">
+            <SheetTitle>{t("transfer.searchTitle")}</SheetTitle>
+          </SheetHeader>
+          <ListPageToolbar
+            stats={transferStats}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/bank-transfer/history/", debounced, "transfers.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder={t("transfer.searchPlaceholder")}
+            exportLabel={t("list.exportCsv")}
+            statsLabels={{
+              total: t("list.statsTotal"),
+              success: t("list.statsSuccess"),
+              pending: t("list.statsPending"),
+              failed: t("list.statsFailed"),
+            }}
+            statusOptions={[...TXN_STATUS_OPTIONS]}
+          />
+          <Button
+            type="button"
+            className="mt-4 h-11 w-full rounded-xl"
+            onClick={() => setSearchOpen(false)}
+          >
+            {t("history.applyFilters")}
+          </Button>
+        </SheetContent>
+      </Sheet>
     </UserShell>
   );
 }
