@@ -26,6 +26,7 @@ from ..services.isp_catalog import (
     build_inquiry_payload,
     normalize_inquiry,
 )
+from ..services.himalpay_parse import detect_inquiry_vendor_failure
 from ..services.app_config import (
     get_app_config,
     require_feature_enabled,
@@ -108,6 +109,16 @@ def inquiry_bill(request):
     inquiry_data = build_inquiry_payload(isp, customer_id)
     try:
         raw = himalpay.fetch_service_details(isp['get_service'], inquiry_data)
+        vendor_message = detect_inquiry_vendor_failure(raw)
+        if vendor_message:
+            return Response(
+                {
+                    'error': 'Bill inquiry failed',
+                    'message': vendor_message,
+                    'data': normalize_inquiry(isp, customer_id, raw),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         normalized = normalize_inquiry(isp, customer_id, raw)
         if not normalized['packages']:
             return Response(

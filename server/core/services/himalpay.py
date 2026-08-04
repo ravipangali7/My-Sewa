@@ -912,8 +912,10 @@ class HimalPayAPI:
         """
         root = response if isinstance(response, dict) else {}
         nested = root.get('data') if isinstance(root.get('data'), dict) else {}
-        deeper = nested.get('data') if isinstance(nested.get('data'), dict) else {}
+        nested_data = nested.get('data')
+        deeper = nested_data if isinstance(nested_data, dict) else {}
         deepest = deeper.get('data') if isinstance(deeper.get('data'), dict) else {}
+        nested_data_text = nested_data.strip() if isinstance(nested_data, str) else ''
 
         def _text(*values) -> str:
             for value in values:
@@ -936,6 +938,7 @@ class HimalPayAPI:
         )
 
         return _text(
+            nested_data_text,
             root.get('error'),
             nested.get('error'),
             deeper.get('error'),

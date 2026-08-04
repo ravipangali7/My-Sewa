@@ -6,6 +6,7 @@ packages, customer fields, and amounts consistently for ISP bills and data packs
 """
 from __future__ import annotations
 
+import json
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -144,6 +145,130 @@ def extract_session_id(raw: Any) -> Any:
     return None
 
 
+def _coerce_mapping(value: Any) -> Dict[str, Any]:
+    if not _is_mapping(value):
+        return {}
+    return value
+
+
+def _iter_inquiry_layers(raw: Any, max_depth: int = 8):
+    """Walk HimalPay inquiry payloads including JSON-string and list wrappers."""
+    queue: List[Tuple[Any, int]] = [(raw, 0)]
+    seen: set[int] = set()
+
+    while queue:
+        value, depth = queue.pop(0)
+        if depth > max_depth:
+            continue
+
+        mapping = _coerce_mapping(value)
+        if mapping:
+            node_id = id(mapping)
+            if node_id not in seen:
+                seen.add(node_id)
+                yield mapping
+
+        if depth >= max_depth:
+            continue
+
+        candidates: List[Any] = []
+        if mapping:
+            for key in ('data', 'details', 'result', 'payload', 'response', 'khaltiApiTable'):
+                nested = mapping.get(key)
+                if nested is not None:
+                    candidates.append(nested)
+        elif isinstance(value, list):
+            candidates.extend(value)
+        elif isinstance(value, str):
+            text = value.strip()
+            if text.startswith('{') or text.startswith('['):
+                try:
+                    candidates.append(json.loads(text))
+                except (TypeError, ValueError):
+                    pass
+
+        for candidate in candidates:
+            if _is_mapping(candidate):
+                queue.append((candidate, depth + 1))
+            elif isinstance(candidate, list):
+                for item in candidate:
+                    if _is_mapping(item) or isinstance(item, (list, str)):
+                        queue.append((item, depth + 1))
+
+
+def detect_inquiry_vendor_failure(raw: Any) -> Optional[str]:
+    """
+    Return a user-facing message when HimalPay reports SUCCESS but the vendor inquiry failed.
+
+    Vianet/Khalti often respond with outer status SUCCESS and inner status FAILED, plus a
+    string ``data`` field such as "You have no pending bills right now !!".
+    """
+    if not _is_mapping(raw):
+        return None
+
+    nested = raw.get('data')
+    if not _is_mapping(nested):
+        return None
+
+    inner_status = str(nested.get('status') or '').upper()
+    if inner_status not in ('FAILED', 'FAILURE', 'ERROR', 'DECLINED'):
+        return None
+
+    inner_data = nested.get('data')
+    if isinstance(inner_data, str) and inner_data.strip():
+        return inner_data.strip()
+
+    for key in ('message', 'vendor_state', 'error'):
+        text = nested.get(key)
+        if not isinstance(text, str) or not text.strip():
+            continue
+        cleaned = text.strip()
+        if cleaned.lower() not in ('unknown error occured. check details', 'unknown error occurred. check details'):
+            return cleaned
+
+    return 'Bill inquiry failed at the provider. Please verify the customer ID and try again.'
+
+
+def _pick_subscription_status(nodes: List[Dict[str, Any]]) -> Optional[str]:
+    statuses: List[str] = []
+    for node in nodes:
+        for key in ('subscription_status', 'account_status', 'connection_status', 'status'):
+            text = _first_string(node.get(key))
+            if text:
+                statuses.append(text)
+
+    for text in reversed(statuses):
+        upper = text.upper()
+        if upper not in ('SUCCESS', 'OK', 'SUCCESSFUL', 'COMPLETED'):
+            return text
+    return statuses[-1] if statuses else None
+
+
+def _build_package_entry(
+    isp: Dict[str, Any],
+    customer_id: str,
+    pkg: Dict[str, Any],
+    session_id: Any,
+    raw: Any,
+    idx: int = 0,
+) -> Dict[str, Any]:
+    pkg_id = pkg.get('package_id') or pkg.get('id') or pkg.get('payment_id') or idx
+    amount = _package_amount(pkg)
+    pay_data = build_isp_pay_data(isp, customer_id, pkg, session_id, raw)
+    return {
+        'id': str(pkg_id),
+        'name': _package_name(pkg),
+        'amount': amount,
+        'billing_period': _first_string(
+            pkg.get('duration'),
+            pkg.get('billing_period'),
+            pkg.get('period'),
+            pkg.get('validity'),
+        ),
+        'pay_data': pay_data,
+    }
+
+
 def extract_customer_profile(raw: Any) -> Dict[str, Optional[str]]:
     nodes = _collect_dict_nodes(raw)
     name = None
@@ -152,7 +277,6 @@ def extract_customer_profile(raw: Any) -> Dict[str, Optional[str]]:
     due_date = None
     address = None
     phone = None
-    status = None
     payable = None
 
     for node in nodes:
@@ -200,12 +324,6 @@ def extract_customer_profile(raw: Any) -> Dict[str, Optional[str]]:
             node.get('contact_number'),
             node.get('contact_no'),
         )
-        status = status or _first_string(
-            node.get('status'),
-            node.get('subscription_status'),
-            node.get('account_status'),
-            node.get('connection_status'),
-        )
         payable = payable or parse_amount_rupees(
             node.get('payable_amount')
             or node.get('outstanding_amount')
@@ -222,7 +340,7 @@ def extract_customer_profile(raw: Any) -> Dict[str, Optional[str]]:
         'due_date': due_date,
         'address': address,
         'phone': phone,
-        'subscription_status': status,
+        'subscription_status': _pick_subscription_status(nodes),
         'payable_amount': payable,
     }
 
@@ -312,26 +430,36 @@ def parse_isp_inquiry(
     profile = extract_customer_profile(raw)
     session_id = extract_session_id(raw)
     packages: List[Dict[str, Any]] = []
+    seen_package_ids: set[str] = set()
+
+    def _append_package(pkg: Dict[str, Any], idx: int = 0) -> None:
+        if not _looks_like_package(pkg) and not pkg.get('payment_id'):
+            return
+        entry = _build_package_entry(isp, customer_id, pkg, session_id, raw, idx=idx)
+        if entry['id'] in seen_package_ids:
+            return
+        seen_package_ids.add(entry['id'])
+        packages.append(entry)
 
     for pkg_list in _find_package_lists(raw):
         for idx, pkg in enumerate(pkg_list):
-            if not _looks_like_package(pkg):
-                continue
-            pkg_id = pkg.get('package_id') or pkg.get('id') or pkg.get('payment_id') or idx
-            amount = _package_amount(pkg)
-            pay_data = build_isp_pay_data(isp, customer_id, pkg, session_id, raw)
-            packages.append({
-                'id': str(pkg_id),
-                'name': _package_name(pkg),
-                'amount': amount,
-                'billing_period': _first_string(
-                    pkg.get('duration'),
-                    pkg.get('billing_period'),
-                    pkg.get('period'),
-                    pkg.get('validity'),
-                ),
-                'pay_data': pay_data,
-            })
+            _append_package(pkg, idx=idx)
+
+    # Vianet returns a single payable bill via payment_id + session_id (not a packages array).
+    if not packages:
+        for layer in _iter_inquiry_layers(raw):
+            if layer.get('payment_id'):
+                _append_package(layer)
+                break
+
+    # Some Khalti-backed ISPs expose rows in khaltiApiTable.
+    if not packages:
+        for layer in _iter_inquiry_layers(raw):
+            table = layer.get('khaltiApiTable')
+            if isinstance(table, list):
+                for idx, row in enumerate(table):
+                    if _is_mapping(row):
+                        _append_package(row, idx=idx)
 
     # Single outstanding bill with no package list
     if not packages:
@@ -382,6 +510,13 @@ def parse_data_pack_inquiry(raw: Any, operator: str) -> List[Dict[str, Any]]:
                 'id': str(package_id or product_code or idx),
                 'name': _package_name(pkg),
                 'amount': _package_amount(pkg),
+                'description': _first_string(
+                    pkg.get('description'),
+                    pkg.get('details'),
+                    pkg.get('detail'),
+                    pkg.get('summary'),
+                    pkg.get('short_description'),
+                ),
                 'validity': _first_string(
                     pkg.get('validity'),
                     pkg.get('duration'),

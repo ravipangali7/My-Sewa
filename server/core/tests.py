@@ -106,6 +106,77 @@ class BankCodeResolveTests(SimpleTestCase):
         self.assertEqual(_resolve_destination_bank(client, 'NICA', ''), 'NICENPKA')
 
 
+class IspInquiryParseTests(SimpleTestCase):
+    """ISP inquiry must unwrap HimalPay nesting and handle Vianet bill shape."""
+
+    VIANET_ISP = {
+        'id': 'vianet',
+        'name': 'Vianet',
+        'get_service': 'VIANET_GET',
+        'pay_service': 'VIANET_PAY',
+        'customer_field': 'customer_id',
+    }
+
+    def test_vianet_vendor_failure_surfaces_message(self):
+        from .services.himalpay_parse import detect_inquiry_vendor_failure
+
+        raw = {
+            'status': 'SUCCESS',
+            'data': {
+                'status': 'FAILED',
+                'data': 'You have no pending bills right now !!',
+                'error': 'Unknown Error occured. Check details',
+                'error_code': '7000',
+            },
+        }
+        self.assertEqual(
+            detect_inquiry_vendor_failure(raw),
+            'You have no pending bills right now !!',
+        )
+
+    def test_vianet_payment_id_parsed_as_package(self):
+        from .services.himalpay_parse import parse_isp_inquiry
+
+        raw = {
+            'status': 'SUCCESS',
+            'data': {
+                'status': 'SUCCESS',
+                'data': {
+                    'payment_id': '1613122_PP',
+                    'session_id': 50050,
+                    'customer_name': 'Jane Doe',
+                    'plan': '25 Mbps Unlimited',
+                    'amount': 474600,
+                },
+            },
+        }
+        parsed = parse_isp_inquiry(raw, self.VIANET_ISP, '534201')
+        self.assertEqual(len(parsed['packages']), 1)
+        pkg = parsed['packages'][0]
+        self.assertEqual(pkg['id'], '1613122_PP')
+        self.assertEqual(pkg['name'], '25 Mbps Unlimited')
+        self.assertEqual(pkg['amount'], '4746.00')
+        self.assertEqual(pkg['pay_data']['payment_id'], '1613122_PP')
+        self.assertEqual(pkg['pay_data']['session_id'], 50050)
+        self.assertEqual(pkg['pay_data']['customer_id'], '534201')
+        self.assertEqual(parsed['customer_name'], 'Jane Doe')
+        self.assertEqual(parsed['subscription_status'], 'SUCCESS')
+
+    def test_subscription_status_prefers_vendor_failed_over_wrapper_success(self):
+        from .services.himalpay_parse import parse_isp_inquiry
+
+        raw = {
+            'status': 'SUCCESS',
+            'data': {
+                'status': 'FAILED',
+                'data': 'You have no pending bills right now !!',
+            },
+        }
+        parsed = parse_isp_inquiry(raw, self.VIANET_ISP, '534201')
+        self.assertEqual(parsed['subscription_status'], 'FAILED')
+        self.assertEqual(parsed['packages'], [])
+
+
 class RemittanceLookupParseTests(SimpleTestCase):
     """SAMSARA_GET responses vary in nesting; parser must still find payout_amt."""
 

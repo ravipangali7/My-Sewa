@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, Signal } from "lucide-react";
+import { ArrowLeft, Check, Info, Signal } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
+import { DataPackCard } from "@/components/data-packs/DataPackCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +16,14 @@ import {
   normalizeNepalMobile,
   validateOperatorMobile,
 } from "@/lib/constants";
+import {
+  getCategoriesForOperator,
+  matchesCategory,
+  operatorDisplayName,
+  operatorTheme,
+  type DataPackOperator,
+  type PackCategory,
+} from "@/lib/data-packs";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -38,7 +47,6 @@ export const Route = createFileRoute("/app/data-topup")({
 });
 
 type Step = "operator" | "packages" | "mobile" | "pay";
-type Operator = "NTC" | "NCELL";
 
 function DataTopUp() {
   const queryClient = useQueryClient();
@@ -47,7 +55,8 @@ function DataTopUp() {
   const accountPending = isAccountPending(user);
 
   const [step, setStep] = useState<Step>("operator");
-  const [operator, setOperator] = useState<Operator>("NTC");
+  const [operator, setOperator] = useState<DataPackOperator>("NTC");
+  const [activeCategory, setActiveCategory] = useState<PackCategory>("ALL");
   const [mobile, setMobile] = useState("");
   const [touchedMobile, setTouchedMobile] = useState(false);
   const [packages, setPackages] = useState<DataPackOption[]>([]);
@@ -134,13 +143,14 @@ function DataTopUp() {
   }, [selectedPackage, pkgAmount, payService, enabled]);
 
   const packagesMutation = useMutation({
-    mutationFn: async (op: Operator) => {
+    mutationFn: async (op: DataPackOperator) => {
       if (accountPending) throw new Error(t("account.pending"));
       if (!enabled) throw new Error(t("dataTopup.disabledError"));
       return apiClient.dataPackInquiry({ operator: op });
     },
     onSuccess: (res, op) => {
       setOperator(op);
+      setActiveCategory("ALL");
       setPackages(res.data.packages);
       setStep("packages");
     },
@@ -200,10 +210,23 @@ function DataTopUp() {
   const resetFlow = () => {
     setStep("operator");
     setOperator("NTC");
+    setActiveCategory("ALL");
     setMobile("");
     setTouchedMobile(false);
     setPackages([]);
     setSelectedPackage(null);
+  };
+
+  const theme = operatorTheme(operator);
+  const categories = getCategoriesForOperator(operator);
+  const filteredPackages = useMemo(
+    () => packages.filter((pkg) => matchesCategory(pkg, activeCategory)),
+    [packages, activeCategory],
+  );
+
+  const selectPackage = (pkg: DataPackOption) => {
+    setSelectedPackage(pkg);
+    setStep("mobile");
   };
 
   const goBack = () => {
@@ -236,83 +259,131 @@ function DataTopUp() {
           </section>
         ) : null}
 
-        <section className="inset-group p-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="text-[15px] font-semibold">{stepTitle}</h2>
-            {step !== "operator" ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1 px-2 text-[13px]"
-                onClick={goBack}
-              >
-                <ArrowLeft className="size-3.5" />
-                {t("common.goBack")}
-              </Button>
-            ) : null}
-          </div>
+        <section className={cn("inset-group", step === "packages" ? "overflow-hidden p-0" : "p-4")}>
+          {step !== "packages" ? (
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-[15px] font-semibold">{stepTitle}</h2>
+              {step !== "operator" ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1 px-2 text-[13px]"
+                  onClick={goBack}
+                >
+                  <ArrowLeft className="size-3.5" />
+                  {t("common.goBack")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
 
           {step === "operator" ? (
             <div className="space-y-4">
               <p className="text-[13px] text-muted-foreground">{t("dataTopup.operatorHelp")}</p>
               <p className="text-[12px] text-muted-foreground">{t("dataTopup.livePackagesHint")}</p>
-              <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
-                {(["NTC", "NCELL"] as const).map((op) => (
-                  <button
-                    key={op}
-                    type="button"
-                    disabled={!enabled || packagesMutation.isPending}
-                    onClick={() => packagesMutation.mutate(op)}
-                    className={cn(
-                      "flex items-center justify-center gap-2 rounded-lg py-3 text-[15px] font-medium transition-colors",
-                      operator === op
-                        ? "bg-surface text-brand-dark shadow-card"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <Signal className="size-4" />
-                    {OPERATORS[op === "NTC" ? 1 : 2]}
-                  </button>
-                ))}
+              <div className="grid grid-cols-2 gap-3">
+                {(["NTC", "NCELL"] as const).map((op) => {
+                  const opTheme = operatorTheme(op);
+                  const isLoading = packagesMutation.isPending && operator === op;
+                  return (
+                    <button
+                      key={op}
+                      type="button"
+                      disabled={!enabled || packagesMutation.isPending}
+                      onClick={() => packagesMutation.mutate(op)}
+                      className={cn(
+                        "overflow-hidden rounded-2xl border text-left shadow-card transition-transform active:scale-[0.98]",
+                        operator === op ? "border-brand/30" : "border-border",
+                      )}
+                    >
+                      <div className={cn("px-3 py-2.5 text-center text-[14px] font-bold text-white", opTheme.header)}>
+                        {operatorDisplayName(op)} Packs
+                      </div>
+                      <div className="flex items-center justify-center gap-2 bg-surface px-3 py-4">
+                        <Signal className="size-4 text-muted-foreground" />
+                        <span className="text-[15px] font-semibold">{OPERATORS[op === "NTC" ? 1 : 2]}</span>
+                      </div>
+                      {isLoading ? (
+                        <p className="border-t border-border bg-muted/40 px-3 py-2 text-center text-[12px] text-muted-foreground">
+                          {t("dataTopup.fetchingPackages")}
+                        </p>
+                      ) : null}
+                    </button>
+                  );
+                })}
               </div>
-              {packagesMutation.isPending ? (
-                <p className="text-center text-[13px] text-muted-foreground">
-                  {t("dataTopup.fetchingPackages")}
-                </p>
-              ) : null}
             </div>
           ) : null}
 
           {step === "packages" ? (
-            <div className="space-y-3">
-              <p className="rounded-xl bg-muted/60 px-3 py-2 text-[13px] text-muted-foreground">
-                {operator} · {t("dataTopup.livePackagesHint")}
-              </p>
-              <ul className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
-                {packages.map((pkg) => (
-                  <li key={pkg.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedPackage(pkg);
-                        setStep("mobile");
-                      }}
-                      className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface px-3 py-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[15px] font-semibold">{pkg.name}</p>
-                        <p className="text-[12px] text-muted-foreground">
-                          {[pkg.volume, pkg.validity].filter(Boolean).join(" · ")}
-                        </p>
-                      </div>
-                      <p className="tabular text-[16px] font-bold text-brand-dark">
-                        {formatNPR(pkg.amount)}
-                      </p>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            <div className="overflow-hidden">
+              <div
+                className={cn(
+                  "flex items-center justify-between px-4 py-3 text-white",
+                  theme.header,
+                )}
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-9 shrink-0 text-white hover:bg-white/15"
+                  onClick={goBack}
+                >
+                  <ArrowLeft className="size-5" />
+                </Button>
+                <h3 className="text-[16px] font-semibold">
+                  {t("dataTopup.packsTitle", { operator: operatorDisplayName(operator) })}
+                </h3>
+                <span
+                  className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15"
+                  title={t("dataTopup.livePackagesHint")}
+                >
+                  <Info className="size-4" />
+                </span>
+              </div>
+
+              <div className="bg-surface px-3 pb-3 pt-3">
+                <div className="overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="inline-flex min-w-full gap-1 rounded-full bg-muted p-1">
+                    {categories.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => setActiveCategory(category)}
+                        className={cn(
+                          "shrink-0 rounded-full px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide transition-colors",
+                          activeCategory === category
+                            ? theme.tabActive
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {t(`dataTopup.category.${category}` as `dataTopup.category.${PackCategory}`)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <p className="mt-2 px-1 text-[12px] text-muted-foreground">
+                  {t("dataTopup.livePackagesHint")} · {packages.length}{" "}
+                  {packages.length === 1 ? "package" : "packages"}
+                </p>
+
+                <ul className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-0.5">
+                  {filteredPackages.map((pkg) => (
+                    <li key={pkg.id}>
+                      <DataPackCard pkg={pkg} operator={operator} onBuy={selectPackage} />
+                    </li>
+                  ))}
+                </ul>
+
+                {!filteredPackages.length ? (
+                  <div className="rounded-xl bg-muted/60 px-4 py-8 text-center text-[14px] text-muted-foreground">
+                    {t("dataTopup.noPackagesInCategory")}
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : null}
 

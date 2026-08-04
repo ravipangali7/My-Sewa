@@ -366,6 +366,7 @@ export interface DataPackOption {
   id: string;
   name: string;
   amount: string;
+  description?: string | null;
   validity?: string | number | null;
   volume?: string | null;
   package_id: string;
