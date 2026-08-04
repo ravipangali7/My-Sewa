@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
 import { ArrowLeft, Search } from "lucide-react";
 import { toast } from "sonner";
+import { BsDatePicker } from "@/components/BsDatePicker";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
@@ -379,11 +380,11 @@ function ReceiveRemittance() {
                   />
                 </Field>
                 <Field label={t("remittance.dob")}>
-                  <Input
-                    type="date"
-                    className="h-11 rounded-xl"
+                  <BsDatePicker
                     value={kyc.beneficiary_dob}
-                    onChange={(e) => setField("beneficiary_dob", e.target.value)}
+                    onChange={(iso) => setField("beneficiary_dob", iso)}
+                    placeholder={t("remittance.dobPlaceholder")}
+                    disableFuture
                     required
                   />
                 </Field>
@@ -525,11 +526,11 @@ function ReceiveRemittance() {
                   />
                 </Field>
                 <Field label={t("remittance.idIssueDate")}>
-                  <Input
-                    type="date"
-                    className="h-11 rounded-xl"
+                  <BsDatePicker
                     value={kyc.beneficiary_id_issue_date}
-                    onChange={(e) => setField("beneficiary_id_issue_date", e.target.value)}
+                    onChange={(iso) => setField("beneficiary_id_issue_date", iso)}
+                    placeholder={t("remittance.idIssueDatePlaceholder")}
+                    disableFuture
                     required
                   />
                 </Field>

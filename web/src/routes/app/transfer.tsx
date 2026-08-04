@@ -63,6 +63,9 @@ function Transfer() {
   const [amount, setAmount] = useState("");
   const [remarks, setRemarks] = useState(() => t("transfer.defaultRemarks"));
   const [verified, setVerified] = useState(false);
+  const [verifyStatus, setVerifyStatus] = useState<"idle" | "verified" | "unverified">(
+    "idle",
+  );
   const [charge, setCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
@@ -174,18 +177,23 @@ function Transfer() {
   const destinationNumber = isMobile ? phone.trim() : accNo.trim();
 
   useEffect(() => {
-    if (!banks.length) return;
-    if (bank && banks.some((b) => b.bank_code === bank)) return;
+    if (!banks.length || !bank) return;
+    if (banks.some((b) => b.bank_code === bank)) return;
     // Remap stale short codes (e.g. CTZN → CTZNNPKA) when provider list loads
-    const remapped =
-      (bank && banks.find((b) => b.bank_code.startsWith(bank))) || banks[0];
-    setBank(remapped.bank_code);
+    const remapped = banks.find((b) => b.bank_code.startsWith(bank));
+    setBank(remapped?.bank_code ?? "");
   }, [banks, bank]);
 
   useEffect(() => {
     setVerified(false);
+    setVerifyStatus("idle");
     if (method === "phone") setAccName("");
   }, [method]);
+
+  function resetVerification() {
+    setVerified(false);
+    setVerifyStatus("idle");
+  }
 
   useEffect(() => {
     setRemarks((prev) =>
@@ -307,6 +315,7 @@ function Transfer() {
       setAccName("");
       setAmount("");
       setVerified(false);
+      setVerifyStatus("idle");
       queryClient.invalidateQueries({ queryKey: ["transfers"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
@@ -366,12 +375,14 @@ function Transfer() {
       });
       if (!res.data?.verified) {
         setVerified(false);
+        setVerifyStatus("unverified");
         toast.error(t("transfer.dontMatch"));
         return;
       }
       const originalName = (res.data.account_name || accName).trim();
       if (!originalName) {
         setVerified(false);
+        setVerifyStatus("unverified");
         toast.error(t("transfer.dontMatch"));
         return;
       }
@@ -380,6 +391,7 @@ function Transfer() {
         setBank(res.data.bank_code);
       }
       setVerified(true);
+      setVerifyStatus("verified");
       toast.success(
         isMobile
           ? t("transfer.verifiedPhone", { name: originalName })
@@ -387,15 +399,18 @@ function Transfer() {
       );
     } catch (err) {
       setVerified(false);
+      setVerifyStatus("unverified");
       const mismatch =
         err instanceof ApiError &&
         (err.message === "Don't Match" ||
+          err.message.toLowerCase().includes("don't match") ||
+          err.message.toLowerCase().includes("do not match") ||
           (err.body &&
             typeof err.body === "object" &&
             ((err.body as Record<string, unknown>).error === "Don't Match" ||
               (err.body as Record<string, unknown>).mismatch === true)));
       toastApiError(err, {
-        title: t("transfer.dontMatch"),
+        title: mismatch ? t("transfer.dontMatch") : t("transfer.verifyFailed"),
         fallback: mismatch ? t("transfer.dontMatch") : t("transfer.verifyFailed"),
       });
     } finally {
@@ -455,7 +470,7 @@ function Transfer() {
                 placeholder={t("transfer.selectBank")}
                 onChange={(v) => {
                   setBank(v);
-                  setVerified(false);
+                  resetVerification();
                 }}
               />
             </div>
@@ -468,11 +483,12 @@ function Transfer() {
                   value={accName}
                   onChange={(e) => {
                     setAccName(e.target.value);
-                    setVerified(false);
+                    resetVerification();
                   }}
+                  placeholder={t("transfer.accHolderPlaceholder")}
                   className="h-12 rounded-xl"
                   required
-                  disabled={!transfersEnabled}
+                  disabled={!transfersEnabled || !bank}
                 />
               </div>
             ) : null}
@@ -488,29 +504,39 @@ function Transfer() {
                     value={phone}
                     onChange={(e) => {
                       setPhone(e.target.value);
-                      setVerified(false);
+                      resetVerification();
                       setAccName("");
                     }}
                     className="h-12 rounded-xl"
                     required
-                    disabled={!transfersEnabled}
+                    disabled={!transfersEnabled || !bank}
                   />
                   <Button
                     type="button"
                     variant="secondary"
                     className="h-12 rounded-xl"
-                    disabled={verifying || !transfersEnabled}
+                    disabled={
+                      verifying ||
+                      !transfersEnabled ||
+                      !bank ||
+                      phone.replace(/\D/g, "").length < 10
+                    }
                     onClick={verifyDestination}
                   >
                     {verifying ? "…" : t("transfer.verify")}
                   </Button>
                 </div>
                 <p className="text-[12px] text-muted-foreground">{t("transfer.phoneHelp")}</p>
-                {verified && accName ? (
-                  <p className="text-[13px] text-success">
-                    {t("transfer.verifiedPhone", { name: accName })}
-                  </p>
-                ) : null}
+                <VerifyStatusMessage
+                  status={verifyStatus}
+                  verifiedLabel={
+                    accName
+                      ? t("transfer.verifiedPhone", { name: accName })
+                      : t("transfer.statusVerified")
+                  }
+                  unverifiedLabel={t("transfer.dontMatch")}
+                  unverifiedStatusLabel={t("transfer.statusUnverified")}
+                />
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -521,27 +547,39 @@ function Transfer() {
                     value={accNo}
                     onChange={(e) => {
                       setAccNo(e.target.value);
-                      setVerified(false);
+                      resetVerification();
                     }}
+                    placeholder={t("transfer.accountPlaceholder")}
                     className="h-12 rounded-xl"
                     required
-                    disabled={!transfersEnabled}
+                    disabled={!transfersEnabled || !bank}
                   />
                   <Button
                     type="button"
                     variant="secondary"
                     className="h-12 rounded-xl"
-                    disabled={verifying || !transfersEnabled}
+                    disabled={
+                      verifying ||
+                      !transfersEnabled ||
+                      !bank ||
+                      !accName.trim() ||
+                      !accNo.trim()
+                    }
                     onClick={verifyDestination}
                   >
                     {verifying ? "…" : t("transfer.verify")}
                   </Button>
                 </div>
-                {verified ? (
-                  <p className="text-[13px] text-success">
-                    {t("transfer.verifiedAccount", { name: accName })}
-                  </p>
-                ) : null}
+                <VerifyStatusMessage
+                  status={verifyStatus}
+                  verifiedLabel={
+                    accName
+                      ? t("transfer.verifiedAccount", { name: accName })
+                      : t("transfer.statusVerified")
+                  }
+                  unverifiedLabel={t("transfer.dontMatch")}
+                  unverifiedStatusLabel={t("transfer.statusUnverified")}
+                />
               </div>
             )}
 
@@ -598,7 +636,12 @@ function Transfer() {
 
             <Button
               type="submit"
-              disabled={submitMutation.isPending || !transfersEnabled || insufficient}
+              disabled={
+                submitMutation.isPending ||
+                !transfersEnabled ||
+                insufficient ||
+                !verified
+              }
               className="h-12 w-full rounded-xl text-[17px]"
             >
               {submitMutation.isPending ? t("common.processing") : t("transfer.confirm")}
@@ -685,6 +728,29 @@ function Transfer() {
         </section>
       </div>
     </UserShell>
+  );
+}
+
+function VerifyStatusMessage({
+  status,
+  verifiedLabel,
+  unverifiedLabel,
+  unverifiedStatusLabel,
+}: {
+  status: "idle" | "verified" | "unverified";
+  verifiedLabel: string;
+  unverifiedLabel: string;
+  unverifiedStatusLabel: string;
+}) {
+  if (status === "idle") return null;
+  if (status === "verified") {
+    return <p className="text-[13px] font-medium text-success">{verifiedLabel}</p>;
+  }
+  return (
+    <div className="space-y-0.5">
+      <p className="text-[13px] font-medium text-destructive">{unverifiedLabel}</p>
+      <p className="text-[12px] text-muted-foreground">{unverifiedStatusLabel}</p>
+    </div>
   );
 }
 
