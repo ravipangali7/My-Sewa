@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -15,6 +16,10 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../config/app_config.dart';
 import 'no_internet_screen.dart';
+
+List<int> _decodeBase64InBackground(String value) {
+  return base64Decode(value);
+}
 
 class WebViewScreen extends StatefulWidget {
   const WebViewScreen({super.key});
@@ -34,9 +39,12 @@ class _WebViewScreenState extends State<WebViewScreen>
   bool _showSplash = true;
   bool _pageReady = false;
   bool _exitDialogOpen = false;
+  bool _isHandlingDownload = false;
   DateTime? _splashStartedAt;
+  DateTime? _lastResumeBridgeSyncAt;
 
   static const _minSplashDuration = Duration(milliseconds: 900);
+  static const _resumeBridgeSyncMinGap = Duration(milliseconds: 700);
 
   /// Ask the embedded web app to refetch data (pull-to-refresh / live updates).
   static const _dispatchAppResumeJs = '''
@@ -119,8 +127,13 @@ class _WebViewScreenState extends State<WebViewScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _isOnline && _controller != null) {
-      _controller!.runJavaScript(_dispatchAppResumeJs);
-      _controller!.runJavaScript(_installNativeBridgeJs);
+      final now = DateTime.now();
+      final last = _lastResumeBridgeSyncAt;
+      if (last == null || now.difference(last) >= _resumeBridgeSyncMinGap) {
+        _lastResumeBridgeSyncAt = now;
+        unawaited(_controller!.runJavaScript(_dispatchAppResumeJs));
+        unawaited(_controller!.runJavaScript(_installNativeBridgeJs));
+      }
     }
   }
 
@@ -316,6 +329,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Future<void> _handleNativeBridgeMessage(String raw) async {
+    if (_isHandlingDownload) return;
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return;
@@ -328,14 +342,16 @@ class _WebViewScreenState extends State<WebViewScreen>
       final base64Data = decoded['base64']?.toString() ?? '';
       final mime = decoded['mime']?.toString() ?? 'application/octet-stream';
       if (base64Data.isEmpty) return;
-
-      final bytes = base64Decode(base64Data);
+      _isHandlingDownload = true;
+      final bytes = await compute(_decodeBase64InBackground, base64Data);
       await _saveAndShareBytes(bytes, filename, mime);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not save the file. Please try again.')),
       );
+    } finally {
+      _isHandlingDownload = false;
     }
   }
 
