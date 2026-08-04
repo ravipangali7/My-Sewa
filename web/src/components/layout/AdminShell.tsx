@@ -12,7 +12,6 @@ import {
   LogOut,
   ChevronDown,
   ArrowDownToLine,
-  FileBarChart,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -54,7 +53,6 @@ const NAV = [
   { to: "/admin/remittances", label: "Remittances", icon: ArrowDownToLine },
   { to: "/admin/topups", label: "Top-ups", icon: Smartphone },
   { to: "/admin/transfers", label: "Bank transfers", icon: Banknote },
-  { to: "/admin/reports", label: "Reports", icon: FileBarChart },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 

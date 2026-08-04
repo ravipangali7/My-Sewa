@@ -51,9 +51,11 @@ function StatementRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-[#E5E5EA] py-3.5 last:border-0">
-      <dt className="shrink-0 text-[14px] text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-right text-[14px] font-medium break-words text-foreground">
+    <div className="flex items-start justify-between gap-4 border-b border-border/60 py-4 last:border-0">
+      <dt className="shrink-0 text-[13px] font-medium tracking-wide text-muted-foreground/90">
+        {label}
+      </dt>
+      <dd className="min-w-0 text-right text-[14px] font-semibold break-words text-foreground">
         {children}
       </dd>
     </div>
@@ -86,10 +88,17 @@ function HistoryStatementPage() {
 
   const toneIconClass =
     tone === "success"
-      ? "bg-brand text-white"
+      ? "bg-brand text-white shadow-[0_10px_30px_-12px_rgba(17,143,85,0.85)]"
       : tone === "danger"
-        ? "bg-danger text-white"
-        : "bg-warning text-white";
+        ? "bg-danger text-white shadow-[0_10px_30px_-12px_rgba(220,38,38,0.75)]"
+        : "bg-warning text-white shadow-[0_10px_30px_-12px_rgba(217,119,6,0.75)]";
+
+  const toneBadgeClass =
+    tone === "success"
+      ? "border-brand/25 bg-brand-soft text-brand"
+      : tone === "danger"
+        ? "border-danger/20 bg-danger/10 text-danger"
+        : "border-warning/25 bg-warning/15 text-warning";
 
   const pageTitle = statement
     ? t(statusHeadlineKey(statement.item.status))
@@ -127,79 +136,97 @@ function HistoryStatementPage() {
           </Link>
         </div>
       ) : (
-        <article className="relative mx-auto min-h-[calc(100dvh-7rem)] max-w-lg bg-surface px-5 pb-8 pt-[max(20px,var(--safe-area-top,env(safe-area-inset-top,0px)))] sm:px-8 print:min-h-0 print:max-w-none">
+        <article className="relative mx-auto min-h-[calc(100dvh-7rem)] max-w-xl bg-gradient-to-b from-background via-background to-brand-soft/20 px-4 pb-8 pt-[max(16px,var(--safe-area-top,env(safe-area-inset-top,0px)))] sm:px-6 print:min-h-0 print:max-w-none">
           {/* Faint circular brand watermark over transaction details */}
           <div
             aria-hidden
-            className="pointer-events-none absolute bottom-28 left-1/2 size-[240px] -translate-x-1/2 overflow-hidden rounded-full select-none print:hidden"
+            className="pointer-events-none absolute bottom-24 left-1/2 size-[260px] -translate-x-1/2 overflow-hidden rounded-full select-none print:hidden"
           >
             <img
               src={logoUrl}
               alt=""
-              className="size-full object-cover opacity-[0.08]"
+              className="size-full object-cover opacity-[0.06]"
             />
           </div>
 
-          <div className="relative flex flex-col items-center">
-            <h1 className="text-center text-[20px] font-semibold tracking-tight text-foreground">
-              {pageTitle}
-            </h1>
-            <span
-              className={cn(
-                "mt-6 flex size-[80px] items-center justify-center rounded-full shadow-sm",
-                toneIconClass,
-              )}
+          <div className="relative overflow-hidden rounded-3xl border border-border/60 bg-card/95 p-5 shadow-[0_16px_40px_-24px_rgba(2,8,23,0.35)] backdrop-blur sm:p-7">
+            <div
               aria-hidden
-            >
-              {tone === "success" ? (
-                <Check className="size-10 stroke-[2.75]" />
-              ) : tone === "danger" ? (
-                <X className="size-10 stroke-[2.75]" />
-              ) : (
-                <Clock className="size-10 stroke-[2.75]" />
-              )}
-            </span>
-          </div>
+              className="absolute inset-x-0 top-0 h-20 bg-gradient-to-r from-brand/10 via-brand/5 to-transparent"
+            />
+            <div className="relative flex flex-col items-center text-center">
+              <span
+                className={cn(
+                  "flex size-[78px] items-center justify-center rounded-full",
+                  toneIconClass,
+                )}
+                aria-hidden
+              >
+                {tone === "success" ? (
+                  <Check className="size-10 stroke-[2.75]" />
+                ) : tone === "danger" ? (
+                  <X className="size-10 stroke-[2.75]" />
+                ) : (
+                  <Clock className="size-10 stroke-[2.75]" />
+                )}
+              </span>
+              <h1 className="mt-4 text-balance text-[26px] font-semibold tracking-tight text-foreground sm:text-[30px]">
+                {pageTitle}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">{statement.amountCaption}</p>
+              <p className="mt-1 text-[30px] font-semibold tracking-tight text-foreground sm:text-[34px]">
+                {statement.headlineAmount}
+              </p>
+              <div
+                className={cn(
+                  "mt-4 inline-flex rounded-full border px-3 py-1 text-[12px] font-semibold tracking-wide",
+                  toneBadgeClass,
+                )}
+              >
+                {statement.item.status}
+              </div>
+            </div>
 
-          <div className="relative mt-8 mb-1 flex items-center justify-between gap-3">
-            <h2 className="text-[14px] font-semibold text-brand">
-              {t("history.transactionDetails")}
-            </h2>
-            <button
-              type="button"
-              onClick={() => void handleDownloadPdf()}
-              disabled={downloading}
-              aria-label={t("history.downloadPdf")}
-              title={t("history.downloadPdf")}
-              className="inline-flex size-9 items-center justify-center rounded-lg text-brand transition-colors hover:bg-brand-soft disabled:opacity-60 print:hidden"
-            >
-              {downloading ? (
-                <Loader2 className="size-5 animate-spin" />
-              ) : (
-                <FileDown className="size-5" />
-              )}
-            </button>
-          </div>
+            <div className="relative mt-8 mb-2 flex items-center justify-between gap-3">
+              <h2 className="text-[13px] font-semibold tracking-[0.04em] text-brand/95 uppercase">
+                {t("history.transactionDetails")}
+              </h2>
+              <button
+                type="button"
+                onClick={() => void handleDownloadPdf()}
+                disabled={downloading}
+                aria-label={t("history.downloadPdf")}
+                title={t("history.downloadPdf")}
+                className="inline-flex size-10 items-center justify-center rounded-xl border border-border/70 bg-background/90 text-brand transition-colors hover:bg-brand-soft disabled:opacity-60 print:hidden"
+              >
+                {downloading ? (
+                  <Loader2 className="size-5 animate-spin" />
+                ) : (
+                  <FileDown className="size-5" />
+                )}
+              </button>
+            </div>
 
-          <dl className="relative">
-            {statement.details.map((row, index) => (
-              <StatementRow key={`${row.label}-${index}`} label={row.label}>
-                <span
-                  className={cn(
-                    row.mono && "font-mono text-[13px]",
-                    row.danger && "text-danger",
-                  )}
-                >
-                  {row.value}
-                </span>
-              </StatementRow>
-            ))}
-          </dl>
+            <dl className="relative rounded-2xl border border-border/60 bg-background/70 px-4 sm:px-5">
+              {statement.details.map((row, index) => (
+                <StatementRow key={`${row.label}-${index}`} label={row.label}>
+                  <span
+                    className={cn(
+                      row.mono && "font-mono text-[13px]",
+                      row.danger && "text-danger",
+                    )}
+                  >
+                    {row.value}
+                  </span>
+                </StatementRow>
+              ))}
+            </dl>
+          </div>
 
           {statement.item.kind === "deposit" && (
-            <section className="relative mt-5">
+            <section className="relative mt-5 rounded-2xl border border-border/60 bg-card/95 p-4 shadow-sm sm:p-5">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <h3 className="text-[14px] font-semibold text-brand">
+                <h3 className="text-[13px] font-semibold tracking-[0.04em] text-brand/95 uppercase">
                   {t("history.sectionProof")}
                 </h3>
                 {statement.proofUrl ? (
@@ -219,7 +246,7 @@ function HistoryStatementPage() {
                   href={statement.proofUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="block overflow-hidden rounded-xl border border-border bg-muted/40"
+                  className="block overflow-hidden rounded-xl border border-border bg-muted/40 shadow-sm"
                 >
                   <img
                     src={statement.proofUrl}
@@ -236,10 +263,10 @@ function HistoryStatementPage() {
             </section>
           )}
 
-          <div className="relative mt-8">
+          <div className="relative mt-6">
             <Link
               to="/app/history"
-              className="flex h-12 w-full items-center justify-center rounded-xl bg-brand text-[16px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-dark print:hidden"
+              className="flex h-12 w-full items-center justify-center rounded-xl bg-brand text-[16px] font-semibold text-white shadow-[0_10px_25px_-10px_rgba(17,143,85,0.9)] transition-colors hover:bg-brand-dark print:hidden"
             >
               {t("history.done")}
             </Link>

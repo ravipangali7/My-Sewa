@@ -38,13 +38,6 @@ from ..services.app_config import (
 )
 from ..services.notifications import notify_low_balance_if_needed
 from ..services.txn_status import resolve_provider_outcome
-from ..services.list_query import (
-    apply_date_filters,
-    apply_search,
-    csv_response,
-    list_params,
-    txn_stats,
-)
 from django.utils import timezone
 from django.db.models import Sum
 
@@ -762,46 +755,9 @@ def create_bank_transfer(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def bank_transfer_history(request):
-    params = list_params(request)
-    qs = BankTransferTransaction.objects.filter(user=request.user).order_by('-created_at')
-    if params['status'] in ('pending', 'success', 'failed'):
-        qs = qs.filter(status=params['status'])
-    qs = apply_date_filters(qs, params['date_from'], params['date_to'])
-    qs = apply_search(
-        qs,
-        params['search'],
-        [
-            'destination_acc_name', 'destination_acc_no', 'destination_bank_name',
-            'destination_bank', 'merchant_txn_id', 'provider_txn_id', 'reference_id',
-        ],
-    )
-    stats = txn_stats(qs)
-    data = BankTransferTransactionSerializer(qs, many=True).data
-    if params['format'] == 'csv':
-        rows = [
-            {
-                'id': row['id'],
-                'created_at': row['created_at'],
-                'recipient': row['destination_acc_name'],
-                'account': row['destination_acc_no'],
-                'bank': row.get('destination_bank_name') or row['destination_bank'],
-                'amount': row['amount'],
-                'charge': row['charge'],
-                'total_debited': row['total_debited'],
-                'status': row['status'],
-                'merchant_txn_id': row['merchant_txn_id'],
-            }
-            for row in data
-        ]
-        return csv_response(
-            'transfers.csv',
-            rows,
-            [
-                'id', 'created_at', 'recipient', 'account', 'bank',
-                'amount', 'charge', 'total_debited', 'status', 'merchant_txn_id',
-            ],
-        )
-    return Response({'items': data, 'stats': stats}, status=status.HTTP_200_OK)
+    transfers = BankTransferTransaction.objects.filter(user=request.user).order_by('-created_at')
+    serializer = BankTransferTransactionSerializer(transfers, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])

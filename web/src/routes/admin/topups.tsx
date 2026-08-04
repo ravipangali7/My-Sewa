@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
-import { ListPageToolbar } from "@/components/list/ListPageToolbar";
 import {
   AdminDataList,
   AdminEmptyState,
@@ -32,8 +31,6 @@ import { OPERATORS } from "@/lib/constants";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import type { TxnStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
-import { downloadCsvExport } from "@/lib/list-query";
 
 export const Route = createFileRoute("/admin/topups")({
   head: () => ({
@@ -78,21 +75,10 @@ function TopupsPage() {
   const queryClient = useQueryClient();
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [operatorTab, setOperatorTab] = useState<OperatorTab>("all");
-  const { filters, setFilters, debounced } = useListFilters();
-  const [exporting, setExporting] = useState(false);
-
-  const apiFilters = useMemo(
-    () => ({
-      ...debounced,
-      status: statusTab === "all" ? debounced.status : statusTab,
-      product_id: operatorTab === "all" ? debounced.product_id : operatorTab,
-    }),
-    [debounced, statusTab, operatorTab],
-  );
 
   const topupsQuery = useQuery({
-    queryKey: ["admin", "topups", apiFilters],
-    queryFn: () => apiClient.adminTopups(apiFilters),
+    queryKey: ["admin", "topups"],
+    queryFn: () => apiClient.adminTopups(),
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
@@ -111,8 +97,7 @@ function TopupsPage() {
     },
   });
 
-  const topups = topupsQuery.data?.items ?? [];
-  const topupStats = topupsQuery.data?.stats;
+  const topups = topupsQuery.data ?? [];
 
   const statusCounts = useMemo(() => {
     const counts: Record<StatusTab, number> = {
@@ -143,7 +128,13 @@ function TopupsPage() {
     return counts;
   }, [topups, statusTab]);
 
-  const visible = topups;
+  const visible = useMemo(() => {
+    return topups.filter((t) => {
+      if (statusTab !== "all" && t.status !== statusTab) return false;
+      if (operatorTab !== "all" && String(t.product_id) !== operatorTab) return false;
+      return true;
+    });
+  }, [topups, statusTab, operatorTab]);
 
   const openTopup = (id: number) => {
     navigate({ to: "/admin/topups/$topupId", params: { topupId: String(id) } });
@@ -190,30 +181,6 @@ function TopupsPage() {
       )}
 
       <div className="space-y-4">
-        <ListPageToolbar
-          stats={topupStats}
-          filters={filters}
-          onFiltersChange={setFilters}
-          onExport={async () => {
-            setExporting(true);
-            try {
-              await downloadCsvExport("/api/admin/topups/", apiFilters, "admin-topups.csv");
-            } finally {
-              setExporting(false);
-            }
-          }}
-          exporting={exporting}
-          searchPlaceholder="Search phone, mobile, txn ID…"
-          exportLabel="Download CSV"
-          statsLabels={{
-            total: "Total",
-            success: "Success",
-            pending: "Pending",
-            failed: "Failed",
-          }}
-          statusOptions={[...TXN_STATUS_OPTIONS]}
-        />
-
         <Tabs value={statusTab} onValueChange={(v) => setStatusTab(v as StatusTab)}>
           <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto">
             {STATUS_TABS.map((tab) => (

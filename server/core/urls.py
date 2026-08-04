@@ -88,7 +88,6 @@ urlpatterns = [
     path('api/admin/remittances/', admin_views.admin_list_remittances, name='admin_list_remittances'),
     path('api/admin/remittances/<int:remittance_id>/', admin_views.admin_get_remittance, name='admin_get_remittance'),
     path('api/admin/remittances/<int:remittance_id>/status/', admin_views.admin_update_remittance_status, name='admin_update_remittance_status'),
-    path('api/admin/reports/', admin_views.admin_reports, name='admin_reports'),
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
     path('api/admin/himalpay/status/', admin_views.admin_himalpay_status, name='admin_himalpay_status'),
 ]

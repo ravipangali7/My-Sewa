@@ -35,13 +35,6 @@ from ..services.app_config import (
 )
 from ..services.notifications import notify_low_balance_if_needed
 from ..services.txn_status import resolve_provider_outcome
-from ..services.list_query import (
-    apply_date_filters,
-    apply_search,
-    csv_response,
-    list_params,
-    txn_stats,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -327,42 +320,11 @@ def pay_bill(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def internet_bill_history(request):
-    params = list_params(request)
-    qs = InternetBillTransaction.objects.filter(user=request.user).order_by('-created_at')
-    if params['status'] in ('pending', 'success', 'failed'):
-        qs = qs.filter(status=params['status'])
-    qs = apply_date_filters(qs, params['date_from'], params['date_to'])
-    qs = apply_search(
-        qs,
-        params['search'],
-        ['customer_id', 'isp_name', 'customer_name', 'package_name', 'merchant_txn_id', 'reference_id'],
+    bills = InternetBillTransaction.objects.filter(user=request.user).order_by('-created_at')
+    return Response(
+        InternetBillTransactionSerializer(bills, many=True).data,
+        status=status.HTTP_200_OK,
     )
-    stats = txn_stats(qs)
-    data = InternetBillTransactionSerializer(qs, many=True).data
-    if params['format'] == 'csv':
-        rows = [
-            {
-                'id': row['id'],
-                'created_at': row['created_at'],
-                'isp': row['isp_name'],
-                'customer_id': row['customer_id'],
-                'package': row.get('package_name') or '',
-                'amount': row['amount'],
-                'total_debited': row['total_debited'],
-                'status': row['status'],
-                'merchant_txn_id': row['merchant_txn_id'],
-            }
-            for row in data
-        ]
-        return csv_response(
-            'internet-bills.csv',
-            rows,
-            [
-                'id', 'created_at', 'isp', 'customer_id', 'package',
-                'amount', 'total_debited', 'status', 'merchant_txn_id',
-            ],
-        )
-    return Response({'items': data, 'stats': stats}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])

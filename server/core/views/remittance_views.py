@@ -24,13 +24,6 @@ from ..services.app_config import (
 )
 from ..services.notifications import notify_remittance_success
 from ..services.txn_status import apply_inbound_status_change
-from ..services.list_query import (
-    apply_date_filters,
-    apply_search,
-    csv_response,
-    list_params,
-    txn_stats,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -463,42 +456,8 @@ def receive_remittance(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def remittance_history(request):
-    params = list_params(request)
     qs = RemittanceTransaction.objects.filter(user=request.user).order_by('-created_at')
-    if params['status'] in ('pending', 'success', 'failed'):
-        qs = qs.filter(status=params['status'])
-    qs = apply_date_filters(qs, params['date_from'], params['date_to'])
-    qs = apply_search(
-        qs,
-        params['search'],
-        ['ref_no', 'sender_name', 'receiver_name', 'receiver_phone', 'merchant_txn_id', 'reference_id'],
-    )
-    stats = txn_stats(qs, amount_field='total_credited')
-    data = RemittanceTransactionSerializer(qs, many=True).data
-    if params['format'] == 'csv':
-        rows = [
-            {
-                'id': row['id'],
-                'created_at': row['created_at'],
-                'ref_no': row['ref_no'],
-                'sender': row.get('sender_name') or '',
-                'receiver': row.get('receiver_name') or '',
-                'amount': row['amount'],
-                'total_credited': row['total_credited'],
-                'status': row['status'],
-                'merchant_txn_id': row['merchant_txn_id'],
-            }
-            for row in data
-        ]
-        return csv_response(
-            'remittances.csv',
-            rows,
-            [
-                'id', 'created_at', 'ref_no', 'sender', 'receiver',
-                'amount', 'total_credited', 'status', 'merchant_txn_id',
-            ],
-        )
-    return Response({'items': data, 'stats': stats})
+    return Response(RemittanceTransactionSerializer(qs, many=True).data)
 
 
 @api_view(['POST'])

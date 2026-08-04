@@ -1,6 +1,4 @@
 import { TOKEN_KEY } from "./constants";
-import { buildListQuery, withListQuery } from "./list-query";
-import type { ListQueryParams } from "./types";
 
 // Production must use same-origin (empty string) so nginx can proxy /api → Django.
 // Dev defaults to local Django. Override anytime with VITE_API_BASE_URL.
@@ -287,10 +285,8 @@ export const apiClient = {
 
   walletBalance: () => api<import("./types").Wallet>("/api/wallet/balance/"),
 
-  walletTransactions: (params?: ListQueryParams) =>
-    api<import("./types").WalletTransactions>(
-      withListQuery("/api/wallet/transactions", params),
-    ),
+  walletTransactions: () =>
+    api<import("./types").WalletTransactions>("/api/wallet/transactions/"),
 
   settings: () => api<import("./types").AppSettings>("/api/settings/", { auth: false }),
 
@@ -300,10 +296,7 @@ export const apiClient = {
       formData,
     }),
 
-  listDeposits: (params?: ListQueryParams) =>
-    api<import("./types").ListResponse<import("./types").Deposit>>(
-      withListQuery("/api/deposit/list", params),
-    ),
+  listDeposits: () => api<import("./types").Deposit[]>("/api/deposit/list/"),
 
   calculateCharge: (
     wallet_service_name: "NTC" | "NCELL" | "BANK_TRANSFER" | string,
@@ -343,10 +336,7 @@ export const apiClient = {
       body,
     }),
 
-  topupHistory: (params?: ListQueryParams) =>
-    api<import("./types").ListResponse<import("./types").TopupTransaction>>(
-      withListQuery("/api/topup/history", params),
-    ),
+  topupHistory: () => api<import("./types").TopupTransaction[]>("/api/topup/history/"),
 
   topupStatus: (merchant_transaction_id: string) =>
     api<{
@@ -406,10 +396,8 @@ export const apiClient = {
       data: import("./types").BankTransferTransaction;
     }>("/api/bank-transfer/create/", { method: "POST", body }),
 
-  transferHistory: (params?: ListQueryParams) =>
-    api<import("./types").ListResponse<import("./types").BankTransferTransaction>>(
-      withListQuery("/api/bank-transfer/history", params),
-    ),
+  transferHistory: () =>
+    api<import("./types").BankTransferTransaction[]>("/api/bank-transfer/history/"),
 
   transferStatus: (merchant_transaction_id: string) =>
     api<{
@@ -435,10 +423,8 @@ export const apiClient = {
       { method: "POST", body },
     ),
 
-  remittanceHistory: (params?: ListQueryParams) =>
-    api<import("./types").ListResponse<import("./types").RemittanceTransaction>>(
-      withListQuery("/api/remittance/history", params),
-    ),
+  remittanceHistory: () =>
+    api<import("./types").RemittanceTransaction[]>("/api/remittance/history/"),
 
   remittanceStatus: (merchant_transaction_id: string) =>
     api<{
@@ -473,10 +459,8 @@ export const apiClient = {
       data: import("./types").InternetBillTransaction;
     }>("/api/internet/pay/", { method: "POST", body }),
 
-  internetHistory: (params?: ListQueryParams) =>
-    api<import("./types").ListResponse<import("./types").InternetBillTransaction>>(
-      withListQuery("/api/internet/history", params),
-    ),
+  internetHistory: () =>
+    api<import("./types").InternetBillTransaction[]>("/api/internet/history/"),
 
   internetStatus: (merchant_transaction_id: string) =>
     api<{
@@ -513,10 +497,8 @@ export const apiClient = {
       data: import("./types").DataPackTransaction;
     }>("/api/data-pack/pay/", { method: "POST", body }),
 
-  dataPackHistory: (params?: ListQueryParams) =>
-    api<import("./types").ListResponse<import("./types").DataPackTransaction>>(
-      withListQuery("/api/data-pack/history", params),
-    ),
+  dataPackHistory: () =>
+    api<import("./types").DataPackTransaction[]>("/api/data-pack/history/"),
 
   dataPackStatus: (merchant_transaction_id: string) =>
     api<{
@@ -555,9 +537,9 @@ export const apiClient = {
     }),
   adminDeleteWallet: (id: number) =>
     api<{ message: string }>(`/api/admin/wallets/${id}/`, { method: "DELETE" }),
-  adminDeposits: (params?: ListQueryParams) =>
-    api<import("./types").ListResponse<import("./types").Deposit>>(
-      withListQuery("/api/admin/deposits", params),
+  adminDeposits: (status?: string) =>
+    api<import("./types").Deposit[]>(
+      status ? `/api/admin/deposits/?status=${status}` : "/api/admin/deposits/",
     ),
   adminGetDeposit: (id: number) =>
     api<import("./types").Deposit>(`/api/admin/deposits/${id}/`),
@@ -571,10 +553,7 @@ export const apiClient = {
       `/api/admin/deposits/${id}/reject/`,
       { method: "POST", body },
     ),
-  adminTopups: (params?: ListQueryParams) =>
-    api<import("./types").ListResponse<import("./types").TopupTransaction>>(
-      withListQuery("/api/admin/topups", params),
-    ),
+  adminTopups: () => api<import("./types").TopupTransaction[]>("/api/admin/topups/"),
   adminGetTopup: (id: number) =>
     api<import("./types").TopupTransaction>(`/api/admin/topups/${id}/`),
   adminUpdateTopupStatus: (id: number, status: import("./types").TxnStatus) =>
@@ -582,18 +561,16 @@ export const apiClient = {
       `/api/admin/topups/${id}/status/`,
       { method: "POST", body: { status } },
     ),
-  adminTransfers: (params?: ListQueryParams) =>
-    api<import("./types").ListResponse<import("./types").BankTransferTransaction>>(
-      withListQuery("/api/admin/transfers", params),
-    ),
+  adminTransfers: () =>
+    api<import("./types").BankTransferTransaction[]>("/api/admin/transfers/"),
   adminUpdateTransferStatus: (id: number, status: import("./types").TxnStatus) =>
     api<{ message: string; data: import("./types").BankTransferTransaction }>(
       `/api/admin/transfers/${id}/status/`,
       { method: "POST", body: { status } },
     ),
-  adminRemittances: (params?: ListQueryParams) =>
-    api<import("./types").ListResponse<import("./types").RemittanceTransaction>>(
-      withListQuery("/api/admin/remittances", params),
+  adminRemittances: (status?: string) =>
+    api<import("./types").RemittanceTransaction[]>(
+      status ? `/api/admin/remittances/?status=${status}` : "/api/admin/remittances/",
     ),
   adminGetRemittance: (id: number) =>
     api<import("./types").RemittanceTransaction>(`/api/admin/remittances/${id}/`),
@@ -602,11 +579,6 @@ export const apiClient = {
       `/api/admin/remittances/${id}/status/`,
       { method: "POST", body: { status } },
     ),
-  adminReports: (params?: ListQueryParams) =>
-    api<import("./types").AdminReportData>(
-      withListQuery("/api/admin/reports", params),
-    ),
-
   adminGetSettings: () => api<import("./types").AppSettings>("/api/admin/settings/"),
   adminUpdateSettings: (payload: FormData | Record<string, unknown>) =>
     api<{ message: string; data: import("./types").AppSettings }>("/api/admin/settings/", {
