@@ -107,20 +107,25 @@ def parse_amount_rupees(value: Any) -> Optional[str]:
         if isinstance(value, bool):
             return None
         if isinstance(value, int):
-            # HimalPay uses paisa for payment amounts
-            if value >= 100 or value == 0:
+            # Heuristic:
+            # - small integers (e.g. 55) are usually rupees
+            # - medium integers (e.g. 1150) are also commonly rupees in inquiry payloads
+            # - large whole numbers (e.g. 474600) are usually paisa
+            if value == 0:
+                return '0.00'
+            if abs(value) >= 10000:
                 return f'{value / 100:.2f}'
             return f'{float(value):.2f}'
         if isinstance(value, float):
-            if value >= 100 and value == int(value):
+            if abs(value) >= 10000 and value == int(value):
                 return f'{value / 100:.2f}'
             return f'{value:.2f}'
         text = str(value).strip().replace(',', '')
         if not text:
             return None
         dec = Decimal(text)
-        # Large whole numbers are likely paisa
-        if dec >= 100 and dec == dec.to_integral_value():
+        # Large whole numbers are likely paisa; keep common bill-size integers as rupees.
+        if abs(dec) >= 10000 and dec == dec.to_integral_value():
             return f'{float(dec / 100):.2f}'
         return f'{float(dec.quantize(Decimal("0.01"))):.2f}'
     except (InvalidOperation, ValueError, TypeError):

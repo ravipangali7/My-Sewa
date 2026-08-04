@@ -176,6 +176,26 @@ class IspInquiryParseTests(SimpleTestCase):
         self.assertEqual(parsed['subscription_status'], 'FAILED')
         self.assertEqual(parsed['packages'], [])
 
+    def test_payable_amount_integer_rupees_not_paisa(self):
+        from .services.himalpay_parse import parse_isp_inquiry
+
+        raw = {
+            'status': 'SUCCESS',
+            'data': {
+                'status': 'SUCCESS',
+                'data': {
+                    'payment_id': 'ABC123',
+                    'session_id': 77,
+                    'amount': 1150,
+                    'payable_amount': 1150,
+                    'plan': 'Monthly Bill',
+                },
+            },
+        }
+        parsed = parse_isp_inquiry(raw, self.VIANET_ISP, '534201')
+        self.assertEqual(parsed['payable_amount'], '1150.00')
+        self.assertEqual(parsed['packages'][0]['amount'], '1150.00')
+
 
 class RemittanceLookupParseTests(SimpleTestCase):
     """SAMSARA_GET responses vary in nesting; parser must still find payout_amt."""
