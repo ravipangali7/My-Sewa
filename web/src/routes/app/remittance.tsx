@@ -625,7 +625,7 @@ function ReceiveRemittance() {
               }
             }}
             exporting={exporting}
-            searchPlaceholder={t("list.searchPlaceholder")}
+            searchPlaceholder="Search"
             exportLabel={t("list.exportCsv")}
             statsLabels={{
               total: t("list.statsTotal"),

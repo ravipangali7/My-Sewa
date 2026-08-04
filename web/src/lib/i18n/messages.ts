@@ -173,6 +173,10 @@ export const messages = {
     "history.sectionProof": "Payment proof",
     "history.openFullSize": "Open full size",
     "history.noProof": "No screenshot uploaded",
+    "history.viewLocked": "View locked",
+    "history.viewLockedTitle": "Statement unavailable",
+    "history.viewLockedBody":
+      "Only successful transactions can be opened in detailed statement view.",
     "history.footer":
       "This statement summarizes a wallet movement recorded in MySewa. Keep it for your records.",
     "history.walletCredit": "Wallet credit",
@@ -730,6 +734,10 @@ export const messages = {
     "history.sectionTxn": "लेनदेन",
     "history.sectionSettlement": "सेटलमेन्ट",
     "history.sectionNarrative": "विवरण",
+    "history.viewLocked": "हेर्न मिल्दैन",
+    "history.viewLockedTitle": "स्टेटमेन्ट उपलब्ध छैन",
+    "history.viewLockedBody":
+      "विस्तृत स्टेटमेन्ट केवल सफल कारोबारको लागि मात्र खोल्न मिल्छ।",
     "history.sectionProof": "भुक्तानी प्रमाण",
     "history.openFullSize": "पूर्ण आकार खोल्नुहोस्",
     "history.noProof": "कुनै स्क्रिनसट अपलोड छैन",

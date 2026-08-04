@@ -97,7 +97,7 @@ export function UserShell({
     [user.first_name, user.last_name].filter(Boolean).join(" ") || user.phone;
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-background lg:flex">
+    <div className="min-h-screen w-full overflow-x-hidden bg-background lg:flex lg:h-screen">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex">
         <Link to="/app" className="mb-8 flex items-center gap-2.5 px-2">
           <img src={logoUrl} alt="MySewa" className="size-9 rounded-full object-cover" />
@@ -172,7 +172,7 @@ export function UserShell({
 
         <main
           className={cn(
-            "min-w-0 max-w-full flex-1 lg:px-8 lg:pb-10",
+            "min-w-0 max-w-full flex-1 overflow-y-auto lg:px-8 lg:pb-10",
             hideHeader ? "px-0 pb-28" : "px-4 pb-28",
           )}
         >

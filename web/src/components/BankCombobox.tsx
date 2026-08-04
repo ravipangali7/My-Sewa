@@ -58,10 +58,16 @@ export function BankCombobox({
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+      <PopoverContent
+        className="w-(--radix-popover-trigger-width) max-h-[70dvh] overflow-hidden p-0"
+        align="start"
+      >
         <Command>
-          <CommandInput placeholder={t("transfer.searchBank")} />
-          <CommandList>
+          <CommandInput
+            placeholder={t("transfer.searchBank")}
+            className="sticky top-0 z-10 bg-popover"
+          />
+          <CommandList className="max-h-[52dvh] overscroll-contain [scrollbar-gutter:stable]">
             <CommandEmpty>{t("transfer.noBank")}</CommandEmpty>
             <CommandGroup>
               {banks.map((b) => (

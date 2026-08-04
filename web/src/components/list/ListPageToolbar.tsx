@@ -53,7 +53,7 @@ export function ListPageToolbar({
   onFiltersChange,
   onExport,
   exporting = false,
-  searchPlaceholder = "Search...",
+  searchPlaceholder = "Search",
   exportLabel = "Export CSV",
   statsLabels = DEFAULT_LABELS,
   statusOptions = [],

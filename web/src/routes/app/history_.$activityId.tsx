@@ -20,6 +20,7 @@ import {
   UserRound,
   Wallet,
   X,
+  ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
@@ -52,6 +53,11 @@ function statusHeadlineKey(status: string): MessageKey {
   if (key === "failed") return "history.failedTitle";
   if (key === "rejected") return "history.rejectedTitle";
   return "history.pendingTitle";
+}
+
+function canViewStatement(status: string) {
+  const normalized = status.toLowerCase();
+  return normalized === "success" || normalized === "approved";
 }
 
 function StatementRow({
@@ -119,6 +125,7 @@ function HistoryStatementPage() {
   const pageTitle = statement
     ? t(statusHeadlineKey(statement.item.status))
     : t("history.detailTitle");
+  const viewAllowed = statement ? canViewStatement(statement.item.status) : false;
 
   const summaryMeta = statement
     ? {
@@ -256,6 +263,20 @@ function HistoryStatementPage() {
               </div>
             </div>
 
+            {!viewAllowed ? (
+              <div className="relative mt-7 rounded-2xl border border-warning/30 bg-warning/10 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-warning/20 text-warning">
+                    <ShieldAlert className="size-5" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{t("history.viewLockedTitle")}</p>
+                    <p className="mt-1 text-[13px] text-muted-foreground">{t("history.viewLockedBody")}</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             <div className="relative mt-8 mb-2 flex items-center justify-between gap-3">
               <h2 className="text-[13px] font-semibold tracking-[0.04em] text-brand/95 uppercase">
                 {t("history.transactionDetails")}
@@ -263,7 +284,7 @@ function HistoryStatementPage() {
               <button
                 type="button"
                 onClick={() => void handleDownloadPdf()}
-                disabled={downloading}
+                disabled={downloading || !viewAllowed}
                 aria-label={t("history.downloadPdf")}
                 title={t("history.downloadPdf")}
                 className="inline-flex size-10 items-center justify-center rounded-xl border border-border/70 bg-background/90 text-brand transition-colors hover:bg-brand-soft disabled:opacity-60 print:hidden"
@@ -276,27 +297,34 @@ function HistoryStatementPage() {
               </button>
             </div>
 
-            <dl className="relative rounded-2xl border border-border/70 bg-background px-4 sm:px-5">
-              {statement.details.map((row, index) => (
-                <StatementRow
-                  key={`${row.label}-${index}`}
-                  label={row.label}
-                  icon={detailIcon(row.label)}
-                >
-                  <span
-                    className={cn(
-                      row.mono && "font-mono text-[13px]",
-                      row.danger && "text-danger",
-                    )}
+            {viewAllowed ? (
+              <dl className="relative rounded-2xl border border-border/70 bg-background px-4 sm:px-5">
+                {statement.details.map((row, index) => (
+                  <StatementRow
+                    key={`${row.label}-${index}`}
+                    label={row.label}
+                    icon={detailIcon(row.label)}
                   >
-                    {row.value}
-                  </span>
-                </StatementRow>
-              ))}
-            </dl>
+                    <span
+                      className={cn(
+                        row.mono && "font-mono text-[13px]",
+                        row.danger && "text-danger",
+                      )}
+                    >
+                      {row.value}
+                    </span>
+                  </StatementRow>
+                ))}
+              </dl>
+            ) : (
+              <div className="relative rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-8 text-center">
+                <p className="text-sm font-medium text-foreground">{t("history.viewLockedTitle")}</p>
+                <p className="mt-1 text-[13px] text-muted-foreground">{t("history.viewLockedBody")}</p>
+              </div>
+            )}
           </div>
 
-          {statement.item.kind === "deposit" && (
+          {viewAllowed && statement.item.kind === "deposit" && (
             <section className="relative mt-5 rounded-2xl border border-border/70 bg-card p-4 shadow-sm sm:p-5">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <h3 className="flex items-center gap-2 text-[13px] font-semibold tracking-[0.04em] text-brand/95 uppercase">
