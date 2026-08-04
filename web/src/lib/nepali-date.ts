@@ -1,6 +1,7 @@
-import NepaliDateModule, { dateConfigMap } from "nepali-date-converter";
+// Vendored (MIT) so builds don't depend on npm resolving `nepali-date-converter`.
+import NepaliDateModule, { dateConfigMap } from "./vendor/nepali-date-converter.js";
 
-/** CJS/ESM interop — Vite may expose the class on `.default`. */
+/** CJS/ESM interop - bundlers may expose the class on `.default`. */
 const NepaliDate =
   (NepaliDateModule as unknown as { default?: typeof NepaliDateModule })
     .default ?? NepaliDateModule;
@@ -9,7 +10,7 @@ export { NepaliDate, dateConfigMap };
 
 export type BsParts = {
   year: number;
-  /** 0–11 (Baisakh–Chaitra) */
+  /** 0â€“11 (Baisakhâ€“Chaitra) */
   month: number;
   day: number;
 };
@@ -45,24 +46,24 @@ export const BS_MONTH_NAMES_EN = [
 ] as const;
 
 export const BS_MONTH_NAMES_NP = [
-  "बैशाख",
-  "जेठ",
-  "असार",
-  "साउन",
-  "भदौ",
-  "असोज",
-  "कात्तिक",
-  "मंसिर",
-  "पुस",
-  "माघ",
-  "फागुन",
-  "चैत",
+  "à¤¬à¥ˆà¤¶à¤¾à¤–",
+  "à¤œà¥‡à¤ ",
+  "à¤…à¤¸à¤¾à¤°",
+  "à¤¸à¤¾à¤‰à¤¨",
+  "à¤­à¤¦à¥Œ",
+  "à¤…à¤¸à¥‹à¤œ",
+  "à¤•à¤¾à¤¤à¥à¤¤à¤¿à¤•",
+  "à¤®à¤‚à¤¸à¤¿à¤°",
+  "à¤ªà¥à¤¸",
+  "à¤®à¤¾à¤˜",
+  "à¤«à¤¾à¤—à¥à¤¨",
+  "à¤šà¥ˆà¤¤",
 ] as const;
 
 export const BS_WEEKDAYS_EN = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
-export const BS_WEEKDAYS_NP = ["आ", "सो", "म", "बु", "बि", "शु", "श"] as const;
+export const BS_WEEKDAYS_NP = ["à¤†", "à¤¸à¥‹", "à¤®", "à¤¬à¥", "à¤¬à¤¿", "à¤¶à¥", "à¤¶"] as const;
 
-const NP_DIGITS = ["०", "१", "२", "३", "४", "५", "६", "७", "८", "९"] as const;
+const NP_DIGITS = ["à¥¦", "à¥§", "à¥¨", "à¥©", "à¥ª", "à¥«", "à¥¬", "à¥­", "à¥®", "à¥¯"] as const;
 
 export const BS_YEAR_MIN = 2000;
 export const BS_YEAR_MAX = 2090;
