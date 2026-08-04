@@ -1,5 +1,6 @@
 import type {
   ActivityItem,
+  ActivityKind,
   Deposit,
   RemittanceTransaction,
   TopupTransaction,
@@ -12,6 +13,8 @@ import { OPERATORS } from "./constants";
 import type { TranslateFn } from "./i18n";
 import { formatNPR, formatDateTime } from "./format";
 import { translateStatus } from "./status";
+
+export type { ActivityKind };
 
 export function buildActivity(
   tx: WalletTransactions,
@@ -253,6 +256,106 @@ export function buildActivityStatement(
       details,
     };
   }
+
+  if (item.kind === "internet") {
+    const bill = (tx.internet_bills ?? []).find((x) => `isp-${x.id}` === id);
+    if (!bill) return undefined;
+    const reference =
+      bill.merchant_txn_id ||
+      bill.reference_id ||
+      bill.service_hub_txn_id ||
+      `#${bill.id}`;
+    const details: StatementRow[] = [];
+    pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("history.dateTime"), formatDateTime(bill.created_at));
+    pushDetail(details, t("history.channel"), t("history.channelOnline"));
+    pushDetail(
+      details,
+      t("history.serviceName"),
+      t("activity.internetBill", { isp: bill.isp_name }),
+    );
+    pushDetail(details, t("common.status"), translateStatus(bill.status, t));
+    pushDetail(details, t("internet.isp"), bill.isp_name);
+    pushDetail(details, t("internet.customerId"), bill.customer_id, {
+      mono: true,
+    });
+    pushDetail(details, t("internet.customerName"), bill.customer_name || "—");
+    pushDetail(details, t("internet.currentPackage"), bill.package_name || "—");
+    pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
+    pushDetail(details, t("common.charge"), formatNPR(bill.charge));
+    pushDetail(details, t("common.cashback"), formatNPR(bill.cashback));
+    pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
+    pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.providerTxn"), bill.service_hub_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.reference"), bill.reference_id, {
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
+    return {
+      item,
+      reference,
+      headlineAmount: formatNPR(
+        bill.total_debited !== "0.00" ? bill.total_debited : bill.amount,
+      ),
+      amountCaption: t("history.totalDebited"),
+      footer: t("history.footer"),
+      details,
+    };
+  }
+
+  if (item.kind === "data_pack") {
+    const dp = (tx.data_packs ?? []).find((x) => `data-${x.id}` === id);
+    if (!dp) return undefined;
+    const reference =
+      dp.merchant_txn_id || dp.reference_id || dp.service_hub_txn_id || `#${dp.id}`;
+    const details: StatementRow[] = [];
+    pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("history.dateTime"), formatDateTime(dp.created_at));
+    pushDetail(details, t("history.channel"), t("history.channelOnline"));
+    pushDetail(details, t("history.paymentAttribute"), dp.mobile_number);
+    pushDetail(
+      details,
+      t("history.serviceName"),
+      t("activity.dataPack", { operator: dp.operator }),
+    );
+    pushDetail(details, t("common.status"), translateStatus(dp.status, t));
+    pushDetail(details, t("common.operator"), dp.operator);
+    pushDetail(details, t("internet.currentPackage"), dp.package_name || "—");
+    pushDetail(details, t("common.amountNpr"), formatNPR(dp.amount));
+    pushDetail(details, t("common.charge"), formatNPR(dp.charge));
+    pushDetail(details, t("common.cashback"), formatNPR(dp.cashback));
+    pushDetail(details, t("common.totalDebited"), formatNPR(dp.total_debited));
+    pushDetail(details, t("history.merchantTxn"), dp.merchant_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.providerTxn"), dp.service_hub_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.reference"), dp.reference_id, {
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
+    return {
+      item,
+      reference,
+      headlineAmount: formatNPR(
+        dp.total_debited !== "0.00" ? dp.total_debited : dp.amount,
+      ),
+      amountCaption: t("history.totalDebited"),
+      footer: t("history.footer"),
+      details,
+    };
+  }
+
+  if (item.kind !== "transfer") return undefined;
 
   const b = tx.bank_transfers.find((x) => `bt-${x.id}` === id);
   if (!b) return undefined;

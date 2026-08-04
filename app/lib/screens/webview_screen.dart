@@ -99,6 +99,93 @@ class _WebViewScreenState extends State<WebViewScreen>
 })();
 ''';
 
+  /// Android/iOS WebView often traps touch scroll inside nested
+  /// `overflow-y: auto` shells that are not actually height-constrained.
+  /// Force document scrolling on the app shell only (not sheets/dialogs).
+  static const _unlockWebViewScrollJs = '''
+(function() {
+  function ensureStyle() {
+    var styleId = 'mysewa-webview-scroll-fix';
+    if (document.getElementById(styleId)) return;
+    var style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = [
+      'html,body{height:auto!important;max-height:none!important;',
+      'overflow-x:hidden!important;overflow-y:auto!important;',
+      '-webkit-overflow-scrolling:touch!important;touch-action:pan-x pan-y!important;}'
+    ].join('');
+    document.head.appendChild(style);
+  }
+
+  function releaseVertical(el) {
+    if (!el || el.nodeType !== 1) return;
+    el.style.setProperty('height', 'auto', 'important');
+    el.style.setProperty('max-height', 'none', 'important');
+    el.style.setProperty('overflow-x', 'hidden', 'important');
+    el.style.setProperty('overflow-y', 'visible', 'important');
+  }
+
+  function apply() {
+    try {
+      ensureStyle();
+
+      var mains = document.getElementsByTagName('main');
+      if (mains.length === 0) {
+        // Auth / marketing pages without <main>: still allow document scroll.
+        var top = document.body && document.body.firstElementChild;
+        if (top) {
+          releaseVertical(top);
+          top.style.setProperty('min-height', '100dvh', 'important');
+        }
+        return;
+      }
+
+      for (var m = 0; m < Math.min(mains.length, 4); m++) {
+        var mainEl = mains[m];
+        releaseVertical(mainEl);
+
+        // Walk up to the body-level shell wrapper (UserShell / AdminShell).
+        var node = mainEl.parentElement;
+        while (node && node !== document.body) {
+          var cs = window.getComputedStyle(node);
+          if (cs.position !== 'fixed' && cs.position !== 'absolute') {
+            releaseVertical(node);
+          }
+          if (node.parentElement === document.body) {
+            node.style.setProperty('min-height', '100dvh', 'important');
+            break;
+          }
+          node = node.parentElement;
+        }
+      }
+    } catch (e) {}
+  }
+
+  apply();
+  setTimeout(apply, 100);
+  setTimeout(apply, 400);
+
+  if (!window.__mysewaScrollUnlockHooked) {
+    window.__mysewaScrollUnlockHooked = true;
+    var schedule = function() {
+      setTimeout(apply, 50);
+      setTimeout(apply, 250);
+    };
+    window.addEventListener('popstate', schedule);
+    window.addEventListener('pageshow', schedule);
+    ['pushState', 'replaceState'].forEach(function(key) {
+      var original = history[key];
+      if (typeof original !== 'function') return;
+      history[key] = function() {
+        var result = original.apply(this, arguments);
+        schedule();
+        return result;
+      };
+    });
+  }
+})();
+''';
+
   String _safeAreaCssJs(EdgeInsets padding) {
     final top = padding.top;
     final right = padding.right;
@@ -199,6 +286,7 @@ class _WebViewScreenState extends State<WebViewScreen>
             }
           }
           await controller.runJavaScript(_disableZoomJs);
+          await controller.runJavaScript(_unlockWebViewScrollJs);
           if (!_bridgeInstalled) {
             _bridgeInstalled = true;
             await controller.runJavaScript(_installNativeBridgeJs);

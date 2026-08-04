@@ -110,62 +110,67 @@ function HistoryStatementPage() {
     statement?.headlineAmount ??
     "—";
 
+  const summaryLabels = useMemo(
+    () =>
+      new Set([
+        t("history.referenceCode"),
+        t("history.dateTime"),
+        t("history.channel"),
+        t("common.amountNpr"),
+        t("common.charge"),
+        t("common.cashback"),
+        t("history.totalCredited"),
+        t("common.totalDebited"),
+      ]),
+    [t],
+  );
+
+  const iconForLabel = (label: string) => {
+    if (label === t("common.status")) return <CheckCircle2 className="size-4" />;
+    if (
+      label === t("remittance.sender") ||
+      label === t("remittance.receiver") ||
+      label === t("history.initiator") ||
+      label === t("common.recipient") ||
+      label === t("internet.customerName")
+    ) {
+      return <UserRound className="size-4" />;
+    }
+    if (
+      label === t("remittance.receiverPhone") ||
+      label === t("history.destPhone") ||
+      label === t("history.paymentAttribute") ||
+      label === t("common.mobile")
+    ) {
+      return <Phone className="size-4" />;
+    }
+    if (label === t("remittance.purpose") || label === t("internet.currentPackage")) {
+      return <Tag className="size-4" />;
+    }
+    if (label === t("history.merchantTxn") || label === t("common.bank")) {
+      return <Landmark className="size-4" />;
+    }
+    if (label === t("history.providerTxn") || label === t("history.verified")) {
+      return <ShieldCheck className="size-4" />;
+    }
+    if (label === t("history.reference") || label === t("internet.customerId")) {
+      return <Hash className="size-4" />;
+    }
+    return <ReceiptText className="size-4" />;
+  };
+
   const transactionRows = statement
-    ? [
-        {
-          label: t("history.serviceName"),
-          value: detailMap.get(t("history.serviceName")) ?? "—",
-          icon: <ReceiptText className="size-4" />,
-        },
-        {
-          label: t("common.status"),
-          value: statement.item.status,
-          icon: <CheckCircle2 className="size-4" />,
+    ? statement.details
+        .filter((row) => !summaryLabels.has(row.label) && row.value && row.value !== "—")
+        .map((row) => ({
+          label: row.label,
+          value: row.value,
+          icon: iconForLabel(row.label),
           success:
-            statement.item.status.toLowerCase() === "success" ||
-            statement.item.status.toLowerCase() === "approved",
-        },
-        {
-          label: t("remittance.sender"),
-          value: detailMap.get(t("remittance.sender")) ?? "—",
-          icon: <UserRound className="size-4" />,
-        },
-        {
-          label: t("remittance.receiver"),
-          value: detailMap.get(t("remittance.receiver")) ?? "—",
-          icon: <UserRound className="size-4" />,
-        },
-        {
-          label: t("remittance.receiverPhone"),
-          value: detailMap.get(t("remittance.receiverPhone")) ?? "—",
-          icon: <Phone className="size-4" />,
-        },
-        {
-          label: t("remittance.purpose"),
-          value: detailMap.get(t("remittance.purpose")) ?? "—",
-          icon: <Tag className="size-4" />,
-        },
-        {
-          label: t("history.merchantTxn"),
-          value: detailMap.get(t("history.merchantTxn")) ?? "—",
-          icon: <Landmark className="size-4" />,
-        },
-        {
-          label: t("history.providerTxn"),
-          value: detailMap.get(t("history.providerTxn")) ?? "—",
-          icon: <ShieldCheck className="size-4" />,
-        },
-        {
-          label: t("history.reference"),
-          value: detailMap.get(t("history.reference")) ?? summaryMeta?.reference ?? "—",
-          icon: <Hash className="size-4" />,
-        },
-        {
-          label: t("history.initiator"),
-          value: detailMap.get(t("history.initiator")) ?? "—",
-          icon: <UserRound className="size-4" />,
-        },
-      ]
+            row.label === t("common.status") &&
+            (statement.item.status.toLowerCase() === "success" ||
+              statement.item.status.toLowerCase() === "approved"),
+        }))
     : [];
 
   async function handleDownloadPdf() {

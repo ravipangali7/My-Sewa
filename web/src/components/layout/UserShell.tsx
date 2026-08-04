@@ -103,7 +103,8 @@ export function UserShell({
     [user.first_name, user.last_name].filter(Boolean).join(" ") || user.phone;
 
   return (
-    <div className="flex h-[100dvh] min-h-0 w-full flex-col overflow-x-hidden bg-background lg:flex-row">
+    // Mobile: document scroll (Flutter WebView-safe). Desktop: fixed shell + main scroller.
+    <div className="min-h-dvh w-full overflow-x-hidden bg-background lg:flex lg:h-dvh lg:flex-row lg:overflow-hidden">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex">
         <Link to="/app" className="mb-8 flex items-center gap-2.5 px-2">
           <img src={logoUrl} alt="MySewa" className="size-9 rounded-full object-cover" />
@@ -151,9 +152,9 @@ export function UserShell({
         </div>
       </aside>
 
-      <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col lg:overflow-hidden">
         {!hideHeader && (
-          <header className="z-30 shrink-0 bg-hero-gradient px-4 pt-[max(14px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-5 lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
+          <header className="sticky top-0 z-30 shrink-0 bg-hero-gradient px-4 pt-[max(14px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-5 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
             <div className="flex min-w-0 items-center gap-3">
               {headerLeading ? <div className="shrink-0">{headerLeading}</div> : null}
               {(back || onBack) && (
@@ -196,7 +197,7 @@ export function UserShell({
 
         <main
           className={cn(
-            "min-h-0 min-w-0 max-w-full flex-1 overflow-y-auto lg:px-8 lg:pb-10",
+            "min-h-0 min-w-0 max-w-full flex-1 lg:overflow-y-auto lg:px-8 lg:pb-10",
             hideHeader ? "px-0 pb-28" : "px-4 pb-28",
           )}
         >
