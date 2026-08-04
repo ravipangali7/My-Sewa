@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { ChevronRight, Download, Lock, Send, Smartphone } from "lucide-react";
+import { ChevronRight, Download, Send, Smartphone } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
 import { apiClient } from "@/lib/api";
@@ -37,11 +37,6 @@ const FILTERS = [
   { key: "topup", labelKey: "history.topup" as const satisfies MessageKey, filterKey: "history.filterTopup" as const satisfies MessageKey },
   { key: "transfer", labelKey: "history.transfer" as const satisfies MessageKey, filterKey: "history.filterTransfer" as const satisfies MessageKey },
 ] as const;
-
-function canViewStatement(status: string) {
-  const normalized = status.toLowerCase();
-  return normalized === "success" || normalized === "approved";
-}
 
 function HistoryPage() {
   const { t, locale } = useI18n();
@@ -98,84 +93,44 @@ function HistoryPage() {
           <ul className="inset-group divide-y divide-border">
             {items.map((item) => (
               <li key={item.id}>
-                {canViewStatement(item.status) ? (
-                  <Link
-                    to="/app/history/$activityId"
-                    params={{ activityId: item.id }}
-                    className="flex items-center gap-3 px-4 py-3 transition-colors active:bg-muted/60"
+                <Link
+                  to="/app/history/$activityId"
+                  params={{ activityId: item.id }}
+                  className="flex items-center gap-3 px-4 py-3 transition-colors active:bg-muted/60"
+                >
+                  <span
+                    className={cn(
+                      "flex size-10 shrink-0 items-center justify-center rounded-full",
+                      item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
+                    )}
                   >
-                    <span
-                      className={cn(
-                        "flex size-10 shrink-0 items-center justify-center rounded-full",
-                        item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
-                      )}
-                    >
-                      {item.kind === "deposit" ? (
-                        <Download className="size-[18px]" />
-                      ) : item.kind === "topup" ? (
-                        <Smartphone className="size-[18px]" />
-                      ) : (
-                        <Send className="size-[18px]" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[15px] font-medium">{item.title}</p>
-                      <p className="truncate text-[13px] text-muted-foreground">
-                        {item.subtitle} · {formatDateTime(item.created_at)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p
-                        className={cn(
-                          "tabular text-[15px] font-semibold",
-                          item.credit ? "text-success" : "text-label",
-                        )}
-                      >
-                        {item.credit ? "+" : "−"} {formatNPR(item.amount)}
-                      </p>
-                      <StatusChip status={item.status} compact className="mt-1" />
-                    </div>
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
-                  </Link>
-                ) : (
-                  <div className="flex items-center gap-3 px-4 py-3 opacity-90">
-                    <span
-                      className={cn(
-                        "flex size-10 shrink-0 items-center justify-center rounded-full",
-                        item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
-                      )}
-                    >
-                      {item.kind === "deposit" ? (
-                        <Download className="size-[18px]" />
-                      ) : item.kind === "topup" ? (
-                        <Smartphone className="size-[18px]" />
-                      ) : (
-                        <Send className="size-[18px]" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[15px] font-medium">{item.title}</p>
-                      <p className="truncate text-[13px] text-muted-foreground">
-                        {item.subtitle} · {formatDateTime(item.created_at)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p
-                        className={cn(
-                          "tabular text-[15px] font-semibold",
-                          item.credit ? "text-success" : "text-label",
-                        )}
-                      >
-                        {item.credit ? "+" : "−"} {formatNPR(item.amount)}
-                      </p>
-                      <StatusChip status={item.status} compact className="mt-1" />
-                    </div>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                      <Lock className="size-3" />
-                      {t("history.viewLocked")}
-                    </span>
+                    {item.kind === "deposit" ? (
+                      <Download className="size-[18px]" />
+                    ) : item.kind === "topup" ? (
+                      <Smartphone className="size-[18px]" />
+                    ) : (
+                      <Send className="size-[18px]" />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-medium">{item.title}</p>
+                    <p className="truncate text-[13px] text-muted-foreground">
+                      {item.subtitle} · {formatDateTime(item.created_at)}
+                    </p>
                   </div>
-                )}
+                  <div className="text-right">
+                    <p
+                      className={cn(
+                        "tabular text-[15px] font-semibold",
+                        item.credit ? "text-success" : "text-label",
+                      )}
+                    >
+                      {item.credit ? "+" : "−"} {formatNPR(item.amount)}
+                    </p>
+                    <StatusChip status={item.status} compact className="mt-1" />
+                  </div>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+                </Link>
               </li>
             ))}
           </ul>

@@ -11,6 +11,27 @@ import { cn } from "@/lib/utils";
 const THRESHOLD = 70;
 const MAX_PULL = 112;
 
+function getScrollableAncestor(node: HTMLElement | null): HTMLElement | null {
+  let current = node?.parentElement ?? null;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    const overflowY = style.overflowY;
+    const scrollableY =
+      (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+      current.scrollHeight > current.clientHeight;
+    if (scrollableY) return current;
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function isAtTop(node: HTMLElement | null): boolean {
+  if (typeof window === "undefined") return true;
+  const scroller = getScrollableAncestor(node);
+  if (scroller) return scroller.scrollTop <= 2;
+  return window.scrollY <= 2;
+}
+
 type Props = {
   onRefresh: () => Promise<void>;
   children: ReactNode;
@@ -43,7 +64,7 @@ export function PullToRefresh({
 
   const onTouchStart = (e: ReactTouchEvent) => {
     if (disabled || refreshing) return;
-    if (typeof window !== "undefined" && window.scrollY > 2) {
+    if (!isAtTop(e.currentTarget)) {
       startY.current = null;
       return;
     }
@@ -53,7 +74,7 @@ export function PullToRefresh({
 
   const onTouchMove = (e: ReactTouchEvent) => {
     if (startY.current == null || disabled || refreshing) return;
-    if (typeof window !== "undefined" && window.scrollY > 2) {
+    if (!isAtTop(e.currentTarget)) {
       reset();
       return;
     }
