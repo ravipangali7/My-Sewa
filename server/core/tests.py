@@ -181,3 +181,35 @@ class RemittanceLookupParseTests(SimpleTestCase):
         parsed = HimalPayAPI.parse_remittance_lookup(raw)
         self.assertTrue(parsed['samsara_link_id'])
         self.assertGreater(parsed['payout_amt'], 0)
+
+    def test_extract_provider_message_vendor_state_locked(self):
+        raw = {
+            'status': 'SUCCESS',
+            'data': {
+                'core_transaction_uuid': 'abc123',
+                'vendor_state': 'Amount is locked',
+                'vendor_status': '1',
+                'data': {
+                    'ref_no': 'S1001',
+                    'receiver_name': 'TEST',
+                },
+            },
+        }
+        message = HimalPayAPI.extract_provider_message(raw)
+        self.assertEqual(message, 'Amount is locked')
+
+    def test_locked_amount_lookup_has_zero_payout(self):
+        raw = {
+            'status': 'SUCCESS',
+            'data': {
+                'core_transaction_uuid': 'abc123',
+                'vendor_state': 'Amount is locked',
+                'data': {
+                    'ref_no': 'S1001',
+                    'receiver_name': 'TEST',
+                },
+            },
+        }
+        parsed = HimalPayAPI.parse_remittance_lookup(raw)
+        self.assertEqual(parsed['payout_amt'], Decimal('0.00'))
+        self.assertEqual(HimalPayAPI.extract_provider_message(raw), 'Amount is locked')

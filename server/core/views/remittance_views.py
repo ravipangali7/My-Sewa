@@ -89,6 +89,12 @@ def _apply_load_fields(txn: RemittanceTransaction, himalpay: HimalPayAPI, respon
     txn.provider_response = response
 
 
+def _provider_message(himalpay: HimalPayAPI, response, fallback: str = '') -> str:
+    """Return the raw HimalPay/vendor message when present."""
+    message = himalpay.extract_provider_message(response)
+    return message or fallback
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def lookup_remittance(request):
@@ -127,11 +133,29 @@ def lookup_remittance(request):
         return Response(
             {
                 'error': 'Remittance lookup failed',
-                'message': exc.message,
+                'message': exc.provider_message or exc.message,
                 'error_code': exc.error_code,
                 'error_type': exc.error_type,
             },
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
+        )
+
+    provider_status = himalpay.normalize_status(raw)
+    if provider_status == 'failed':
+        message = _provider_message(
+            himalpay,
+            raw,
+            'Remittance lookup failed.',
+        )
+        failure = himalpay.extract_failure_details(raw)
+        return Response(
+            {
+                'error': 'Remittance lookup failed',
+                'message': message,
+                'error_code': failure.get('error_code'),
+                'error_type': failure.get('error_type'),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
     if not parsed.get('samsara_link_id'):
@@ -143,7 +167,11 @@ def lookup_remittance(request):
         return Response(
             {
                 'error': 'Invalid remittance',
-                'message': 'Remittance details could not be resolved. Check the reference number.',
+                'message': _provider_message(
+                    himalpay,
+                    raw,
+                    'Remittance details could not be resolved. Check the reference number.',
+                ),
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -159,7 +187,11 @@ def lookup_remittance(request):
         return Response(
             {
                 'error': 'Invalid amount',
-                'message': 'Remittance payout amount is missing or zero.',
+                'message': _provider_message(
+                    himalpay,
+                    raw,
+                    'Remittance payout amount is missing or zero.',
+                ),
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -171,7 +203,11 @@ def lookup_remittance(request):
         return Response(
             {
                 'error': 'Remittance not available',
-                'message': f'Remittance status is {lookup_status}.',
+                'message': _provider_message(
+                    himalpay,
+                    raw,
+                    f'Remittance status is {lookup_status}.',
+                ),
                 'data': {
                     'ref_no': parsed.get('ref_no') or ref_no,
                     'status': lookup_status,
@@ -334,10 +370,11 @@ def receive_remittance(request):
         if txn_status == 'failed':
             txn.status = 'failed'
             txn.save()
+            failure = himalpay.extract_failure_details(response)
             return Response(
                 {
                     'error': 'Remittance payout failed',
-                    'message': response.get('error') or response.get('message') or 'Payout failed',
+                    'message': failure.get('provider_message') or failure.get('message') or 'Payout failed',
                     'data': RemittanceTransactionSerializer(txn).data,
                     'himalpay_response': response,
                 },
@@ -395,7 +432,7 @@ def receive_remittance(request):
         return Response(
             {
                 'error': 'Remittance payout failed',
-                'message': exc.message,
+                'message': exc.provider_message or exc.message,
                 'error_code': exc.error_code,
                 'error_type': exc.error_type,
                 'data': RemittanceTransactionSerializer(txn).data,
@@ -466,7 +503,7 @@ def remittance_status(request):
         return Response(
             {
                 'error': 'Status check failed',
-                'message': exc.message,
+                'message': exc.provider_message or exc.message,
                 'data': RemittanceTransactionSerializer(txn).data,
             },
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,

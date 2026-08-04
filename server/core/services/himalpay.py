@@ -228,10 +228,11 @@ class HimalPayError(Exception):
         error_type: Optional[str] = None,
         response_data: Optional[Dict] = None,
     ):
-        raw_message = message
-        message = format_himalpay_error_message(message, error_code, error_type)
+        raw_message = (message or '').strip()
+        message = format_himalpay_error_message(raw_message, error_code, error_type)
         super().__init__(message)
         self.message = message
+        self.provider_message = raw_message
         self.status_code = status_code
         self.error_code = error_code
         self.error_type = error_type
@@ -902,12 +903,68 @@ class HimalPayAPI:
         return 'pending'
 
     @staticmethod
+    def extract_provider_message(response: Any) -> str:
+        """
+        Raw HimalPay / vendor message without MySewa rewriting.
+
+        Walks nested SAMSARA_GET payloads and prefers explicit error text, then
+        vendor_state (e.g. "amount is locked"), then other provider hints.
+        """
+        root = response if isinstance(response, dict) else {}
+        nested = root.get('data') if isinstance(root.get('data'), dict) else {}
+        deeper = nested.get('data') if isinstance(nested.get('data'), dict) else {}
+        deepest = deeper.get('data') if isinstance(deeper.get('data'), dict) else {}
+
+        def _text(*values) -> str:
+            for value in values:
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text:
+                    return text
+            return ''
+
+        vendor_status = _text(
+            nested.get('vendor_status'),
+            deeper.get('vendor_status'),
+            root.get('vendor_status'),
+        )
+        vendor_state = _text(
+            nested.get('vendor_state'),
+            deeper.get('vendor_state'),
+            root.get('vendor_state'),
+        )
+
+        return _text(
+            root.get('error'),
+            nested.get('error'),
+            deeper.get('error'),
+            deepest.get('error'),
+            vendor_state,
+            root.get('message'),
+            nested.get('message'),
+            deeper.get('message'),
+            deepest.get('message'),
+            root.get('detail'),
+            nested.get('detail'),
+            deeper.get('detail'),
+            root.get('reason'),
+            nested.get('reason'),
+            deeper.get('reason'),
+            root.get('status_message'),
+            nested.get('status_message'),
+            deeper.get('status_message'),
+            vendor_status if vendor_status not in ('0', '00', 'SUCCESS', 'OK') else '',
+        )
+
+    @staticmethod
     def extract_failure_details(response: Any) -> Dict[str, Any]:
         """
         Pull the best provider failure message + codes from a HimalPay payload.
 
         Prefer specific ``error`` / nested reasons over a bare status label.
         """
+        provider_message = HimalPayAPI.extract_provider_message(response) or 'Transaction failed'
         root = response if isinstance(response, dict) else {}
         nested = root.get('data') if isinstance(root.get('data'), dict) else {}
         deeper = nested.get('data') if isinstance(nested.get('data'), dict) else {}
@@ -920,22 +977,6 @@ class HimalPayAPI:
                 if text:
                     return text
             return ''
-
-        provider_message = _text(
-            root.get('error'),
-            nested.get('error'),
-            deeper.get('error'),
-            root.get('message'),
-            nested.get('message'),
-            deeper.get('message'),
-            root.get('detail'),
-            nested.get('detail'),
-            root.get('reason'),
-            nested.get('reason'),
-            deeper.get('reason'),
-            root.get('status_message'),
-            nested.get('status_message'),
-        ) or 'Transaction failed'
 
         # Keep a secondary status line when it adds refund/outcome context
         status_line = _text(
