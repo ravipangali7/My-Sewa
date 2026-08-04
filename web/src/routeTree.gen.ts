@@ -22,7 +22,9 @@ import { Route as AdminTransfersRouteImport } from './routes/admin/transfers'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
 import { Route as AdminWalletsRouteImport } from './routes/admin/wallets'
 import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as AppDataTopupRouteImport } from './routes/app/data-topup'
 import { Route as AppHistoryRouteImport } from './routes/app/history'
+import { Route as AppInternetRouteImport } from './routes/app/internet'
 import { Route as AppLoadRouteImport } from './routes/app/load'
 import { Route as AppNotificationsRouteImport } from './routes/app/notifications'
 import { Route as AppProfileRouteImport } from './routes/app/profile'
@@ -108,9 +110,19 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/app/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppDataTopupRoute = AppDataTopupRouteImport.update({
+  id: '/app/data-topup',
+  path: '/app/data-topup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppHistoryRoute = AppHistoryRouteImport.update({
   id: '/app/history',
   path: '/app/history',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppInternetRoute = AppInternetRouteImport.update({
+  id: '/app/internet',
+  path: '/app/internet',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppLoadRoute = AppLoadRouteImport.update({
@@ -223,7 +235,9 @@ export interface FileRoutesByFullPath {
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
+  '/app/data-topup': typeof AppDataTopupRoute
   '/app/history': typeof AppHistoryRoute
+  '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
@@ -258,7 +272,9 @@ export interface FileRoutesByTo {
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
+  '/app/data-topup': typeof AppDataTopupRoute
   '/app/history': typeof AppHistoryRoute
+  '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
@@ -294,7 +310,9 @@ export interface FileRoutesById {
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
+  '/app/data-topup': typeof AppDataTopupRoute
   '/app/history': typeof AppHistoryRoute
+  '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
@@ -331,7 +349,9 @@ export interface FileRouteTypes {
     | '/admin/transfers'
     | '/admin/users'
     | '/admin/wallets'
+    | '/app/data-topup'
     | '/app/history'
+    | '/app/internet'
     | '/app/load'
     | '/app/notifications'
     | '/app/profile'
@@ -366,7 +386,9 @@ export interface FileRouteTypes {
     | '/admin/transfers'
     | '/admin/users'
     | '/admin/wallets'
+    | '/app/data-topup'
     | '/app/history'
+    | '/app/internet'
     | '/app/load'
     | '/app/notifications'
     | '/app/profile'
@@ -401,7 +423,9 @@ export interface FileRouteTypes {
     | '/admin/transfers'
     | '/admin/users'
     | '/admin/wallets'
+    | '/app/data-topup'
     | '/app/history'
+    | '/app/internet'
     | '/app/load'
     | '/app/notifications'
     | '/app/profile'
@@ -437,7 +461,9 @@ export interface RootRouteChildren {
   AdminTransfersRoute: typeof AdminTransfersRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminWalletsRoute: typeof AdminWalletsRoute
+  AppDataTopupRoute: typeof AppDataTopupRoute
   AppHistoryRoute: typeof AppHistoryRoute
+  AppInternetRoute: typeof AppInternetRoute
   AppLoadRoute: typeof AppLoadRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppProfileRoute: typeof AppProfileRoute
@@ -554,11 +580,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/data-topup': {
+      id: '/app/data-topup'
+      path: '/app/data-topup'
+      fullPath: '/app/data-topup'
+      preLoaderRoute: typeof AppDataTopupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/history': {
       id: '/app/history'
       path: '/app/history'
       fullPath: '/app/history'
       preLoaderRoute: typeof AppHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/internet': {
+      id: '/app/internet'
+      path: '/app/internet'
+      fullPath: '/app/internet'
+      preLoaderRoute: typeof AppInternetRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/load': {
@@ -709,7 +749,9 @@ const rootRouteChildren: RootRouteChildren = {
   AdminTransfersRoute: AdminTransfersRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminWalletsRoute: AdminWalletsRoute,
+  AppDataTopupRoute: AppDataTopupRoute,
   AppHistoryRoute: AppHistoryRoute,
+  AppInternetRoute: AppInternetRoute,
   AppLoadRoute: AppLoadRoute,
   AppNotificationsRoute: AppNotificationsRoute,
   AppProfileRoute: AppProfileRoute,

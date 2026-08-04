@@ -4,6 +4,8 @@ import type {
   RemittanceTransaction,
   TopupTransaction,
   BankTransferTransaction,
+  InternetBillTransaction,
+  DataPackTransaction,
   WalletTransactions,
 } from "./types";
 import { OPERATORS } from "./constants";
@@ -64,6 +66,26 @@ export function buildActivity(
       credit: false,
       status: b.status,
       created_at: b.created_at,
+    })),
+    ...(tx.internet_bills ?? []).map((bill: InternetBillTransaction) => ({
+      id: `isp-${bill.id}`,
+      kind: "internet" as const,
+      title: t("activity.internetBill", { isp: bill.isp_name }),
+      subtitle: bill.customer_id,
+      amount: bill.total_debited !== "0.00" ? bill.total_debited : bill.amount,
+      credit: false,
+      status: bill.status,
+      created_at: bill.created_at,
+    })),
+    ...(tx.data_packs ?? []).map((dp: DataPackTransaction) => ({
+      id: `data-${dp.id}`,
+      kind: "data_pack" as const,
+      title: t("activity.dataPack", { operator: dp.operator }),
+      subtitle: dp.mobile_number,
+      amount: dp.total_debited !== "0.00" ? dp.total_debited : dp.amount,
+      credit: false,
+      status: dp.status,
+      created_at: dp.created_at,
     })),
   ];
   return items.sort((a, b) => b.created_at.localeCompare(a.created_at));

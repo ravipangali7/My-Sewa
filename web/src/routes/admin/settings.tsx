@@ -61,6 +61,8 @@ const DEFAULT_CONFIG: AppConfig = {
     topups_enabled: true,
     transfers_enabled: true,
     remittances_enabled: true,
+    internet_bills_enabled: true,
+    data_packs_enabled: true,
     min_deposit: 100,
     max_deposit: 100000,
     deposit_instructions: "",
@@ -558,6 +560,28 @@ function SettingsPage() {
                     setConfig((c) => ({
                       ...c,
                       payment: { ...c.payment, remittances_enabled: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="Internet bill payments"
+                  description="Allow ISP bill inquiry and payment (Worldlink, Vianet, etc.)"
+                  checked={config.payment.internet_bills_enabled !== false}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      payment: { ...c.payment, internet_bills_enabled: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="Data pack top-ups"
+                  description="Allow NTC / NCELL mobile data pack purchases"
+                  checked={config.payment.data_packs_enabled !== false}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      payment: { ...c.payment, data_packs_enabled: v },
                     }))
                   }
                 />

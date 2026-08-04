@@ -27,6 +27,8 @@ def payment_disabled_response(feature: str) -> Response:
         'topups': 'Mobile top-ups are currently disabled.',
         'transfers': 'Bank transfers are currently disabled.',
         'remittances': 'Remittance payouts are currently disabled.',
+        'internet_bills': 'Internet bill payments are currently disabled.',
+        'data_packs': 'Data pack top-ups are currently disabled.',
     }
     return Response(
         {
@@ -157,6 +159,8 @@ def require_feature_enabled(feature: str) -> Optional[Response]:
         'topups': 'topups_enabled',
         'transfers': 'transfers_enabled',
         'remittances': 'remittances_enabled',
+        'internet_bills': 'internet_bills_enabled',
+        'data_packs': 'data_packs_enabled',
     }.get(feature)
     if key and not payment.get(key, True):
         return payment_disabled_response(feature)

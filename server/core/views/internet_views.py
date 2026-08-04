@@ -1,0 +1,364 @@
+"""
+Internet / ISP bill payment views via HimalPay.
+"""
+import uuid
+import logging
+import traceback
+from decimal import Decimal
+
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.db import transaction
+
+from ..models import Wallet, InternetBillTransaction
+from ..serializers import (
+    InternetBillTransactionSerializer,
+    InternetBillInquirySerializer,
+    InternetBillPaySerializer,
+    TransactionStatusSerializer,
+)
+from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.isp_catalog import (
+    get_isp,
+    list_isps_public,
+    build_inquiry_payload,
+    normalize_inquiry,
+)
+from ..services.app_config import (
+    get_app_config,
+    require_feature_enabled,
+    require_account_approved,
+    is_auto_status_verified,
+)
+from ..services.notifications import notify_low_balance_if_needed
+from ..services.txn_status import resolve_provider_outcome
+
+logger = logging.getLogger(__name__)
+
+
+def _get_or_create_wallet(user):
+    try:
+        return Wallet.objects.get(user=user)
+    except Wallet.DoesNotExist:
+        return Wallet.objects.create(user=user, balance=Decimal('0.00'))
+
+
+def _apply_fee_fields(txn, himalpay: HimalPayAPI, response: dict, amount):
+    charge_paisa = response.get('charge', response.get('applied_charge', 0)) or 0
+    cashback_paisa = response.get('cashback', response.get('applied_cashback', 0)) or 0
+    total_paisa = response.get(
+        'total_debited',
+        response.get('net_amount', himalpay.to_paisa(amount) + int(charge_paisa) - int(cashback_paisa)),
+    )
+    txn.charge = himalpay.to_rupees(charge_paisa)
+    txn.cashback = himalpay.to_rupees(cashback_paisa)
+    txn.total_debited = himalpay.to_rupees(total_paisa)
+    txn.service_hub_txn_id = himalpay.extract_transaction_id(response)
+    txn.reference_id = himalpay.extract_reference_id(response)
+    txn.provider_response = response
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_isps(request):
+    """List supported Internet Service Providers."""
+    blocked = require_feature_enabled('internet_bills')
+    if blocked:
+        return blocked
+    return Response({'isps': list_isps_public()}, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def inquiry_bill(request):
+    """Inquiry: fetch customer bill details and available packages."""
+    blocked = require_feature_enabled('internet_bills')
+    if blocked:
+        return blocked
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
+
+    serializer = InternetBillInquirySerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    isp_id = serializer.validated_data['isp_id']
+    customer_id = serializer.validated_data['customer_id'].strip()
+    isp = get_isp(isp_id)
+    if not isp:
+        return Response({'error': 'Unsupported ISP.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    himalpay = HimalPayAPI()
+    inquiry_data = build_inquiry_payload(isp, customer_id)
+    try:
+        raw = himalpay.fetch_service_details(isp['get_service'], inquiry_data)
+        normalized = normalize_inquiry(isp, customer_id, raw)
+        if not normalized['packages']:
+            return Response(
+                {
+                    'error': 'No bill or package found for this customer ID.',
+                    'message': 'No bill or package found for this customer ID.',
+                    'data': normalized,
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            {'message': 'Bill details retrieved.', 'data': normalized},
+            status=status.HTTP_200_OK,
+        )
+    except HimalPayError as exc:
+        return Response(
+            {
+                'error': 'Bill inquiry failed',
+                'message': exc.message,
+                'error_code': exc.error_code,
+                'error_type': exc.error_type,
+            },
+            status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def pay_bill(request):
+    """Process ISP bill payment from wallet balance."""
+    blocked = require_feature_enabled('internet_bills')
+    if blocked:
+        return blocked
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
+
+    serializer = InternetBillPaySerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    isp_id = serializer.validated_data['isp_id']
+    customer_id = serializer.validated_data['customer_id'].strip()
+    amount = HimalPayAPI.normalize_rupees(serializer.validated_data['amount'])
+    package_name = serializer.validated_data.get('package_name') or ''
+    customer_name = serializer.validated_data.get('customer_name') or ''
+    pay_data = serializer.validated_data['pay_data']
+
+    isp = get_isp(isp_id)
+    if not isp:
+        return Response({'error': 'Unsupported ISP.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    wallet = _get_or_create_wallet(request.user)
+    himalpay = HimalPayAPI()
+    pay_service = isp['pay_service']
+
+    try:
+        fee_info = himalpay.calculate_cashback_and_charge(pay_service, amount)
+        charge = himalpay.to_rupees(fee_info.get('charge', 0) or 0)
+        cashback = himalpay.to_rupees(fee_info.get('cashback', 0) or 0)
+        total_required = amount + charge - cashback
+    except HimalPayError as exc:
+        if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
+            return Response(
+                {
+                    'error': 'Internet bill payment failed',
+                    'message': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                },
+                status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
+            )
+        charge = Decimal('0.00')
+        cashback = Decimal('0.00')
+        total_required = amount
+
+    if wallet.balance < total_required:
+        return Response(
+            {
+                'error': 'Insufficient balance',
+                'message': (
+                    f'Insufficient balance. Required Rs. {total_required}, '
+                    f'available Rs. {wallet.balance}.'
+                ),
+                'required': str(total_required),
+                'available': str(wallet.balance),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    merchant_txn_id = f"MYSEWA_ISP_{uuid.uuid4().hex[:12].upper()}"
+    bill_txn = InternetBillTransaction.objects.create(
+        user=request.user,
+        isp_id=isp['id'],
+        isp_name=isp['name'],
+        customer_id=customer_id,
+        customer_name=customer_name,
+        package_name=package_name,
+        amount=amount,
+        pay_service=pay_service,
+        status='pending',
+        merchant_txn_id=merchant_txn_id,
+        charge=charge,
+        cashback=cashback,
+        total_debited=total_required,
+        pay_payload=pay_data,
+    )
+
+    try:
+        response = himalpay.process_payment(
+            pay_service,
+            amount,
+            merchant_txn_id,
+            pay_data,
+        )
+        txn_status = himalpay.normalize_status(response)
+        _apply_fee_fields(bill_txn, himalpay, response, amount)
+
+        if txn_status == 'failed':
+            bill_txn.status = 'failed'
+            bill_txn.save()
+            failure = himalpay.extract_failure_details(response)
+            return Response(
+                {
+                    'error': 'Internet bill payment failed',
+                    'message': failure['message'],
+                    'wallet_debited': False,
+                    'data': InternetBillTransactionSerializer(bill_txn).data,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cfg = get_app_config()
+        local_status = resolve_provider_outcome(txn_status, is_auto_status_verified(cfg))
+
+        if local_status == 'success':
+            with transaction.atomic():
+                wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+                debit = bill_txn.total_debited or amount
+                if wallet.balance < debit:
+                    bill_txn.status = 'failed'
+                    bill_txn.save()
+                    return Response(
+                        {'error': 'Insufficient balance after fee calculation'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                wallet.balance -= debit
+                wallet.save()
+                bill_txn.status = 'success'
+                bill_txn.save()
+            notify_low_balance_if_needed(wallet)
+            return Response(
+                {
+                    'message': f'{isp["name"]} bill paid successfully',
+                    'data': InternetBillTransactionSerializer(bill_txn).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        bill_txn.status = 'pending'
+        bill_txn.save()
+        return Response(
+            {
+                'message': 'Payment is being processed',
+                'pending_message': response.get(
+                    'message',
+                    'Your payment is being processed and awaits verification.',
+                ),
+                'data': InternetBillTransactionSerializer(bill_txn).data,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    except HimalPayError as exc:
+        bill_txn.status = 'failed'
+        bill_txn.provider_response = exc.response_data
+        bill_txn.save()
+        return Response(
+            {
+                'error': 'Internet bill payment failed',
+                'message': exc.message,
+                'data': InternetBillTransactionSerializer(bill_txn).data,
+            },
+            status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as exc:
+        bill_txn.status = 'failed'
+        bill_txn.save()
+        logger.error('ISP pay failed: %s\n%s', exc, traceback.format_exc())
+        return Response(
+            {'error': 'Payment request failed', 'message': str(exc)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def internet_bill_history(request):
+    bills = InternetBillTransaction.objects.filter(user=request.user).order_by('-created_at')
+    return Response(
+        InternetBillTransactionSerializer(bills, many=True).data,
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def internet_bill_status(request):
+    serializer = TransactionStatusSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    merchant_txn_id = serializer.validated_data['merchant_transaction_id']
+    himalpay = HimalPayAPI()
+    bill = InternetBillTransaction.objects.filter(
+        user=request.user, merchant_txn_id=merchant_txn_id,
+    ).first()
+
+    try:
+        result = himalpay.check_transaction_status(merchant_txn_id)
+        normalized = himalpay.normalize_status(result)
+
+        if bill and bill.status == 'pending' and normalized in ('success', 'failed', 'pending'):
+            auto = is_auto_status_verified()
+            local_status = resolve_provider_outcome(normalized, auto)
+            if not (normalized == 'pending' and not auto):
+                with transaction.atomic():
+                    bill = InternetBillTransaction.objects.select_for_update().get(pk=bill.pk)
+                    if bill.status == 'pending':
+                        _apply_fee_fields(bill, himalpay, result, bill.amount)
+                        if local_status == 'success':
+                            wallet = _get_or_create_wallet(request.user)
+                            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+                            debit = bill.total_debited or bill.amount
+                            if wallet.balance >= debit:
+                                wallet.balance -= debit
+                                wallet.save()
+                                bill.status = 'success'
+                                bill.save()
+                                notify_low_balance_if_needed(wallet)
+                            else:
+                                bill.status = 'failed'
+                                bill.save()
+                        elif local_status == 'failed':
+                            bill.status = 'failed'
+                            bill.save()
+                        else:
+                            bill.save()
+
+        return Response(
+            {
+                'status': normalized,
+                'message': (
+                    himalpay.extract_failure_details(result)['message']
+                    if normalized == 'failed'
+                    else None
+                ),
+                'data': result,
+                'local_bill': InternetBillTransactionSerializer(bill).data if bill else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+    except HimalPayError as exc:
+        return Response(
+            {'error': exc.message, 'error_code': exc.error_code},
+            status=status.HTTP_400_BAD_REQUEST,
+        )

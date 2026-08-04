@@ -4,7 +4,16 @@ DRF Serializers for all models
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
-from .models import Wallet, Deposit, Settings, TopupTransaction, BankTransferTransaction, RemittanceTransaction
+from .models import (
+    Wallet,
+    Deposit,
+    Settings,
+    TopupTransaction,
+    BankTransferTransaction,
+    RemittanceTransaction,
+    InternetBillTransaction,
+    DataPackTransaction,
+)
 
 User = get_user_model()
 
@@ -752,4 +761,96 @@ class RemittanceReceiveSerializer(serializers.Serializer):
 
     def validate_beneficiary_dob(self, value):
         return self._require_text(value, 'Date of birth')
+
+
+class InternetBillTransactionSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = InternetBillTransaction
+        fields = (
+            'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
+            'isp_id', 'isp_name', 'customer_id', 'customer_name', 'package_name',
+            'amount', 'status', 'status_display', 'merchant_txn_id',
+            'service_hub_txn_id', 'charge', 'cashback', 'total_debited',
+            'reference_id', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+
+class InternetBillInquirySerializer(serializers.Serializer):
+    isp_id = serializers.CharField(max_length=50)
+    customer_id = serializers.CharField(max_length=100)
+
+    def validate_customer_id(self, value):
+        cleaned = (value or '').strip()
+        if not cleaned:
+            raise serializers.ValidationError('Customer ID is required.')
+        return cleaned
+
+
+class InternetBillPaySerializer(serializers.Serializer):
+    isp_id = serializers.CharField(max_length=50)
+    customer_id = serializers.CharField(max_length=100)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    package_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    pay_data = serializers.JSONField()
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Amount must be greater than zero.')
+        return value
+
+
+class DataPackTransactionSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = DataPackTransaction
+        fields = (
+            'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
+            'operator', 'mobile_number', 'package_name', 'package_id',
+            'product_code', 'amount', 'status', 'status_display',
+            'merchant_txn_id', 'service_hub_txn_id', 'charge', 'cashback',
+            'total_debited', 'reference_id', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+
+class DataPackInquirySerializer(serializers.Serializer):
+    operator = serializers.ChoiceField(choices=['NTC', 'NCELL'])
+    mobile_number = serializers.CharField(max_length=50, required=False, allow_blank=True)
+
+
+class DataPackPaySerializer(serializers.Serializer):
+    operator = serializers.ChoiceField(choices=['NTC', 'NCELL'])
+    mobile_number = serializers.CharField(max_length=50)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    package_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    package_id = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    product_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
+
+    def validate_mobile_number(self, value):
+        digits = ''.join(ch for ch in (value or '').strip() if ch.isdigit())
+        if digits.startswith('977') and len(digits) >= 13:
+            digits = digits[3:]
+        if len(digits) < 10:
+            raise serializers.ValidationError('Enter a valid mobile number.')
+        return digits[-10:]
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Amount must be greater than zero.')
+        return value
 

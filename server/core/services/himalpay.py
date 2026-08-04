@@ -1236,6 +1236,65 @@ class HimalPayAPI:
                 },
             }
 
+        if wallet_service_name in ('WLINK_GET', 'VIANET_GET', 'SUBISU_GET', 'DISHHOME_GET'):
+            username = data.get('username') or data.get('customer_id') or 'demo_user'
+            return {
+                'status': 'SUCCESS',
+                'data': {
+                    'session_id': 50001,
+                    'name': 'Demo Customer',
+                    'customer_name': 'Demo Customer',
+                    'packages': [
+                        {
+                            'package_id': 800011,
+                            'package': '25 Mbps Unlimited - 1 Month',
+                            'amount': 120000,
+                            'duration': '1 month',
+                        },
+                        {
+                            'package_id': 800012,
+                            'package': '50 Mbps Unlimited - 3 Months',
+                            'amount': 320000,
+                            'duration': '3 months',
+                        },
+                    ],
+                    'username': username,
+                },
+            }
+
+        if wallet_service_name in ('NTC_DATA_PACK_GET', 'NCELL_DATA_PACK_GET'):
+            return {
+                'status': 'SUCCESS',
+                'data': {
+                    'packages': [
+                        {
+                            'package_id': 20,
+                            'product_code': 20,
+                            'name': '1 GB - 7 Days',
+                            'amount': 9900,
+                            'validity': '7 days',
+                            'volume': '1 GB',
+                        },
+                        {
+                            'package_id': 21,
+                            'product_code': 21,
+                            'name': '5 GB - 28 Days',
+                            'amount': 29900,
+                            'validity': '28 days',
+                            'volume': '5 GB',
+                        },
+                        {
+                            'package_id': 22,
+                            'product_code': '1_day_10min_India',
+                            'name': 'Daily Pack - 1 Day',
+                            'amount': 5500,
+                            'validity': '1 day',
+                            'volume': 'Unlimited',
+                        },
+                    ],
+                },
+            }
+
         return {'message': f'Bypass detail for {wallet_service_name}', 'data': data}
 
     def _bypass_load(

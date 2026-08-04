@@ -11,6 +11,8 @@ import {
   History,
   Smartphone,
   Redo2,
+  Wifi,
+  Signal,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { MountainBackdrop } from "@/components/home/MountainBackdrop";
@@ -56,6 +58,18 @@ const ACTIONS = [
     labelKey: "home.topUp" as const satisfies MessageKey,
     icon: Smartphone,
     iconBg: "bg-[#F59E0B]",
+  },
+  {
+    to: "/app/data-topup",
+    labelKey: "home.dataTopup" as const satisfies MessageKey,
+    icon: Signal,
+    iconBg: "bg-[#8B5CF6]",
+  },
+  {
+    to: "/app/internet",
+    labelKey: "home.internet" as const satisfies MessageKey,
+    icon: Wifi,
+    iconBg: "bg-[#0EA5E9]",
   },
   {
     to: "/app/remittance",
@@ -244,12 +258,14 @@ function WalletHome() {
           </section>
 
           {/* Quick actions */}
-          <section className="grid grid-cols-4 gap-2.5">
+          <section className="grid grid-cols-3 gap-2.5">
             {ACTIONS.map((a) => {
               const blocked =
                 accountPending &&
                 (a.to === "/app/transfer" ||
                   a.to === "/app/topup" ||
+                  a.to === "/app/data-topup" ||
+                  a.to === "/app/internet" ||
                   a.to === "/app/remittance");
               if (blocked) {
                 return (

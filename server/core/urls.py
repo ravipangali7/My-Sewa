@@ -7,6 +7,8 @@ from .views import (
     topup_views,
     bank_transfer_views,
     remittance_views,
+    internet_views,
+    data_pack_views,
     admin_views,
 )
 
@@ -54,6 +56,19 @@ urlpatterns = [
     path('api/remittance/receive/', remittance_views.receive_remittance, name='remittance_receive'),
     path('api/remittance/history/', remittance_views.remittance_history, name='remittance_history'),
     path('api/remittance/status/', remittance_views.remittance_status, name='remittance_status'),
+
+    # Internet bill payment (ISP)
+    path('api/internet/isps/', internet_views.list_isps, name='internet_isps'),
+    path('api/internet/inquiry/', internet_views.inquiry_bill, name='internet_inquiry'),
+    path('api/internet/pay/', internet_views.pay_bill, name='internet_pay'),
+    path('api/internet/history/', internet_views.internet_bill_history, name='internet_history'),
+    path('api/internet/status/', internet_views.internet_bill_status, name='internet_status'),
+
+    # Data pack top-up (NTC / NCELL)
+    path('api/data-pack/inquiry/', data_pack_views.inquiry_packages, name='data_pack_inquiry'),
+    path('api/data-pack/pay/', data_pack_views.pay_data_pack, name='data_pack_pay'),
+    path('api/data-pack/history/', data_pack_views.data_pack_history, name='data_pack_history'),
+    path('api/data-pack/status/', data_pack_views.data_pack_status, name='data_pack_status'),
 
     # Admin / staff console
     path('api/admin/dashboard/', admin_views.admin_dashboard, name='admin_dashboard'),

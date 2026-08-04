@@ -128,6 +128,8 @@ def default_app_config():
             'topups_enabled': True,
             'transfers_enabled': True,
             'remittances_enabled': True,
+            'internet_bills_enabled': True,
+            'data_packs_enabled': True,
             'min_deposit': 100,
             'max_deposit': 100000,
             'deposit_instructions': '',
@@ -436,3 +438,86 @@ class RemittanceTransaction(models.Model):
                 name='unique_successful_remittance_ref_no',
             ),
         ]
+
+
+class InternetBillTransaction(models.Model):
+    """Internet / ISP bill payment via HimalPay."""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='internet_bills',
+    )
+    isp_id = models.CharField(max_length=50)
+    isp_name = models.CharField(max_length=100)
+    customer_id = models.CharField(max_length=100)
+    customer_name = models.CharField(max_length=200, blank=True, default='')
+    package_name = models.CharField(max_length=255, blank=True, default='')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
+    pay_service = models.CharField(max_length=80)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    merchant_txn_id = models.CharField(max_length=100, unique=True)
+    service_hub_txn_id = models.CharField(max_length=100, blank=True, null=True)
+    reference_id = models.CharField(max_length=100, blank=True, null=True)
+    charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    inquiry_response = models.JSONField(default=dict, blank=True)
+    pay_payload = models.JSONField(default=dict, blank=True)
+    provider_response = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.phone} - {self.isp_name} - {self.customer_id} - Rs. {self.amount}"
+
+    class Meta:
+        verbose_name = "Internet Bill Transaction"
+        verbose_name_plural = "Internet Bill Transactions"
+        ordering = ['-created_at']
+
+
+class DataPackTransaction(models.Model):
+    """Mobile data pack top-up (NTC / NCELL) via HimalPay."""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+    ]
+
+    OPERATOR_CHOICES = [
+        ('NTC', 'NTC'),
+        ('NCELL', 'NCELL'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='data_pack_transactions',
+    )
+    operator = models.CharField(max_length=10, choices=OPERATOR_CHOICES)
+    mobile_number = models.CharField(max_length=50)
+    package_name = models.CharField(max_length=255, blank=True, default='')
+    package_id = models.CharField(max_length=50, blank=True, default='')
+    product_code = models.CharField(max_length=100, blank=True, default='')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    merchant_txn_id = models.CharField(max_length=100, unique=True)
+    service_hub_txn_id = models.CharField(max_length=100, blank=True, null=True)
+    reference_id = models.CharField(max_length=100, blank=True, null=True)
+    charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    inquiry_response = models.JSONField(default=dict, blank=True)
+    provider_response = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.phone} - {self.operator} Data - {self.mobile_number} - Rs. {self.amount}"
+
+    class Meta:
+        verbose_name = "Data Pack Transaction"
+        verbose_name_plural = "Data Pack Transactions"
+        ordering = ['-created_at']

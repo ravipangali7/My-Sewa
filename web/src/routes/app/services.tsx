@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Send, Smartphone, ChevronRight, ArrowDownToLine } from "lucide-react";
+import { Download, Send, Smartphone, ChevronRight, ArrowDownToLine, Wifi, Signal } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -67,6 +67,24 @@ function Services() {
         : t("services.topupDesc"),
       icon: Smartphone,
       enabled: payment?.topups_enabled !== false && !accountPending,
+    },
+    {
+      to: "/app/data-topup" as const,
+      title: t("services.dataTopup"),
+      desc: accountPending
+        ? t("services.unavailablePending")
+        : t("services.dataTopupDesc"),
+      icon: Signal,
+      enabled: payment?.data_packs_enabled !== false && !accountPending,
+    },
+    {
+      to: "/app/internet" as const,
+      title: t("services.internet"),
+      desc: accountPending
+        ? t("services.unavailablePending")
+        : t("services.internetDesc"),
+      icon: Wifi,
+      enabled: payment?.internet_bills_enabled !== false && !accountPending,
     },
     {
       to: "/app/transfer" as const,

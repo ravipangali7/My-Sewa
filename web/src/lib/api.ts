@@ -298,7 +298,10 @@ export const apiClient = {
 
   listDeposits: () => api<import("./types").Deposit[]>("/api/deposit/list/"),
 
-  calculateCharge: (wallet_service_name: "NTC" | "NCELL" | "BANK_TRANSFER", amount: number) =>
+  calculateCharge: (
+    wallet_service_name: "NTC" | "NCELL" | "BANK_TRANSFER" | string,
+    amount: number,
+  ) =>
     api<{
       wallet_service_name: string;
       amount: string;
@@ -429,6 +432,81 @@ export const apiClient = {
       provider_status: string;
       data: import("./types").RemittanceTransaction;
     }>("/api/remittance/status/", {
+      method: "POST",
+      body: { merchant_transaction_id },
+    }),
+
+  internetIsps: () =>
+    api<{ isps: import("./types").IspOption[] }>("/api/internet/isps/"),
+
+  internetInquiry: (body: { isp_id: string; customer_id: string }) =>
+    api<{ message: string; data: import("./types").InternetBillInquiry }>(
+      "/api/internet/inquiry/",
+      { method: "POST", body },
+    ),
+
+  internetPay: (body: {
+    isp_id: string;
+    customer_id: string;
+    amount: number;
+    package_name?: string;
+    customer_name?: string;
+    pay_data: Record<string, unknown>;
+  }) =>
+    api<{
+      message: string;
+      pending_message?: string;
+      data: import("./types").InternetBillTransaction;
+    }>("/api/internet/pay/", { method: "POST", body }),
+
+  internetHistory: () =>
+    api<import("./types").InternetBillTransaction[]>("/api/internet/history/"),
+
+  internetStatus: (merchant_transaction_id: string) =>
+    api<{
+      status: import("./types").TxnStatus;
+      message?: string | null;
+      data: Record<string, unknown>;
+      local_bill: import("./types").InternetBillTransaction | null;
+    }>("/api/internet/status/", {
+      method: "POST",
+      body: { merchant_transaction_id },
+    }),
+
+  dataPackInquiry: (body: { operator: "NTC" | "NCELL"; mobile_number?: string }) =>
+    api<{
+      message: string;
+      data: {
+        operator: string;
+        mobile_number: string;
+        packages: import("./types").DataPackOption[];
+      };
+    }>("/api/data-pack/inquiry/", { method: "POST", body }),
+
+  dataPackPay: (body: {
+    operator: "NTC" | "NCELL";
+    mobile_number: string;
+    amount: number;
+    package_name?: string;
+    package_id?: string;
+    product_code?: string;
+  }) =>
+    api<{
+      message: string;
+      pending_message?: string;
+      data: import("./types").DataPackTransaction;
+    }>("/api/data-pack/pay/", { method: "POST", body }),
+
+  dataPackHistory: () =>
+    api<import("./types").DataPackTransaction[]>("/api/data-pack/history/"),
+
+  dataPackStatus: (merchant_transaction_id: string) =>
+    api<{
+      status: import("./types").TxnStatus;
+      message?: string | null;
+      data: Record<string, unknown>;
+      local_data_pack: import("./types").DataPackTransaction | null;
+    }>("/api/data-pack/status/", {
       method: "POST",
       body: { merchant_transaction_id },
     }),

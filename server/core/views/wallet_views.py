@@ -5,13 +5,23 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from ..models import Wallet, Deposit, TopupTransaction, BankTransferTransaction, RemittanceTransaction
+from ..models import (
+    Wallet,
+    Deposit,
+    TopupTransaction,
+    BankTransferTransaction,
+    RemittanceTransaction,
+    InternetBillTransaction,
+    DataPackTransaction,
+)
 from ..serializers import (
     WalletSerializer,
     DepositSerializer,
     TopupTransactionSerializer,
     BankTransferTransactionSerializer,
     RemittanceTransactionSerializer,
+    InternetBillTransactionSerializer,
+    DataPackTransactionSerializer,
 )
 
 
@@ -32,15 +42,19 @@ def get_wallet_balance(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_transaction_history(request):
-    """Get transaction history (deposits, remittances, topups, bank transfers)"""
+    """Get transaction history (deposits, remittances, topups, bank transfers, bills, data packs)"""
     deposits = Deposit.objects.filter(user=request.user).order_by('-created_at')
     remittances = RemittanceTransaction.objects.filter(user=request.user).order_by('-created_at')
     topups = TopupTransaction.objects.filter(user=request.user).order_by('-created_at')
     transfers = BankTransferTransaction.objects.filter(user=request.user).order_by('-created_at')
+    internet_bills = InternetBillTransaction.objects.filter(user=request.user).order_by('-created_at')
+    data_packs = DataPackTransaction.objects.filter(user=request.user).order_by('-created_at')
 
     return Response({
         'deposits': DepositSerializer(deposits, many=True).data,
         'remittances': RemittanceTransactionSerializer(remittances, many=True).data,
         'topups': TopupTransactionSerializer(topups, many=True).data,
         'bank_transfers': BankTransferTransactionSerializer(transfers, many=True).data,
+        'internet_bills': InternetBillTransactionSerializer(internet_bills, many=True).data,
+        'data_packs': DataPackTransactionSerializer(data_packs, many=True).data,
     }, status=status.HTTP_200_OK)

@@ -1,6 +1,6 @@
 export type DepositStatus = "pending" | "approved" | "rejected";
 export type TxnStatus = "pending" | "success" | "failed";
-export type ActivityKind = "deposit" | "remittance" | "topup" | "transfer";
+export type ActivityKind = "deposit" | "remittance" | "topup" | "transfer" | "internet" | "data_pack";
 
 /** Account approval status — pending users can log in but cannot transact. */
 export type AccountStatus = "pending" | "approved";
@@ -54,6 +54,8 @@ export interface PaymentConfig {
   topups_enabled: boolean;
   transfers_enabled: boolean;
   remittances_enabled: boolean;
+  internet_bills_enabled: boolean;
+  data_packs_enabled: boolean;
   min_deposit: number;
   max_deposit: number;
   deposit_instructions: string;
@@ -276,11 +278,100 @@ export interface RemittanceTransaction {
   updated_at: string;
 }
 
+export interface InternetBillTransaction {
+  id: number;
+  user: string;
+  user_id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  isp_id: string;
+  isp_name: string;
+  customer_id: string;
+  customer_name: string;
+  package_name: string;
+  amount: string;
+  status: TxnStatus;
+  status_display: string;
+  merchant_txn_id: string;
+  service_hub_txn_id: string | null;
+  charge: string;
+  cashback: string;
+  total_debited: string;
+  reference_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IspOption {
+  id: string;
+  name: string;
+  customer_label: string;
+  placeholder: string;
+  color?: string;
+  pay_service?: string;
+}
+
+export interface InternetBillPackage {
+  id: string;
+  name: string;
+  amount: string;
+  billing_period?: string | number | null;
+  customer_name?: string | null;
+  pay_data: Record<string, unknown>;
+}
+
+export interface InternetBillInquiry {
+  isp_id: string;
+  isp_name: string;
+  customer_id: string;
+  customer_name?: string | null;
+  packages: InternetBillPackage[];
+}
+
+export interface DataPackTransaction {
+  id: number;
+  user: string;
+  user_id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  operator: "NTC" | "NCELL";
+  mobile_number: string;
+  package_name: string;
+  package_id: string;
+  product_code: string;
+  amount: string;
+  status: TxnStatus;
+  status_display: string;
+  merchant_txn_id: string;
+  service_hub_txn_id: string | null;
+  charge: string;
+  cashback: string;
+  total_debited: string;
+  reference_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DataPackOption {
+  id: string;
+  name: string;
+  amount: string;
+  validity?: string | number | null;
+  volume?: string | null;
+  package_id: string;
+  product_code: string;
+  operator: string;
+}
+
 export interface WalletTransactions {
   deposits: Deposit[];
   remittances?: RemittanceTransaction[];
   topups: TopupTransaction[];
   bank_transfers: BankTransferTransaction[];
+  internet_bills?: InternetBillTransaction[];
+  data_packs?: DataPackTransaction[];
 }
 
 export interface BankOption {
