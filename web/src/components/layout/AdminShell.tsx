@@ -272,7 +272,7 @@ export function AdminShell({
   );
 
   return (
-    <div className="min-h-screen bg-background md:flex">
+    <div className="min-h-screen overflow-x-clip bg-background md:flex">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-surface px-3 py-5 md:flex">
         <div className="mb-6">{brandBlock}</div>
         {navLinks}

@@ -15,6 +15,53 @@ export function isEmbeddedWebView(): boolean {
   );
 }
 
+/**
+ * Mark the document for native CSS and release any leftover shell
+ * overflow traps (overflow-x:hidden → overflow-y:auto pairing).
+ * Safe to call on every route change.
+ */
+export function ensureNativeDocumentScroll(): void {
+  if (typeof document === "undefined") return;
+  if (!isMySewaNativeApp()) return;
+
+  document.documentElement.classList.add("mysewa-native");
+
+  const release = (el: HTMLElement | null) => {
+    if (!el) return;
+    const style = window.getComputedStyle(el);
+    if (style.position === "fixed" || style.position === "absolute") return;
+    // Never leave overflow-x:hidden on expanding shells — it pairs to
+    // overflow-y:auto and Android WebView swallows the gesture.
+    if (style.overflowX === "hidden" || style.overflowY === "auto" || style.overflowY === "scroll") {
+      el.style.setProperty("overflow-x", "clip", "important");
+      el.style.setProperty("overflow-y", "visible", "important");
+    }
+    el.style.setProperty("height", "auto", "important");
+    el.style.setProperty("max-height", "none", "important");
+  };
+
+  const mains = document.getElementsByTagName("main");
+  for (let i = 0; i < Math.min(mains.length, 4); i++) {
+    let node: HTMLElement | null = mains[i];
+    while (node && node !== document.body) {
+      release(node);
+      if (node.parentElement === document.body) {
+        node.style.setProperty("min-height", "100dvh", "important");
+        break;
+      }
+      node = node.parentElement;
+    }
+  }
+
+  if (mains.length === 0) {
+    const top = document.body?.firstElementChild as HTMLElement | null;
+    if (top) {
+      release(top);
+      top.style.setProperty("min-height", "100dvh", "important");
+    }
+  }
+}
+
 declare global {
   interface Window {
     MySewaNative?: {

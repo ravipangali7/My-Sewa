@@ -6,6 +6,7 @@ import {
   useRouter,
   HeadContent,
   Scripts,
+  useRouterState,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
@@ -16,6 +17,7 @@ import { AuthProvider } from "@/lib/auth";
 import { I18nProvider } from "@/lib/i18n";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
+import { ensureNativeDocumentScroll, isMySewaNativeApp } from "@/lib/native-app";
 
 function NotFoundComponent() {
   return (
@@ -133,6 +135,7 @@ function RootComponent() {
         <AuthProvider>
           <SiteBrandingSync />
           <LiveRefreshSync />
+          <NativeScrollSync />
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
           <Toaster position="top-center" />
@@ -151,5 +154,23 @@ function SiteBrandingSync() {
 /** Refetch when the WebView/tab becomes visible again. */
 function LiveRefreshSync() {
   useLiveRefresh();
+  return null;
+}
+
+/** Flutter WebView: keep document scrolling unlocked across SPA navigations. */
+function NativeScrollSync() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+  useEffect(() => {
+    if (!isMySewaNativeApp()) return;
+    ensureNativeDocumentScroll();
+    const t1 = window.setTimeout(ensureNativeDocumentScroll, 50);
+    const t2 = window.setTimeout(ensureNativeDocumentScroll, 300);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [pathname]);
+
   return null;
 }

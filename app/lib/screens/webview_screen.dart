@@ -100,7 +100,8 @@ class _WebViewScreenState extends State<WebViewScreen>
 ''';
 
   /// Android/iOS WebView often traps touch scroll inside nested
-  /// `overflow-y: auto` shells that are not actually height-constrained.
+  /// overflow shells. Never set overflow-x:hidden here — CSS pairs it
+  /// to overflow-y:auto and gestures get swallowed on non-scrolling boxes.
   /// Force document scrolling on the app shell only (not sheets/dialogs).
   static const _unlockWebViewScrollJs = '''
 (function() {
@@ -110,8 +111,11 @@ class _WebViewScreenState extends State<WebViewScreen>
     var style = document.createElement('style');
     style.id = styleId;
     style.textContent = [
-      'html,body{height:auto!important;max-height:none!important;',
-      'overflow-x:hidden!important;overflow-y:auto!important;',
+      'html.mysewa-native,html{height:auto!important;max-height:none!important;',
+      'overflow-x:clip!important;overflow-y:auto!important;',
+      '-webkit-overflow-scrolling:touch!important;touch-action:pan-x pan-y!important;}',
+      'html.mysewa-native body,body{height:auto!important;max-height:none!important;',
+      'overflow-x:clip!important;overflow-y:visible!important;',
       '-webkit-overflow-scrolling:touch!important;touch-action:pan-x pan-y!important;}'
     ].join('');
     document.head.appendChild(style);
@@ -121,13 +125,15 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (!el || el.nodeType !== 1) return;
     el.style.setProperty('height', 'auto', 'important');
     el.style.setProperty('max-height', 'none', 'important');
-    el.style.setProperty('overflow-x', 'hidden', 'important');
+    // clip + visible does NOT pair to overflow-y:auto (unlike hidden).
+    el.style.setProperty('overflow-x', 'clip', 'important');
     el.style.setProperty('overflow-y', 'visible', 'important');
   }
 
   function apply() {
     try {
       ensureStyle();
+      try { document.documentElement.classList.add('mysewa-native'); } catch (e) {}
 
       var mains = document.getElementsByTagName('main');
       if (mains.length === 0) {

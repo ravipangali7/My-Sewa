@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils";
 
 const THRESHOLD = 70;
 const MAX_PULL = 112;
+/** Ignore tiny downward jitter so normal scroll isn't interrupted. */
+const ARM_DELTA = 14;
 
 function getScrollableAncestor(node: HTMLElement | null): HTMLElement | null {
   let current = node?.parentElement ?? null;
@@ -18,7 +20,7 @@ function getScrollableAncestor(node: HTMLElement | null): HTMLElement | null {
     const overflowY = style.overflowY;
     const scrollableY =
       (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
-      current.scrollHeight > current.clientHeight;
+      current.scrollHeight > current.clientHeight + 1;
     if (scrollableY) return current;
     current = current.parentElement;
   }
@@ -29,7 +31,7 @@ function isAtTop(node: HTMLElement | null): boolean {
   if (typeof window === "undefined") return true;
   const scroller = getScrollableAncestor(node);
   if (scroller) return scroller.scrollTop <= 2;
-  return window.scrollY <= 2;
+  return (window.scrollY || document.documentElement.scrollTop || 0) <= 2;
 }
 
 type Props = {
@@ -41,7 +43,8 @@ type Props = {
 
 /**
  * Swipe-down-to-refresh for document-scrolling pages (mobile / WebView).
- * Activates only when the page is already scrolled to the top.
+ * Activates only when the page is already scrolled to the top, and only
+ * after a clear downward pull — never blocks normal pan scrolling.
  */
 export function PullToRefresh({
   onRefresh,
@@ -52,12 +55,16 @@ export function PullToRefresh({
   const [pull, setPull] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const startY = useRef<number | null>(null);
+  const startX = useRef<number | null>(null);
   const armed = useRef(false);
+  const tracking = useRef(false);
   const pullRef = useRef(0);
 
   const reset = useCallback(() => {
     startY.current = null;
+    startX.current = null;
     armed.current = false;
+    tracking.current = false;
     pullRef.current = 0;
     setPull(0);
   }, []);
@@ -65,29 +72,39 @@ export function PullToRefresh({
   const onTouchStart = (e: ReactTouchEvent) => {
     if (disabled || refreshing) return;
     if (!isAtTop(e.currentTarget)) {
-      startY.current = null;
+      reset();
       return;
     }
     startY.current = e.touches[0]?.clientY ?? null;
+    startX.current = e.touches[0]?.clientX ?? null;
     armed.current = false;
+    tracking.current = true;
   };
 
   const onTouchMove = (e: ReactTouchEvent) => {
-    if (startY.current == null || disabled || refreshing) return;
+    if (!tracking.current || startY.current == null || disabled || refreshing) return;
     if (!isAtTop(e.currentTarget)) {
       reset();
       return;
     }
+
     const y = e.touches[0]?.clientY ?? startY.current;
+    const x = e.touches[0]?.clientX ?? startX.current ?? 0;
     const dy = y - startY.current;
-    if (dy <= 0) {
-      pullRef.current = 0;
-      setPull(0);
-      armed.current = false;
+    const dx = Math.abs(x - (startX.current ?? x));
+
+    // Horizontal or upward pans: never hijack.
+    if (dy <= ARM_DELTA || dx > dy) {
+      if (armed.current) {
+        pullRef.current = 0;
+        setPull(0);
+        armed.current = false;
+      }
       return;
     }
+
     armed.current = true;
-    const dampened = Math.min(MAX_PULL, dy * 0.42);
+    const dampened = Math.min(MAX_PULL, (dy - ARM_DELTA) * 0.42);
     pullRef.current = dampened;
     setPull(dampened);
   };
@@ -99,7 +116,9 @@ export function PullToRefresh({
     }
     const shouldRefresh = pullRef.current >= THRESHOLD;
     armed.current = false;
+    tracking.current = false;
     startY.current = null;
+    startX.current = null;
 
     if (!shouldRefresh) {
       pullRef.current = 0;

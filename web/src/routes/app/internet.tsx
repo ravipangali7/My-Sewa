@@ -1,13 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Search, Wifi, ChevronRight, Check, X } from "lucide-react";
+import { ArrowLeft, Search, Wifi, ChevronRight, Check } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
@@ -56,7 +57,7 @@ function InternetBillPayment() {
   );
   const { filters, setFilters, debounced } = useListFilters();
   const [exporting, setExporting] = useState(false);
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
 
@@ -241,6 +242,12 @@ function InternetBillPayment() {
   }, [step, t]);
 
   const isps = ispsQuery.data?.isps ?? [];
+  const localIspLogos: Record<string, string> = {
+    worldlink: "/isps/worldlink.png",
+    vianet: "/isps/vianet.png",
+    subisu: "/isps/subisu.png",
+    dishhome: "/isps/dishhome.png",
+  };
   const ispLogoDomainByName: Record<string, string> = {
     worldlink: "worldlink.com.np",
     vianet: "vianet.com.np",
@@ -250,6 +257,7 @@ function InternetBillPayment() {
   };
 
   const resolveIspLogo = (isp: IspOption) => {
+    if (localIspLogos[isp.id]) return localIspLogos[isp.id];
     if (isp.logo_image_url) return isp.logo_image_url;
     const normalizedName = isp.name.toLowerCase();
     const matched = Object.entries(ispLogoDomainByName).find(([key]) =>
@@ -260,7 +268,26 @@ function InternetBillPayment() {
   };
 
   return (
-    <UserShell title={t("internet.title")} back="/app">
+    <UserShell
+      title={t("internet.title")}
+      back="/app"
+      headerTrailing={
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
+            "hover:bg-white/25",
+            "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+          )}
+          onClick={() => setSearchOpen(true)}
+          aria-label={t("internet.searchTitle")}
+        >
+          <Search className="size-4" />
+        </Button>
+      }
+    >
       <div className="space-y-5">
         {accountPending ? <AccountPendingBanner /> : null}
         {!enabled && !accountPending ? (
@@ -543,73 +570,9 @@ function InternetBillPayment() {
               />
             </div>
           ) : null}
-          <div className="hidden lg:block">
-            <ListPageToolbar
-              stats={internetStats}
-              filters={filters}
-              onFiltersChange={setFilters}
-              onExport={async () => {
-                setExporting(true);
-                try {
-                  await downloadCsvExport("/api/internet/history/", debounced, "internet-bills.csv");
-                } finally {
-                  setExporting(false);
-                }
-              }}
-              exporting={exporting}
-              searchPlaceholder="Search"
-              exportLabel={t("list.exportCsv")}
-              statsLabels={{
-                total: t("list.statsTotal"),
-                success: t("list.statsSuccess"),
-                pending: t("list.statsPending"),
-                failed: t("list.statsFailed"),
-              }}
-              statusOptions={[...TXN_STATUS_OPTIONS]}
-            />
-          </div>
-          <div className="mb-2 mt-4 flex items-center justify-between gap-2 px-1">
+          <div className="mb-2 mt-4 px-1">
             <h2 className="text-[17px] font-semibold">{t("internet.history")}</h2>
-            <Button
-              type="button"
-              variant={mobileSearchOpen ? "secondary" : "outline"}
-              size="sm"
-              className="h-9 gap-1.5 rounded-full px-3 lg:hidden"
-              onClick={() => setMobileSearchOpen((open) => !open)}
-              aria-expanded={mobileSearchOpen}
-              aria-label={mobileSearchOpen ? "Close search panel" : "Open search panel"}
-            >
-              {mobileSearchOpen ? <X className="size-4" /> : <Search className="size-4" />}
-              {mobileSearchOpen ? "Close" : "Search"}
-            </Button>
           </div>
-          {mobileSearchOpen ? (
-            <div className="mb-3 rounded-xl border border-border/70 bg-background/95 p-2 lg:hidden">
-              <ListPageToolbar
-                stats={internetStats}
-                filters={filters}
-                onFiltersChange={setFilters}
-                onExport={async () => {
-                  setExporting(true);
-                  try {
-                    await downloadCsvExport("/api/internet/history/", debounced, "internet-bills.csv");
-                  } finally {
-                    setExporting(false);
-                  }
-                }}
-                exporting={exporting}
-                searchPlaceholder="Search"
-                exportLabel={t("list.exportCsv")}
-                statsLabels={{
-                  total: t("list.statsTotal"),
-                  success: t("list.statsSuccess"),
-                  pending: t("list.statsPending"),
-                  failed: t("list.statsFailed"),
-                }}
-                statusOptions={[...TXN_STATUS_OPTIONS]}
-              />
-            </div>
-          ) : null}
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
@@ -653,6 +616,43 @@ function InternetBillPayment() {
           )}
         </section>
       </div>
+      <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
+        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
+          <SheetHeader className="mb-4 text-left">
+            <SheetTitle>{t("internet.searchTitle")}</SheetTitle>
+          </SheetHeader>
+          <ListPageToolbar
+            stats={internetStats}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/internet/history/", debounced, "internet-bills.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder={t("internet.searchPlaceholder")}
+            exportLabel={t("list.exportCsv")}
+            statsLabels={{
+              total: t("list.statsTotal"),
+              success: t("list.statsSuccess"),
+              pending: t("list.statsPending"),
+              failed: t("list.statsFailed"),
+            }}
+            statusOptions={[...TXN_STATUS_OPTIONS]}
+          />
+          <Button
+            type="button"
+            className="mt-4 h-11 w-full rounded-xl"
+            onClick={() => setSearchOpen(false)}
+          >
+            {t("history.applyFilters")}
+          </Button>
+        </SheetContent>
+      </Sheet>
     </UserShell>
   );
 }

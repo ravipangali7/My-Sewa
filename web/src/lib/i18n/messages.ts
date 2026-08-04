@@ -365,6 +365,8 @@ export const messages = {
     "internet.disabledError": "Internet bill payments are currently disabled.",
     "internet.history": "Recent internet payments",
     "internet.empty": "No internet bill payments yet.",
+    "internet.searchTitle": "Search internet payments",
+    "internet.searchPlaceholder": "Search ISP, customer ID, package…",
 
     "dataTopup.title": "Data Top-Up",
     "dataTopup.stepOperator": "Select operator",
@@ -947,6 +949,8 @@ export const messages = {
     "internet.disabledBody": "एडमिनले इन्टरनेट बिल भुक्तानी हाल निष्क्रिय गरेका छन्।",
     "internet.disabledError": "इन्टरनेट बिल भुक्तानी हाल निष्क्रिय छ।",
     "internet.history": "हालका इन्टरनेट भुक्तानी",
+    "internet.searchTitle": "इन्टरनेट भुक्तानी खोज्नुहोस्",
+    "internet.searchPlaceholder": "ISP, ग्राहक ID, प्याकेज खोज्नुहोस्…",
     "internet.empty": "अहिले कुनै इन्टरनेट भुक्तानी छैन।",
 
     "dataTopup.title": "डाटा टप-अप",

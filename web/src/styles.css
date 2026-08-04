@@ -163,9 +163,13 @@
 
   html {
     width: 100%;
-    overflow-x: hidden;
+    height: auto;
+    max-height: none;
+    /* clip (not hidden): hidden forces overflow-y:auto and traps WebView scroll */
+    overflow-x: clip;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
   }
 
   body {
@@ -174,12 +178,34 @@
     -webkit-font-smoothing: antialiased;
     width: 100%;
     min-height: 100%;
-    overflow-x: hidden;
-    overflow-y: auto;
+    height: auto;
+    max-height: none;
+    overflow-x: clip;
+    /* Keep body from becoming a second scrollport; document scrolls on html. */
+    overflow-y: visible;
     -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
     /* Prefer our in-app pull-to-refresh over native overscroll bounce. */
     overscroll-behavior-y: contain;
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  /* Flutter WebView shell: hard-guarantee document scrolling. */
+  html.mysewa-native,
+  html.mysewa-native body {
+    height: auto !important;
+    max-height: none !important;
+    overflow-x: clip !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-x pan-y !important;
+  }
+
+  html.mysewa-native {
+    overflow-y: auto !important;
+  }
+
+  html.mysewa-native body {
+    overflow-y: visible !important;
   }
 }
