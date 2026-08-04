@@ -272,15 +272,8 @@ class _WebViewScreenState extends State<WebViewScreen>
       await android.setMediaPlaybackRequiresUserGesture(false);
       await android.setTextZoom(100);
       await android.setOnShowFileSelector(_androidFileSelector);
-      await android.setGeolocationPermissionsPromptCallbacks(
-        onShowPrompt: (request) async {
-          return const GeolocationPermissionsResponse(
-            allow: true,
-            retain: true,
-          );
-        },
-        onHidePrompt: () {},
-      );
+      // Avoid plugin-side nullability crash in some Android WebView callback
+      // paths by not wiring optional geolocation prompt callbacks.
     }
 
     if (controller.platform is WebKitWebViewController) {
