@@ -329,8 +329,15 @@ def topup_services(request):
 @permission_classes([IsAuthenticated])
 def calculate_charge(request):
     """Calculate HimalPay cashback and charge for a service/amount (+ platform fee)."""
-    blocked = require_feature_enabled('topups')
-    if blocked and (request.data.get('wallet_service_name') or '').upper() in ('NTC', 'NCELL'):
+    service = (request.data.get('wallet_service_name') or '').upper()
+    blocked = None
+    if service in ('NTC', 'NCELL'):
+        blocked = require_feature_enabled('topups')
+    elif 'DATA_PACK' in service:
+        blocked = require_feature_enabled('data_packs')
+    elif service.endswith('_PAY') or service.endswith('_GET'):
+        blocked = require_feature_enabled('internet_bills')
+    if blocked:
         return blocked
 
     serializer = CalculateChargeSerializer(data=request.data)
@@ -341,9 +348,10 @@ def calculate_charge(request):
     amount = serializer.validated_data['amount']
     service = serializer.validated_data['wallet_service_name']
     tx_cfg = get_app_config().get('transactions') or {}
+    service_upper = service.upper()
     platform_fee = (
         platform_topup_charge(amount, tx_cfg.get('topup_charge_percent', 0))
-        if service.upper() in ('NTC', 'NCELL')
+        if service_upper in ('NTC', 'NCELL') or 'DATA_PACK' in service_upper
         else Decimal('0.00')
     )
     try:

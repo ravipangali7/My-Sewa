@@ -20,6 +20,7 @@ from ..serializers import (
     TransactionStatusSerializer,
 )
 from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.himalpay_parse import parse_data_pack_inquiry
 from ..services.app_config import (
     get_app_config,
     platform_topup_charge,
@@ -73,54 +74,8 @@ def _apply_fee_fields(txn, himalpay: HimalPayAPI, response: dict, amount, platfo
 
 
 def _normalize_packages(raw: dict, operator: str) -> list:
-    """Extract selectable data packages from HimalPay inquiry response."""
-    packages = []
-    data = raw.get('data') if isinstance(raw.get('data'), dict) else raw
-    nested = data.get('data') if isinstance(data, dict) and isinstance(data.get('data'), dict) else data
-    candidates = (
-        (nested.get('packages') if isinstance(nested, dict) else None)
-        or (data.get('packages') if isinstance(data, dict) else None)
-        or raw.get('packages')
-        or []
-    )
-    if not isinstance(candidates, list):
-        return packages
-
-    for idx, pkg in enumerate(candidates):
-        if not isinstance(pkg, dict):
-            continue
-        name = (
-            pkg.get('name')
-            or pkg.get('package_name')
-            or pkg.get('title')
-            or pkg.get('description')
-            or f'Package {idx + 1}'
-        )
-        amount_paisa = pkg.get('amount') or pkg.get('price') or pkg.get('cost')
-        amount = '0.00'
-        if amount_paisa is not None:
-            try:
-                amount = f'{int(amount_paisa) / 100:.2f}'
-            except (TypeError, ValueError):
-                try:
-                    amount = f'{float(amount_paisa):.2f}'
-                except (TypeError, ValueError):
-                    pass
-        package_id = pkg.get('package_id') or pkg.get('id')
-        product_code = pkg.get('product_code') or pkg.get('code') or package_id
-        validity = pkg.get('validity') or pkg.get('duration') or pkg.get('days')
-        volume = pkg.get('volume') or pkg.get('data') or pkg.get('size')
-        packages.append({
-            'id': str(package_id or idx),
-            'name': str(name),
-            'amount': amount,
-            'validity': validity,
-            'volume': volume,
-            'package_id': str(package_id) if package_id is not None else '',
-            'product_code': str(product_code) if product_code is not None else '',
-            'operator': operator,
-        })
-    return packages
+    """Extract selectable data packages from live HimalPay inquiry response."""
+    return parse_data_pack_inquiry(raw, operator)
 
 
 @api_view(['POST'])
@@ -145,7 +100,8 @@ def inquiry_packages(request):
         return Response({'error': 'Unsupported operator.'}, status=status.HTTP_400_BAD_REQUEST)
 
     himalpay = HimalPayAPI()
-    inquiry_data = {}
+    # HimalPay NTC/NCELL data pack catalog is fetched with empty data per API spec.
+    inquiry_data: dict = {}
     if mobile:
         inquiry_data['number'] = mobile
 
@@ -156,19 +112,17 @@ def inquiry_packages(request):
             return Response(
                 {
                     'error': 'No data packages available.',
-                    'message': 'No data packages available for this operator.',
-                    'raw': raw,
+                    'message': 'No data packages are currently available from the operator.',
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(
             {
-                'message': 'Packages retrieved.',
+                'message': 'Live packages retrieved from operator.',
                 'data': {
                     'operator': operator,
                     'mobile_number': mobile,
                     'packages': packages,
-                    'raw': raw,
                 },
             },
             status=status.HTTP_200_OK,
@@ -267,6 +221,7 @@ def pay_data_pack(request):
         charge=charge,
         cashback=cashback,
         total_debited=total_required,
+        inquiry_response={'operator': operator, 'package_id': package_id, 'product_code': product_code},
     )
 
     try:

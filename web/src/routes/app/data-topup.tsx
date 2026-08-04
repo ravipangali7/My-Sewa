@@ -37,7 +37,7 @@ export const Route = createFileRoute("/app/data-topup")({
   component: DataTopUp,
 });
 
-type Step = "operator" | "mobile" | "packages" | "pay";
+type Step = "operator" | "packages" | "mobile" | "pay";
 type Operator = "NTC" | "NCELL";
 
 function DataTopUp() {
@@ -134,22 +134,15 @@ function DataTopUp() {
   }, [selectedPackage, pkgAmount, payService, enabled]);
 
   const packagesMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (op: Operator) => {
       if (accountPending) throw new Error(t("account.pending"));
       if (!enabled) throw new Error(t("dataTopup.disabledError"));
-      setTouchedMobile(true);
-      if (validateOperatorMobile(productId, mobile)) {
-        throw new Error(t("topup.invalidNumber"));
-      }
-      return apiClient.dataPackInquiry({
-        operator,
-        mobile_number: normalizedMobile,
-      });
+      return apiClient.dataPackInquiry({ operator: op });
     },
-    onSuccess: (res) => {
+    onSuccess: (res, op) => {
+      setOperator(op);
       setPackages(res.data.packages);
       setStep("packages");
-      toast.success(t("dataTopup.packagesLoaded"));
     },
     onError: (err) => {
       toastApiError(err, {
@@ -214,15 +207,15 @@ function DataTopUp() {
   };
 
   const goBack = () => {
-    if (step === "pay") setStep("packages");
-    else if (step === "packages") setStep("mobile");
-    else if (step === "mobile") setStep("operator");
+    if (step === "pay") setStep("mobile");
+    else if (step === "mobile") setStep("packages");
+    else if (step === "packages") setStep("operator");
   };
 
   const stepTitle = useMemo(() => {
     if (step === "operator") return t("dataTopup.stepOperator");
-    if (step === "mobile") return t("dataTopup.stepMobile");
     if (step === "packages") return t("dataTopup.stepPackages");
+    if (step === "mobile") return t("dataTopup.stepMobile");
     return t("dataTopup.stepPay");
   }, [step, t]);
 
@@ -263,19 +256,17 @@ function DataTopUp() {
           {step === "operator" ? (
             <div className="space-y-4">
               <p className="text-[13px] text-muted-foreground">{t("dataTopup.operatorHelp")}</p>
+              <p className="text-[12px] text-muted-foreground">{t("dataTopup.livePackagesHint")}</p>
               <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
                 {(["NTC", "NCELL"] as const).map((op) => (
                   <button
                     key={op}
                     type="button"
-                    disabled={!enabled}
-                    onClick={() => {
-                      setOperator(op);
-                      setStep("mobile");
-                    }}
+                    disabled={!enabled || packagesMutation.isPending}
+                    onClick={() => packagesMutation.mutate(op)}
                     className={cn(
                       "flex items-center justify-center gap-2 rounded-lg py-3 text-[15px] font-medium transition-colors",
-                      operator === op && step === "operator"
+                      operator === op
                         ? "bg-surface text-brand-dark shadow-card"
                         : "text-muted-foreground hover:text-foreground",
                     )}
@@ -285,20 +276,60 @@ function DataTopUp() {
                   </button>
                 ))}
               </div>
+              {packagesMutation.isPending ? (
+                <p className="text-center text-[13px] text-muted-foreground">
+                  {t("dataTopup.fetchingPackages")}
+                </p>
+              ) : null}
             </div>
           ) : null}
 
-          {step === "mobile" ? (
+          {step === "packages" ? (
+            <div className="space-y-3">
+              <p className="rounded-xl bg-muted/60 px-3 py-2 text-[13px] text-muted-foreground">
+                {operator} · {t("dataTopup.livePackagesHint")}
+              </p>
+              <ul className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+                {packages.map((pkg) => (
+                  <li key={pkg.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPackage(pkg);
+                        setStep("mobile");
+                      }}
+                      className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface px-3 py-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[15px] font-semibold">{pkg.name}</p>
+                        <p className="text-[12px] text-muted-foreground">
+                          {[pkg.volume, pkg.validity].filter(Boolean).join(" · ")}
+                        </p>
+                      </div>
+                      <p className="tabular text-[16px] font-bold text-brand-dark">
+                        {formatNPR(pkg.amount)}
+                      </p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {step === "mobile" && selectedPackage ? (
             <form
               className="space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                packagesMutation.mutate();
+                setTouchedMobile(true);
+                if (!mobileReady) return;
+                setStep("pay");
               }}
             >
-              <div className="flex items-center gap-2 rounded-xl bg-brand/10 px-3 py-2">
-                <Signal className="size-4 text-brand" />
-                <span className="text-[14px] font-semibold">{operator}</span>
+              <div className="rounded-xl border border-brand/15 bg-brand/5 p-3">
+                <p className="text-[13px] text-muted-foreground">{operator}</p>
+                <p className="text-[15px] font-semibold">{selectedPackage.name}</p>
+                <p className="tabular text-[18px] font-bold">{formatNPR(selectedPackage.amount)}</p>
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
@@ -342,44 +373,12 @@ function DataTopUp() {
               </div>
               <Button
                 type="submit"
-                disabled={packagesMutation.isPending || !enabled || !mobileReady}
+                disabled={!enabled || !mobileReady}
                 className="h-12 w-full rounded-xl text-[17px]"
               >
-                {packagesMutation.isPending ? t("common.loading") : t("dataTopup.loadPackages")}
+                {t("common.continue")}
               </Button>
             </form>
-          ) : null}
-
-          {step === "packages" ? (
-            <div className="space-y-3">
-              <p className="rounded-xl bg-muted/60 px-3 py-2 text-[13px] text-muted-foreground">
-                {operator} · {normalizedMobile}
-              </p>
-              <ul className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
-                {packages.map((pkg) => (
-                  <li key={pkg.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedPackage(pkg);
-                        setStep("pay");
-                      }}
-                      className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface px-3 py-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[15px] font-semibold">{pkg.name}</p>
-                        <p className="text-[12px] text-muted-foreground">
-                          {[pkg.volume, pkg.validity].filter(Boolean).join(" · ")}
-                        </p>
-                      </div>
-                      <p className="tabular text-[16px] font-bold text-brand-dark">
-                        {formatNPR(pkg.amount)}
-                      </p>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
           ) : null}
 
           {step === "pay" && selectedPackage ? (

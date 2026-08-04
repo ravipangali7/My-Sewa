@@ -310,6 +310,7 @@ export interface IspOption {
   placeholder: string;
   color?: string;
   pay_service?: string;
+  logo_image_url?: string | null;
 }
 
 export interface InternetBillPackage {
@@ -326,6 +327,13 @@ export interface InternetBillInquiry {
   isp_name: string;
   customer_id: string;
   customer_name?: string | null;
+  current_package?: string | null;
+  billing_period?: string | null;
+  due_date?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  subscription_status?: string | null;
+  payable_amount?: string | null;
   packages: InternetBillPackage[];
 }
 

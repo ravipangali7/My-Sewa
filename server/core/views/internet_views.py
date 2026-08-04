@@ -63,11 +63,24 @@ def _apply_fee_fields(txn, himalpay: HimalPayAPI, response: dict, amount):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_isps(request):
-    """List supported Internet Service Providers."""
+    """List ISP bill payment services enabled on the HimalPay reseller account."""
     blocked = require_feature_enabled('internet_bills')
     if blocked:
         return blocked
-    return Response({'isps': list_isps_public()}, status=status.HTTP_200_OK)
+
+    himalpay = HimalPayAPI()
+    reseller_services = None
+    try:
+        services = himalpay.list_services()
+        if isinstance(services, list):
+            reseller_services = services
+    except HimalPayError as exc:
+        logger.warning('Could not fetch HimalPay services for ISP list: %s', exc.message)
+
+    return Response(
+        {'isps': list_isps_public(reseller_services)},
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['POST'])
@@ -100,13 +113,16 @@ def inquiry_bill(request):
             return Response(
                 {
                     'error': 'No bill or package found for this customer ID.',
-                    'message': 'No bill or package found for this customer ID.',
+                    'message': (
+                        'No active subscription or payable bill was found for this customer ID. '
+                        'Please verify the ID and try again.'
+                    ),
                     'data': normalized,
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(
-            {'message': 'Bill details retrieved.', 'data': normalized},
+            {'message': 'Bill details retrieved from provider.', 'data': normalized},
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:

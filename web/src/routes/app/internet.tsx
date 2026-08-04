@@ -271,10 +271,14 @@ function InternetBillPayment() {
                         className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface px-3 py-3 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:opacity-50"
                       >
                         <span
-                          className="flex size-10 shrink-0 items-center justify-center rounded-xl text-white"
+                          className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl text-white"
                           style={{ backgroundColor: isp.color || "#2563EB" }}
                         >
-                          <Wifi className="size-5" />
+                          {isp.logo_image_url ? (
+                            <img src={isp.logo_image_url} alt="" className="size-full object-cover" />
+                          ) : (
+                            <Wifi className="size-5" />
+                          )}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block text-[15px] font-semibold">{isp.name}</span>
@@ -331,7 +335,7 @@ function InternetBillPayment() {
                 className="h-12 w-full rounded-xl text-[17px]"
               >
                 <Search className="mr-2 size-4" />
-                {inquiryMutation.isPending ? t("common.loading") : t("internet.inquiry")}
+                {inquiryMutation.isPending ? t("internet.liveInquiry") : t("internet.inquiry")}
               </Button>
             </form>
           ) : null}
@@ -344,6 +348,22 @@ function InternetBillPayment() {
                 {inquiry.customer_name ? (
                   <Row label={t("internet.customerName")} value={inquiry.customer_name} />
                 ) : null}
+                {inquiry.current_package ? (
+                  <Row label={t("internet.currentPackage")} value={inquiry.current_package} />
+                ) : null}
+                {inquiry.billing_period ? (
+                  <Row label={t("internet.billingPeriod")} value={String(inquiry.billing_period)} />
+                ) : null}
+                {inquiry.due_date ? (
+                  <Row label={t("internet.dueDate")} value={inquiry.due_date} />
+                ) : null}
+                {inquiry.subscription_status ? (
+                  <Row label={t("internet.subscriptionStatus")} value={inquiry.subscription_status} />
+                ) : null}
+                {inquiry.payable_amount ? (
+                  <Row label={t("internet.payableAmount")} value={formatNPR(inquiry.payable_amount)} strong />
+                ) : null}
+                {inquiry.phone ? <Row label={t("common.mobile")} value={inquiry.phone} /> : null}
               </dl>
 
               <div className="space-y-2">
