@@ -16,6 +16,11 @@ import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
+import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
+import { useListFilters, DEPOSIT_STATUS_OPTIONS } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
+import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 
 export const Route = createFileRoute("/app/load")({
   head: () => ({
@@ -40,6 +45,15 @@ function LoadWallet() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t } = useI18n();
+  const { logoUrl } = useSiteBranding();
+  const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
+    t,
+    user?.phone,
+    logoUrl,
+  );
+  const { filters, setFilters, debounced } = useListFilters();
+  const [exporting, setExporting] = useState(false);
+  const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
@@ -51,10 +65,12 @@ function LoadWallet() {
   });
 
   const depositsQuery = useQuery({
-    queryKey: ["deposits"],
-    queryFn: () => apiClient.listDeposits(),
+    queryKey: ["deposits", debounced],
+    queryFn: () => apiClient.listDeposits(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
+  const depositItems = depositsQuery.data?.items ?? [];
+  const depositStats = depositsQuery.data?.stats;
 
   const payment = settingsQuery.data?.config?.payment;
   const security = settingsQuery.data?.config?.security;
@@ -80,11 +96,12 @@ function LoadWallet() {
       if (file) fd.append("screenshot_proof", file);
       return apiClient.createDeposit(fd);
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       toast.success(t("load.submitted"), { description: t("load.pendingApproval") });
       setAmount("");
       setNote("");
       setFile(null);
+      setLastReceiptId(activityIdForKind("deposit", res.data.id));
       queryClient.invalidateQueries({ queryKey: ["deposits"] });
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
     },
@@ -236,36 +253,94 @@ function LoadWallet() {
         </section>
 
         <section className="lg:col-span-2">
-          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("load.myDeposits")}</h2>
+          {lastReceiptId ? (
+            <div className="mb-3">
+              <TransactionResultBanner
+                tone={
+                  depositItems.find(
+                    (x) => activityIdForKind("deposit", x.id) === lastReceiptId,
+                  )?.status === "rejected"
+                    ? "danger"
+                    : depositItems.find(
+                          (x) => activityIdForKind("deposit", x.id) === lastReceiptId,
+                        )?.status === "pending"
+                      ? "warning"
+                      : "success"
+                }
+                title={t("load.submitted")}
+                body={t("history.downloadStatement")}
+                receiptLabel={t("history.downloadPdf")}
+                onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
+                downloading={receiptDownloading}
+              />
+            </div>
+          ) : null}
+          <ListPageToolbar
+            stats={depositStats}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/deposit/list/", debounced, "deposits.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder={t("list.searchPlaceholder")}
+            exportLabel={t("list.exportCsv")}
+            statsLabels={{
+              total: t("list.statsTotal"),
+              success: t("list.statsSuccess"),
+              pending: t("list.statsPending"),
+              failed: t("list.statsFailed"),
+            }}
+            statusOptions={[...DEPOSIT_STATUS_OPTIONS]}
+          />
+          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("load.myDeposits")}</h2>
           {depositsQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
             </div>
-          ) : !depositsQuery.data?.length ? (
+          ) : !depositItems.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("load.empty")}
             </div>
           ) : (
             <ul className="inset-group divide-y divide-border">
-              {depositsQuery.data.map((d) => (
-                <li key={d.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[15px] font-medium">
-                      {formatNPR(d.amount)}{" "}
-                      <span className="text-[13px] font-normal text-muted-foreground">
-                        · #{d.id}
-                      </span>
-                    </p>
-                    <p className="truncate text-[13px] text-muted-foreground">
-                      {d.note ?? t("common.noNote")} · {formatDateTime(d.created_at)}
-                    </p>
-                    {d.status === "rejected" && d.rejection_reason ? (
-                      <p className="mt-0.5 text-[13px] text-destructive">
-                        {t("common.reason", { reason: d.rejection_reason })}
+              {depositItems.map((d) => (
+                <li key={d.id} className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[15px] font-medium">
+                        {formatNPR(d.amount)}{" "}
+                        <span className="text-[13px] font-normal text-muted-foreground">
+                          · #{d.id}
+                        </span>
                       </p>
-                    ) : null}
+                      <p className="truncate text-[13px] text-muted-foreground">
+                        {d.note ?? t("common.noNote")} · {formatDateTime(d.created_at)}
+                      </p>
+                      {d.status === "rejected" && d.rejection_reason ? (
+                        <p className="mt-0.5 text-[13px] text-destructive">
+                          {t("common.reason", { reason: d.rejection_reason })}
+                        </p>
+                      ) : null}
+                    </div>
+                    <StatusChip status={d.status} />
                   </div>
-                  <StatusChip status={d.status} />
+                  {(d.status === "approved" || d.status === "rejected") && (
+                    <div className="mt-1 flex justify-end">
+                      <ReceiptDownloadLink
+                        label={t("list.downloadReceipt")}
+                        downloading={receiptDownloading}
+                        onClick={() =>
+                          void downloadReceipt(activityIdForKind("deposit", d.id))
+                        }
+                      />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

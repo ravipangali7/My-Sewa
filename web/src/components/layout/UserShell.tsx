@@ -97,7 +97,7 @@ export function UserShell({
     [user.first_name, user.last_name].filter(Boolean).join(" ") || user.phone;
 
   return (
-    <div className="min-h-screen bg-background lg:flex">
+    <div className="min-h-screen w-full overflow-x-hidden bg-background lg:flex">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex">
         <Link to="/app" className="mb-8 flex items-center gap-2.5 px-2">
           <img src={logoUrl} alt="MySewa" className="size-9 rounded-full object-cover" />
@@ -145,7 +145,7 @@ export function UserShell({
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 w-full max-w-full flex-1 flex-col">
         {!hideHeader && (
           <header className="sticky top-0 z-30 bg-hero-gradient px-4 pt-[max(14px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-5 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
             <div className="flex items-center gap-3">
@@ -172,12 +172,17 @@ export function UserShell({
 
         <main
           className={cn(
-            "flex-1 lg:px-8 lg:pb-10",
+            "min-w-0 max-w-full flex-1 lg:px-8 lg:pb-10",
             hideHeader ? "px-0 pb-28" : "px-4 pb-28",
           )}
         >
-          <PullToRefresh onRefresh={handlePullRefresh}>
-            <div className={cn("mx-auto w-full", hideHeader ? "max-w-lg lg:max-w-6xl" : "max-w-6xl")}>
+          <PullToRefresh onRefresh={handlePullRefresh} className="min-w-0 w-full max-w-full">
+            <div
+              className={cn(
+                "mx-auto min-w-0 w-full max-w-full",
+                hideHeader ? "max-w-lg lg:max-w-6xl" : "max-w-6xl",
+              )}
+            >
               {maintenance ? (
                 <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100">
                   <p className="font-medium">{t("maintenance.title")}</p>

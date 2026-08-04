@@ -31,6 +31,11 @@ import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
+import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
+import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
+import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 import type { DataPackOption, DataPackTransaction } from "@/lib/types";
 
 export const Route = createFileRoute("/app/data-topup")({
@@ -52,6 +57,15 @@ function DataTopUp() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t } = useI18n();
+  const { logoUrl } = useSiteBranding();
+  const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
+    t,
+    user?.phone,
+    logoUrl,
+  );
+  const { filters, setFilters, debounced } = useListFilters();
+  const [exporting, setExporting] = useState(false);
+  const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
 
   const [step, setStep] = useState<Step>("operator");
@@ -84,10 +98,12 @@ function DataTopUp() {
   });
 
   const historyQuery = useQuery({
-    queryKey: ["data-packs"],
-    queryFn: () => apiClient.dataPackHistory(),
+    queryKey: ["data-packs", debounced],
+    queryFn: () => apiClient.dataPackHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
+  const dataPackItems = historyQuery.data?.items ?? [];
+  const dataPackStats = historyQuery.data?.stats;
 
   const mobileError = useMemo(
     () => validateOperatorMobile(productId, mobile),
@@ -198,6 +214,7 @@ function DataTopUp() {
         });
       }
       resetFlow();
+      setLastReceiptId(activityIdForKind("data_pack", res.data.id));
       queryClient.invalidateQueries({ queryKey: ["data-packs"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
@@ -246,7 +263,7 @@ function DataTopUp() {
 
   return (
     <UserShell title={t("dataTopup.title")} back="/app">
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />
@@ -259,7 +276,7 @@ function DataTopUp() {
           </section>
         ) : null}
 
-        <section className={cn("inset-group", step === "packages" ? "overflow-hidden p-0" : "p-4")}>
+        <section className={cn("min-w-0", "inset-group", step === "packages" ? "overflow-hidden p-0" : "p-4")}>
           {step !== "packages" ? (
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="text-[15px] font-semibold">{stepTitle}</h2>
@@ -346,7 +363,7 @@ function DataTopUp() {
 
               <div className="bg-surface px-3 pb-3 pt-3">
                 <div className="overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="inline-flex min-w-full gap-1 rounded-full bg-muted p-1">
+                  <div className="flex w-max min-w-full gap-1 rounded-full bg-muted p-1">
                     {categories.map((category) => (
                       <button
                         key={category}
@@ -522,34 +539,90 @@ function DataTopUp() {
           ) : null}
         </section>
 
-        <section>
-          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("dataTopup.recent")}</h2>
+        <section className="min-w-0">
+          {lastReceiptId ? (
+            <div className="mb-3">
+              <TransactionResultBanner
+                tone={
+                  dataPackItems.find(
+                    (x) => activityIdForKind("data_pack", x.id) === lastReceiptId,
+                  )?.status === "failed"
+                    ? "danger"
+                    : dataPackItems.find(
+                          (x) => activityIdForKind("data_pack", x.id) === lastReceiptId,
+                        )?.status === "pending"
+                      ? "warning"
+                      : "success"
+                }
+                title={t("dataTopup.success")}
+                body={t("history.downloadStatement")}
+                receiptLabel={t("history.downloadPdf")}
+                onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
+                downloading={receiptDownloading}
+              />
+            </div>
+          ) : null}
+          <ListPageToolbar
+            stats={dataPackStats}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/data-pack/history/", debounced, "data-packs.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder={t("list.searchPlaceholder")}
+            exportLabel={t("list.exportCsv")}
+            statsLabels={{
+              total: t("list.statsTotal"),
+              success: t("list.statsSuccess"),
+              pending: t("list.statsPending"),
+              failed: t("list.statsFailed"),
+            }}
+            statusOptions={[...TXN_STATUS_OPTIONS]}
+          />
+          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("dataTopup.recent")}</h2>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
             </div>
-          ) : !historyQuery.data?.length ? (
+          ) : !dataPackItems.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("dataTopup.empty")}
             </div>
           ) : (
-            <ul className="inset-group divide-y divide-border">
-              {historyQuery.data.map((item: DataPackTransaction) => (
+            <ul className="inset-group min-w-0 divide-y divide-border overflow-hidden">
+              {dataPackItems.map((item: DataPackTransaction) => (
                 <li key={item.id} className="px-4 py-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[15px] font-medium">
+                      <p className="truncate text-[15px] font-medium">
                         {item.operator} Data · {item.mobile_number}
                       </p>
                       <p className="truncate text-[13px] text-muted-foreground">
                         {item.package_name || item.merchant_txn_id} · {formatDateTime(item.created_at)}
                       </p>
                     </div>
-                    <div className="text-right">
+                    <div className="shrink-0 text-right">
                       <p className="tabular text-[15px] font-semibold">{formatNPR(item.amount)}</p>
                       <StatusChip status={item.status} compact className="mt-1" />
                     </div>
                   </div>
+                  {(item.status === "success" || item.status === "failed") && (
+                    <div className="mt-1 flex justify-end">
+                      <ReceiptDownloadLink
+                        label={t("list.downloadReceipt")}
+                        downloading={receiptDownloading}
+                        onClick={() =>
+                          void downloadReceipt(activityIdForKind("data_pack", item.id))
+                        }
+                      />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

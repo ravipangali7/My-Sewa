@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { ListPageToolbar } from "@/components/list/ListPageToolbar";
 import {
   AdminDataList,
   AdminEmptyState,
@@ -28,6 +30,8 @@ import {
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import type { TxnStatus } from "@/lib/types";
+import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
 
 export const Route = createFileRoute("/admin/transfers")({
   head: () => ({
@@ -56,9 +60,12 @@ const STATUS_OPTIONS: { value: TxnStatus; label: string }[] = [
 
 function TransfersPage() {
   const queryClient = useQueryClient();
+  const { filters, setFilters, debounced } = useListFilters();
+  const [exporting, setExporting] = useState(false);
+
   const transfersQuery = useQuery({
-    queryKey: ["admin", "transfers"],
-    queryFn: () => apiClient.adminTransfers(),
+    queryKey: ["admin", "transfers", debounced],
+    queryFn: () => apiClient.adminTransfers(debounced),
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
@@ -77,7 +84,8 @@ function TransfersPage() {
     },
   });
 
-  const bankTransfers = transfersQuery.data ?? [];
+  const bankTransfers = transfersQuery.data?.items ?? [];
+  const transferStats = transfersQuery.data?.stats;
 
   const statusSelect = (id: number, status: TxnStatus) => (
     <Select
@@ -113,6 +121,32 @@ function TransfersPage() {
             : "Could not load transfers."}
         </p>
       )}
+
+      <div className="mb-4 space-y-4">
+        <ListPageToolbar
+          stats={transferStats}
+          filters={filters}
+          onFiltersChange={setFilters}
+          onExport={async () => {
+            setExporting(true);
+            try {
+              await downloadCsvExport("/api/admin/transfers/", debounced, "admin-transfers.csv");
+            } finally {
+              setExporting(false);
+            }
+          }}
+          exporting={exporting}
+          searchPlaceholder="Search phone, account, txn ID…"
+          exportLabel="Download CSV"
+          statsLabels={{
+            total: "Total",
+            success: "Success",
+            pending: "Pending",
+            failed: "Failed",
+          }}
+          statusOptions={[...TXN_STATUS_OPTIONS]}
+        />
+      </div>
 
       <AdminDataList
         isEmpty={!transfersQuery.isLoading && bankTransfers.length === 0}

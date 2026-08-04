@@ -161,11 +161,20 @@
     border-color: var(--color-border);
   }
 
+  html {
+    overflow-x: hidden;
+    width: 100%;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
+    width: 100%;
+    overflow-x: hidden;
     /* Prefer our in-app pull-to-refresh over native overscroll bounce. */
     overscroll-behavior-y: contain;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
   }
 }

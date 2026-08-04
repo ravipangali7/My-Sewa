@@ -102,7 +102,7 @@ export function PullToRefresh({
 
   return (
     <div
-      className={cn("relative", className)}
+      className={cn("relative min-w-0 w-full max-w-full", className)}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -131,6 +131,7 @@ export function PullToRefresh({
       </div>
 
       <div
+        className="min-w-0 w-full max-w-full"
         style={{
           transform: pull > 0 ? `translateY(${pull}px)` : undefined,
           transition: armed.current ? undefined : "transform 180ms ease-out",

@@ -21,6 +21,11 @@ import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
+import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
+import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
+import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 
 function displayTransferTotal(item: BankTransferTransaction) {
   const total = Number(item.total_debited);
@@ -54,6 +59,15 @@ function Transfer() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t, locale } = useI18n();
+  const { logoUrl } = useSiteBranding();
+  const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
+    t,
+    user?.phone,
+    logoUrl,
+  );
+  const { filters, setFilters, debounced } = useListFilters();
+  const [exporting, setExporting] = useState(false);
+  const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
   const [method, setMethod] = useState<TransferMethod>("bank");
   const [bank, setBank] = useState("");
@@ -71,7 +85,6 @@ function Transfer() {
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [verifying, setVerifying] = useState(false);
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
-  const [showAllRecent, setShowAllRecent] = useState(false);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -113,14 +126,16 @@ function Transfer() {
   }, [banksQuery.isError, banksQuery.error]);
 
   const historyQuery = useQuery({
-    queryKey: ["transfers"],
-    queryFn: () => apiClient.transferHistory(),
+    queryKey: ["transfers", debounced],
+    queryFn: () => apiClient.transferHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
+  const transferItems = historyQuery.data?.items ?? [];
+  const transferStats = historyQuery.data?.stats;
 
   // Auto-poll HimalPay status for pending transfers (wallet-service-reseller-status)
   useEffect(() => {
-    const pending = (historyQuery.data ?? []).filter((item) => item.status === "pending");
+    const pending = transferItems.filter((item) => item.status === "pending");
     if (!pending.length) return;
 
     let cancelled = false;
@@ -134,6 +149,7 @@ function Transfer() {
             changed = true;
             if (next === "success") {
               toast.success(t("transfer.statusSuccess"));
+              setLastReceiptId(activityIdForKind("transfer", item.id));
             } else if (next === "failed") {
               if (res.message) {
                 toastApiMessage(res.message, {
@@ -162,7 +178,7 @@ function Transfer() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [historyQuery.data, queryClient, t]);
+  }, [transferItems, queryClient, t]);
 
   const banks = useMemo(
     () => mergeBankLists(banksQuery.data ?? []),
@@ -245,6 +261,7 @@ function Transfer() {
       const local = res.local_transfer;
       if (local?.status === "success" || res.status === "success") {
         toast.success(t("transfer.statusSuccess"));
+        setLastReceiptId(activityIdForKind("transfer", item.id));
       } else if (local?.status === "failed" || res.status === "failed") {
         if (res.message) {
           toastApiMessage(res.message, {
@@ -650,34 +667,68 @@ function Transfer() {
         </section>
 
         <section>
-          <div className="mb-2 flex items-center justify-between gap-2 px-1">
-            <h2 className="text-[17px] font-semibold">{t("transfer.recent")}</h2>
-            {(historyQuery.data?.length ?? 0) > 5 ? (
-              <button
-                type="button"
-                onClick={() => setShowAllRecent((v) => !v)}
-                className="text-[13px] font-medium text-brand underline-offset-2 hover:underline"
-              >
-                {showAllRecent ? t("transfer.showLess") : t("transfer.viewAll")}
-              </button>
-            ) : null}
-          </div>
+          {lastReceiptId ? (
+            <div className="mb-3">
+              <TransactionResultBanner
+                tone={
+                  transferItems.find(
+                    (x) => activityIdForKind("transfer", x.id) === lastReceiptId,
+                  )?.status === "failed"
+                    ? "danger"
+                    : transferItems.find(
+                          (x) => activityIdForKind("transfer", x.id) === lastReceiptId,
+                        )?.status === "pending"
+                      ? "warning"
+                      : "success"
+                }
+                title={t("transfer.submitted")}
+                body={t("history.downloadStatement")}
+                receiptLabel={t("history.downloadPdf")}
+                onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
+                downloading={receiptDownloading}
+              />
+            </div>
+          ) : null}
+          <ListPageToolbar
+            stats={transferStats}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/bank-transfer/history/", debounced, "transfers.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder={t("list.searchPlaceholder")}
+            exportLabel={t("list.exportCsv")}
+            statsLabels={{
+              total: t("list.statsTotal"),
+              success: t("list.statsSuccess"),
+              pending: t("list.statsPending"),
+              failed: t("list.statsFailed"),
+            }}
+            statusOptions={[...TXN_STATUS_OPTIONS]}
+          />
+          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("transfer.recent")}</h2>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
             </div>
-          ) : !historyQuery.data?.length ? (
+          ) : !transferItems.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("transfer.empty")}
             </div>
           ) : (
             <ul className="inset-group divide-y divide-border">
-              {(showAllRecent ? historyQuery.data : historyQuery.data.slice(0, 5)).map((b) => (
+              {transferItems.map((b) => (
                 <li key={b.id}>
                   <div className="flex items-stretch gap-1 px-2 py-1">
                     <Link
                       to="/app/history/$activityId"
-                      params={{ activityId: `bt-${b.id}` }}
+                      params={{ activityId: activityIdForKind("transfer", b.id) }}
                       className="min-w-0 flex-1 rounded-lg px-2 py-2 transition-colors active:bg-muted/60"
                     >
                       <div className="flex items-center gap-3">
@@ -708,18 +759,29 @@ function Transfer() {
                             : t("transfer.debited", { amount: formatNPR(b.total_debited) })}
                       </p>
                     </Link>
-                    {b.status === "pending" ? (
-                      <button
-                        type="button"
-                        disabled={refreshingId === b.id}
-                        onClick={() => void refreshStatus(b)}
-                        className="shrink-0 self-center px-2 text-[12px] font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
-                      >
-                        {refreshingId === b.id
-                          ? t("common.processing")
-                          : t("transfer.checkStatus")}
-                      </button>
-                    ) : null}
+                    <div className="flex shrink-0 flex-col items-end justify-center gap-1 self-center px-2">
+                      {(b.status === "success" || b.status === "failed") && (
+                        <ReceiptDownloadLink
+                          label={t("list.downloadReceipt")}
+                          downloading={receiptDownloading}
+                          onClick={() =>
+                            void downloadReceipt(activityIdForKind("transfer", b.id))
+                          }
+                        />
+                      )}
+                      {b.status === "pending" ? (
+                        <button
+                          type="button"
+                          disabled={refreshingId === b.id}
+                          onClick={() => void refreshStatus(b)}
+                          className="text-[12px] font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
+                        >
+                          {refreshingId === b.id
+                            ? t("common.processing")
+                            : t("transfer.checkStatus")}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </li>
               ))}

@@ -16,6 +16,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminDepositsRouteImport } from './routes/admin/deposits'
 import { Route as AdminProfileRouteImport } from './routes/admin/profile'
 import { Route as AdminRemittancesRouteImport } from './routes/admin/remittances'
+import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminTopupsRouteImport } from './routes/admin/topups'
 import { Route as AdminTransfersRouteImport } from './routes/admin/transfers'
@@ -78,6 +79,11 @@ const AdminProfileRoute = AdminProfileRouteImport.update({
 const AdminRemittancesRoute = AdminRemittancesRouteImport.update({
   id: '/admin/remittances',
   path: '/admin/remittances',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminReportsRoute = AdminReportsRouteImport.update({
+  id: '/admin/reports',
+  path: '/admin/reports',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminSettingsRoute = AdminSettingsRouteImport.update({
@@ -230,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/remittances': typeof AdminRemittancesRoute
+  '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/topups': typeof AdminTopupsRoute
   '/admin/transfers': typeof AdminTransfersRoute
@@ -267,6 +274,7 @@ export interface FileRoutesByTo {
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/remittances': typeof AdminRemittancesRoute
+  '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/topups': typeof AdminTopupsRoute
   '/admin/transfers': typeof AdminTransfersRoute
@@ -305,6 +313,7 @@ export interface FileRoutesById {
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/remittances': typeof AdminRemittancesRoute
+  '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/topups': typeof AdminTopupsRoute
   '/admin/transfers': typeof AdminTransfersRoute
@@ -344,6 +353,7 @@ export interface FileRouteTypes {
     | '/admin/deposits'
     | '/admin/profile'
     | '/admin/remittances'
+    | '/admin/reports'
     | '/admin/settings'
     | '/admin/topups'
     | '/admin/transfers'
@@ -381,6 +391,7 @@ export interface FileRouteTypes {
     | '/admin/deposits'
     | '/admin/profile'
     | '/admin/remittances'
+    | '/admin/reports'
     | '/admin/settings'
     | '/admin/topups'
     | '/admin/transfers'
@@ -418,6 +429,7 @@ export interface FileRouteTypes {
     | '/admin/deposits'
     | '/admin/profile'
     | '/admin/remittances'
+    | '/admin/reports'
     | '/admin/settings'
     | '/admin/topups'
     | '/admin/transfers'
@@ -456,6 +468,7 @@ export interface RootRouteChildren {
   AdminDepositsRoute: typeof AdminDepositsRoute
   AdminProfileRoute: typeof AdminProfileRoute
   AdminRemittancesRoute: typeof AdminRemittancesRoute
+  AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminTopupsRoute: typeof AdminTopupsRoute
   AdminTransfersRoute: typeof AdminTransfersRoute
@@ -536,6 +549,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/remittances'
       fullPath: '/admin/remittances'
       preLoaderRoute: typeof AdminRemittancesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/reports': {
+      id: '/admin/reports'
+      path: '/admin/reports'
+      fullPath: '/admin/reports'
+      preLoaderRoute: typeof AdminReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/settings': {
@@ -744,6 +764,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminDepositsRoute: AdminDepositsRoute,
   AdminProfileRoute: AdminProfileRoute,
   AdminRemittancesRoute: AdminRemittancesRoute,
+  AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminTopupsRoute: AdminTopupsRoute,
   AdminTransfersRoute: AdminTransfersRoute,

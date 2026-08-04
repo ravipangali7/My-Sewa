@@ -9,6 +9,13 @@ from ..models import Deposit
 from ..serializers import DepositSerializer, DepositCreateSerializer
 from ..services.app_config import is_auto_status_verified, require_feature_enabled, require_account_approved
 from ..services.notifications import notify_deposit_submitted
+from ..services.list_query import (
+    apply_date_filters,
+    apply_search,
+    csv_response,
+    deposit_stats,
+    list_params,
+)
 
 
 @api_view(['POST'])
@@ -56,9 +63,31 @@ def create_deposit(request):
 @permission_classes([IsAuthenticated])
 def list_deposits(request):
     """List all deposits for the current user"""
-    deposits = Deposit.objects.filter(user=request.user).order_by('-created_at')
-    serializer = DepositSerializer(deposits, many=True, context={'request': request})
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    params = list_params(request)
+    qs = Deposit.objects.filter(user=request.user).order_by('-created_at')
+    if params['status'] in ('pending', 'approved', 'rejected'):
+        qs = qs.filter(status=params['status'])
+    qs = apply_date_filters(qs, params['date_from'], params['date_to'])
+    qs = apply_search(qs, params['search'], ['note'])
+    stats = deposit_stats(qs)
+    data = DepositSerializer(qs, many=True, context={'request': request}).data
+    if params['format'] == 'csv':
+        rows = [
+            {
+                'id': row['id'],
+                'created_at': row['created_at'],
+                'amount': row['amount'],
+                'status': row['status'],
+                'note': row.get('note') or '',
+            }
+            for row in data
+        ]
+        return csv_response(
+            'deposits.csv',
+            rows,
+            ['id', 'created_at', 'amount', 'status', 'note'],
+        )
+    return Response({'items': data, 'stats': stats}, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])

@@ -17,6 +17,11 @@ import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
+import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
+import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
+import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 import type {
   InternetBillInquiry,
   InternetBillPackage,
@@ -43,6 +48,15 @@ function InternetBillPayment() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t } = useI18n();
+  const { logoUrl } = useSiteBranding();
+  const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
+    t,
+    user?.phone,
+    logoUrl,
+  );
+  const { filters, setFilters, debounced } = useListFilters();
+  const [exporting, setExporting] = useState(false);
+  const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
 
   const [step, setStep] = useState<Step>("isp");
@@ -75,10 +89,12 @@ function InternetBillPayment() {
   });
 
   const historyQuery = useQuery({
-    queryKey: ["internet-bills"],
-    queryFn: () => apiClient.internetHistory(),
+    queryKey: ["internet-bills", debounced],
+    queryFn: () => apiClient.internetHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
+  const internetItems = historyQuery.data?.items ?? [];
+  const internetStats = historyQuery.data?.stats;
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
   const pkgAmount = Number(selectedPackage?.amount ?? 0);
@@ -176,6 +192,7 @@ function InternetBillPayment() {
         });
       }
       resetFlow();
+      setLastReceiptId(activityIdForKind("internet", res.data.id));
       queryClient.invalidateQueries({ queryKey: ["internet-bills"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
@@ -464,31 +481,89 @@ function InternetBillPayment() {
         </section>
 
         <section>
-          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("internet.history")}</h2>
+          {lastReceiptId ? (
+            <div className="mb-3">
+              <TransactionResultBanner
+                tone={
+                  internetItems.find(
+                    (x) => activityIdForKind("internet", x.id) === lastReceiptId,
+                  )?.status === "failed"
+                    ? "danger"
+                    : internetItems.find(
+                          (x) => activityIdForKind("internet", x.id) === lastReceiptId,
+                        )?.status === "pending"
+                      ? "warning"
+                      : "success"
+                }
+                title={t("internet.paySuccess")}
+                body={t("history.downloadStatement")}
+                receiptLabel={t("history.downloadPdf")}
+                onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
+                downloading={receiptDownloading}
+              />
+            </div>
+          ) : null}
+          <ListPageToolbar
+            stats={internetStats}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/internet/history/", debounced, "internet-bills.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder={t("list.searchPlaceholder")}
+            exportLabel={t("list.exportCsv")}
+            statsLabels={{
+              total: t("list.statsTotal"),
+              success: t("list.statsSuccess"),
+              pending: t("list.statsPending"),
+              failed: t("list.statsFailed"),
+            }}
+            statusOptions={[...TXN_STATUS_OPTIONS]}
+          />
+          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("internet.history")}</h2>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
             </div>
-          ) : !historyQuery.data?.length ? (
+          ) : !internetItems.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("internet.empty")}
             </div>
           ) : (
             <ul className="inset-group divide-y divide-border">
-              {historyQuery.data.map((item: InternetBillTransaction) => (
-                <li key={item.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[15px] font-medium">
-                      {item.isp_name} · {item.customer_id}
-                    </p>
-                    <p className="truncate text-[13px] text-muted-foreground">
-                      {item.package_name || item.merchant_txn_id} · {formatDateTime(item.created_at)}
-                    </p>
+              {internetItems.map((item: InternetBillTransaction) => (
+                <li key={item.id} className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[15px] font-medium">
+                        {item.isp_name} · {item.customer_id}
+                      </p>
+                      <p className="truncate text-[13px] text-muted-foreground">
+                        {item.package_name || item.merchant_txn_id} · {formatDateTime(item.created_at)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="tabular text-[15px] font-semibold">{formatNPR(item.amount)}</p>
+                      <StatusChip status={item.status} compact className="mt-1" />
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="tabular text-[15px] font-semibold">{formatNPR(item.amount)}</p>
-                    <StatusChip status={item.status} compact className="mt-1" />
-                  </div>
+                  {(item.status === "success" || item.status === "failed") && (
+                    <div className="mt-1 flex justify-end">
+                      <ReceiptDownloadLink
+                        label={t("list.downloadReceipt")}
+                        downloading={receiptDownloading}
+                        onClick={() =>
+                          void downloadReceipt(activityIdForKind("internet", item.id))
+                        }
+                      />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

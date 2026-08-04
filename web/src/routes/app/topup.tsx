@@ -23,6 +23,11 @@ import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
 import type { TopupTransaction } from "@/lib/types";
+import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
+import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
+import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 
 export const Route = createFileRoute("/app/topup")({
   head: () => ({
@@ -47,6 +52,15 @@ function TopUp() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t } = useI18n();
+  const { logoUrl } = useSiteBranding();
+  const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
+    t,
+    user?.phone,
+    logoUrl,
+  );
+  const { filters, setFilters, debounced } = useListFilters();
+  const [exporting, setExporting] = useState(false);
+  const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
   const [productId, setProductId] = useState<1 | 2>(1);
   const [mobile, setMobile] = useState("");
@@ -77,10 +91,12 @@ function TopUp() {
   });
 
   const historyQuery = useQuery({
-    queryKey: ["topups"],
-    queryFn: () => apiClient.topupHistory(),
+    queryKey: ["topups", debounced],
+    queryFn: () => apiClient.topupHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
+  const topupItems = historyQuery.data?.items ?? [];
+  const topupStats = historyQuery.data?.stats;
 
   const servicesQuery = useQuery({
     queryKey: ["topup", "services"],
@@ -178,7 +194,7 @@ function TopUp() {
 
   // Auto-poll HimalPay status for pending top-ups (docs: wallet-service-reseller-status)
   useEffect(() => {
-    const pending = (historyQuery.data ?? []).filter((item) => item.status === "pending");
+    const pending = topupItems.filter((item) => item.status === "pending");
     if (!pending.length) return;
 
     let cancelled = false;
@@ -192,6 +208,7 @@ function TopUp() {
             changed = true;
             if (next === "success") {
               toast.success(t("topup.statusSuccess"));
+              setLastReceiptId(`top-${item.id}`);
             } else if (next === "failed") {
               if (res.message) {
                 toastApiMessage(res.message, {
@@ -220,7 +237,7 @@ function TopUp() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [historyQuery.data, queryClient, t]);
+  }, [topupItems, queryClient, t]);
 
   const refreshStatus = async (item: TopupTransaction) => {
     setRefreshingId(item.id);
@@ -229,6 +246,7 @@ function TopUp() {
       const local = res.local_topup;
       if (local?.status === "success" || res.status === "success") {
         toast.success(t("topup.statusSuccess"));
+        setLastReceiptId(activityIdForKind("topup", item.id));
       } else if (local?.status === "failed" || res.status === "failed") {
         if (res.message) {
           toastApiMessage(res.message, {
@@ -304,6 +322,7 @@ function TopUp() {
       setCashback("0.00");
       setPlatformCharge("0.00");
       setTotalDebited("0.00");
+      setLastReceiptId(activityIdForKind("topup", res.data.id));
       queryClient.invalidateQueries({ queryKey: ["topups"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
@@ -532,18 +551,61 @@ function TopUp() {
         </section>
 
         <section>
-          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("topup.recent")}</h2>
+          {lastReceiptId ? (
+            <div className="mb-3">
+              <TransactionResultBanner
+                tone={
+                  topupItems.find((x) => activityIdForKind("topup", x.id) === lastReceiptId)?.status ===
+                  "failed"
+                    ? "danger"
+                    : topupItems.find((x) => activityIdForKind("topup", x.id) === lastReceiptId)?.status ===
+                        "pending"
+                      ? "warning"
+                      : "success"
+                }
+                title={t("topup.submitted", { operator: OPERATORS[productId] })}
+                body={t("history.downloadStatement")}
+                receiptLabel={t("history.downloadPdf")}
+                onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
+                downloading={receiptDownloading}
+              />
+            </div>
+          ) : null}
+          <ListPageToolbar
+            stats={topupStats}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/topup/history/", debounced, "topups.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder={t("list.searchPlaceholder")}
+            exportLabel={t("list.exportCsv")}
+            statsLabels={{
+              total: t("list.statsTotal"),
+              success: t("list.statsSuccess"),
+              pending: t("list.statsPending"),
+              failed: t("list.statsFailed"),
+            }}
+            statusOptions={[...TXN_STATUS_OPTIONS]}
+          />
+          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("topup.recent")}</h2>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
             </div>
-          ) : !historyQuery.data?.length ? (
+          ) : !topupItems.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("topup.empty")}
             </div>
           ) : (
             <ul className="inset-group divide-y divide-border">
-              {historyQuery.data.map((item) => (
+              {topupItems.map((item) => (
                 <li key={item.id} className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     <div className="min-w-0 flex-1">
@@ -567,18 +629,27 @@ function TopUp() {
                         debited: formatNPR(item.total_debited),
                       })}
                     </p>
-                    {item.status === "pending" ? (
-                      <button
-                        type="button"
-                        disabled={refreshingId === item.id}
-                        onClick={() => void refreshStatus(item)}
-                        className="shrink-0 text-[12px] font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
-                      >
-                        {refreshingId === item.id
-                          ? t("common.processing")
-                          : t("topup.checkStatus")}
-                      </button>
-                    ) : null}
+                    <div className="flex shrink-0 items-center gap-2">
+                      {(item.status === "success" || item.status === "failed") && (
+                        <ReceiptDownloadLink
+                          label={t("list.downloadReceipt")}
+                          downloading={receiptDownloading}
+                          onClick={() => void downloadReceipt(activityIdForKind("topup", item.id))}
+                        />
+                      )}
+                      {item.status === "pending" ? (
+                        <button
+                          type="button"
+                          disabled={refreshingId === item.id}
+                          onClick={() => void refreshStatus(item)}
+                          className="shrink-0 text-[12px] font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
+                        >
+                          {refreshingId === item.id
+                            ? t("common.processing")
+                            : t("topup.checkStatus")}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </li>
               ))}

@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { ListPageToolbar } from "@/components/list/ListPageToolbar";
 import {
   AdminDataList,
   AdminEmptyState,
@@ -10,7 +11,6 @@ import {
   AdminMobileCardGrid,
   AdminMobileMeta,
 } from "@/components/admin/AdminDataList";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -29,6 +29,8 @@ import {
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import type { TxnStatus } from "@/lib/types";
+import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
 
 export const Route = createFileRoute("/admin/remittances")({
   head: () => ({
@@ -49,15 +51,6 @@ export const Route = createFileRoute("/admin/remittances")({
   component: RemittancesPage,
 });
 
-type StatusTab = "all" | TxnStatus;
-
-const STATUS_TABS: { value: StatusTab; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "pending", label: "Pending" },
-  { value: "success", label: "Success" },
-  { value: "failed", label: "Failed" },
-];
-
 const STATUS_OPTIONS: { value: TxnStatus; label: string }[] = [
   { value: "pending", label: "Pending" },
   { value: "success", label: "Success" },
@@ -66,11 +59,12 @@ const STATUS_OPTIONS: { value: TxnStatus; label: string }[] = [
 
 function RemittancesPage() {
   const queryClient = useQueryClient();
-  const [statusTab, setStatusTab] = useState<StatusTab>("all");
+  const { filters, setFilters, debounced } = useListFilters();
+  const [exporting, setExporting] = useState(false);
 
   const remittancesQuery = useQuery({
-    queryKey: ["admin", "remittances"],
-    queryFn: () => apiClient.adminRemittances(),
+    queryKey: ["admin", "remittances", debounced],
+    queryFn: () => apiClient.adminRemittances(debounced),
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
@@ -89,12 +83,9 @@ function RemittancesPage() {
     },
   });
 
-  const remittances = remittancesQuery.data ?? [];
-  const filtered = useMemo(
-    () =>
-      statusTab === "all" ? remittances : remittances.filter((r) => r.status === statusTab),
-    [remittances, statusTab],
-  );
+  const remittances = remittancesQuery.data?.items ?? [];
+  const remittanceStats = remittancesQuery.data?.stats;
+  const filtered = remittances;
 
   const statusSelect = (id: number, status: TxnStatus) => (
     <Select
@@ -132,15 +123,29 @@ function RemittancesPage() {
           </p>
         )}
 
-        <Tabs value={statusTab} onValueChange={(v) => setStatusTab(v as StatusTab)}>
-          <TabsList>
-            {STATUS_TABS.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value}>
-                {tab.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <ListPageToolbar
+          stats={remittanceStats}
+          filters={filters}
+          onFiltersChange={setFilters}
+          onExport={async () => {
+            setExporting(true);
+            try {
+              await downloadCsvExport("/api/admin/remittances/", debounced, "admin-remittances.csv");
+            } finally {
+              setExporting(false);
+            }
+          }}
+          exporting={exporting}
+          searchPlaceholder="Search phone, ref no, sender…"
+          exportLabel="Download CSV"
+          statsLabels={{
+            total: "Total",
+            success: "Success",
+            pending: "Pending",
+            failed: "Failed",
+          }}
+          statusOptions={[...TXN_STATUS_OPTIONS]}
+        />
 
         <AdminDataList
           isEmpty={!remittancesQuery.isLoading && filtered.length === 0}

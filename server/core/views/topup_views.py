@@ -29,6 +29,13 @@ from ..services.app_config import (
 )
 from ..services.notifications import notify_topup_success, notify_low_balance_if_needed
 from ..services.txn_status import resolve_provider_outcome
+from ..services.list_query import (
+    apply_date_filters,
+    apply_search,
+    csv_response,
+    list_params,
+    txn_stats,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -272,9 +279,43 @@ def topup_ncell(request):
 @permission_classes([IsAuthenticated])
 def topup_history(request):
     """Get topup transaction history for current user"""
-    topups = TopupTransaction.objects.filter(user=request.user).order_by('-created_at')
-    serializer = TopupTransactionSerializer(topups, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    params = list_params(request)
+    qs = TopupTransaction.objects.filter(user=request.user).order_by('-created_at')
+    if params['status'] in ('pending', 'success', 'failed'):
+        qs = qs.filter(status=params['status'])
+    qs = apply_date_filters(qs, params['date_from'], params['date_to'])
+    qs = apply_search(
+        qs,
+        params['search'],
+        ['mobile_number', 'merchant_txn_id', 'service_hub_txn_id', 'reference_id', 'product_name'],
+    )
+    stats = txn_stats(qs)
+    data = TopupTransactionSerializer(qs, many=True).data
+    if params['format'] == 'csv':
+        rows = [
+            {
+                'id': row['id'],
+                'created_at': row['created_at'],
+                'mobile_number': row['mobile_number'],
+                'operator': row.get('product_name') or '',
+                'amount': row['amount'],
+                'charge': row['charge'],
+                'cashback': row['cashback'],
+                'total_debited': row['total_debited'],
+                'status': row['status'],
+                'merchant_txn_id': row['merchant_txn_id'],
+            }
+            for row in data
+        ]
+        return csv_response(
+            'topups.csv',
+            rows,
+            [
+                'id', 'created_at', 'mobile_number', 'operator', 'amount',
+                'charge', 'cashback', 'total_debited', 'status', 'merchant_txn_id',
+            ],
+        )
+    return Response({'items': data, 'stats': stats}, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])

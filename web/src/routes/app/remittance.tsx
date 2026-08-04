@@ -24,6 +24,11 @@ import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
+import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
+import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
+import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 import type { RemittanceLookup } from "@/lib/types";
 
 export const Route = createFileRoute("/app/remittance")({
@@ -117,6 +122,15 @@ function ReceiveRemittance() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t } = useI18n();
+  const { logoUrl } = useSiteBranding();
+  const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
+    t,
+    user?.phone,
+    logoUrl,
+  );
+  const { filters, setFilters, debounced } = useListFilters();
+  const [exporting, setExporting] = useState(false);
+  const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
 
   const [step, setStep] = useState<Step>("lookup");
@@ -132,10 +146,12 @@ function ReceiveRemittance() {
     settingsQuery.data?.config?.payment?.remittances_enabled !== false && !accountPending;
 
   const historyQuery = useQuery({
-    queryKey: ["remittances"],
-    queryFn: () => apiClient.remittanceHistory(),
+    queryKey: ["remittances", debounced],
+    queryFn: () => apiClient.remittanceHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
+  const remittanceItems = historyQuery.data?.items ?? [];
+  const remittanceStats = historyQuery.data?.stats;
 
   const setField = <K extends keyof KycForm>(key: K, value: KycForm[K]) => {
     setKyc((prev) => ({ ...prev, [key]: value }));
@@ -229,6 +245,7 @@ function ReceiveRemittance() {
       setRefNo("");
       setLookup(null);
       setKyc(emptyKyc(user?.phone ?? ""));
+      setLastReceiptId(activityIdForKind("remittance", res.data.id));
       queryClient.invalidateQueries({ queryKey: ["remittances"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
@@ -237,8 +254,6 @@ function ReceiveRemittance() {
       toastApiError(err, { title: t("remittance.failed"), fallback: t("remittance.failed") });
     },
   });
-
-  const history = historyQuery.data ?? [];
 
   const stepTitle = useMemo(() => {
     if (step === "lookup") return t("remittance.stepLookup");
@@ -575,31 +590,89 @@ function ReceiveRemittance() {
         </section>
 
         <section>
-          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("remittance.history")}</h2>
+          {lastReceiptId ? (
+            <div className="mb-3">
+              <TransactionResultBanner
+                tone={
+                  remittanceItems.find(
+                    (x) => activityIdForKind("remittance", x.id) === lastReceiptId,
+                  )?.status === "failed"
+                    ? "danger"
+                    : remittanceItems.find(
+                          (x) => activityIdForKind("remittance", x.id) === lastReceiptId,
+                        )?.status === "pending"
+                      ? "warning"
+                      : "success"
+                }
+                title={t("remittance.credited")}
+                body={t("history.downloadStatement")}
+                receiptLabel={t("history.downloadPdf")}
+                onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
+                downloading={receiptDownloading}
+              />
+            </div>
+          ) : null}
+          <ListPageToolbar
+            stats={remittanceStats}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/remittance/history/", debounced, "remittances.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder={t("list.searchPlaceholder")}
+            exportLabel={t("list.exportCsv")}
+            statsLabels={{
+              total: t("list.statsTotal"),
+              success: t("list.statsSuccess"),
+              pending: t("list.statsPending"),
+              failed: t("list.statsFailed"),
+            }}
+            statusOptions={[...TXN_STATUS_OPTIONS]}
+          />
+          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("remittance.history")}</h2>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
             </div>
-          ) : !history.length ? (
+          ) : !remittanceItems.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("remittance.empty")}
             </div>
           ) : (
             <ul className="inset-group divide-y divide-border">
-              {history.map((r) => (
-                <li key={r.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[15px] font-medium">
-                      {formatNPR(r.total_credited !== "0.00" ? r.total_credited : r.amount)}{" "}
-                      <span className="text-[13px] font-normal text-muted-foreground">
-                        · {r.ref_no}
-                      </span>
-                    </p>
-                    <p className="truncate text-[13px] text-muted-foreground">
-                      {r.sender_name || t("remittance.sender")} · {formatDateTime(r.created_at)}
-                    </p>
+              {remittanceItems.map((r) => (
+                <li key={r.id} className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[15px] font-medium">
+                        {formatNPR(r.total_credited !== "0.00" ? r.total_credited : r.amount)}{" "}
+                        <span className="text-[13px] font-normal text-muted-foreground">
+                          · {r.ref_no}
+                        </span>
+                      </p>
+                      <p className="truncate text-[13px] text-muted-foreground">
+                        {r.sender_name || t("remittance.sender")} · {formatDateTime(r.created_at)}
+                      </p>
+                    </div>
+                    <StatusChip status={r.status} />
                   </div>
-                  <StatusChip status={r.status} />
+                  {(r.status === "success" || r.status === "failed") && (
+                    <div className="mt-1 flex justify-end">
+                      <ReceiptDownloadLink
+                        label={t("list.downloadReceipt")}
+                        downloading={receiptDownloading}
+                        onClick={() =>
+                          void downloadReceipt(activityIdForKind("remittance", r.id))
+                        }
+                      />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

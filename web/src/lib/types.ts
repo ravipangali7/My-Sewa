@@ -381,6 +381,49 @@ export interface WalletTransactions {
   bank_transfers: BankTransferTransaction[];
   internet_bills?: InternetBillTransaction[];
   data_packs?: DataPackTransaction[];
+  stats?: ListStats;
+}
+
+export interface ListStats {
+  total_count: number;
+  pending_count: number;
+  success_count: number;
+  failed_count: number;
+  total_amount: string;
+  success_amount: string;
+  pending_amount: string;
+  failed_amount: string;
+}
+
+export interface ListQueryParams {
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+  status?: string;
+  kind?: string;
+  product_id?: string;
+}
+
+export interface ListResponse<T> {
+  items: T[];
+  stats: ListStats;
+}
+
+export interface AdminReportData {
+  date_from: string | null;
+  date_to: string | null;
+  summary: ListStats;
+  by_service: Record<string, ListStats>;
+  daily: Array<{
+    date: string;
+    deposits: number;
+    topups: number;
+    transfers: number;
+    remittances: number;
+    internet: number;
+    data_packs: number;
+    total: number;
+  }>;
 }
 
 export interface BankOption {

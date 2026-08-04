@@ -47,8 +47,8 @@ export function DataPackCard({
           </div>
         </div>
 
-        <div className="flex items-end justify-between gap-3 border-t border-border/50 px-3.5 py-3">
-          <div>
+        <div className="flex flex-col gap-3 border-t border-border/50 px-3.5 py-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {t("dataTopup.price")}
             </p>
@@ -56,7 +56,7 @@ export function DataPackCard({
               {formatNPR(pkg.amount)}
             </p>
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
             <Button
               type="button"
               size="sm"

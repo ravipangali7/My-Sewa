@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ImageIcon } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
+import { ListPageToolbar } from "@/components/list/ListPageToolbar";
 import {
   AdminDataList,
   AdminEmptyState,
@@ -34,7 +35,8 @@ import {
 import { apiClient, ApiError } from "@/lib/api";
 import type { Deposit } from "@/lib/types";
 import { formatNPR, formatDateTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { useListFilters, DEPOSIT_STATUS_OPTIONS } from "@/hooks/use-list-filters";
+import { downloadCsvExport } from "@/lib/list-query";
 
 export const Route = createFileRoute("/admin/deposits")({
   head: () => ({
@@ -52,26 +54,24 @@ export const Route = createFileRoute("/admin/deposits")({
   component: DepositsPage,
 });
 
-const FILTERS: (Deposit["status"] | "all")[] = ["all", "pending", "approved", "rejected"];
-
 function DepositsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [filter, setFilter] = useState<Deposit["status"] | "all">("all");
+  const { filters, setFilters, debounced } = useListFilters();
+  const [exporting, setExporting] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<Deposit | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
   const depositsQuery = useQuery({
-    queryKey: ["admin", "deposits"],
-    queryFn: () => apiClient.adminDeposits(),
+    queryKey: ["admin", "deposits", debounced],
+    queryFn: () => apiClient.adminDeposits(debounced),
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
     refetchInterval: 15_000,
   });
 
-  const visible = (depositsQuery.data ?? []).filter(
-    (d) => filter === "all" || d.status === filter,
-  );
+  const visible = depositsQuery.data?.items ?? [];
+  const depositStats = depositsQuery.data?.stats;
 
   const invalidateDepositQueries = () => {
     queryClient.invalidateQueries({ queryKey: ["admin", "deposits"] });
@@ -131,24 +131,6 @@ function DepositsPage() {
   const openDeposit = (id: number) => {
     navigate({ to: "/admin/deposits/$depositId", params: { depositId: String(id) } });
   };
-
-  const filterBar = (
-    <div className="flex shrink-0 gap-1 rounded-lg bg-muted p-1">
-      {FILTERS.map((f) => (
-        <button
-          key={f}
-          type="button"
-          onClick={() => setFilter(f)}
-          className={cn(
-            "rounded-md px-2.5 py-1 text-xs font-medium capitalize whitespace-nowrap",
-            filter === f ? "bg-surface text-brand-dark shadow-card" : "text-muted-foreground",
-          )}
-        >
-          {f}
-        </button>
-      ))}
-    </div>
-  );
 
   const depositActions = (d: Deposit) =>
     d.status === "pending" ? (
@@ -212,11 +194,12 @@ function DepositsPage() {
       </span>
     );
 
+  const filterLabel = filters.status ?? "all";
+
   return (
     <AdminShell
       title="Deposits"
       description="Remittance / load requests awaiting review"
-      actions={filterBar}
     >
       {depositsQuery.isLoading && (
         <p className="mb-4 text-sm text-muted-foreground">Loading deposits…</p>
@@ -229,11 +212,37 @@ function DepositsPage() {
         </p>
       )}
 
+      <div className="mb-4 space-y-4">
+        <ListPageToolbar
+          stats={depositStats}
+          filters={filters}
+          onFiltersChange={setFilters}
+          onExport={async () => {
+            setExporting(true);
+            try {
+              await downloadCsvExport("/api/admin/deposits/", debounced, "admin-deposits.csv");
+            } finally {
+              setExporting(false);
+            }
+          }}
+          exporting={exporting}
+          searchPlaceholder="Search phone, note, ID…"
+          exportLabel="Download CSV"
+          statsLabels={{
+            total: "Total",
+            success: "Approved",
+            pending: "Pending",
+            failed: "Rejected",
+          }}
+          statusOptions={[...DEPOSIT_STATUS_OPTIONS]}
+        />
+      </div>
+
       <AdminDataList
         isEmpty={!depositsQuery.isLoading && visible.length === 0}
         empty={
           <AdminEmptyState>
-            No {filter === "all" ? "" : `${filter} `}deposits.
+            No {filterLabel === "all" ? "" : `${filterLabel} `}deposits.
           </AdminEmptyState>
         }
         table={
