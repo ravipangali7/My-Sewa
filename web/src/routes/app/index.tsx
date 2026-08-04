@@ -13,6 +13,7 @@ import {
   Redo2,
   Wifi,
   Signal,
+  Lock,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { MountainBackdrop } from "@/components/home/MountainBackdrop";
@@ -84,6 +85,11 @@ const ACTIONS = [
     iconBg: "bg-[#7C3AED]",
   },
 ] as const;
+
+function canViewStatement(status: string) {
+  const normalized = status.toLowerCase();
+  return normalized === "success" || normalized === "approved";
+}
 
 function formatRu(value: string | number) {
   const n = typeof value === "string" ? Number(value) : value;
@@ -336,11 +342,9 @@ function WalletHome() {
               <ul className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)]">
                 {activity.map((item, idx) => (
                   <li key={item.id}>
-                    <Link
-                      to="/app/history/$activityId"
-                      params={{ activityId: item.id }}
+                    <div
                       className={cn(
-                        "flex items-center gap-3 px-3.5 py-3.5 transition-colors active:bg-muted/40",
+                        "flex items-center gap-3 px-3.5 py-3.5",
                         idx > 0 && "border-t border-[#EEF1F5]",
                       )}
                     >
@@ -374,8 +378,22 @@ function WalletHome() {
                       >
                         {item.credit ? "+" : "−"} {formatRu(item.amount)}
                       </span>
-                      <ChevronRight className="size-4 shrink-0 text-[#C0C7D1]" />
-                    </Link>
+                      {canViewStatement(item.status) ? (
+                        <Link
+                          to="/app/history/$activityId"
+                          params={{ activityId: item.id }}
+                          className="ml-1 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[#C0C7D1] transition-colors hover:bg-muted/40"
+                          aria-label={t("history.downloadStatement")}
+                        >
+                          <ChevronRight className="size-4" />
+                        </Link>
+                      ) : (
+                        <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-[#E5EAF0] bg-[#F8FAFC] px-2 py-1 text-[10px] font-semibold text-[#7F8A99]">
+                          <Lock className="size-3" />
+                          {t("history.viewLocked")}
+                        </span>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
