@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   BadgeCheck,
   CheckCircle2,
@@ -26,7 +26,7 @@ import { UserShell } from "@/components/layout/UserShell";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { buildActivityStatement } from "@/lib/activity";
-import { downloadStatementPdf, shareStatementPdf } from "@/lib/statement-pdf";
+import { downloadReceiptFromElement, shareReceiptFromElement } from "@/lib/statement-pdf";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
@@ -110,6 +110,7 @@ function HistoryStatementPage() {
   const { t } = useI18n();
   const { user } = useAuth();
   const { logoUrl } = useSiteBranding();
+  const receiptRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
   const [sharing, setSharing] = useState(false);
   const txQuery = useQuery({
@@ -230,21 +231,14 @@ function HistoryStatementPage() {
         }))
     : [];
 
-  const pdfOptions = statement
-    ? {
-        statement,
-        title: pageTitle,
-        detailsHeading: t("history.transactionDetails"),
-        logoUrl,
-        brandName: t("history.statementBrand"),
-      }
-    : null;
-
   async function handleDownloadPdf() {
-    if (!pdfOptions || downloading || sharing) return;
+    if (!statement || !receiptRef.current || downloading || sharing) return;
     setDownloading(true);
     try {
-      await downloadStatementPdf(pdfOptions);
+      await downloadReceiptFromElement({
+        element: receiptRef.current,
+        reference: statement.reference,
+      });
     } catch {
       toast.error(t("history.downloadPdfFailed"));
     } finally {
@@ -253,10 +247,13 @@ function HistoryStatementPage() {
   }
 
   async function handleShare() {
-    if (!pdfOptions || downloading || sharing) return;
+    if (!statement || !receiptRef.current || downloading || sharing) return;
     setSharing(true);
     try {
-      await shareStatementPdf(pdfOptions);
+      await shareReceiptFromElement({
+        element: receiptRef.current,
+        reference: statement.reference,
+      });
     } catch {
       toast.error(t("history.shareFailed"));
     } finally {
@@ -319,7 +316,10 @@ function HistoryStatementPage() {
             </div>
           </div>
 
-          <div className="min-w-0 overflow-x-clip rounded-[22px] border border-brand/15 bg-card shadow-[0_18px_45px_-26px_rgba(2,8,23,0.45)] sm:rounded-[28px]">
+          <div
+            ref={receiptRef}
+            className="min-w-0 overflow-x-clip rounded-[22px] border border-brand/15 bg-card shadow-[0_18px_45px_-26px_rgba(2,8,23,0.45)] sm:rounded-[28px]"
+          >
             <div className="grid min-w-0 border-b border-border/70 md:grid-cols-2">
               <div className="flex min-w-0 items-center gap-2.5 bg-white px-3 py-3.5 sm:gap-3 sm:px-4 sm:py-4">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-brand/20 bg-brand-soft/70 p-1.5 sm:size-12">

@@ -1,16 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Upload, QrCode } from "lucide-react";
+import { Search, Upload, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime, formatDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
@@ -60,6 +62,7 @@ function LoadWallet() {
     logoUrl,
   );
   const { filters, setFilters, debounced } = useListFilters();
+  const [searchOpen, setSearchOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
@@ -139,7 +142,26 @@ function LoadWallet() {
   const bank = settingsQuery.data?.bank_details ?? {};
 
   return (
-    <UserShell title={t("load.title")} back="/app">
+    <UserShell
+      title={t("load.title")}
+      back="/app"
+      headerTrailing={
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
+            "hover:bg-white/25",
+            "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+          )}
+          onClick={() => setSearchOpen(true)}
+          aria-label={t("load.searchTitle")}
+        >
+          <Search className="size-4" />
+        </Button>
+      }
+    >
       <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
@@ -357,30 +379,7 @@ function LoadWallet() {
               />
             </div>
           ) : null}
-          <ListPageToolbar
-            stats={depositStats}
-            filters={filters}
-            onFiltersChange={setFilters}
-            onExport={async () => {
-              setExporting(true);
-              try {
-                await downloadCsvExport("/api/deposit/list/", debounced, "deposits.csv");
-              } finally {
-                setExporting(false);
-              }
-            }}
-            exporting={exporting}
-            searchPlaceholder="Search"
-            exportLabel={t("list.exportCsv")}
-            statsLabels={{
-              total: t("list.statsTotal"),
-              success: t("list.statsSuccess"),
-              pending: t("list.statsPending"),
-              failed: t("list.statsFailed"),
-            }}
-            statusOptions={[...DEPOSIT_STATUS_OPTIONS]}
-          />
-          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("load.myDeposits")}</h2>
+          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("load.myDeposits")}</h2>
           {depositsQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
@@ -434,6 +433,46 @@ function LoadWallet() {
           )}
         </section>
       </div>
+      <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
+        <SheetContent
+          side="bottom"
+          className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5"
+        >
+          <SheetHeader className="mb-4 text-left">
+            <SheetTitle>{t("load.searchTitle")}</SheetTitle>
+          </SheetHeader>
+          <ListPageToolbar
+            stats={depositStats}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/deposit/list/", debounced, "deposits.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder={t("load.searchPlaceholder")}
+            exportLabel={t("list.exportCsv")}
+            statsLabels={{
+              total: t("list.statsTotal"),
+              success: t("list.statsSuccess"),
+              pending: t("list.statsPending"),
+              failed: t("list.statsFailed"),
+            }}
+            statusOptions={[...DEPOSIT_STATUS_OPTIONS]}
+          />
+          <Button
+            type="button"
+            className="mt-4 h-11 w-full rounded-xl"
+            onClick={() => setSearchOpen(false)}
+          >
+            {t("history.applyFilters")}
+          </Button>
+        </SheetContent>
+      </Sheet>
     </UserShell>
   );
 }

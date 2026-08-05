@@ -453,6 +453,8 @@ export const messages = {
     "services.dataTopupDesc": "NTC · NCELL data packs",
 
     "load.title": "Manual Wallet Load",
+    "load.searchTitle": "Search deposits",
+    "load.searchPlaceholder": "Search amount, txn id, note…",
     "load.disabledTitle": "Manual wallet load unavailable",
     "load.disabledBody":
       "Manual wallet load (user deposit funding) is currently disabled by the administrator.",
@@ -1190,6 +1192,8 @@ export const messages = {
     "services.dataTopupDesc": "NTC · NCELL डाटा प्याक",
 
     "load.title": "म्यानुअल वालेट लोड",
+    "load.searchTitle": "जम्मा खोज्नुहोस्",
+    "load.searchPlaceholder": "रकम, कारोबार आइडी, नोट खोज्नुहोस्…",
     "load.disabledTitle": "म्यानुअल वालेट लोड उपलब्ध छैन",
     "load.disabledBody":
       "म्यानुअल वालेट लोड (प्रयोगकर्ता जम्मा) हाल प्रशासकद्वारा निष्क्रिय छ।",

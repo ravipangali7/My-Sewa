@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { ChevronRight, Download, FileDown, Loader2, Search, Send, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
-import { UserStatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -142,19 +141,6 @@ function HistoryPage() {
     filters.startDate !== "" ||
     filters.endDate !== "";
 
-  const personalSummaryCards = useMemo(
-    () =>
-      amountSummaryCards(txQuery.data?.summary, {
-        keys: ["total_volume", "total_credit", "total_debit"],
-        labels: {
-          total_volume: t("history.totalVolume"),
-          total_credit: t("history.totalCredit"),
-          total_debit: t("history.totalDebit"),
-        },
-      }),
-    [txQuery.data?.summary, t, locale],
-  );
-
   const clearFilters = () => setFilters(DEFAULT_FILTERS);
 
   async function handleDownloadPdf(activityId: string, status: string) {
@@ -212,10 +198,6 @@ function HistoryPage() {
       }
     >
       <div className="min-w-0 max-w-full space-y-4 overflow-x-clip">
-        {personalSummaryCards.length > 0 ? (
-          <UserStatsCards items={personalSummaryCards} />
-        ) : null}
-
         {hasActiveFilters ? (
           <div className="flex flex-wrap items-center gap-2 px-0.5">
             <span className="rounded-md bg-muted px-2 py-1 text-[12px] font-medium text-muted-foreground">

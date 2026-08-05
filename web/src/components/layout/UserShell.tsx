@@ -1,5 +1,12 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Home, ArrowLeftRight, ArrowDownToLine, History, User, ArrowLeft } from "lucide-react";
+import {
+  House,
+  ArrowLeftRight,
+  HandCoins,
+  Clock3,
+  UserRound,
+  ArrowLeft,
+} from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -14,32 +21,37 @@ const TABS = [
   {
     to: "/app",
     labelKey: "nav.home" as const satisfies MessageKey,
-    icon: Home,
+    icon: House,
     match: (p: string) => p === "/app" || p === "/app/",
+    prominent: false,
   },
   {
     to: "/app/transfer",
     labelKey: "nav.transfer" as const satisfies MessageKey,
     icon: ArrowLeftRight,
     match: (p: string) => p.startsWith("/app/transfer"),
+    prominent: false,
   },
   {
     to: "/app/remittance",
     labelKey: "nav.remittance" as const satisfies MessageKey,
-    icon: ArrowDownToLine,
+    icon: HandCoins,
     match: (p: string) => p.startsWith("/app/remittance"),
+    prominent: true,
   },
   {
     to: "/app/history",
     labelKey: "nav.history" as const satisfies MessageKey,
-    icon: History,
+    icon: Clock3,
     match: (p: string) => p.startsWith("/app/history"),
+    prominent: false,
   },
   {
     to: "/app/profile",
     labelKey: "nav.profile" as const satisfies MessageKey,
-    icon: User,
+    icon: UserRound,
     match: (p: string) => p.startsWith("/app/profile"),
+    prominent: false,
   },
 ] as const;
 
@@ -233,33 +245,95 @@ export function UserShell({
           </PullToRefresh>
         </main>
 
-        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface pb-[max(10px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] lg:hidden">
-          <ul className="grid grid-cols-5">
-            {TABS.map((tab) => {
-              const active = tab.match(pathname);
-              return (
-                <li key={tab.to}>
-                  <Link
-                    to={tab.to}
-                    className={cn(
-                      "relative flex min-h-[56px] flex-col items-center justify-center gap-0.5 px-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
-                      "active:bg-transparent focus-visible:bg-transparent",
-                      active ? "text-brand" : "text-[#8A94A6]",
-                    )}
-                  >
-                    {active ? (
+        <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
+          <div className="border-t border-border/40 bg-surface/92 shadow-[0_-8px_32px_-12px_rgb(16_24_40_/_0.14)] backdrop-blur-xl supports-[backdrop-filter]:bg-surface/80">
+            <ul className="mx-auto grid max-w-lg grid-cols-5 items-end px-1.5 pt-1.5 pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
+              {TABS.map((tab) => {
+                const active = tab.match(pathname);
+                const label = t(tab.labelKey);
+
+                if (tab.prominent) {
+                  return (
+                    <li key={tab.to} className="relative flex justify-center">
+                      <Link
+                        to={tab.to}
+                        aria-current={active ? "page" : undefined}
+                        aria-label={label}
+                        className={cn(
+                          "group relative -mt-5 flex min-h-[64px] w-full max-w-[4.75rem] flex-col items-center justify-end gap-1 px-0.5 pb-0.5 no-underline outline-none",
+                          "focus-visible:outline-none",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "relative flex size-[3.25rem] items-center justify-center rounded-full bg-brand-gradient text-primary-foreground shadow-[0_10px_24px_-6px_rgb(10_122_75_/_0.55),0_2px_6px_rgb(16_24_40_/_0.12)] ring-[3px] ring-surface transition-all duration-200",
+                            "group-active:scale-[0.96]",
+                            active &&
+                              "shadow-[0_12px_28px_-4px_rgb(10_122_75_/_0.65),0_2px_8px_rgb(16_24_40_/_0.14)] ring-brand/20",
+                          )}
+                        >
+                          <tab.icon
+                            className="size-[1.35rem] shrink-0"
+                            strokeWidth={active ? 2.35 : 2.1}
+                            aria-hidden
+                          />
+                        </span>
+                        <span
+                          className={cn(
+                            "max-w-full truncate text-center text-[10px] font-semibold tracking-[0.01em] leading-none transition-colors duration-200",
+                            active ? "text-brand-dark" : "text-muted-foreground",
+                          )}
+                        >
+                          {label}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                }
+
+                return (
+                  <li key={tab.to} className="flex justify-center">
+                    <Link
+                      to={tab.to}
+                      aria-current={active ? "page" : undefined}
+                      aria-label={label}
+                      className={cn(
+                        "group relative flex min-h-[56px] w-full max-w-[4.75rem] flex-col items-center justify-center gap-1 px-0.5 pt-1 no-underline outline-none transition-colors duration-200",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+                        "active:scale-[0.97]",
+                        active ? "text-brand" : "text-muted-foreground",
+                      )}
+                    >
                       <span
-                        aria-hidden
-                        className="absolute inset-x-3 top-0 h-[2.5px] rounded-b-full bg-brand sm:inset-x-4"
-                      />
-                    ) : null}
-                    <tab.icon className={cn("size-[22px] shrink-0", active && "stroke-[2.25px]")} />
-                    <span className="max-w-full truncate leading-none">{t(tab.labelKey)}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+                        className={cn(
+                          "flex size-9 items-center justify-center rounded-2xl transition-all duration-200",
+                          active
+                            ? "bg-brand-soft text-brand-dark"
+                            : "bg-transparent text-muted-foreground group-hover:bg-muted/80 group-hover:text-foreground",
+                        )}
+                      >
+                        <tab.icon
+                          className="size-[1.25rem] shrink-0"
+                          strokeWidth={active ? 2.35 : 1.9}
+                          aria-hidden
+                        />
+                      </span>
+                      <span
+                        className={cn(
+                          "max-w-full truncate text-center text-[10px] leading-none tracking-[0.01em] transition-colors duration-200",
+                          active
+                            ? "font-semibold text-brand-dark"
+                            : "font-medium text-muted-foreground",
+                        )}
+                      >
+                        {label}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </nav>
       </div>
     </div>

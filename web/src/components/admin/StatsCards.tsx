@@ -22,13 +22,13 @@ export type StatCardItem = {
   icon?: LucideIcon;
 };
 
-const TONE_ICON: Record<StatCardTone, string> = {
-  default: "text-brand/70",
-  credit: "text-success",
-  debit: "text-ocean",
-  brand: "text-brand",
-  info: "text-info",
-  warning: "text-warning",
+const TONE_ICON_WRAP: Record<StatCardTone, string> = {
+  default: "bg-brand-soft/80 text-brand",
+  credit: "bg-success/12 text-success",
+  debit: "bg-ocean/10 text-ocean",
+  brand: "bg-brand-soft text-brand-dark",
+  info: "bg-info/12 text-info",
+  warning: "bg-warning/12 text-warning",
 };
 
 const TONE_VALUE: Record<StatCardTone, string> = {
@@ -38,6 +38,15 @@ const TONE_VALUE: Record<StatCardTone, string> = {
   brand: "text-brand-dark",
   info: "text-info",
   warning: "text-warning",
+};
+
+const TONE_ACCENT: Record<StatCardTone, string> = {
+  default: "from-brand/15 via-transparent to-transparent",
+  credit: "from-success/15 via-transparent to-transparent",
+  debit: "from-ocean/15 via-transparent to-transparent",
+  brand: "from-brand/20 via-transparent to-transparent",
+  info: "from-info/15 via-transparent to-transparent",
+  warning: "from-warning/15 via-transparent to-transparent",
 };
 
 type StatsCardsProps = {
@@ -52,17 +61,17 @@ export function StatsCards({ items, className, variant = "admin" }: StatsCardsPr
 
   const cols =
     items.length <= 2
-      ? "grid-cols-2"
+      ? "grid-cols-1 sm:grid-cols-2"
       : items.length === 3
-        ? "grid-cols-2 sm:grid-cols-3"
+        ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
         : items.length === 4
-          ? "grid-cols-2 lg:grid-cols-4"
+          ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4"
           : items.length === 5
-            ? "grid-cols-2 sm:gap-4 xl:grid-cols-5"
-            : "grid-cols-2 sm:grid-cols-3 xl:grid-cols-6";
+            ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+            : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6";
 
   return (
-    <div className={cn("grid gap-3", cols, className)}>
+    <div className={cn("grid gap-3 sm:gap-4", cols, className)}>
       {items.map((card) => {
         const tone = card.tone ?? "default";
         const Icon = card.icon;
@@ -71,38 +80,58 @@ export function StatsCards({ items, className, variant = "admin" }: StatsCardsPr
           <div
             key={card.key}
             className={cn(
-              "rounded-xl border border-border bg-surface",
-              isUser ? "p-3" : "p-3.5 sm:p-4",
-              items.length % 2 === 1 && card === items[items.length - 1]
-                ? "last:col-span-2 xl:last:col-span-1"
-                : null,
+              "group relative overflow-hidden rounded-2xl border border-border/80 bg-surface",
+              "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.12)]",
+              "transition-[box-shadow,transform,border-color] duration-200",
+              "hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[0_2px_4px_rgba(15,23,42,0.05),0_16px_32px_-14px_rgba(10,122,75,0.22)]",
+              isUser ? "p-3.5" : "p-4 sm:p-5",
             )}
           >
-            <div className="flex items-start justify-between gap-2">
-              <p
-                className={cn(
-                  "text-muted-foreground",
-                  isUser ? "text-[11px]" : "text-[11px] sm:text-xs",
-                )}
-              >
-                {card.label}
-              </p>
+            <div
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-0 bg-gradient-to-br opacity-90",
+                TONE_ACCENT[tone],
+              )}
+            />
+            <div className="relative flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p
+                  className={cn(
+                    "font-medium tracking-wide text-muted-foreground uppercase",
+                    isUser ? "text-[10px]" : "text-[10px] sm:text-[11px]",
+                  )}
+                >
+                  {card.label}
+                </p>
+                <p
+                  className={cn(
+                    "tabular mt-2 font-bold tracking-tight",
+                    isUser ? "text-lg" : "text-xl sm:text-2xl",
+                    TONE_VALUE[tone],
+                  )}
+                >
+                  {card.value}
+                </p>
+                {card.hint ? (
+                  <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                    {card.hint}
+                  </p>
+                ) : null}
+              </div>
               {Icon ? (
-                <Icon className={cn("size-4 shrink-0", TONE_ICON[tone])} aria-hidden />
+                <span
+                  className={cn(
+                    "inline-flex shrink-0 items-center justify-center rounded-xl",
+                    "ring-1 ring-inset ring-black/5",
+                    isUser ? "size-9" : "size-10 sm:size-11",
+                    TONE_ICON_WRAP[tone],
+                  )}
+                >
+                  <Icon className={cn(isUser ? "size-4" : "size-5")} aria-hidden />
+                </span>
               ) : null}
             </div>
-            <p
-              className={cn(
-                "tabular mt-1 font-semibold tracking-tight",
-                isUser ? "text-base" : "text-lg sm:mt-1.5 sm:text-xl",
-                TONE_VALUE[tone],
-              )}
-            >
-              {card.value}
-            </p>
-            {card.hint ? (
-              <p className="mt-1 text-[11px] text-muted-foreground">{card.hint}</p>
-            ) : null}
           </div>
         );
       })}

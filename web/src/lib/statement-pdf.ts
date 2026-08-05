@@ -5,6 +5,7 @@ import {
   isMySewaNativeApp,
   waitForNativeFileBridge,
 } from "./native-app";
+import { toJpeg } from "html-to-image";
 
 /** A4 at 2× for crisp output (points → CSS px ≈ 96/72). */
 const SCALE = 2;
@@ -153,15 +154,16 @@ function wrapText(
   return lines.length ? lines : [text];
 }
 
-function safeFilename(reference: string): string {
+function safeFilename(reference: string, ext = "pdf"): string {
   const cleaned = reference.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
-  return `MySewa_Statement_${cleaned || "transaction"}.pdf`;
+  return `MySewa_Statement_${cleaned || "transaction"}.${ext}`;
 }
 
 /** Minimal single-page PDF wrapping a JPEG image (no external deps). */
 function jpegToPdfBytes(jpeg: Uint8Array, widthPx: number, heightPx: number): Uint8Array {
-  const pageW = widthPx / SCALE;
-  const pageH = heightPx / SCALE;
+  // Fit tall receipts onto a page whose width maps ~CSS px → PDF points.
+  const pageW = Math.max(1, widthPx / SCALE);
+  const pageH = Math.max(1, heightPx / SCALE);
   const encoder = new TextEncoder();
 
   const out: Uint8Array[] = [];
@@ -233,6 +235,16 @@ function canvasToJpegBytes(
       quality,
     );
   });
+}
+
+function dataUrlToBytes(dataUrl: string): Uint8Array {
+  const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1]! : dataUrl;
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -376,6 +388,43 @@ export interface StatementPdfOptions {
   brandName?: string;
 }
 
+export interface ReceiptCaptureOptions {
+  element: HTMLElement;
+  reference: string;
+}
+
+async function captureElementAsJpeg(
+  element: HTMLElement,
+): Promise<{ jpeg: Uint8Array; width: number; height: number }> {
+  // Ensure fonts/images are settled before snapshot.
+  await document.fonts?.ready.catch(() => undefined);
+
+  const dataUrl = await toJpeg(element, {
+    quality: 0.95,
+    pixelRatio: 2,
+    cacheBust: true,
+    backgroundColor: "#ffffff",
+    style: {
+      // Avoid clipping rounded corners / shadows in the export.
+      transform: "none",
+      margin: "0",
+    },
+  });
+
+  const jpeg = dataUrlToBytes(dataUrl);
+  const img = await loadImage(dataUrl);
+  return { jpeg, width: img.naturalWidth || img.width, height: img.naturalHeight || img.height };
+}
+
+async function buildReceiptPdfFromElement({
+  element,
+  reference,
+}: ReceiptCaptureOptions): Promise<{ bytes: Uint8Array; filename: string }> {
+  const { jpeg, width, height } = await captureElementAsJpeg(element);
+  const bytes = jpegToPdfBytes(jpeg, width, height);
+  return { bytes, filename: safeFilename(reference) };
+}
+
 async function buildStatementPdfBytes({
   statement,
   title,
@@ -480,5 +529,17 @@ export async function downloadStatementPdf(options: StatementPdfOptions): Promis
 
 export async function shareStatementPdf(options: StatementPdfOptions): Promise<void> {
   const { bytes, filename } = await buildStatementPdfBytes(options);
+  await triggerShare(bytes, filename, "application/pdf");
+}
+
+/** Capture the on-screen receipt card and download it as a PDF with identical layout. */
+export async function downloadReceiptFromElement(options: ReceiptCaptureOptions): Promise<void> {
+  const { bytes, filename } = await buildReceiptPdfFromElement(options);
+  await triggerDownload(bytes, filename, "application/pdf");
+}
+
+/** Capture the on-screen receipt card and share it as a PDF with identical layout. */
+export async function shareReceiptFromElement(options: ReceiptCaptureOptions): Promise<void> {
+  const { bytes, filename } = await buildReceiptPdfFromElement(options);
   await triggerShare(bytes, filename, "application/pdf");
 }
