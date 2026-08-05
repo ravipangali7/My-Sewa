@@ -38,6 +38,7 @@ import {
   AdminMobileCardGrid,
   AdminMobileMeta,
 } from "@/components/admin/AdminDataList";
+import { StatsCards, amountSummaryCards, type StatCardItem } from "@/components/admin/StatsCards";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -149,40 +150,66 @@ function ReportsPage() {
     return Object.entries(data.categories).map(([key, value]) => ({ key, ...value }));
   }, [data?.categories]);
 
-  const summaryCards = data
+  const summaryCards: StatCardItem[] = data
     ? [
         {
+          key: "success_volume",
           label: "Successful volume",
           value: formatNPR(data.summary.success_volume),
           hint: `${data.summary.success_count} successful txns`,
           icon: TrendingUp,
+          tone: "brand",
         },
         {
+          key: "total_txns",
           label: "Total transactions",
           value: String(data.summary.total_transactions),
           hint: `${data.summary.success_rate}% success rate`,
           icon: Smartphone,
+          tone: "default",
         },
         {
+          key: "pending",
           label: "Pending queue",
           value: String(data.summary.pending_count),
           hint: `${data.summary.failed_count} failed in range`,
           icon: Inbox,
+          tone: "warning",
         },
         {
+          key: "float",
           label: "Wallet float",
           value: formatNPR(data.summary.wallet_float),
           hint: `${data.summary.new_users} new users`,
           icon: Wallet,
+          tone: "info",
         },
         {
+          key: "users",
           label: "Registered users",
           value: String(data.summary.total_users),
           hint: `Last ${data.range.days} days`,
           icon: Users,
+          tone: "default",
         },
       ]
     : [];
+
+  const amountCards = amountSummaryCards(
+    data
+      ? {
+          total_volume: data.summary.total_volume ?? data.summary.success_volume,
+          total_amount: data.summary.total_amount ?? data.summary.success_volume,
+          total_credit: data.summary.total_credit ?? 0,
+          total_debit: data.summary.total_debit ?? 0,
+          today_amount: data.summary.today_amount ?? 0,
+          monthly_amount: data.summary.monthly_amount ?? data.summary.success_volume,
+        }
+      : undefined,
+    {
+      keys: ["total_volume", "total_credit", "total_debit", "today_amount", "monthly_amount"],
+    },
+  );
 
   return (
     <AdminShell
@@ -278,23 +305,10 @@ function ReportsPage() {
           </div>
         ) : data ? (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
-              {summaryCards.map((card) => (
-                <div
-                  key={card.label}
-                  className="rounded-xl border border-border bg-surface p-3.5 sm:p-4 last:col-span-2 xl:last:col-span-1"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-[11px] text-muted-foreground sm:text-xs">{card.label}</p>
-                    <card.icon className="size-4 shrink-0 text-brand/70" />
-                  </div>
-                  <p className="tabular mt-1 text-lg font-semibold tracking-tight sm:mt-1.5 sm:text-xl">
-                    {card.value}
-                  </p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{card.hint}</p>
-                </div>
-              ))}
-            </div>
+            <StatsCards items={summaryCards} />
+            {amountCards.length > 0 ? (
+              <StatsCards items={amountCards} className="mt-3" />
+            ) : null}
 
             <div className="grid gap-4 lg:grid-cols-3">
               <div className="rounded-xl border border-border bg-surface p-4 lg:col-span-2">
@@ -747,7 +761,7 @@ function RecentDeposits({ items }: { items: import("@/lib/types").Deposit[] }) {
                   </Link>
                 </TableCell>
                 <TableCell>{d.phone}</TableCell>
-                <TableCell className="tabular text-right">{formatNPR(d.amount)}</TableCell>
+                <TableCell className="tabular text-right font-semibold">{formatNPR(d.amount)}</TableCell>
                 <TableCell>{formatDateTime(d.created_at)}</TableCell>
                 <TableCell>
                   <StatusChip status={d.status} compact />
@@ -808,7 +822,7 @@ function RecentTopups({ items }: { items: import("@/lib/types").TopupTransaction
                 </TableCell>
                 <TableCell>{t.product_name}</TableCell>
                 <TableCell>{t.mobile_number}</TableCell>
-                <TableCell className="tabular text-right">{formatNPR(t.amount)}</TableCell>
+                <TableCell className="tabular text-right font-semibold">{formatNPR(t.amount)}</TableCell>
                 <TableCell>
                   <StatusChip status={t.status} compact />
                 </TableCell>
@@ -866,7 +880,7 @@ function RecentTransfers({ items }: { items: import("@/lib/types").BankTransferT
                 <TableCell>#{t.id}</TableCell>
                 <TableCell>{t.destination_bank_name || t.destination_bank}</TableCell>
                 <TableCell>{t.destination_acc_no}</TableCell>
-                <TableCell className="tabular text-right">{formatNPR(t.amount)}</TableCell>
+                <TableCell className="tabular text-right font-semibold">{formatNPR(t.amount)}</TableCell>
                 <TableCell>
                   <StatusChip status={t.status} compact />
                 </TableCell>
@@ -931,7 +945,7 @@ function RecentRemittances({ items }: { items: import("@/lib/types").RemittanceT
                 </TableCell>
                 <TableCell>{r.ref_no}</TableCell>
                 <TableCell>{r.receiver_name || r.phone}</TableCell>
-                <TableCell className="tabular text-right">{formatNPR(r.amount)}</TableCell>
+                <TableCell className="tabular text-right font-semibold">{formatNPR(r.amount)}</TableCell>
                 <TableCell>
                   <StatusChip status={r.status} compact />
                 </TableCell>

@@ -1,13 +1,49 @@
+from django import forms
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from .models import Wallet, Deposit, Settings, TopupTransaction, BankTransferTransaction, RemittanceTransaction
+from .models import (
+    Wallet,
+    WalletAdjustment,
+    Deposit,
+    Settings,
+    TopupTransaction,
+    BankTransferTransaction,
+    RemittanceTransaction,
+    UserFeeConfig,
+    DeviceToken,
+)
 
 User = get_user_model()
 
 
+class CustomUserAdminForm(forms.ModelForm):
+    """Require email when creating a new user; model may still allow blank for legacy rows."""
+
+    class Meta:
+        model = User
+        fields = (
+            'phone', 'email', 'first_name', 'last_name', 'avatar',
+            'account_status', 'is_active', 'is_staff',
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['phone'].required = True
+        # New users must have an email; existing legacy accounts may still be blank.
+        if not self.instance.pk:
+            self.fields['email'].required = True
+
+    def clean_email(self):
+        email = (self.cleaned_data.get('email') or '').strip()
+        if not self.instance.pk and not email:
+            raise forms.ValidationError('Email address is required.')
+        return email or None
+
+
 @admin.register(User)
 class CustomUserAdmin(admin.ModelAdmin):
+    form = CustomUserAdminForm
     list_display = ('phone', 'email', 'first_name', 'last_name', 'account_status', 'is_active', 'date_joined')
     list_filter = ('account_status', 'is_active', 'is_staff', 'date_joined')
     search_fields = ('phone', 'email', 'first_name', 'last_name')
@@ -27,6 +63,27 @@ class WalletAdmin(admin.ModelAdmin):
     ordering = ('-updated_at',)
 
 
+@admin.register(WalletAdjustment)
+class WalletAdjustmentAdmin(admin.ModelAdmin):
+    list_display = (
+        'user', 'adjustment_type', 'amount', 'balance_before', 'balance_after',
+        'created_by', 'created_at',
+    )
+    list_filter = ('adjustment_type', 'created_at')
+    search_fields = (
+        'user__phone', 'reason', 'reference', 'created_by__phone',
+    )
+    readonly_fields = (
+        'wallet', 'user', 'amount', 'adjustment_type',
+        'balance_before', 'balance_after', 'reason', 'created_by',
+        'created_at', 'reference',
+    )
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+
 @admin.register(Deposit)
 class DepositAdmin(admin.ModelAdmin):
     list_display = ('user', 'amount', 'status', 'created_at', 'updated_at')
@@ -34,6 +91,7 @@ class DepositAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'user__email', 'note', 'rejection_reason')
     readonly_fields = (
         'user', 'amount', 'screenshot_proof', 'note', 'rejection_reason',
+        'balance_before', 'balance_after',
         'created_at', 'updated_at',
     )
     ordering = ('-created_at',)
@@ -46,10 +104,7 @@ class DepositAdmin(admin.ModelAdmin):
             with transaction.atomic():
                 deposit.status = 'approved'
                 deposit.save()
-                # Signal will handle wallet balance update
-                wallet = Wallet.objects.get(user=deposit.user)
-                wallet.balance += deposit.amount
-                wallet.save()
+                # Signal credits wallet and sets balance_before / balance_after
                 approved_count += 1
         self.message_user(request, f'{approved_count} deposit(s) approved successfully.')
     approve_deposits.short_description = "Approve selected deposits"
@@ -95,8 +150,8 @@ class TopupTransactionAdmin(admin.ModelAdmin):
     readonly_fields = (
         'user', 'mobile_number', 'amount', 'product_id', 'status',
         'service_hub_txn_id', 'merchant_txn_id', 'charge', 'cashback',
-        'total_debited', 'reference_id', 'provider_response',
-        'created_at', 'updated_at',
+        'total_debited', 'balance_before', 'balance_after', 'reference_id',
+        'provider_response', 'created_at', 'updated_at',
     )
     ordering = ('-created_at',)
 
@@ -120,8 +175,8 @@ class BankTransferTransactionAdmin(admin.ModelAdmin):
         'destination_acc_no', 'destination_acc_name', 'is_destination_mobile',
         'transaction_remarks', 'transaction_remarks_2', 'transaction_remarks_3',
         'status', 'merchant_txn_id', 'provider_txn_id', 'reference_id',
-        'charge', 'cashback', 'total_debited', 'verified', 'provider_response',
-        'created_at', 'updated_at',
+        'charge', 'cashback', 'total_debited', 'balance_before', 'balance_after',
+        'verified', 'provider_response', 'created_at', 'updated_at',
     )
     ordering = ('-created_at',)
 
@@ -145,3 +200,42 @@ class RemittanceTransactionAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(UserFeeConfig)
+class UserFeeConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        'user',
+        'transfer_charge_enabled',
+        'transfer_charge_flat',
+        'transfer_charge_percent',
+        'topup_charge_percent',
+        'updated_at',
+    )
+    search_fields = ('user__phone', 'user__email', 'user__first_name', 'user__last_name')
+    readonly_fields = ('updated_at',)
+    autocomplete_fields = ('user',)
+    fields = (
+        'user',
+        'transfer_charge_enabled',
+        'transfer_charge_flat',
+        'transfer_charge_percent',
+        'topup_charge_percent',
+        'updated_at',
+    )
+
+
+@admin.register(DeviceToken)
+class DeviceTokenAdmin(admin.ModelAdmin):
+    list_display = ('user', 'platform', 'token_preview', 'updated_at', 'created_at')
+    list_filter = ('platform', 'updated_at')
+    search_fields = ('user__phone', 'token')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-updated_at',)
+
+    @admin.display(description='Token')
+    def token_preview(self, obj):
+        t = obj.token or ''
+        if len(t) <= 24:
+            return t
+        return f'{t[:12]}…{t[-8:]}'

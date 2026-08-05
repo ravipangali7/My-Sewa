@@ -11,6 +11,7 @@ import {
   AdminMobileCardGrid,
   AdminMobileMeta,
 } from "@/components/admin/AdminDataList";
+import { StatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,11 +35,15 @@ import {
 } from "@/components/ui/table";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDate } from "@/lib/format";
+import { serialNumber } from "@/lib/serial";
 import { useAuth } from "@/lib/auth";
 import type { AdminUser } from "@/lib/types";
 import { useListFilters } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
 import { useState } from "react";
+
+const LIST_PAGE = 1;
+const LIST_PAGE_SIZE = 50;
 
 export const Route = createFileRoute("/admin/users")({
   head: () => ({
@@ -69,7 +74,7 @@ function UsersPage() {
 
   const statusMutation = useMutation({
     mutationFn: ({ id, account_status }: { id: number; account_status: "pending" | "approved" }) => {
-      const existing = usersQuery.data?.find((u) => u.id === id);
+      const existing = usersQuery.data?.items?.find((u) => u.id === id);
       if (!existing) throw new Error("User not found");
       return apiClient.adminUpdateUser(id, {
         phone: existing.phone,
@@ -98,6 +103,11 @@ function UsersPage() {
 
   const users = usersQuery.data?.items ?? [];
   const userStats = usersQuery.data?.stats;
+  const amountCards = amountSummaryCards(usersQuery.data?.summary, {
+    keys: ["total_amount"],
+    labels: { total_amount: "Total wallet balances" },
+    hints: { total_amount: `${users.length} user${users.length === 1 ? "" : "s"} in view` },
+  });
 
   const deleteDialog = (u: AdminUser) => {
     const isSelf = currentUser?.id === u.id;
@@ -187,7 +197,8 @@ function UsersPage() {
         </Button>
       }
     >
-      <div className="mb-4">
+      <div className="mb-4 space-y-4">
+        <StatsCards items={amountCards} />
         <ListPageToolbar
           stats={userStats}
           filters={filters}
@@ -215,6 +226,7 @@ function UsersPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10 pr-0">S.N.</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Name</TableHead>
@@ -229,8 +241,11 @@ function UsersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map((u) => (
+              {users.map((u, index) => (
                 <TableRow key={u.id}>
+                  <TableCell className="w-10 pr-0 tabular text-sm text-muted-foreground">
+                    {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}
+                  </TableCell>
                   <TableCell className="text-sm">{u.id}</TableCell>
                   <TableCell className="text-sm font-medium">{u.phone}</TableCell>
                   <TableCell className="text-sm">
@@ -265,14 +280,20 @@ function UsersPage() {
         }
         mobile={
           <AdminMobileCardGrid>
-            {users.map((u) => {
+            {users.map((u, index) => {
               const name = [u.first_name, u.last_name].filter(Boolean).join(" ") || "—";
+              const sn = serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index);
               return (
                 <AdminMobileCard key={u.id}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{u.phone}</p>
-                      <p className="truncate text-xs text-muted-foreground">{name}</p>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <span className="tabular shrink-0 pt-0.5 text-xs text-muted-foreground">
+                        {sn}.
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{u.phone}</p>
+                        <p className="truncate text-xs text-muted-foreground">{name}</p>
+                      </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       <Badge variant={u.account_status === "approved" ? "default" : "secondary"}>

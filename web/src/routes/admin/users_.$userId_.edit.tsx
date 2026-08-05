@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { BackButton } from "@/components/BackButton";
 import { UserForm } from "@/components/admin/UserForm";
+import { UserFeesForm } from "@/components/admin/UserFeesForm";
 import { apiClient, ApiError } from "@/lib/api";
 import type { AdminUserWritePayload } from "@/lib/types";
 
@@ -67,14 +68,17 @@ function EditUserPage() {
       )}
 
       {u && (
-        <UserForm
-          key={u.id}
-          mode="edit"
-          initialUser={u}
-          submitting={updateMutation.isPending}
-          onSubmit={(payload) => updateMutation.mutate(payload)}
-          onCancel={() => navigate({ to: "/admin/users/$userId", params: { userId } })}
-        />
+        <div className="space-y-5">
+          <UserForm
+            key={u.id}
+            mode="edit"
+            initialUser={u}
+            submitting={updateMutation.isPending}
+            onSubmit={(payload) => updateMutation.mutate(payload)}
+            onCancel={() => navigate({ to: "/admin/users/$userId", params: { userId } })}
+          />
+          <UserFeesForm userId={u.id} />
+        </div>
       )}
     </AdminShell>
   );

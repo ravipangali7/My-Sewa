@@ -21,6 +21,7 @@ import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
+import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
 import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
@@ -91,6 +92,8 @@ function Transfer() {
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [verifying, setVerifying] = useState(false);
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -293,7 +296,7 @@ function Transfer() {
   };
 
   const submitMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (transaction_pin: string) => {
       if (accountPending) throw new Error(t("account.pending"));
       if (!transfersEnabled) throw new Error(t("transfer.disabledError"));
       if (amt < minTransfer) throw new Error(t("transfer.minError", { min: minTransfer }));
@@ -318,9 +321,12 @@ function Transfer() {
         destination_acc_name: accName,
         is_destination_mobile: isMobile,
         transaction_remarks: remarks || t("transfer.defaultRemarks"),
+        transaction_pin,
       });
     },
     onSuccess: (res) => {
+      setPinOpen(false);
+      setPinError(null);
       const isPending = res.data.status === "pending";
       if (isPending) {
         toast.message(res.message || t("transfer.pendingTitle"), {
@@ -345,7 +351,13 @@ function Transfer() {
     onError: (err) => {
       if (err instanceof ApiError && err.body && typeof err.body === "object") {
         const body = err.body as Record<string, unknown>;
+        const errors = body["errors"] as Record<string, string[]> | undefined;
+        if (errors?.["transaction_pin"]?.[0] || body["code"] === "pin_not_set") {
+          setPinError(errors?.["transaction_pin"]?.[0] || t("pin.incorrect"));
+          return;
+        }
         if (body["error"] === "Insufficient balance") {
+          setPinOpen(false);
           toastApiError(err, {
             title: t("transfer.failed"),
             fallback: t("transfer.insufficient", {
@@ -356,6 +368,7 @@ function Transfer() {
           return;
         }
       }
+      setPinOpen(false);
       toastApiError(err, { title: t("transfer.failed"), fallback: t("transfer.failed") });
     },
   });
@@ -430,8 +443,8 @@ function Transfer() {
           err.message.toLowerCase().includes("do not match") ||
           (err.body &&
             typeof err.body === "object" &&
-            ((err.body as Record<string, unknown>).error === "Don't Match" ||
-              (err.body as Record<string, unknown>).mismatch === true)));
+            ((err.body as Record<string, unknown>)["error"] === "Don't Match" ||
+              (err.body as Record<string, unknown>)["mismatch"] === true)));
       toastApiError(err, {
         title: mismatch ? t("transfer.dontMatch") : t("transfer.verifyFailed"),
         fallback: mismatch ? t("transfer.dontMatch") : t("transfer.verifyFailed"),
@@ -462,7 +475,7 @@ function Transfer() {
         </Button>
       }
     >
-      <div className="grid min-w-0 gap-5 lg:grid-cols-2">
+      <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />
@@ -498,7 +511,8 @@ function Transfer() {
                 toast.error(t("transfer.verifyFirst"));
                 return;
               }
-              submitMutation.mutate();
+              setPinError(null);
+              setPinOpen(true);
             }}
           >
             <div className="space-y-1.5">
@@ -537,7 +551,7 @@ function Transfer() {
             {isMobile ? (
               <div className="space-y-1.5">
                 <Label htmlFor="phone">{t("transfer.destPhone")}</Label>
-                <div className="flex gap-2">
+                <div className="flex min-w-0 gap-2">
                   <Input
                     id="phone"
                     inputMode="tel"
@@ -548,14 +562,14 @@ function Transfer() {
                       resetVerification();
                       setAccName("");
                     }}
-                    className="h-12 rounded-xl"
+                    className="h-12 min-w-0 flex-1 rounded-xl"
                     required
                     disabled={!transfersEnabled || !bank}
                   />
                   <Button
                     type="button"
                     variant="secondary"
-                    className="h-12 rounded-xl"
+                    className="h-12 shrink-0 rounded-xl"
                     disabled={
                       verifying ||
                       !transfersEnabled ||
@@ -582,7 +596,7 @@ function Transfer() {
             ) : (
               <div className="space-y-1.5">
                 <Label htmlFor="acc">{t("transfer.destAccount")}</Label>
-                <div className="flex gap-2">
+                <div className="flex min-w-0 gap-2">
                   <Input
                     id="acc"
                     value={accNo}
@@ -591,14 +605,14 @@ function Transfer() {
                       resetVerification();
                     }}
                     placeholder={t("transfer.accountPlaceholder")}
-                    className="h-12 rounded-xl"
+                    className="h-12 min-w-0 flex-1 rounded-xl"
                     required
                     disabled={!transfersEnabled || !bank}
                   />
                   <Button
                     type="button"
                     variant="secondary"
-                    className="h-12 rounded-xl"
+                    className="h-12 shrink-0 rounded-xl"
                     disabled={
                       verifying ||
                       !transfersEnabled ||
@@ -846,7 +860,7 @@ function Transfer() {
         </section>
       </div>
       <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
-        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
+        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5">
           <SheetHeader className="mb-4 text-left">
             <SheetTitle>{t("transfer.searchTitle")}</SheetTitle>
           </SheetHeader>
@@ -882,6 +896,21 @@ function Transfer() {
           </Button>
         </SheetContent>
       </Sheet>
+
+      <TransactionPinDialog
+        open={pinOpen}
+        onOpenChange={(open) => {
+          setPinOpen(open);
+          if (!open) setPinError(null);
+        }}
+        hasPin={Boolean(user?.has_transaction_pin)}
+        confirming={submitMutation.isPending}
+        error={pinError}
+        onConfirm={(pin) => {
+          setPinError(null);
+          submitMutation.mutate(pin);
+        }}
+      />
     </UserShell>
   );
 }

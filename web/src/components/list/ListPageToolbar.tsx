@@ -20,15 +20,15 @@ type StatsLabels = {
 };
 
 type ToolbarProps = {
-  stats?: Stats;
+  stats?: Stats | undefined;
   filters: ListFilters;
   onFiltersChange: (next: Partial<ListFilters>) => void;
-  onExport?: () => void | Promise<void>;
-  exporting?: boolean;
-  searchPlaceholder?: string;
-  exportLabel?: string;
-  statsLabels?: StatsLabels;
-  statusOptions?: StatusOption[];
+  onExport?: (() => void | Promise<void>) | undefined;
+  exporting?: boolean | undefined;
+  searchPlaceholder?: string | undefined;
+  exportLabel?: string | undefined;
+  statsLabels?: StatsLabels | undefined;
+  statusOptions?: StatusOption[] | undefined;
 };
 
 const DEFAULT_LABELS: StatsLabels = {
@@ -38,7 +38,7 @@ const DEFAULT_LABELS: StatsLabels = {
   failed: "Failed",
 };
 
-function NumberPill({ label, value }: { label: string; value?: number }) {
+function NumberPill({ label, value }: { label: string; value?: number | undefined }) {
   return (
     <div className="rounded-lg border border-border bg-muted/35 px-2.5 py-1.5 text-xs">
       <span className="text-muted-foreground">{label}:</span>{" "}
@@ -59,9 +59,9 @@ export function ListPageToolbar({
   statusOptions = [],
 }: ToolbarProps) {
   return (
-    <div className="space-y-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="relative min-w-0 flex-1">
+    <div className="min-w-0 space-y-3">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="relative min-w-0 flex-1 basis-full lg:basis-auto">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={filters.q}
@@ -73,7 +73,7 @@ export function ListPageToolbar({
         <select
           value={filters.status}
           onChange={(e) => onFiltersChange({ status: e.target.value as ListFilters["status"] })}
-          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          className="h-10 w-full shrink-0 rounded-md border border-input bg-background px-3 text-sm sm:w-auto"
           aria-label="Filter by status"
         >
           {statusOptions.map((option) => (
@@ -86,18 +86,24 @@ export function ListPageToolbar({
           type="date"
           value={filters.startDate}
           onChange={(e) => onFiltersChange({ startDate: e.target.value })}
-          className="sm:w-[160px]"
+          className="w-full sm:w-[160px]"
           aria-label="Start date"
         />
         <Input
           type="date"
           value={filters.endDate}
           onChange={(e) => onFiltersChange({ endDate: e.target.value })}
-          className="sm:w-[160px]"
+          className="w-full sm:w-[160px]"
           aria-label="End date"
         />
         {onExport ? (
-          <Button type="button" variant="outline" onClick={() => void onExport()} disabled={exporting}>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full shrink-0 sm:w-auto"
+            onClick={() => void onExport()}
+            disabled={exporting}
+          >
             {exporting ? <Loader2 className="size-4 animate-spin" /> : null}
             {exportLabel}
           </Button>
@@ -119,7 +125,7 @@ export function ReceiptDownloadLink({
   onClick,
 }: {
   label: string;
-  downloading?: boolean;
+  downloading?: boolean | undefined;
   onClick: () => void;
 }) {
   return (
@@ -144,10 +150,10 @@ export function TransactionResultBanner({
 }: {
   tone: "success" | "warning" | "danger";
   title: string;
-  body?: string;
-  receiptLabel?: string;
-  onDownloadReceipt?: () => void;
-  downloading?: boolean;
+  body?: string | undefined;
+  receiptLabel?: string | undefined;
+  onDownloadReceipt?: (() => void) | undefined;
+  downloading?: boolean | undefined;
 }) {
   return (
     <div

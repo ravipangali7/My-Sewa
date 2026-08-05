@@ -22,6 +22,10 @@ urlpatterns = [
     path('api/auth/change-phone/', auth_views.change_phone, name='change_phone'),
     path('api/auth/forgot-password/', auth_views.forgot_password, name='forgot_password'),
     path('api/auth/reset-password/', auth_views.reset_password, name='reset_password'),
+    path('api/auth/set-transaction-pin/', auth_views.set_transaction_pin, name='set_transaction_pin'),
+    path('api/auth/has-transaction-pin/', auth_views.has_transaction_pin, name='has_transaction_pin'),
+    path('api/auth/verify-transaction-pin/', auth_views.verify_transaction_pin, name='verify_transaction_pin'),
+    path('api/auth/device-token/', auth_views.device_token, name='device_token'),
 
     # Wallet endpoints
     path('api/wallet/balance/', wallet_views.get_wallet_balance, name='wallet_balance'),
@@ -74,8 +78,11 @@ urlpatterns = [
     path('api/admin/dashboard/', admin_views.admin_dashboard, name='admin_dashboard'),
     path('api/admin/reports/', admin_views.admin_reports, name='admin_reports'),
     path('api/admin/users/', admin_views.admin_list_users, name='admin_list_users'),
+    path('api/admin/users/<int:user_id>/report/', admin_views.admin_user_report, name='admin_user_report'),
     path('api/admin/users/<int:user_id>/', admin_views.admin_user_detail, name='admin_user_detail'),
+    path('api/admin/users/<int:user_id>/fees/', admin_views.admin_user_fees, name='admin_user_fees'),
     path('api/admin/wallets/', admin_views.admin_list_wallets, name='admin_list_wallets'),
+    path('api/admin/wallets/<int:wallet_id>/transactions/', admin_views.admin_wallet_transactions, name='admin_wallet_transactions'),
     path('api/admin/wallets/<int:wallet_id>/', admin_views.admin_wallet_detail, name='admin_wallet_detail'),
     path('api/admin/deposits/', admin_views.admin_list_deposits, name='admin_list_deposits'),
     path('api/admin/deposits/<int:deposit_id>/', admin_views.admin_get_deposit, name='admin_get_deposit'),

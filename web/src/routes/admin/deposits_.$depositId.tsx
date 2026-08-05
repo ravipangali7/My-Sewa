@@ -36,9 +36,11 @@ export const Route = createFileRoute("/admin/deposits_/$depositId")({
 
 function StatementRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-border/80 py-2.5 last:border-0 sm:grid-cols-[180px_1fr] sm:gap-3">
-      <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</dt>
-      <dd className="text-sm font-medium break-words text-foreground">{children}</dd>
+    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-border/80 py-2.5 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-3">
+      <dt className="min-w-0 break-words text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        {label}
+      </dt>
+      <dd className="min-w-0 break-all text-sm font-medium text-foreground">{children}</dd>
     </div>
   );
 }
@@ -122,7 +124,7 @@ function DepositDetailPage() {
       }
       actions={
         d?.status === "pending" ? (
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 [&>*]:shrink-0">
             <Button size="sm" disabled={actionPending} onClick={() => approveMutation.mutate()}>
               Approve
             </Button>
@@ -155,36 +157,38 @@ function DepositDetailPage() {
 
       {d && (
         <div className="space-y-6">
-          <article className="overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
-            <div className="border-b border-border bg-gradient-to-br from-muted/80 via-surface to-surface px-6 py-6 sm:px-8">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
+          <article className="min-w-0 overflow-x-clip rounded-2xl border border-border bg-surface shadow-card">
+            <div className="border-b border-border bg-gradient-to-br from-muted/80 via-surface to-surface px-4 py-5 sm:px-6 sm:py-6 md:px-8">
+              <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+                <div className="min-w-0">
                   <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
                     MySewa Remittance
                   </p>
-                  <h2 className="mt-1 text-2xl font-semibold tracking-tight">Deposit statement</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <h2 className="mt-1 break-words text-xl font-semibold tracking-tight sm:text-2xl">
+                    Deposit statement
+                  </h2>
+                  <p className="mt-1 break-words text-sm text-muted-foreground">
                     Reference #{d.id} · Issued {formatDateTime(d.created_at)}
                   </p>
                 </div>
                 <StatusChip status={d.status} />
               </div>
 
-              <div className="mt-6 rounded-xl border border-border/70 bg-surface/90 px-5 py-4">
-                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Credit amount
+              <div className="mt-6 min-w-0 rounded-xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 text-center sm:px-5 sm:text-left">
+                <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                  Transaction amount
                 </p>
-                <p className="mt-1 tabular text-3xl font-semibold tracking-tight text-brand-dark">
+                <p className="mt-2 break-all tabular-nums text-3xl font-black tracking-tight text-brand-dark sm:text-4xl md:text-5xl">
                   {formatNPR(d.amount)}
                 </p>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1.5 break-words text-sm text-muted-foreground">
                   Wallet load · {d.status_display}
                 </p>
               </div>
             </div>
 
-            <div className="grid gap-0 sm:grid-cols-2">
-              <section className="border-b border-border px-6 py-5 sm:border-r sm:px-8">
+            <div className="grid grid-cols-1 gap-0 md:grid-cols-2">
+              <section className="border-b border-border px-4 py-5 sm:px-6 md:border-r md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Account holder
                 </h3>
@@ -203,7 +207,7 @@ function DepositDetailPage() {
                 </dl>
               </section>
 
-              <section className="border-b border-border px-6 py-5 sm:px-8">
+              <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Transaction
                 </h3>
@@ -212,11 +216,17 @@ function DepositDetailPage() {
                   <StatementRow label="Status">{d.status_display}</StatementRow>
                   <StatementRow label="Submitted">{formatDateTime(d.created_at)}</StatementRow>
                   <StatementRow label="Updated">{formatDateTime(d.updated_at)}</StatementRow>
+                  <StatementRow label="Balance before">
+                    {d.balance_before != null ? formatNPR(d.balance_before) : "—"}
+                  </StatementRow>
+                  <StatementRow label="Balance after">
+                    {d.balance_after != null ? formatNPR(d.balance_after) : "—"}
+                  </StatementRow>
                 </dl>
               </section>
             </div>
 
-            <section className="border-b border-border px-6 py-5 sm:px-8">
+            <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
               <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                 Narrative
               </h3>
@@ -224,14 +234,14 @@ function DepositDetailPage() {
                 <StatementRow label="User note">{d.note?.trim() || "—"}</StatementRow>
                 {d.status === "rejected" && (
                   <StatementRow label="Rejection">
-                    <span className="text-destructive">{d.rejection_reason || "—"}</span>
+                    <span className="break-words text-destructive">{d.rejection_reason || "—"}</span>
                   </StatementRow>
                 )}
               </dl>
             </section>
 
-            <section className="px-6 py-5 sm:px-8">
-              <div className="mb-3 flex items-center justify-between gap-3">
+            <section className="px-4 py-5 sm:px-6 md:px-8">
+              <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3">
                 <h3 className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Payment proof
                 </h3>
@@ -252,12 +262,12 @@ function DepositDetailPage() {
                   href={d.screenshot_proof}
                   target="_blank"
                   rel="noreferrer"
-                  className="block overflow-hidden rounded-xl border border-border bg-muted/40"
+                  className="block overflow-x-clip rounded-xl border border-border bg-muted/40"
                 >
                   <img
                     src={d.screenshot_proof}
                     alt={`Deposit #${d.id} payment screenshot`}
-                    className="mx-auto max-h-[420px] w-full object-contain"
+                    className="mx-auto max-h-[min(420px,70vh)] w-full object-contain"
                   />
                 </a>
               ) : (
@@ -268,7 +278,7 @@ function DepositDetailPage() {
               )}
             </section>
 
-            <footer className="border-t border-border bg-muted/40 px-6 py-3 text-xs text-muted-foreground sm:px-8">
+            <footer className="border-t border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground sm:px-6 md:px-8">
               This statement summarizes the deposit request recorded in MySewa. Approval credits the
               user wallet; rejection leaves the balance unchanged.
             </footer>

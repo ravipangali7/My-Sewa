@@ -28,7 +28,7 @@ from ..services.app_config import (
     is_auto_status_verified,
 )
 from ..services.notifications import notify_topup_success, notify_low_balance_if_needed
-from ..services.txn_status import resolve_provider_outcome
+from ..services.txn_status import resolve_provider_outcome, debit_wallet_for_txn
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +55,8 @@ def _apply_fee_fields(topup_txn, himalpay: HimalPayAPI, response: dict, amount, 
     topup_txn.provider_response = response
 
 
-def _platform_fee_for_amount(amount) -> Decimal:
-    cfg = get_app_config()
-    tx_cfg = cfg.get('transactions') or {}
-    return platform_topup_charge(amount, tx_cfg.get('topup_charge_percent', 0))
+def _platform_fee_for_amount(amount, user=None) -> Decimal:
+    return platform_topup_charge(amount, user=user)
 
 
 def _process_topup(request, product_id: int, service_label: str):
@@ -74,6 +72,13 @@ def _process_topup(request, product_id: int, service_label: str):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    from ..services.pin import transaction_pin_gate
+    pin_failed = transaction_pin_gate(
+        request.user, serializer.validated_data.get('transaction_pin')
+    )
+    if pin_failed:
+        return pin_failed
+
     if serializer.validated_data.get('product_id') != product_id:
         return Response(
             {'error': f'Invalid product_id. Use {product_id} for {service_label}.'},
@@ -84,7 +89,7 @@ def _process_topup(request, product_id: int, service_label: str):
     amount = HimalPayAPI.normalize_rupees(serializer.validated_data['amount'])
     wallet = _get_or_create_wallet(request.user)
 
-    platform_fee = _platform_fee_for_amount(amount)
+    platform_fee = _platform_fee_for_amount(amount, user=request.user)
 
     himalpay = HimalPayAPI()
     service_name = HimalPayAPI.SERVICE_NTC if product_id == 1 else HimalPayAPI.SERVICE_NCELL
@@ -189,12 +194,14 @@ def _process_topup(request, product_id: int, service_label: str):
                         {'error': 'Insufficient balance after fee calculation'},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-                wallet.balance -= debit
-                wallet.save()
+                debit_wallet_for_txn(wallet, topup_txn, debit)
                 topup_txn.status = 'success'
                 topup_txn.save()
 
-            notify_topup_success(topup_txn)
+            notify_topup_success(
+                topup_txn,
+                balance_after=getattr(topup_txn, 'balance_after', None) or wallet.balance,
+            )
             notify_low_balance_if_needed(wallet)
 
             return Response(
@@ -271,10 +278,16 @@ def topup_ncell(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def topup_history(request):
-    """Get topup transaction history for current user"""
+    """Get topup transaction history for current user as {items, stats}."""
+    from ..services.list_response import items_with_stats_response
+
     topups = TopupTransaction.objects.filter(user=request.user).order_by('-created_at')
-    serializer = TopupTransactionSerializer(topups, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return items_with_stats_response(
+        topups,
+        TopupTransactionSerializer,
+        request,
+        search_fields=('mobile_number', 'merchant_txn_id', 'reference_id'),
+    )
 
 
 @api_view(['GET'])
@@ -347,10 +360,9 @@ def calculate_charge(request):
     himalpay = HimalPayAPI()
     amount = serializer.validated_data['amount']
     service = serializer.validated_data['wallet_service_name']
-    tx_cfg = get_app_config().get('transactions') or {}
     service_upper = service.upper()
     platform_fee = (
-        platform_topup_charge(amount, tx_cfg.get('topup_charge_percent', 0))
+        platform_topup_charge(amount, user=request.user)
         if service_upper in ('NTC', 'NCELL') or 'DATA_PACK' in service_upper
         else Decimal('0.00')
     )
@@ -403,7 +415,7 @@ def check_transaction_status(request):
         if topup and topup.status == 'pending' and normalized in ('success', 'failed', 'pending'):
             auto = is_auto_status_verified()
             local_status = resolve_provider_outcome(normalized, auto)
-            platform_fee = _platform_fee_for_amount(topup.amount)
+            platform_fee = _platform_fee_for_amount(topup.amount, user=request.user)
             # Skip no-op poll while still waiting on provider and auto is off
             if normalized == 'pending' and not auto:
                 pass
@@ -419,11 +431,13 @@ def check_transaction_status(request):
                             wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                             debit = topup.total_debited or topup.amount
                             if wallet.balance >= debit:
-                                wallet.balance -= debit
-                                wallet.save()
+                                debit_wallet_for_txn(wallet, topup, debit)
                                 topup.status = 'success'
                                 topup.save()
-                                notify_topup_success(topup)
+                                notify_topup_success(
+                                    topup,
+                                    balance_after=getattr(topup, 'balance_after', None) or wallet.balance,
+                                )
                                 notify_low_balance_if_needed(wallet)
                             else:
                                 topup.status = 'failed'

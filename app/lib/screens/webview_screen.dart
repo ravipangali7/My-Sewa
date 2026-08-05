@@ -60,7 +60,12 @@ class _WebViewScreenState extends State<WebViewScreen>
 })();
 ''';
 
-  /// Exposes a download bridge the web app can call from JS.
+  /// Exposes download + push-token bridges the web app can call from JS.
+  ///
+  /// Push flow (production):
+  /// 1. Add firebase_messaging + google-services.json / GoogleService-Info.plist
+  /// 2. Replace _deliverStubPushToken with FirebaseMessaging.instance.getToken()
+  /// 3. Web posts the token to POST /api/auth/device-token/ after mysewa-fcm-token
   static const _installNativeBridgeJs = '''
 (function() {
   try {
@@ -76,7 +81,17 @@ class _WebViewScreenState extends State<WebViewScreen>
       } catch (e) {}
       return false;
     };
+    window.MySewaNative.requestPushToken = function() {
+      try {
+        if (window.MySewaBridge && window.MySewaBridge.postMessage) {
+          window.MySewaBridge.postMessage(JSON.stringify({ type: 'request_push_token' }));
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    };
     window.MySewaNative.hasBridge = true;
+    window.MySewaNative.hasPushBridge = true;
   } catch (e) {}
 })();
 ''';
@@ -453,11 +468,18 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Future<void> _handleNativeBridgeMessage(String raw) async {
-    if (_isHandlingDownload) return;
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return;
       final type = decoded['type']?.toString().toLowerCase() ?? 'download';
+
+      if (type == 'request_push_token' || type == 'push_token_request') {
+        await _deliverStubPushToken();
+        return;
+      }
+
+      if (_isHandlingDownload) return;
+
       const isShare = type == 'share';
       const allowedTypes = {
         'download',
@@ -503,6 +525,37 @@ class _WebViewScreenState extends State<WebViewScreen>
     } finally {
       _isHandlingDownload = false;
     }
+  }
+
+  /// Stub FCM token until firebase_messaging + google-services.json are added.
+  ///
+  /// Production replacement:
+  /// ```dart
+  /// final token = await FirebaseMessaging.instance.getToken();
+  /// // then inject the same CustomEvent with the real token
+  /// ```
+  /// Web listens for `mysewa-fcm-token` and POSTs to `/api/auth/device-token/`.
+  Future<void> _deliverStubPushToken() async {
+    final platform = Platform.isIOS
+        ? 'ios'
+        : Platform.isAndroid
+            ? 'android'
+            : 'unknown';
+    final stub =
+        'flutter-stub-$platform-${DateTime.now().millisecondsSinceEpoch}';
+    final tokenJson = jsonEncode(stub);
+    final platformJson = jsonEncode(platform);
+    await _safeControllerCall((c) async {
+      await c.runJavaScript('''
+(function() {
+  try {
+    window.dispatchEvent(new CustomEvent('mysewa-fcm-token', {
+      detail: { token: $tokenJson, platform: $platformJson, stub: true }
+    }));
+  } catch (e) {}
+})();
+''');
+    });
   }
 
   String _sanitizeFilename(String name) {

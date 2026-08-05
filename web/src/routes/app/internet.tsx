@@ -17,6 +17,7 @@ import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
+import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
 import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
@@ -70,6 +71,8 @@ function InternetBillPayment() {
   const [cashback, setCashback] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [feeLoading, setFeeLoading] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -157,7 +160,7 @@ function InternetBillPayment() {
   });
 
   const payMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (transaction_pin: string) => {
       if (!selectedIsp || !inquiry || !selectedPackage) {
         throw new Error(t("internet.selectPackageError"));
       }
@@ -178,9 +181,12 @@ function InternetBillPayment() {
         package_name: selectedPackage.name,
         customer_name: inquiry.customer_name || selectedPackage.customer_name || "",
         pay_data: selectedPackage.pay_data,
+        transaction_pin,
       });
     },
     onSuccess: (res) => {
+      setPinOpen(false);
+      setPinError(null);
       const isPending = res.data.status === "pending";
       if (isPending) {
         toast.message(res.message || t("internet.pendingTitle"), {
@@ -202,7 +208,13 @@ function InternetBillPayment() {
     onError: (err) => {
       if (err instanceof ApiError && err.body && typeof err.body === "object") {
         const body = err.body as Record<string, unknown>;
+        const errors = body["errors"] as Record<string, string[]> | undefined;
+        if (errors?.["transaction_pin"]?.[0] || body["code"] === "pin_not_set") {
+          setPinError(errors?.["transaction_pin"]?.[0] || t("pin.incorrect"));
+          return;
+        }
         if (body["error"] === "Insufficient balance") {
+          setPinOpen(false);
           toastApiError(err, {
             title: t("internet.payFailed"),
             fallback: t("topup.insufficient", {
@@ -213,6 +225,7 @@ function InternetBillPayment() {
           return;
         }
       }
+      setPinOpen(false);
       toastApiError(err, { title: t("internet.payFailed"), fallback: t("internet.payFailed") });
     },
   });
@@ -288,7 +301,7 @@ function InternetBillPayment() {
         </Button>
       }
     >
-      <div className="space-y-5">
+      <div className="min-w-0 max-w-full space-y-5 overflow-x-clip">
         {accountPending ? <AccountPendingBanner /> : null}
         {!enabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4">
@@ -297,7 +310,7 @@ function InternetBillPayment() {
           </section>
         ) : null}
 
-        <section className="inset-group p-4">
+        <section className="inset-group min-w-0 max-w-full p-4">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-[15px] font-semibold">{stepTitle}</h2>
             {step !== "isp" ? (
@@ -536,7 +549,10 @@ function InternetBillPayment() {
                 type="button"
                 disabled={payMutation.isPending || feeLoading || insufficient || !enabled}
                 className="h-12 w-full rounded-xl text-[17px]"
-                onClick={() => payMutation.mutate()}
+                onClick={() => {
+                  setPinError(null);
+                  setPinOpen(true);
+                }}
               >
                 <Check className="mr-2 size-4" />
                 {payMutation.isPending
@@ -582,19 +598,19 @@ function InternetBillPayment() {
               {t("internet.empty")}
             </div>
           ) : (
-            <ul className="inset-group divide-y divide-border">
+            <ul className="inset-group min-w-0 divide-y divide-border overflow-hidden">
               {internetItems.map((item: InternetBillTransaction) => (
-                <li key={item.id} className="px-4 py-3">
-                  <div className="flex items-center gap-3">
+                <li key={item.id} className="min-w-0 px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[15px] font-medium">
+                      <p className="truncate text-[15px] font-medium">
                         {item.isp_name} · {item.customer_id}
                       </p>
                       <p className="truncate text-[13px] text-muted-foreground">
                         {item.package_name || item.merchant_txn_id} · {formatDateTime(item.created_at)}
                       </p>
                     </div>
-                    <div className="text-right">
+                    <div className="shrink-0 text-right">
                       <p className="tabular text-[15px] font-semibold">{formatNPR(item.amount)}</p>
                       <StatusChip status={item.status} compact className="mt-1" />
                     </div>
@@ -617,7 +633,7 @@ function InternetBillPayment() {
         </section>
       </div>
       <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
-        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
+        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5">
           <SheetHeader className="mb-4 text-left">
             <SheetTitle>{t("internet.searchTitle")}</SheetTitle>
           </SheetHeader>
@@ -653,6 +669,21 @@ function InternetBillPayment() {
           </Button>
         </SheetContent>
       </Sheet>
+
+      <TransactionPinDialog
+        open={pinOpen}
+        onOpenChange={(open) => {
+          setPinOpen(open);
+          if (!open) setPinError(null);
+        }}
+        hasPin={Boolean(user?.has_transaction_pin)}
+        confirming={payMutation.isPending}
+        error={pinError}
+        onConfirm={(pin) => {
+          setPinError(null);
+          payMutation.mutate(pin);
+        }}
+      />
     </UserShell>
   );
 }

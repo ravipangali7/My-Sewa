@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronRight, Download, FileDown, Loader2, Search, Send, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
+import { UserStatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,7 @@ import { apiClient } from "@/lib/api";
 import { buildActivity, buildActivityStatement } from "@/lib/activity";
 import type { ActivityKind } from "@/lib/types";
 import { formatNPR, formatDateTime } from "@/lib/format";
+import { serialNumber } from "@/lib/serial";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -140,6 +142,19 @@ function HistoryPage() {
     filters.startDate !== "" ||
     filters.endDate !== "";
 
+  const personalSummaryCards = useMemo(
+    () =>
+      amountSummaryCards(txQuery.data?.summary, {
+        keys: ["total_volume", "total_credit", "total_debit"],
+        labels: {
+          total_volume: t("history.totalVolume"),
+          total_credit: t("history.totalCredit"),
+          total_debit: t("history.totalDebit"),
+        },
+      }),
+    [txQuery.data?.summary, t, locale],
+  );
+
   const clearFilters = () => setFilters(DEFAULT_FILTERS);
 
   async function handleDownloadPdf(activityId: string, status: string) {
@@ -196,7 +211,11 @@ function HistoryPage() {
         </Button>
       }
     >
-      <div className="min-w-0 space-y-4">
+      <div className="min-w-0 max-w-full space-y-4 overflow-x-clip">
+        {personalSummaryCards.length > 0 ? (
+          <UserStatsCards items={personalSummaryCards} />
+        ) : null}
+
         {hasActiveFilters ? (
           <div className="flex flex-wrap items-center gap-2 px-0.5">
             <span className="rounded-md bg-muted px-2 py-1 text-[12px] font-medium text-muted-foreground">
@@ -229,8 +248,9 @@ function HistoryPage() {
           </div>
         ) : (
           <ul className="inset-group min-w-0 divide-y divide-border overflow-hidden">
-            {items.map((item) => {
+            {items.map((item, index) => {
               const isDownloading = downloadingId === item.id;
+              const sn = serialNumber(1, items.length || 1, index);
               return (
                 <li key={item.id} className="flex items-stretch">
                   <Link
@@ -238,6 +258,9 @@ function HistoryPage() {
                     params={{ activityId: item.id }}
                     className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 transition-colors active:bg-muted/60"
                   >
+                    <span className="tabular w-5 shrink-0 text-center text-[12px] text-muted-foreground">
+                      {sn}
+                    </span>
                     <span
                       className={cn(
                         "flex size-10 shrink-0 items-center justify-center rounded-full",
@@ -297,7 +320,7 @@ function HistoryPage() {
       </div>
 
       <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
-        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
+        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5">
           <SheetHeader className="mb-4 text-left">
             <SheetTitle>{t("history.searchTitle")}</SheetTitle>
           </SheetHeader>

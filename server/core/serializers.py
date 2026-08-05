@@ -1,11 +1,15 @@
 """
 DRF Serializers for all models
 """
+import re
+from decimal import Decimal
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth import get_user_model
 from .models import (
     Wallet,
+    WalletAdjustment,
     Deposit,
     Settings,
     TopupTransaction,
@@ -13,25 +17,57 @@ from .models import (
     RemittanceTransaction,
     InternetBillTransaction,
     DataPackTransaction,
+    DeviceToken,
+    UserFeeConfig,
 )
 
 User = get_user_model()
+
+_TRANSACTION_PIN_RE = re.compile(r'^\d{4,6}$')
+
+
+def validate_transaction_pin_value(value):
+    """Ensure transaction PIN is 4–6 numeric digits."""
+    pin = (value or '').strip()
+    if not _TRANSACTION_PIN_RE.match(pin):
+        raise serializers.ValidationError(
+            'Transaction PIN must be 4 to 6 digits.'
+        )
+    return pin
 
 
 class UserSerializer(serializers.ModelSerializer):
     """User serializer for registration and profile - phone number as username"""
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     password2 = serializers.CharField(write_only=True, required=True, label="Confirm Password")
+    transaction_pin = serializers.CharField(write_only=True, required=True, min_length=4, max_length=6)
+    has_transaction_pin = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = User
-        fields = ('id', 'phone', 'email', 'first_name', 'last_name', 'password', 'password2')
+        fields = (
+            'id', 'phone', 'email', 'first_name', 'last_name',
+            'password', 'password2', 'transaction_pin', 'has_transaction_pin',
+        )
         extra_kwargs = {
             'phone': {'required': True},
-            'email': {'required': False},
+            # Model allows blank/null for legacy rows; registration always requires email.
+            'email': {'required': True, 'allow_blank': False, 'allow_null': False},
             'first_name': {'required': False},
             'last_name': {'required': False},
         }
+
+    def get_has_transaction_pin(self, obj):
+        return bool(obj.transaction_pin)
+
+    def validate_email(self, value):
+        email = (value or '').strip()
+        if not email:
+            raise serializers.ValidationError('Email address is required.')
+        return email
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
 
     def validate(self, attrs):
         if attrs['password'] != attrs['password2']:
@@ -41,14 +77,16 @@ class UserSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('password2')
         phone = validated_data.pop('phone')
+        raw_pin = validated_data.pop('transaction_pin')
         # Self-registration starts as Pending until Super Admin activates the account.
         user = User.objects.create_user(
             phone,  # This maps to USERNAME_FIELD which is 'phone'
-            email=validated_data.get('email', ''),
+            email=validated_data['email'],
             password=validated_data['password'],
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', ''),
             account_status=User.ACCOUNT_STATUS_PENDING,
+            transaction_pin=make_password(raw_pin),
         )
         # Wallet will be created automatically via signal
         return user
@@ -57,17 +95,19 @@ class UserSerializer(serializers.ModelSerializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     """User profile serializer for reading profile information (no password fields)"""
     avatar_url = serializers.SerializerMethodField()
+    has_transaction_pin = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = (
             'id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
+            'has_transaction_pin',
             'date_joined', 'last_login',
         )
         read_only_fields = (
             'id', 'phone', 'avatar', 'is_active', 'is_staff', 'is_superuser',
-            'account_status', 'date_joined', 'last_login',
+            'account_status', 'has_transaction_pin', 'date_joined', 'last_login',
         )
 
     def get_avatar_url(self, obj):
@@ -77,6 +117,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
         if request:
             return request.build_absolute_uri(obj.avatar.url)
         return obj.avatar.url
+
+    def get_has_transaction_pin(self, obj):
+        return bool(obj.transaction_pin)
 
 
 class AdminUserSerializer(serializers.ModelSerializer):
@@ -131,6 +174,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         )
         extra_kwargs = {
             'phone': {'required': True},
+            # Required on create (see validate); optional on edit for legacy blank emails.
             'email': {'required': False, 'allow_blank': True, 'allow_null': True},
             'first_name': {'required': False, 'allow_blank': True},
             'last_name': {'required': False, 'allow_blank': True},
@@ -151,10 +195,24 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('This phone number is already registered.')
         return phone
 
+    def validate_email(self, value):
+        if value is None:
+            return value
+        email = value.strip()
+        if not email:
+            return ''
+        return email
+
     def validate(self, attrs):
         password = attrs.get('password') or ''
         password2 = attrs.get('password2') or ''
         creating = self.instance is None
+
+        if creating:
+            email = (attrs.get('email') or '').strip()
+            if not email:
+                raise serializers.ValidationError({'email': 'Email address is required.'})
+            attrs['email'] = email
 
         if creating and not password:
             raise serializers.ValidationError({'password': 'Password is required when creating a user.'})
@@ -209,11 +267,71 @@ class AdminWalletSerializer(serializers.ModelSerializer):
 
 
 class AdminWalletWriteSerializer(serializers.ModelSerializer):
-    """Staff-only wallet balance update."""
+    """Staff-only wallet balance update (legacy balance-set payload)."""
 
     class Meta:
         model = Wallet
         fields = ('balance',)
+
+
+class WalletAdjustmentSerializer(serializers.ModelSerializer):
+    """Wallet adjustment as seen in transaction history."""
+    created_by_phone = serializers.CharField(
+        source='created_by.phone', read_only=True, allow_null=True,
+    )
+    adjustment_type_display = serializers.CharField(
+        source='get_adjustment_type_display', read_only=True,
+    )
+    # Absolute magnitude for display (amount field is signed).
+    display_amount = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WalletAdjustment
+        fields = (
+            'id', 'wallet', 'user', 'amount', 'display_amount',
+            'adjustment_type', 'adjustment_type_display',
+            'balance_before', 'balance_after', 'reason',
+            'created_by', 'created_by_phone', 'created_at', 'reference',
+        )
+        read_only_fields = fields
+
+    def get_display_amount(self, obj):
+        return f"{abs(obj.amount):.2f}"
+
+
+class WalletAdjustmentWriteSerializer(serializers.Serializer):
+    """
+    Prefer auditable adjustment payload.
+    Also accepts legacy `{balance, reason}` to set an absolute balance.
+    """
+    amount = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, min_value=Decimal('0.01'),
+    )
+    adjustment_type = serializers.ChoiceField(
+        choices=('credit', 'debit'), required=False,
+    )
+    balance = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, min_value=Decimal('0'),
+    )
+    reason = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
+    reference = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=100,
+    )
+
+    def validate(self, attrs):
+        has_adjustment = (
+            attrs.get('amount') is not None and attrs.get('adjustment_type')
+        )
+        has_balance = attrs.get('balance') is not None
+        if not has_adjustment and not has_balance:
+            raise serializers.ValidationError(
+                "Provide either {amount, adjustment_type, reason} or {balance, reason}."
+            )
+        if has_adjustment and has_balance:
+            raise serializers.ValidationError(
+                "Provide either adjustment fields or balance, not both."
+            )
+        return attrs
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
@@ -242,6 +360,33 @@ class ChangePasswordSerializer(serializers.Serializer):
                 {'confirm_password': 'Passwords do not match.'}
             )
         return attrs
+
+
+class SetTransactionPinSerializer(serializers.Serializer):
+    """Set transaction PIN for authenticated users who do not yet have one."""
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+    confirm_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate_confirm_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate(self, attrs):
+        if attrs['transaction_pin'] != attrs['confirm_pin']:
+            raise serializers.ValidationError(
+                {'confirm_pin': 'PIN fields did not match.'}
+            )
+        return attrs
+
+
+class VerifyTransactionPinSerializer(serializers.Serializer):
+    """Client-side pre-check for transaction PIN before submitting a payment."""
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
 
 
 class ForgotPasswordSerializer(serializers.Serializer):
@@ -313,10 +458,12 @@ class DepositSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
             'amount', 'status', 'status_display',
-            'screenshot_proof', 'note', 'rejection_reason', 'created_at', 'updated_at',
+            'screenshot_proof', 'note', 'rejection_reason',
+            'balance_before', 'balance_after', 'created_at', 'updated_at',
         )
         read_only_fields = (
-            'id', 'user', 'status', 'rejection_reason', 'created_at', 'updated_at',
+            'id', 'user', 'status', 'rejection_reason',
+            'balance_before', 'balance_after', 'created_at', 'updated_at',
         )
 
     def validate_amount(self, value):
@@ -408,11 +555,13 @@ class TopupTransactionSerializer(serializers.ModelSerializer):
             'mobile_number', 'amount', 'product_id',
             'product_name', 'status', 'status_display', 'service_hub_txn_id',
             'merchant_txn_id', 'charge', 'cashback', 'total_debited',
+            'balance_before', 'balance_after',
             'reference_id', 'created_at', 'updated_at',
         )
         read_only_fields = (
             'id', 'user', 'status', 'service_hub_txn_id', 'merchant_txn_id',
-            'charge', 'cashback', 'total_debited', 'reference_id',
+            'charge', 'cashback', 'total_debited',
+            'balance_before', 'balance_after', 'reference_id',
             'created_at', 'updated_at',
         )
 
@@ -441,6 +590,10 @@ class TopupCreateSerializer(serializers.Serializer):
     mobile_number = serializers.CharField(max_length=50, required=True)
     amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
     product_id = serializers.IntegerField(required=True)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
 
     def validate_mobile_number(self, value):
         if not value or value.strip() == '':
@@ -501,7 +654,8 @@ class BankTransferTransactionSerializer(serializers.ModelSerializer):
             'destination_acc_no', 'destination_acc_name', 'is_destination_mobile',
             'transaction_remarks', 'transaction_remarks_2', 'transaction_remarks_3',
             'status', 'status_display', 'merchant_txn_id', 'provider_txn_id',
-            'reference_id', 'charge', 'cashback', 'total_debited', 'verified',
+            'reference_id', 'charge', 'cashback', 'total_debited',
+            'balance_before', 'balance_after', 'verified',
             'created_at', 'updated_at',
         )
         read_only_fields = fields
@@ -555,6 +709,10 @@ class BankTransferCreateSerializer(serializers.Serializer):
     transaction_remarks_2 = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
     transaction_remarks_3 = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
     merchant_txn_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
 
     def validate_amount(self, value):
         if value <= 0:
@@ -639,6 +797,7 @@ class RemittanceTransactionSerializer(serializers.ModelSerializer):
             'beneficiary_mobile_no', 'beneficiary_dob', 'remittance_purpose',
             'status', 'status_display', 'merchant_txn_id', 'provider_txn_id',
             'reference_id', 'charge', 'cashback', 'total_credited',
+            'balance_before', 'balance_after',
             'wallet_credited', 'created_at', 'updated_at',
         )
         read_only_fields = fields
@@ -676,8 +835,12 @@ class RemittanceReceiveSerializer(serializers.Serializer):
     payment_type = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
     send_agent = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
     txn_date = serializers.CharField(max_length=80, required=False, allow_blank=True, default='')
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
 
     beneficiary_gender = serializers.CharField(max_length=20, required=True)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
     beneficiary_nationality = serializers.CharField(max_length=50, required=False, default='Nepali')
     beneficiary_state = serializers.CharField(max_length=100, required=True)
     beneficiary_district = serializers.CharField(max_length=100, required=True)
@@ -778,6 +941,7 @@ class InternetBillTransactionSerializer(serializers.ModelSerializer):
             'isp_id', 'isp_name', 'customer_id', 'customer_name', 'package_name',
             'amount', 'status', 'status_display', 'merchant_txn_id',
             'service_hub_txn_id', 'charge', 'cashback', 'total_debited',
+            'balance_before', 'balance_after',
             'reference_id', 'created_at', 'updated_at',
         )
         read_only_fields = fields
@@ -801,6 +965,10 @@ class InternetBillPaySerializer(serializers.Serializer):
     package_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
     pay_data = serializers.JSONField()
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
 
     def validate_amount(self, value):
         if value <= 0:
@@ -823,7 +991,8 @@ class DataPackTransactionSerializer(serializers.ModelSerializer):
             'operator', 'mobile_number', 'package_name', 'package_id',
             'product_code', 'amount', 'status', 'status_display',
             'merchant_txn_id', 'service_hub_txn_id', 'charge', 'cashback',
-            'total_debited', 'reference_id', 'created_at', 'updated_at',
+            'total_debited', 'balance_before', 'balance_after',
+            'reference_id', 'created_at', 'updated_at',
         )
         read_only_fields = fields
 
@@ -840,6 +1009,10 @@ class DataPackPaySerializer(serializers.Serializer):
     package_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     package_id = serializers.CharField(max_length=50, required=False, allow_blank=True)
     product_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
 
     def validate_mobile_number(self, value):
         digits = ''.join(ch for ch in (value or '').strip() if ch.isdigit())
@@ -853,4 +1026,56 @@ class DataPackPaySerializer(serializers.Serializer):
         if value <= 0:
             raise serializers.ValidationError('Amount must be greater than zero.')
         return value
+
+class UserFeeConfigSerializer(serializers.ModelSerializer):
+    """Per-user fee overrides. Null fields mean use global Settings.config defaults."""
+
+    transfer_charge_enabled = serializers.BooleanField(required=False, allow_null=True)
+    transfer_charge_flat = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, allow_null=True,
+    )
+    transfer_charge_percent = serializers.DecimalField(
+        max_digits=7, decimal_places=4, required=False, allow_null=True,
+    )
+    topup_charge_percent = serializers.DecimalField(
+        max_digits=7, decimal_places=4, required=False, allow_null=True,
+    )
+
+    class Meta:
+        model = UserFeeConfig
+        fields = (
+            'transfer_charge_enabled',
+            'transfer_charge_flat',
+            'transfer_charge_percent',
+            'topup_charge_percent',
+            'updated_at',
+        )
+        read_only_fields = ('updated_at',)
+
+
+class DeviceTokenSerializer(serializers.Serializer):
+    """Register or update an FCM / web push device token."""
+
+    token = serializers.CharField(max_length=512)
+    platform = serializers.ChoiceField(
+        choices=DeviceToken.PLATFORM_CHOICES,
+        required=False,
+        default=DeviceToken.PLATFORM_UNKNOWN,
+    )
+
+    def validate_token(self, value):
+        token = (value or '').strip()
+        if len(token) < 8:
+            raise serializers.ValidationError('Device token is too short.')
+        return token
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        token = validated_data['token']
+        platform = validated_data.get('platform') or DeviceToken.PLATFORM_UNKNOWN
+        obj, _created = DeviceToken.objects.update_or_create(
+            token=token,
+            defaults={'user': user, 'platform': platform},
+        )
+        return obj
 

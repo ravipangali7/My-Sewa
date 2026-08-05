@@ -154,7 +154,7 @@ function WalletHome() {
 
   return (
     <UserShell title="MySewa" hideHeader>
-      <div className="relative min-h-[100dvh] bg-[#F3F5F8] lg:rounded-2xl lg:overflow-hidden">
+      <div className="relative min-w-0 max-w-full overflow-x-clip bg-[#F3F5F8] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
         {/* Header band */}
         <section className="relative overflow-hidden bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_28%,#0C5F8A_55%,#0A8A6A_82%,#10B981_100%)] px-4 pb-[72px] pt-[max(12px,env(safe-area-inset-top))]">
           <MountainBackdrop className="pointer-events-none absolute inset-x-0 bottom-0 h-[58%] w-full opacity-90" />
@@ -214,8 +214,12 @@ function WalletHome() {
 
         {/* Content overlapping header */}
         <div className="relative z-20 -mt-10 space-y-4 px-4 pb-6">
-          {/* Wallet card */}
-          <section className="relative overflow-hidden rounded-[22px] bg-[linear-gradient(145deg,#062A5C_0%,#0B3B7A_38%,#0B5588_68%,#0A6E78_100%)] px-5 pb-5 pt-4 shadow-[0_14px_36px_-10px_rgba(6,42,92,0.55)]">
+          {/* Wallet card → credit / debit history */}
+          <Link
+            to="/app/wallet-history"
+            aria-label={t("home.openWalletHistory")}
+            className="relative block overflow-hidden rounded-[22px] bg-[linear-gradient(145deg,#062A5C_0%,#0B3B7A_38%,#0B5588_68%,#0A6E78_100%)] px-5 pb-5 pt-4 shadow-[0_14px_36px_-10px_rgba(6,42,92,0.55)] transition-transform active:scale-[0.99]"
+          >
             <div
               className="pointer-events-none absolute inset-0 opacity-50"
               style={{
@@ -231,7 +235,11 @@ function WalletHome() {
                 <button
                   type="button"
                   aria-label={balanceVisible ? t("home.hideBalance") : t("home.showBalance")}
-                  onClick={() => setBalanceVisible((v) => !v)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setBalanceVisible((v) => !v);
+                  }}
                   className="inline-flex size-7 items-center justify-center rounded-full text-white/90"
                 >
                   {balanceVisible ? (
@@ -261,7 +269,7 @@ function WalletHome() {
               </div>
               <WalletIllustration className="mb-[-4px] h-[88px] w-[108px] shrink-0" />
             </div>
-          </section>
+          </Link>
 
           {/* Quick actions */}
           <section className="grid grid-cols-3 gap-2.5">

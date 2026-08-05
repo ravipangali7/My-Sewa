@@ -32,6 +32,7 @@ import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
+import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
 import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
@@ -86,6 +87,8 @@ function DataTopUp() {
   const [platformCharge, setPlatformCharge] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [feeLoading, setFeeLoading] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
 
   const productId = operator === "NTC" ? 1 : 2;
 
@@ -184,7 +187,7 @@ function DataTopUp() {
   });
 
   const payMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (transaction_pin: string) => {
       if (!selectedPackage) throw new Error(t("dataTopup.selectPackage"));
       if (accountPending) throw new Error(t("account.pending"));
       if (!enabled) throw new Error(t("dataTopup.disabledError"));
@@ -203,9 +206,12 @@ function DataTopUp() {
         package_name: selectedPackage.name,
         package_id: selectedPackage.package_id,
         product_code: selectedPackage.product_code,
+        transaction_pin,
       });
     },
     onSuccess: (res) => {
+      setPinOpen(false);
+      setPinError(null);
       const isPending = res.data.status === "pending";
       if (isPending) {
         toast.message(res.message || t("dataTopup.pendingTitle"), {
@@ -225,6 +231,15 @@ function DataTopUp() {
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
     },
     onError: (err) => {
+      if (err instanceof ApiError && err.body && typeof err.body === "object") {
+        const body = err.body as Record<string, unknown>;
+        const errors = body["errors"] as Record<string, string[]> | undefined;
+        if (errors?.["transaction_pin"]?.[0] || body["code"] === "pin_not_set") {
+          setPinError(errors?.["transaction_pin"]?.[0] || t("pin.incorrect"));
+          return;
+        }
+      }
+      setPinOpen(false);
       toastApiError(err, { title: t("dataTopup.failed"), fallback: t("dataTopup.failed") });
     },
   });
@@ -309,11 +324,11 @@ function DataTopUp() {
   return (
     <UserShell
       title={isPackagesStep ? packHeaderTitle : t("dataTopup.title")}
-      back={shellBack}
-      onBack={shellOnBack}
+      {...(shellBack ? { back: shellBack } : {})}
+      {...(shellOnBack ? { onBack: shellOnBack } : {})}
       headerTrailing={headerSearchButton}
     >
-      <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="grid min-w-0 max-w-full grid-cols-1 gap-5 lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />
@@ -329,7 +344,7 @@ function DataTopUp() {
         <section
           className={cn(
             "min-w-0",
-            isPackagesStep ? "-mx-4 lg:mx-0" : "inset-group p-4",
+            isPackagesStep ? "-mx-3 sm:-mx-4 lg:mx-0" : "inset-group p-4",
           )}
         >
           {!isPackagesStep ? (
@@ -547,7 +562,10 @@ function DataTopUp() {
                 type="button"
                 disabled={payMutation.isPending || feeLoading || insufficient || !enabled}
                 className="h-12 w-full rounded-xl text-[17px]"
-                onClick={() => payMutation.mutate()}
+                onClick={() => {
+                  setPinError(null);
+                  setPinOpen(true);
+                }}
               >
                 <Check className="mr-2 size-4" />
                 {payMutation.isPending
@@ -685,7 +703,7 @@ function DataTopUp() {
           if (!open) setPackageSearchQuery("");
         }}
       >
-        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
+        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5">
           <SheetHeader className="mb-4 text-left">
             <SheetTitle>{t("dataTopup.searchPackages")}</SheetTitle>
           </SheetHeader>
@@ -715,7 +733,7 @@ function DataTopUp() {
         </SheetContent>
       </Sheet>
       <Sheet open={mobileSearchOpen} onOpenChange={setMobileSearchOpen}>
-        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
+        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5">
           <SheetHeader className="mb-4 text-left">
             <SheetTitle>Search</SheetTitle>
           </SheetHeader>
@@ -744,6 +762,21 @@ function DataTopUp() {
           />
         </SheetContent>
       </Sheet>
+
+      <TransactionPinDialog
+        open={pinOpen}
+        onOpenChange={(open) => {
+          setPinOpen(open);
+          if (!open) setPinError(null);
+        }}
+        hasPin={Boolean(user?.has_transaction_pin)}
+        confirming={payMutation.isPending}
+        error={pinError}
+        onConfirm={(pin) => {
+          setPinError(null);
+          payMutation.mutate(pin);
+        }}
+      />
     </UserShell>
   );
 }

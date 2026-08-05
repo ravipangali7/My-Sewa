@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type ReactNode,
@@ -52,6 +53,7 @@ export function PullToRefresh({
   disabled = false,
   className,
 }: Props) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [pull, setPull] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const startY = useRef<number | null>(null);
@@ -69,9 +71,21 @@ export function PullToRefresh({
     setPull(0);
   }, []);
 
+  // Non-passive listener so we can cancel rubber-band bounce while armed.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      if (!armed.current || !e.cancelable) return;
+      e.preventDefault();
+    };
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onMove);
+  }, []);
+
   const onTouchStart = (e: ReactTouchEvent) => {
     if (disabled || refreshing) return;
-    if (!isAtTop(e.currentTarget)) {
+    if (!isAtTop(e.currentTarget as HTMLElement)) {
       reset();
       return;
     }
@@ -83,7 +97,7 @@ export function PullToRefresh({
 
   const onTouchMove = (e: ReactTouchEvent) => {
     if (!tracking.current || startY.current == null || disabled || refreshing) return;
-    if (!isAtTop(e.currentTarget)) {
+    if (!isAtTop(e.currentTarget as HTMLElement)) {
       reset();
       return;
     }
@@ -142,7 +156,8 @@ export function PullToRefresh({
 
   return (
     <div
-      className={cn("relative min-w-0 w-full max-w-full", className)}
+      ref={rootRef}
+      className={cn("relative min-w-0 w-full max-w-full overscroll-y-none", className)}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}

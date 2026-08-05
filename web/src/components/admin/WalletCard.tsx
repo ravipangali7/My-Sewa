@@ -59,7 +59,9 @@ export function WalletCard({
             {formatNPR(balance)}
           </p>
           {subtitle ? (
-            <p className="mt-2 truncate text-[13px] text-primary-foreground/70">{subtitle}</p>
+            <p className="mt-2 break-words text-[13px] text-primary-foreground/70 [overflow-wrap:anywhere]">
+              {subtitle}
+            </p>
           ) : null}
         </div>
         <span className="shrink-0 rounded-full bg-brand-accent/90 px-3 py-1 text-xs font-medium">

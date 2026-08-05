@@ -30,10 +30,14 @@ function RegisterPage() {
   const { logoUrl } = useSiteBranding();
   const t = useT();
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
+  const [transactionPin, setTransactionPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -76,6 +80,18 @@ function RegisterPage() {
             className="space-y-4"
             onSubmit={async (e) => {
               e.preventDefault();
+              const trimmedEmail = email.trim();
+              if (!trimmedEmail) {
+                setEmailError(t("auth.emailRequired"));
+                toast.error(t("auth.emailRequired"));
+                return;
+              }
+              if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+                setEmailError(t("auth.emailInvalid"));
+                toast.error(t("auth.emailInvalid"));
+                return;
+              }
+              setEmailError("");
               if (password !== password2) {
                 toast.error(t("auth.passwordsMismatch"));
                 return;
@@ -84,12 +100,22 @@ function RegisterPage() {
                 toast.error(t("auth.passwordMin"));
                 return;
               }
+              if (!/^\d{4,6}$/.test(transactionPin)) {
+                toast.error(t("auth.pinDigits"));
+                return;
+              }
+              if (transactionPin !== confirmPin) {
+                toast.error(t("auth.pinsMismatch"));
+                return;
+              }
               setSubmitting(true);
               try {
                 await register({
                   phone: phone.trim(),
+                  email: trimmedEmail,
                   password,
                   password2,
+                  transaction_pin: transactionPin,
                   first_name: firstName.trim(),
                   last_name: lastName.trim(),
                 });
@@ -99,6 +125,9 @@ function RegisterPage() {
                 navigate({ to: "/app" });
               } catch (err) {
                 const msg = err instanceof ApiError ? err.message : t("auth.registerFailed");
+                if (err instanceof ApiError && /email/i.test(msg)) {
+                  setEmailError(msg);
+                }
                 toast.error(msg);
               } finally {
                 setSubmitting(false);
@@ -116,6 +145,26 @@ function RegisterPage() {
                 placeholder="98XXXXXXXX"
                 required
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="email">{t("auth.email")}</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (emailError) setEmailError("");
+                }}
+                className="h-12 rounded-xl"
+                placeholder="you@example.com"
+                required
+                autoComplete="email"
+                aria-invalid={Boolean(emailError)}
+              />
+              {emailError ? (
+                <p className="text-sm text-destructive">{emailError}</p>
+              ) : null}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -161,6 +210,37 @@ function RegisterPage() {
                 minLength={8}
                 required
                 autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="transaction_pin">{t("auth.transactionPin")}</Label>
+              <PasswordInput
+                id="transaction_pin"
+                inputMode="numeric"
+                value={transactionPin}
+                onChange={(e) => setTransactionPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="h-12 rounded-xl"
+                minLength={4}
+                maxLength={6}
+                required
+                autoComplete="off"
+                placeholder={t("auth.pinPlaceholder")}
+              />
+              <p className="text-xs text-muted-foreground">{t("auth.pinHint")}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="confirm_pin">{t("auth.confirmPin")}</Label>
+              <PasswordInput
+                id="confirm_pin"
+                inputMode="numeric"
+                value={confirmPin}
+                onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="h-12 rounded-xl"
+                minLength={4}
+                maxLength={6}
+                required
+                autoComplete="off"
+                placeholder={t("auth.pinPlaceholder")}
               />
             </div>
             <Button

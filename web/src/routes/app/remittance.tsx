@@ -17,12 +17,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toastApiError } from "@/lib/api-errors";
-import { apiClient } from "@/lib/api";
+import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
+import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
 import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
@@ -131,6 +132,8 @@ function ReceiveRemittance() {
   const { filters, setFilters, debounced } = useListFilters();
   const [exporting, setExporting] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
 
   const [step, setStep] = useState<Step>("lookup");
@@ -187,7 +190,7 @@ function ReceiveRemittance() {
   });
 
   const receiveMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (transaction_pin: string) => {
       if (!lookup) throw new Error(t("remittance.lookupFirst"));
       if (accountPending) throw new Error(t("account.pending"));
       if (!remittancesEnabled) throw new Error(t("remittance.disabledError"));
@@ -233,9 +236,12 @@ function ReceiveRemittance() {
         ...kyc,
         beneficiary_id_number:
           kyc.beneficiary_id_number || kyc.beneficiary_citizenship_number,
+        transaction_pin,
       });
     },
     onSuccess: (res) => {
+      setPinOpen(false);
+      setPinError(null);
       toast.success(res.message || t("remittance.credited"), {
         description: t("remittance.creditedBody", {
           amount: formatNPR(res.data.total_credited || res.data.amount),
@@ -251,7 +257,17 @@ function ReceiveRemittance() {
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
     },
     onError: (err) => {
+      if (err instanceof ApiError && err.body && typeof err.body === "object") {
+        const body = err.body as Record<string, unknown>;
+        const errors = body["errors"] as Record<string, string[]> | undefined;
+        if (errors?.["transaction_pin"]?.[0] || body["code"] === "pin_not_set") {
+          setPinError(errors?.["transaction_pin"]?.[0] || t("pin.incorrect"));
+          return;
+        }
+      }
+      setPinOpen(false);
       toastApiError(err, { title: t("remittance.failed"), fallback: t("remittance.failed") });
+
     },
   });
 
@@ -263,7 +279,7 @@ function ReceiveRemittance() {
 
   return (
     <UserShell title={t("remittance.title")} back="/app">
-      <div className="space-y-5">
+      <div className="min-w-0 max-w-full space-y-5 overflow-x-clip">
         {accountPending ? <AccountPendingBanner /> : null}
         {!remittancesEnabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4">
@@ -276,7 +292,7 @@ function ReceiveRemittance() {
           </section>
         ) : null}
 
-        <section className="inset-group p-4">
+        <section className="inset-group min-w-0 max-w-full p-4">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-[15px] font-semibold">{stepTitle}</h2>
             {step !== "lookup" ? (
@@ -359,7 +375,8 @@ function ReceiveRemittance() {
               className="space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                receiveMutation.mutate();
+                setPinError(null);
+                setPinOpen(true);
               }}
             >
               <p className="rounded-xl bg-muted/60 px-3 py-2 text-[13px] text-muted-foreground">
@@ -645,12 +662,12 @@ function ReceiveRemittance() {
               {t("remittance.empty")}
             </div>
           ) : (
-            <ul className="inset-group divide-y divide-border">
+            <ul className="inset-group min-w-0 divide-y divide-border overflow-hidden">
               {remittanceItems.map((r) => (
-                <li key={r.id} className="px-4 py-3">
-                  <div className="flex items-center gap-3">
+                <li key={r.id} className="min-w-0 px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[15px] font-medium">
+                      <p className="truncate text-[15px] font-medium">
                         {formatNPR(r.total_credited !== "0.00" ? r.total_credited : r.amount)}{" "}
                         <span className="text-[13px] font-normal text-muted-foreground">
                           · {r.ref_no}
@@ -660,7 +677,7 @@ function ReceiveRemittance() {
                         {r.sender_name || t("remittance.sender")} · {formatDateTime(r.created_at)}
                       </p>
                     </div>
-                    <StatusChip status={r.status} />
+                    <StatusChip status={r.status} className="shrink-0" />
                   </div>
                   {(r.status === "success" || r.status === "failed") && (
                     <div className="mt-1 flex justify-end">
@@ -679,6 +696,21 @@ function ReceiveRemittance() {
           )}
         </section>
       </div>
+
+      <TransactionPinDialog
+        open={pinOpen}
+        onOpenChange={(open) => {
+          setPinOpen(open);
+          if (!open) setPinError(null);
+        }}
+        hasPin={Boolean(user?.has_transaction_pin)}
+        confirming={receiveMutation.isPending}
+        error={pinError}
+        onConfirm={(pin) => {
+          setPinError(null);
+          receiveMutation.mutate(pin);
+        }}
+      />
     </UserShell>
   );
 }

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/** Desktop table + mobile card list — avoids horizontal scroll on small screens. */
+/** Desktop table + mobile/tablet card list — avoids cramped columns below lg. */
 export function AdminDataList({
   table,
   mobile,
@@ -25,10 +25,10 @@ export function AdminDataList({
 
   return (
     <>
-      <div className="hidden overflow-hidden rounded-xl border border-border bg-surface md:block">
+      <div className="hidden min-w-0 overflow-x-auto rounded-xl border border-border bg-surface lg:block">
         {table}
       </div>
-      <div className="md:hidden">{mobile}</div>
+      <div className="min-w-0 lg:hidden">{mobile}</div>
     </>
   );
 }
@@ -58,7 +58,7 @@ export function AdminMobileCard({
           : undefined
       }
       className={cn(
-        "w-full rounded-xl border border-border bg-surface p-4 text-left shadow-sm",
+        "w-full min-w-0 rounded-xl border border-border bg-surface p-4 text-left shadow-sm",
         onClick && "cursor-pointer transition-colors active:bg-muted/60",
         className,
       )}
@@ -75,7 +75,7 @@ export function AdminMobileCardGrid({
   children: ReactNode;
   className?: string;
 }) {
-  return <div className={cn("grid gap-3", className)}>{children}</div>;
+  return <div className={cn("grid min-w-0 gap-3", className)}>{children}</div>;
 }
 
 export function AdminMobileMeta({
@@ -92,7 +92,9 @@ export function AdminMobileMeta({
           <dt className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
             {item.label}
           </dt>
-          <dd className="mt-0.5 truncate text-sm text-foreground">{item.value}</dd>
+          <dd className="mt-0.5 break-words text-sm text-foreground [overflow-wrap:anywhere]">
+            {item.value}
+          </dd>
         </div>
       ))}
     </dl>

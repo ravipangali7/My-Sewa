@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, History } from "lucide-react";
 import type { ReactNode } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { BackButton } from "@/components/BackButton";
@@ -37,9 +37,9 @@ export const Route = createFileRoute("/admin/wallets_/$walletId")({
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-1 border-b border-border py-3 last:border-0 sm:grid-cols-[180px_1fr] sm:gap-4">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium break-words">{children}</dd>
+    <div className="grid grid-cols-1 gap-1 border-b border-border py-3 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-4">
+      <dt className="min-w-0 break-words text-sm text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-all text-sm font-medium">{children}</dd>
     </div>
   );
 }
@@ -77,7 +77,13 @@ function WalletDetailPage() {
       description={w ? `Wallet #${w.id}` : walletQuery.isLoading ? "Loading…" : "Not found"}
       actions={
         w ? (
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 [&>*]:shrink-0">
+            <Button asChild size="sm" variant="outline">
+              <Link to="/admin/wallets/$walletId/transactions" params={{ walletId }}>
+                <History className="size-3.5" />
+                View Transaction History
+              </Link>
+            </Button>
             <Button asChild size="sm" variant="outline">
               <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
                 <Pencil className="size-3.5" />
@@ -133,7 +139,7 @@ function WalletDetailPage() {
             subtitle={`${name} · ${w.phone}`}
           />
 
-          <div className="rounded-xl border border-border bg-surface p-5">
+          <div className="min-w-0 overflow-x-clip rounded-xl border border-border bg-surface p-4 sm:p-5">
             <h2 className="mb-1 text-sm font-semibold">Wallet information</h2>
             <p className="mb-3 text-sm text-muted-foreground">Full record for this user wallet.</p>
             <dl>

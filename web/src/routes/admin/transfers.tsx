@@ -11,6 +11,7 @@ import {
   AdminMobileCardGrid,
   AdminMobileMeta,
 } from "@/components/admin/AdminDataList";
+import { StatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -29,9 +30,13 @@ import {
 } from "@/components/ui/table";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
+import { serialNumber } from "@/lib/serial";
 import type { TxnStatus } from "@/lib/types";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
+
+const LIST_PAGE = 1;
+const LIST_PAGE_SIZE = 50;
 
 export const Route = createFileRoute("/admin/transfers")({
   head: () => ({
@@ -86,6 +91,13 @@ function TransfersPage() {
 
   const bankTransfers = transfersQuery.data?.items ?? [];
   const transferStats = transfersQuery.data?.stats;
+  const amountCards = amountSummaryCards(transfersQuery.data?.summary, {
+    keys: ["total_volume", "total_debit", "total_amount", "today_amount", "monthly_amount"],
+    labels: {
+      total_debit: "Total debit (success)",
+      total_amount: "Successful amount",
+    },
+  });
 
   const statusSelect = (id: number, status: TxnStatus) => (
     <Select
@@ -123,6 +135,7 @@ function TransfersPage() {
       )}
 
       <div className="mb-4 space-y-4">
+        <StatsCards items={amountCards} />
         <ListPageToolbar
           stats={transferStats}
           filters={filters}
@@ -155,6 +168,7 @@ function TransfersPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10 pr-0">S.N.</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>User phone</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
@@ -172,11 +186,16 @@ function TransfersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {bankTransfers.map((b) => (
+              {bankTransfers.map((b, index) => (
                 <TableRow key={b.id}>
+                  <TableCell className="w-10 pr-0 tabular text-sm text-muted-foreground">
+                    {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}
+                  </TableCell>
                   <TableCell className="text-sm">{b.id}</TableCell>
                   <TableCell className="text-sm">{b.phone}</TableCell>
-                  <TableCell className="tabular text-right text-sm">{formatNPR(b.amount)}</TableCell>
+                  <TableCell className="tabular text-right text-sm font-semibold">
+                    {formatNPR(b.amount)}
+                  </TableCell>
                   <TableCell className="text-sm">
                     {b.destination_bank_name}
                     <span className="block text-xs text-muted-foreground">{b.destination_bank}</span>
@@ -209,14 +228,19 @@ function TransfersPage() {
         }
         mobile={
           <AdminMobileCardGrid>
-            {bankTransfers.map((b) => (
+            {bankTransfers.map((b, index) => (
               <AdminMobileCard key={b.id}>
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{b.destination_acc_name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {b.destination_bank_name} · #{b.id}
-                    </p>
+                  <div className="flex min-w-0 items-start gap-2">
+                    <span className="tabular shrink-0 pt-0.5 text-xs text-muted-foreground">
+                      {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}.
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{b.destination_acc_name}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {b.destination_bank_name} · #{b.id}
+                      </p>
+                    </div>
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="tabular text-base font-semibold">{formatNPR(b.amount)}</p>

@@ -33,8 +33,8 @@ from ..services.app_config import (
     require_account_approved,
     is_auto_status_verified,
 )
-from ..services.notifications import notify_low_balance_if_needed
-from ..services.txn_status import resolve_provider_outcome
+from ..services.notifications import notify_low_balance_if_needed, notify_wallet_debit
+from ..services.txn_status import resolve_provider_outcome, debit_wallet_for_txn
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +163,13 @@ def pay_bill(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    from ..services.pin import transaction_pin_gate
+    pin_failed = transaction_pin_gate(
+        request.user, serializer.validated_data.get('transaction_pin')
+    )
+    if pin_failed:
+        return pin_failed
+
     isp_id = serializer.validated_data['isp_id']
     customer_id = serializer.validated_data['customer_id'].strip()
     amount = HimalPayAPI.normalize_rupees(serializer.validated_data['amount'])
@@ -268,10 +275,16 @@ def pay_bill(request):
                         {'error': 'Insufficient balance after fee calculation'},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-                wallet.balance -= debit
-                wallet.save()
+                debit_wallet_for_txn(wallet, bill_txn, debit)
                 bill_txn.status = 'success'
                 bill_txn.save()
+            notify_wallet_debit(
+                request.user,
+                debit,
+                balance_after=wallet.balance,
+                reason=f'{isp["name"]} internet bill',
+                ref=bill_txn.merchant_txn_id,
+            )
             notify_low_balance_if_needed(wallet)
             return Response(
                 {
@@ -320,10 +333,17 @@ def pay_bill(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def internet_bill_history(request):
+    from ..services.list_response import items_with_stats_response
+
     bills = InternetBillTransaction.objects.filter(user=request.user).order_by('-created_at')
-    return Response(
-        InternetBillTransactionSerializer(bills, many=True).data,
-        status=status.HTTP_200_OK,
+    return items_with_stats_response(
+        bills,
+        InternetBillTransactionSerializer,
+        request,
+        search_fields=(
+            'isp_name', 'customer_id', 'customer_name', 'package_name',
+            'merchant_txn_id', 'reference_id',
+        ),
     )
 
 
@@ -357,10 +377,16 @@ def internet_bill_status(request):
                             wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                             debit = bill.total_debited or bill.amount
                             if wallet.balance >= debit:
-                                wallet.balance -= debit
-                                wallet.save()
+                                debit_wallet_for_txn(wallet, bill, debit)
                                 bill.status = 'success'
                                 bill.save()
+                                notify_wallet_debit(
+                                    request.user,
+                                    debit,
+                                    balance_after=wallet.balance,
+                                    reason='Internet bill payment',
+                                    ref=bill.merchant_txn_id,
+                                )
                                 notify_low_balance_if_needed(wallet)
                             else:
                                 bill.status = 'failed'

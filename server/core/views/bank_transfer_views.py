@@ -36,8 +36,8 @@ from ..services.app_config import (
     require_account_approved,
     is_auto_status_verified,
 )
-from ..services.notifications import notify_low_balance_if_needed
-from ..services.txn_status import resolve_provider_outcome
+from ..services.notifications import notify_low_balance_if_needed, notify_transfer_success
+from ..services.txn_status import resolve_provider_outcome, debit_wallet_for_txn
 from django.utils import timezone
 from django.db.models import Sum
 
@@ -352,7 +352,9 @@ def calculate_transfer_charge(request):
         )
         provider_charge = himalpay.to_rupees(result.get('charge', 0) or 0)
         provider_cashback = himalpay.to_rupees(result.get('cashback', 0) or 0)
-        fees = resolve_transfer_fees(amount, provider_charge, provider_cashback, tx_cfg)
+        fees = resolve_transfer_fees(
+            amount, provider_charge, provider_cashback, tx_cfg, user=request.user,
+        )
         return Response(
             {
                 'data': {
@@ -362,8 +364,8 @@ def calculate_transfer_charge(request):
                     'cashback': str(fees['cashback']),
                     'platform_charge': str(fees['platform_charge']),
                     'total_debited': str(fees['total_debited']),
-                    'charge_enabled': bool(tx_cfg.get('transfer_charge_enabled', True)),
-                    'cashback_enabled': bool(tx_cfg.get('cashback_enabled', True)),
+                    'charge_enabled': bool(fees.get('charge_enabled', tx_cfg.get('transfer_charge_enabled', True))),
+                    'cashback_enabled': bool(fees.get('cashback_enabled', tx_cfg.get('cashback_enabled', True))),
                 },
                 'raw': result,
             },
@@ -380,7 +382,7 @@ def calculate_transfer_charge(request):
                 status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
             )
         # Still honour admin fees when provider preview fails (keep UI usable)
-        fees = resolve_transfer_fees(amount, 0, 0, tx_cfg)
+        fees = resolve_transfer_fees(amount, 0, 0, tx_cfg, user=request.user)
         return Response(
             {
                 'data': {
@@ -390,8 +392,8 @@ def calculate_transfer_charge(request):
                     'cashback': str(fees['cashback']),
                     'platform_charge': str(fees['platform_charge']),
                     'total_debited': str(fees['total_debited']),
-                    'charge_enabled': bool(tx_cfg.get('transfer_charge_enabled', True)),
-                    'cashback_enabled': bool(tx_cfg.get('cashback_enabled', True)),
+                    'charge_enabled': bool(fees.get('charge_enabled', tx_cfg.get('transfer_charge_enabled', True))),
+                    'cashback_enabled': bool(fees.get('cashback_enabled', tx_cfg.get('cashback_enabled', True))),
                 },
                 'warning': exc.message,
             },
@@ -415,7 +417,15 @@ def create_bank_transfer(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    from ..services.pin import transaction_pin_gate
+    pin_failed = transaction_pin_gate(
+        request.user, serializer.validated_data.get('transaction_pin')
+    )
+    if pin_failed:
+        return pin_failed
+
     data = serializer.validated_data
+    data.pop('transaction_pin', None)
     amount = HimalPayAPI.normalize_rupees(data['amount'])
     amount_paisa = HimalPayAPI.to_paisa(amount)
     wallet = _get_or_create_wallet(request.user)
@@ -492,7 +502,9 @@ def create_bank_transfer(request):
         provider_charge = Decimal('0.00')
         provider_cashback = Decimal('0.00')
 
-    fees = resolve_transfer_fees(amount, provider_charge, provider_cashback, tx_cfg)
+    fees = resolve_transfer_fees(
+        amount, provider_charge, provider_cashback, tx_cfg, user=request.user,
+    )
     charge = fees['charge']
     cashback = fees['cashback']
     total_required = fees['total_debited']
@@ -627,6 +639,7 @@ def create_bank_transfer(request):
             himalpay.to_rupees(charge_paisa),
             himalpay.to_rupees(cashback_paisa),
             tx_cfg,
+            user=request.user,
         )
         transfer.charge = applied['charge']
         transfer.cashback = applied['cashback']
@@ -668,11 +681,11 @@ def create_bank_transfer(request):
                         {'error': 'Insufficient balance after fee calculation'},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-                wallet.balance -= debit
-                wallet.save()
+                debit_wallet_for_txn(wallet, transfer, debit)
                 transfer.status = 'success'
                 transfer.save()
 
+            notify_transfer_success(transfer, balance_after=getattr(transfer, 'balance_after', None) or wallet.balance)
             notify_low_balance_if_needed(wallet)
 
             return Response(
@@ -755,9 +768,18 @@ def create_bank_transfer(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def bank_transfer_history(request):
+    from ..services.list_response import items_with_stats_response
+
     transfers = BankTransferTransaction.objects.filter(user=request.user).order_by('-created_at')
-    serializer = BankTransferTransactionSerializer(transfers, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return items_with_stats_response(
+        transfers,
+        BankTransferTransactionSerializer,
+        request,
+        search_fields=(
+            'destination_acc_no', 'destination_acc_name', 'destination_bank_name',
+            'merchant_txn_id', 'reference_id', 'transaction_remarks',
+        ),
+    )
 
 
 @api_view(['POST'])
@@ -796,10 +818,13 @@ def bank_transfer_status(request):
                             wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                             debit = transfer.total_debited or transfer.amount
                             if wallet.balance >= debit:
-                                wallet.balance -= debit
-                                wallet.save()
+                                debit_wallet_for_txn(wallet, transfer, debit)
                                 transfer.status = 'success'
                                 transfer.save()
+                                notify_transfer_success(
+                                    transfer,
+                                    balance_after=getattr(transfer, 'balance_after', None) or wallet.balance,
+                                )
                                 notify_low_balance_if_needed(wallet)
                             else:
                                 transfer.status = 'failed'

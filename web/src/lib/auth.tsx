@@ -13,6 +13,10 @@ import { toast } from "sonner";
 import { apiClient, getToken, setToken, ApiError } from "./api";
 import { LIVE_REFETCH_MS } from "./refresh";
 import type { UserProfile, Wallet } from "./types";
+import {
+  setupPushNotifications,
+  unregisterStoredDeviceToken,
+} from "./push-notifications";
 
 type AuthContextValue = {
   token: string | null;
@@ -24,11 +28,12 @@ type AuthContextValue = {
   login: (phone: string, password: string) => Promise<UserProfile>;
   register: (input: {
     phone: string;
+    email: string;
     password: string;
     password2: string;
+    transaction_pin: string;
     first_name?: string;
     last_name?: string;
-    email?: string;
   }) => Promise<UserProfile>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -81,6 +86,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [profileQuery.data?.account_status]);
 
+  // Register FCM / web device token once authenticated.
+  useEffect(() => {
+    if (!token || !profileQuery.data) return;
+    void setupPushNotifications();
+  }, [token, profileQuery.data?.id]);
+
   const login = useCallback(
     async (phone: string, password: string) => {
       const res = await apiClient.login(phone, password);
@@ -97,11 +108,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = useCallback(
     async (input: {
       phone: string;
+      email: string;
       password: string;
       password2: string;
+      transaction_pin: string;
       first_name?: string;
       last_name?: string;
-      email?: string;
     }) => {
       const res = await apiClient.register(input);
       setToken(res.token);
@@ -116,6 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      await unregisterStoredDeviceToken();
       if (getToken()) await apiClient.logout();
     } catch {
       // ignore logout errors

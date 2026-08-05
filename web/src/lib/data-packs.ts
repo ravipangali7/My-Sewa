@@ -44,7 +44,9 @@ export function extractValidityLabel(
   const match = name.match(
     /(\d+\s*(?:days?|day|hours?|hrs?|hr|minutes?|mins?|min|months?|month))/i,
   );
-  return match ? match[1].replace(/\bday\b/i, "Days").replace(/\bhr\b/i, "Hour") : "";
+  return match?.[1]
+    ? match[1].replace(/\bday\b/i, "Days").replace(/\bhr\b/i, "Hour")
+    : "";
 }
 
 export function buildPackDescription(pkg: DataPackOption): string {

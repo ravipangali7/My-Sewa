@@ -96,6 +96,25 @@ function detailRows(
       { label: t("common.date"), value: formatDateTime(top.created_at) },
     ];
   }
+  if (item.kind === "wallet_adjustment") {
+    const adj = (tx.wallet_adjustments ?? []).find((x) => `adj-${x.id}` === item.id);
+    if (!adj) return [];
+    return [
+      { label: t("common.type"), value: t("notif.typeWalletAdjustment") },
+      {
+        label: t("history.adjustmentType"),
+        value:
+          adj.adjustment_type === "credit"
+            ? t("activity.walletCredit")
+            : t("activity.walletDebit"),
+      },
+      { label: t("common.amount"), value: formatNPR(adj.display_amount || adj.amount) },
+      { label: t("history.balanceBefore"), value: formatNPR(adj.balance_before) },
+      { label: t("history.balanceAfter"), value: formatNPR(adj.balance_after) },
+      { label: t("common.note"), value: adj.reason || "—" },
+      { label: t("common.date"), value: formatDateTime(adj.created_at) },
+    ];
+  }
   const b = tx.bank_transfers.find((x) => `bt-${x.id}` === item.id);
   if (!b) return [];
   return [
@@ -180,6 +199,15 @@ function notificationCopy(
         item.status === "failed" ? t("notif.topupFailed") : t("notif.topupUpdate"),
       body: t("notif.topupBody", {
         title: item.title,
+        subtitle: item.subtitle,
+        amount: formatNPR(item.amount),
+      }),
+    };
+  }
+  if (item.kind === "wallet_adjustment") {
+    return {
+      title: item.title,
+      body: t("notif.transferBody", {
         subtitle: item.subtitle,
         amount: formatNPR(item.amount),
       }),

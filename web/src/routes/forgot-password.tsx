@@ -16,7 +16,8 @@ export const Route = createFileRoute("/forgot-password")({
       { title: "Forgot Password — MySewa" },
       {
         name: "description",
-        content: "Reset your MySewa account password using a verification code sent to your phone.",
+        content:
+          "Reset your MySewa account password using a verification code sent to your registered email.",
       },
       { property: "og:title", content: "Forgot Password — MySewa" },
     ],
@@ -36,6 +37,7 @@ function ForgotPasswordPage() {
   const [password2, setPassword2] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [debugOtp, setDebugOtp] = useState<string | null>(null);
+  const [emailHint, setEmailHint] = useState<string | null>(null);
 
   useEffect(() => {
     if (token && !isLoading && user) {
@@ -69,7 +71,9 @@ function ForgotPasswordPage() {
               {step === "request" ? t("auth.forgotTitle") : t("auth.setNewPassword")}
             </h1>
             <p className="mt-1 text-[15px] text-muted-foreground">
-              {step === "request" ? t("auth.sendCodeSubtitle") : t("auth.enterCode", { phone })}
+              {step === "request"
+                ? t("auth.sendCodeSubtitle")
+                : t("auth.enterCode", { email: emailHint || "your email" })}
             </p>
           </div>
 
@@ -80,10 +84,12 @@ function ForgotPasswordPage() {
                 e.preventDefault();
                 setSubmitting(true);
                 setDebugOtp(null);
+                setEmailHint(null);
                 try {
                   const res = await apiClient.forgotPassword(phone.trim());
                   if (res.debug_otp) setDebugOtp(res.debug_otp);
-                  toast.success(t("auth.checkPhone"), { description: res.message });
+                  if (res.email_hint) setEmailHint(res.email_hint);
+                  toast.success(t("auth.checkEmail"), { description: res.message });
                   setStep("reset");
                 } catch (err) {
                   toast.error(err instanceof ApiError ? err.message : t("common.requestFailed"));

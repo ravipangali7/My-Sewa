@@ -17,6 +17,9 @@ from ..serializers import (
     ChangePhoneSerializer,
     ForgotPasswordSerializer,
     ResetPasswordSerializer,
+    SetTransactionPinSerializer,
+    VerifyTransactionPinSerializer,
+    DeviceTokenSerializer,
 )
 
 User = get_user_model()
@@ -98,7 +101,8 @@ def register(request):
             'user': {
                 'id': user.id,
                 'phone': user.phone,  # phone is the authentication field
-                'email': user.email if user.email else ''
+                'email': user.email if user.email else '',
+                'has_transaction_pin': bool(user.transaction_pin),
             }
         }, status=status.HTTP_201_CREATED)
     
@@ -345,10 +349,14 @@ def change_phone(request):
 def forgot_password(request):
     """
     Request a password-reset OTP for a phone number.
-    Always returns a generic success message to avoid account enumeration.
+    OTP is emailed to the user's registered address when the account exists
+    and has an email. Unknown / inactive phones get a generic response.
     """
     import secrets
+    from django.conf import settings as dj_settings
     from django.core.cache import cache
+
+    from ..services.notifications import mask_email, send_password_reset_otp
 
     serializer = ForgotPasswordSerializer(data=request.data)
     if not serializer.is_valid():
@@ -358,8 +366,8 @@ def forgot_password(request):
     phone = serializer.validated_data['phone']
     generic = {
         'message': (
-            'If an account exists for this phone number, a verification code has been sent. '
-            'Enter the code to reset your password.'
+            'If an account exists for this phone number with a registered email, '
+            'a verification code has been sent. Enter the code to reset your password.'
         ),
     }
 
@@ -371,16 +379,45 @@ def forgot_password(request):
     if not user.is_active:
         return Response(generic, status=status.HTTP_200_OK)
 
+    email = (user.email or '').strip()
+    if not email:
+        return Response({
+            'message': (
+                'No email is registered for this account. '
+                'Please contact support to reset your password.'
+            ),
+            'errors': {
+                'email': [
+                    'No registered email on this account. Contact support to reset your password.'
+                ],
+            },
+        }, status=status.HTTP_400_BAD_REQUEST)
+
     otp = f'{secrets.randbelow(1_000_000):06d}'
     cache.set(f'password_reset_otp:{phone}', otp, timeout=60 * 15)
-    # SMS delivery is not wired yet — log the OTP for operators / local testing.
-    logger.info('Password reset OTP for %s***: %s', phone[:3], otp)
 
-    from django.conf import settings as dj_settings
+    sent = send_password_reset_otp(email, otp)
+    if not sent:
+        logger.error('Failed to send password reset OTP email for phone %s***', phone[:3])
+        return Response({
+            'message': 'Unable to send verification code. Please try again later.',
+            'errors': {'email': ['Unable to send verification code. Please try again later.']},
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    email_hint = mask_email(email)
+    logger.info('Password reset OTP emailed to %s for phone %s***', email_hint, phone[:3])
+
+    payload = {
+        'message': (
+            f'A verification code has been sent to {email_hint}. '
+            'Enter the code to reset your password.'
+        ),
+        'email_hint': email_hint,
+    }
     if getattr(dj_settings, 'DEBUG', False):
-        return Response({**generic, 'debug_otp': otp}, status=status.HTTP_200_OK)
+        payload['debug_otp'] = otp
 
-    return Response(generic, status=status.HTTP_200_OK)
+    return Response(payload, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -398,24 +435,54 @@ def reset_password(request):
     otp = serializer.validated_data['otp'].strip()
     cached = cache.get(f'password_reset_otp:{phone}')
 
-    if not cached or str(cached) != otp:
+    if not cached:
         return Response({
-            'message': 'Invalid or expired verification code',
-            'errors': {'otp': ['Invalid or expired verification code']},
+            'message': (
+                'Verification code has expired or was not requested. '
+                'Please request a new code.'
+            ),
+            'errors': {
+                'otp': [
+                    'Verification code has expired or was not requested. '
+                    'Please request a new code.'
+                ],
+            },
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    if str(cached) != otp:
+        return Response({
+            'message': (
+                'Incorrect verification code. '
+                'Please check the code sent to your email and try again.'
+            ),
+            'errors': {
+                'otp': [
+                    'Incorrect verification code. '
+                    'Please check the code sent to your email and try again.'
+                ],
+            },
         }, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         user = User.objects.get(phone=phone)
     except User.DoesNotExist:
         return Response({
-            'message': 'Invalid or expired verification code',
-            'errors': {'otp': ['Invalid or expired verification code']},
+            'message': (
+                'Unable to reset password for this account. '
+                'Please request a new verification code.'
+            ),
+            'errors': {
+                'phone': [
+                    'Unable to reset password for this account. '
+                    'Please request a new verification code.'
+                ],
+            },
         }, status=status.HTTP_400_BAD_REQUEST)
 
     if not user.is_active:
         return Response({
-            'message': 'Your account has been deactivated',
-            'errors': {'phone': ['Your account has been deactivated']},
+            'message': 'Your account has been deactivated. Please contact support.',
+            'errors': {'phone': ['Your account has been deactivated. Please contact support.']},
         }, status=status.HTTP_400_BAD_REQUEST)
 
     user.set_password(serializer.validated_data['new_password'])
@@ -427,3 +494,108 @@ def reset_password(request):
     return Response({
         'message': 'Password reset successfully. You can now log in with your new password.',
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def set_transaction_pin(request):
+    """Set transaction PIN for authenticated users who do not yet have one."""
+    from django.contrib.auth.hashers import make_password
+
+    user = request.user
+    if user.transaction_pin:
+        return Response({
+            'message': 'Transaction PIN is already set.',
+            'errors': {'transaction_pin': ['Transaction PIN is already set.']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    serializer = SetTransactionPinSerializer(data=request.data)
+    if not serializer.is_valid():
+        formatted = format_validation_errors(serializer.errors)
+        return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
+
+    user.transaction_pin = make_password(serializer.validated_data['transaction_pin'])
+    user.save(update_fields=['transaction_pin'])
+
+    return Response({
+        'message': 'Transaction PIN set successfully',
+        'has_pin': True,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def has_transaction_pin(request):
+    """Return whether the authenticated user has a transaction PIN set."""
+    return Response({
+        'has_pin': bool(request.user.transaction_pin),
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def verify_transaction_pin(request):
+    """Client-side pre-check that the submitted transaction PIN is correct."""
+    from ..services.pin import transaction_pin_gate
+
+    serializer = VerifyTransactionPinSerializer(data=request.data)
+    if not serializer.is_valid():
+        formatted = format_validation_errors(serializer.errors)
+        return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
+
+    failed = transaction_pin_gate(
+        request.user, serializer.validated_data['transaction_pin']
+    )
+    if failed:
+        return failed
+
+    return Response({
+        'valid': True,
+        'message': 'Transaction PIN verified',
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def device_token(request):
+    """
+    POST  — register / refresh an FCM or web push device token.
+    DELETE — unregister by token (body or query: token=...).
+    """
+    from ..models import DeviceToken
+
+    if request.method == 'POST':
+        serializer = DeviceTokenSerializer(
+            data=request.data, context={'request': request},
+        )
+        if not serializer.is_valid():
+            formatted = format_validation_errors(serializer.errors)
+            return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
+        obj = serializer.save()
+        return Response({
+            'message': 'Device token registered',
+            'token': obj.token,
+            'platform': obj.platform,
+            'updated_at': obj.updated_at.isoformat() if obj.updated_at else None,
+        }, status=status.HTTP_200_OK)
+
+    token = (
+        (request.data.get('token') if hasattr(request, 'data') else None)
+        or request.query_params.get('token')
+        or ''
+    )
+    token = str(token).strip()
+    if not token:
+        return Response({
+            'message': 'token is required',
+            'errors': {'token': ['This field is required.']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    deleted, _ = DeviceToken.objects.filter(user=request.user, token=token).delete()
+    if not deleted:
+        # Also allow unregistered tokens that belong to this user by exact match only
+        return Response({
+            'message': 'Device token not found',
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    return Response({'message': 'Device token unregistered'}, status=status.HTTP_200_OK)

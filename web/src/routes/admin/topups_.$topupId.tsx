@@ -25,9 +25,11 @@ export const Route = createFileRoute("/admin/topups_/$topupId")({
 
 function StatementRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-border/80 py-2.5 last:border-0 sm:grid-cols-[180px_1fr] sm:gap-3">
-      <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</dt>
-      <dd className="text-sm font-medium break-words text-foreground">{children}</dd>
+    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-border/80 py-2.5 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-3">
+      <dt className="min-w-0 break-words text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        {label}
+      </dt>
+      <dd className="min-w-0 break-all text-sm font-medium text-foreground">{children}</dd>
     </div>
   );
 }
@@ -91,49 +93,51 @@ function TopupDetailPage() {
 
       {t && (
         <div className="space-y-6">
-          <article className="overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
-            <div className="border-b border-border bg-gradient-to-br from-muted/80 via-surface to-surface px-6 py-6 sm:px-8">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
+          <article className="min-w-0 overflow-x-clip rounded-2xl border border-border bg-surface shadow-card">
+            <div className="border-b border-border bg-gradient-to-br from-muted/80 via-surface to-surface px-4 py-5 sm:px-6 sm:py-6 md:px-8">
+              <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+                <div className="min-w-0">
                   <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
                     MySewa Mobile Top-up
                   </p>
-                  <h2 className="mt-1 text-2xl font-semibold tracking-tight">Top-up statement</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <h2 className="mt-1 break-words text-xl font-semibold tracking-tight sm:text-2xl">
+                    Top-up statement
+                  </h2>
+                  <p className="mt-1 break-words text-sm text-muted-foreground">
                     Reference #{t.id} · Issued {formatDateTime(t.created_at)}
                   </p>
                 </div>
                 <StatusChip status={t.status} />
               </div>
 
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-border/70 bg-surface/90 px-5 py-4">
-                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                    Top-up amount
+              <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="min-w-0 rounded-xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 sm:px-5">
+                  <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                    Transaction amount
                   </p>
-                  <p className="mt-1 tabular text-3xl font-semibold tracking-tight text-brand-dark">
+                  <p className="mt-2 break-all tabular-nums text-3xl font-black tracking-tight text-brand-dark sm:text-4xl md:text-5xl">
                     {formatNPR(t.amount)}
                   </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <p className="mt-1.5 break-words text-sm text-muted-foreground">
                     {operator} · {t.mobile_number}
                   </p>
                 </div>
-                <div className="rounded-xl border border-border/70 bg-surface/90 px-5 py-4">
-                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                <div className="min-w-0 rounded-xl border border-border/70 bg-surface/90 px-4 py-5 sm:px-5">
+                  <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                     Total debited
                   </p>
-                  <p className="mt-1 tabular text-3xl font-semibold tracking-tight text-foreground">
+                  <p className="mt-2 break-all tabular-nums text-2xl font-bold tracking-tight text-foreground sm:text-3xl md:text-4xl">
                     {formatNPR(t.total_debited)}
                   </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <p className="mt-1.5 break-words text-sm text-muted-foreground">
                     Charge {formatNPR(t.charge)} · Cashback {formatNPR(t.cashback)}
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="grid gap-0 sm:grid-cols-2">
-              <section className="border-b border-border px-6 py-5 sm:border-r sm:px-8">
+            <div className="grid grid-cols-1 gap-0 md:grid-cols-2">
+              <section className="border-b border-border px-4 py-5 sm:px-6 md:border-r md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Account holder
                 </h3>
@@ -152,7 +156,7 @@ function TopupDetailPage() {
                 </dl>
               </section>
 
-              <section className="border-b border-border px-6 py-5 sm:px-8">
+              <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Beneficiary
                 </h3>
@@ -164,7 +168,7 @@ function TopupDetailPage() {
               </section>
             </div>
 
-            <section className="border-b border-border px-6 py-5 sm:px-8">
+            <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
               <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                 Transaction
               </h3>
@@ -172,10 +176,10 @@ function TopupDetailPage() {
                 <StatementRow label="Type">Mobile top-up · {operator}</StatementRow>
                 <StatementRow label="Status">{t.status_display}</StatementRow>
                 <StatementRow label="Merchant txn">
-                  <span className="font-mono text-xs sm:text-sm">{t.merchant_txn_id}</span>
+                  <span className="break-all font-mono text-xs sm:text-sm">{t.merchant_txn_id}</span>
                 </StatementRow>
                 <StatementRow label="Provider txn">
-                  <span className="font-mono text-xs sm:text-sm">
+                  <span className="break-all font-mono text-xs sm:text-sm">
                     {t.service_hub_txn_id ?? "—"}
                   </span>
                 </StatementRow>
@@ -185,7 +189,7 @@ function TopupDetailPage() {
               </dl>
             </section>
 
-            <section className="border-b border-border px-6 py-5 sm:px-8">
+            <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
               <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                 Settlement breakdown
               </h3>
@@ -194,17 +198,25 @@ function TopupDetailPage() {
                 <StatementRow label="Service charge">{formatNPR(t.charge)}</StatementRow>
                 <StatementRow label="Cashback">{formatNPR(t.cashback)}</StatementRow>
                 <StatementRow label="Wallet debit">
-                  <span className="tabular font-semibold">{formatNPR(t.total_debited)}</span>
+                  <span className="break-all tabular-nums font-semibold">
+                    {formatNPR(t.total_debited)}
+                  </span>
+                </StatementRow>
+                <StatementRow label="Balance before">
+                  {t.balance_before != null ? formatNPR(t.balance_before) : "—"}
+                </StatementRow>
+                <StatementRow label="Balance after">
+                  {t.balance_after != null ? formatNPR(t.balance_after) : "—"}
                 </StatementRow>
               </dl>
             </section>
 
-            <section className="px-6 py-5 sm:px-8">
+            <section className="px-4 py-5 sm:px-6 md:px-8">
               <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                 Provider response
               </h3>
               {providerJson ? (
-                <pre className="max-h-80 overflow-auto rounded-xl border border-border bg-muted/40 p-4 font-mono text-xs leading-relaxed text-foreground">
+                <pre className="max-h-80 overflow-x-auto overflow-y-auto rounded-xl border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-foreground sm:p-4">
                   {providerJson}
                 </pre>
               ) : (
@@ -214,7 +226,7 @@ function TopupDetailPage() {
               )}
             </section>
 
-            <footer className="border-t border-border bg-muted/40 px-6 py-3 text-xs text-muted-foreground sm:px-8">
+            <footer className="border-t border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground sm:px-6 md:px-8">
               This statement summarizes the mobile top-up recorded in MySewa. Wallet debit equals
               top-up amount plus charge minus cashback.
             </footer>

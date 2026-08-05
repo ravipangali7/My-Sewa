@@ -11,6 +11,7 @@ import {
   markAllNotificationsRead,
 } from "@/lib/notifications";
 import { formatDateTime, formatNPR } from "@/lib/format";
+import { serialNumber } from "@/lib/serial";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -84,7 +85,7 @@ function NotificationsPage() {
           </div>
         ) : (
           <ul className="inset-group divide-y divide-border overflow-hidden">
-            {notifications.map((n) => (
+            {notifications.map((n, index) => (
               <li key={n.id}>
                 <Link
                   to="/app/notifications/$notificationId"
@@ -94,6 +95,9 @@ function NotificationsPage() {
                     n.unread && "bg-brand-soft/40",
                   )}
                 >
+                  <span className="tabular mt-0.5 w-5 shrink-0 text-center text-[12px] text-muted-foreground">
+                    {serialNumber(1, notifications.length || 1, index)}
+                  </span>
                   <span
                     className={cn(
                       "mt-1.5 size-2 shrink-0 rounded-full",

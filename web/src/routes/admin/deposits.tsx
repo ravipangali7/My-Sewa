@@ -12,6 +12,7 @@ import {
   AdminMobileCardGrid,
   AdminMobileMeta,
 } from "@/components/admin/AdminDataList";
+import { StatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,8 +36,12 @@ import {
 import { apiClient, ApiError } from "@/lib/api";
 import type { Deposit } from "@/lib/types";
 import { formatNPR, formatDateTime } from "@/lib/format";
+import { serialNumber } from "@/lib/serial";
 import { useListFilters, DEPOSIT_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
+
+const LIST_PAGE = 1;
+const LIST_PAGE_SIZE = 50;
 
 export const Route = createFileRoute("/admin/deposits")({
   head: () => ({
@@ -72,6 +77,13 @@ function DepositsPage() {
 
   const visible = depositsQuery.data?.items ?? [];
   const depositStats = depositsQuery.data?.stats;
+  const amountCards = amountSummaryCards(depositsQuery.data?.summary, {
+    keys: ["total_volume", "total_credit", "total_amount", "today_amount", "monthly_amount"],
+    labels: {
+      total_credit: "Total credit (approved)",
+      total_amount: "Approved amount",
+    },
+  });
 
   const invalidateDepositQueries = () => {
     queryClient.invalidateQueries({ queryKey: ["admin", "deposits"] });
@@ -213,6 +225,7 @@ function DepositsPage() {
       )}
 
       <div className="mb-4 space-y-4">
+        <StatsCards items={amountCards} />
         <ListPageToolbar
           stats={depositStats}
           filters={filters}
@@ -249,6 +262,7 @@ function DepositsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10 pr-0">S.N.</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>User phone</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
@@ -260,15 +274,20 @@ function DepositsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visible.map((d) => (
+              {visible.map((d, index) => (
                 <TableRow
                   key={d.id}
                   className="cursor-pointer"
                   onClick={() => openDeposit(d.id)}
                 >
+                  <TableCell className="w-10 pr-0 tabular text-sm text-muted-foreground">
+                    {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}
+                  </TableCell>
                   <TableCell className="text-sm">#{d.id}</TableCell>
                   <TableCell className="text-sm font-medium">{d.phone}</TableCell>
-                  <TableCell className="tabular text-right text-sm">{formatNPR(d.amount)}</TableCell>
+                  <TableCell className="tabular text-right text-sm font-semibold">
+                    {formatNPR(d.amount)}
+                  </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>{proofThumb(d)}</TableCell>
                   <TableCell className="max-w-55 text-sm text-muted-foreground">
                     {d.status === "rejected" && d.rejection_reason ? (
@@ -294,9 +313,12 @@ function DepositsPage() {
         }
         mobile={
           <AdminMobileCardGrid>
-            {visible.map((d) => (
+            {visible.map((d, index) => (
               <AdminMobileCard key={d.id} onClick={() => openDeposit(d.id)}>
                 <div className="flex items-start gap-3">
+                  <span className="tabular shrink-0 pt-1 text-xs text-muted-foreground">
+                    {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}.
+                  </span>
                   <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
                     {d.screenshot_proof ? (
                       <a

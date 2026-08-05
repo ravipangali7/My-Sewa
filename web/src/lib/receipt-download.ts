@@ -12,6 +12,7 @@ const ACTIVITY_PREFIX_BY_KIND: Record<ActivityKind, string> = {
   transfer: "bt",
   internet: "isp",
   data_pack: "data",
+  wallet_adjustment: "adj",
 };
 
 export function activityIdForKind(kind: ActivityKind, id: number) {

@@ -28,8 +28,8 @@ from ..services.app_config import (
     require_account_approved,
     is_auto_status_verified,
 )
-from ..services.notifications import notify_low_balance_if_needed
-from ..services.txn_status import resolve_provider_outcome
+from ..services.notifications import notify_low_balance_if_needed, notify_wallet_debit
+from ..services.txn_status import resolve_provider_outcome, debit_wallet_for_txn
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +52,8 @@ def _get_or_create_wallet(user):
         return Wallet.objects.create(user=user, balance=Decimal('0.00'))
 
 
-def _platform_fee(amount) -> Decimal:
-    cfg = get_app_config()
-    tx_cfg = cfg.get('transactions') or {}
-    return platform_topup_charge(amount, tx_cfg.get('topup_charge_percent', 0))
+def _platform_fee(amount, user=None) -> Decimal:
+    return platform_topup_charge(amount, user=user)
 
 
 def _apply_fee_fields(txn, himalpay: HimalPayAPI, response: dict, amount, platform_fee=Decimal('0.00')):
@@ -153,6 +151,13 @@ def pay_data_pack(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    from ..services.pin import transaction_pin_gate
+    pin_failed = transaction_pin_gate(
+        request.user, serializer.validated_data.get('transaction_pin')
+    )
+    if pin_failed:
+        return pin_failed
+
     operator = serializer.validated_data['operator'].upper()
     mobile = serializer.validated_data['mobile_number']
     amount = HimalPayAPI.normalize_rupees(serializer.validated_data['amount'])
@@ -167,7 +172,7 @@ def pay_data_pack(request):
     wallet = _get_or_create_wallet(request.user)
     himalpay = HimalPayAPI()
     pay_service = op_cfg['pay_service']
-    platform_fee = _platform_fee(amount)
+    platform_fee = _platform_fee(amount, user=request.user)
 
     pay_data = {'number': mobile}
     if operator == 'NTC':
@@ -262,10 +267,16 @@ def pay_data_pack(request):
                         {'error': 'Insufficient balance after fee calculation'},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-                wallet.balance -= debit
-                wallet.save()
+                debit_wallet_for_txn(wallet, data_txn, debit)
                 data_txn.status = 'success'
                 data_txn.save()
+            notify_wallet_debit(
+                request.user,
+                debit,
+                balance_after=wallet.balance,
+                reason=f'{operator} data pack',
+                ref=data_txn.merchant_txn_id,
+            )
             notify_low_balance_if_needed(wallet)
             return Response(
                 {
@@ -311,8 +322,18 @@ def pay_data_pack(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def data_pack_history(request):
+    from ..services.list_response import items_with_stats_response
+
     txns = DataPackTransaction.objects.filter(user=request.user).order_by('-created_at')
-    return Response(DataPackTransactionSerializer(txns, many=True).data, status=status.HTTP_200_OK)
+    return items_with_stats_response(
+        txns,
+        DataPackTransactionSerializer,
+        request,
+        search_fields=(
+            'mobile_number', 'package_name', 'operator',
+            'merchant_txn_id', 'reference_id',
+        ),
+    )
 
 
 @api_view(['POST'])
@@ -335,7 +356,7 @@ def data_pack_status(request):
         if data_txn and data_txn.status == 'pending' and normalized in ('success', 'failed', 'pending'):
             auto = is_auto_status_verified()
             local_status = resolve_provider_outcome(normalized, auto)
-            platform_fee = _platform_fee(data_txn.amount)
+            platform_fee = _platform_fee(data_txn.amount, user=request.user)
             if not (normalized == 'pending' and not auto):
                 with transaction.atomic():
                     data_txn = DataPackTransaction.objects.select_for_update().get(pk=data_txn.pk)
@@ -348,10 +369,16 @@ def data_pack_status(request):
                             wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                             debit = data_txn.total_debited or data_txn.amount
                             if wallet.balance >= debit:
-                                wallet.balance -= debit
-                                wallet.save()
+                                debit_wallet_for_txn(wallet, data_txn, debit)
                                 data_txn.status = 'success'
                                 data_txn.save()
+                                notify_wallet_debit(
+                                    request.user,
+                                    debit,
+                                    balance_after=wallet.balance,
+                                    reason='Data pack purchase',
+                                    ref=data_txn.merchant_txn_id,
+                                )
                                 notify_low_balance_if_needed(wallet)
                             else:
                                 data_txn.status = 'failed'

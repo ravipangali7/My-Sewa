@@ -62,9 +62,13 @@ export function UserForm({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    const trimmedEmail = values.email.trim();
+    if (mode === "create" && !trimmedEmail) {
+      return;
+    }
     const payload: AdminUserWritePayload = {
       phone: values.phone.trim(),
-      email: values.email.trim(),
+      email: trimmedEmail,
       first_name: values.first_name.trim(),
       last_name: values.last_name.trim(),
       is_active: values.is_active,
@@ -81,7 +85,7 @@ export function UserForm({
 
   return (
     <form
-      className="space-y-5 rounded-xl border border-border bg-surface p-5"
+      className="min-w-0 max-w-full space-y-5 rounded-xl border border-border bg-surface p-4 sm:p-5"
       onSubmit={handleSubmit}
     >
       <div className="grid gap-4 sm:grid-cols-2">
@@ -119,6 +123,7 @@ export function UserForm({
             type="email"
             value={values.email}
             onChange={(e) => set("email", e.target.value)}
+            required={mode === "create"}
             autoComplete="email"
           />
         </div>

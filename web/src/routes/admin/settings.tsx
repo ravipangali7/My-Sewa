@@ -85,6 +85,10 @@ const DEFAULT_CONFIG: AppConfig = {
     email_on_deposit: true,
     email_on_topup: false,
     sms_on_deposit_approved: true,
+    email_on_wallet_credit: true,
+    email_on_wallet_debit: false,
+    email_on_transfer: false,
+    email_on_wallet_adjustment: true,
     admin_alert_email: "",
     notify_low_balance: false,
     low_balance_threshold: 100,
@@ -1118,6 +1122,50 @@ function SettingsPage() {
                     setConfig((c) => ({
                       ...c,
                       notifications: { ...c.notifications, sms_on_deposit_approved: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="Email on wallet credit"
+                  description="Email customers when their wallet is credited (deposits, remittance)"
+                  checked={config.notifications.email_on_wallet_credit}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      notifications: { ...c.notifications, email_on_wallet_credit: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="Email on wallet debit"
+                  description="Email customers for wallet debits (data packs, internet bills, withdrawals)"
+                  checked={config.notifications.email_on_wallet_debit}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      notifications: { ...c.notifications, email_on_wallet_debit: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="Email on bank transfer"
+                  description="Email customers after a successful bank transfer"
+                  checked={config.notifications.email_on_transfer}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      notifications: { ...c.notifications, email_on_transfer: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="Email on wallet adjustment"
+                  description="Email customers when an admin changes their wallet balance"
+                  checked={config.notifications.email_on_wallet_adjustment}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      notifications: { ...c.notifications, email_on_wallet_adjustment: v },
                     }))
                   }
                 />

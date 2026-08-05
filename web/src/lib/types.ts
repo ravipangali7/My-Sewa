@@ -1,6 +1,14 @@
 export type DepositStatus = "pending" | "approved" | "rejected";
 export type TxnStatus = "pending" | "success" | "failed";
-export type ActivityKind = "deposit" | "remittance" | "topup" | "transfer" | "internet" | "data_pack";
+export type ActivityKind =
+  | "deposit"
+  | "remittance"
+  | "topup"
+  | "transfer"
+  | "internet"
+  | "data_pack"
+  | "wallet_adjustment";
+export type WalletAdjustmentType = "credit" | "debit";
 
 /** Account approval status — pending users can log in but cannot transact. */
 export type AccountStatus = "pending" | "approved";
@@ -18,6 +26,8 @@ export interface UserProfile {
   is_superuser: boolean;
   /** `pending` = Pending (yellow), `approved` = Active (green) */
   account_status?: AccountStatus;
+  /** Whether a transaction PIN is set (never the raw PIN). */
+  has_transaction_pin?: boolean;
   date_joined: string;
   last_login: string | null;
 }
@@ -81,6 +91,10 @@ export interface NotificationsConfig {
   email_on_deposit: boolean;
   email_on_topup: boolean;
   sms_on_deposit_approved: boolean;
+  email_on_wallet_credit: boolean;
+  email_on_wallet_debit: boolean;
+  email_on_transfer: boolean;
+  email_on_wallet_adjustment: boolean;
   admin_alert_email: string;
   notify_low_balance: boolean;
   low_balance_threshold: number;
@@ -149,6 +163,8 @@ export interface Deposit {
   screenshot_proof: string | null;
   note: string | null;
   rejection_reason: string | null;
+  balance_before: string | null;
+  balance_after: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -171,6 +187,8 @@ export interface TopupTransaction {
   charge: string;
   cashback: string;
   total_debited: string;
+  balance_before: string | null;
+  balance_after: string | null;
   reference_id: string | null;
   provider_response?: Record<string, unknown> | null;
   created_at: string;
@@ -198,6 +216,8 @@ export interface BankTransferTransaction {
   charge: string;
   cashback: string;
   total_debited: string;
+  balance_before: string | null;
+  balance_after: string | null;
   verified: boolean;
   created_at: string;
   updated_at: string;
@@ -271,6 +291,8 @@ export interface RemittanceTransaction {
   charge: string;
   cashback: string;
   total_credited: string;
+  balance_before: string | null;
+  balance_after: string | null;
   wallet_credited: boolean;
   lookup_response?: Record<string, unknown> | null;
   provider_response?: Record<string, unknown> | null;
@@ -298,6 +320,8 @@ export interface InternetBillTransaction {
   charge: string;
   cashback: string;
   total_debited: string;
+  balance_before: string | null;
+  balance_after: string | null;
   reference_id: string | null;
   created_at: string;
   updated_at: string;
@@ -357,6 +381,8 @@ export interface DataPackTransaction {
   charge: string;
   cashback: string;
   total_debited: string;
+  balance_before: string | null;
+  balance_after: string | null;
   reference_id: string | null;
   created_at: string;
   updated_at: string;
@@ -374,6 +400,23 @@ export interface DataPackOption {
   operator: string;
 }
 
+export interface WalletAdjustment {
+  id: number;
+  wallet: number;
+  user: number;
+  amount: string;
+  display_amount: string;
+  adjustment_type: WalletAdjustmentType;
+  adjustment_type_display: string;
+  balance_before: string;
+  balance_after: string;
+  reason: string;
+  created_by: number | null;
+  created_by_phone: string | null;
+  created_at: string;
+  reference: string | null;
+}
+
 export interface WalletTransactions {
   deposits: Deposit[];
   remittances?: RemittanceTransaction[];
@@ -381,6 +424,17 @@ export interface WalletTransactions {
   bank_transfers: BankTransferTransaction[];
   internet_bills?: InternetBillTransaction[];
   data_packs?: DataPackTransaction[];
+  wallet_adjustments?: WalletAdjustment[];
+  summary?: AmountSummary;
+}
+
+export interface AmountSummary {
+  total_volume: number;
+  total_amount: number;
+  today_amount: number;
+  monthly_amount: number;
+  total_credit?: number;
+  total_debit?: number;
 }
 
 export interface BankOption {
@@ -428,6 +482,36 @@ export interface AdminUserWritePayload {
   password2?: string;
 }
 
+/** Per-user fee overrides — null means use global Settings defaults. */
+export interface UserFeeConfig {
+  transfer_charge_enabled: boolean | null;
+  transfer_charge_flat: string | number | null;
+  transfer_charge_percent: string | number | null;
+  topup_charge_percent: string | number | null;
+  updated_at?: string;
+}
+
+export type UserFeeConfigPayload = {
+  transfer_charge_enabled?: boolean | null;
+  transfer_charge_flat?: string | number | null;
+  transfer_charge_percent?: string | number | null;
+  topup_charge_percent?: string | number | null;
+};
+
+export interface UserFeeDefaults {
+  transfer_charge_enabled: boolean;
+  transfer_charge_flat: number;
+  transfer_charge_percent: number;
+  topup_charge_percent: number;
+}
+
+export interface AdminUserFeesResponse {
+  user_id: number;
+  fees: UserFeeConfig;
+  defaults: UserFeeDefaults;
+  message?: string;
+}
+
 export interface AdminWallet {
   id: number;
   user_id: number;
@@ -447,6 +531,7 @@ export interface AdminDashboard {
     topups_today: number;
     transfers_today: number;
   };
+  summary?: AmountSummary;
   volume_series: Array<{
     day: string;
     date?: string;
@@ -487,6 +572,12 @@ export interface AdminReports {
     pending_count: number;
     failed_count: number;
     success_rate: number;
+    total_volume?: number;
+    total_amount?: number;
+    total_credit?: number;
+    total_debit?: number;
+    today_amount?: number;
+    monthly_amount?: number;
   };
   categories: Record<string, AdminReportCategory>;
   volume_series: Array<{
@@ -513,6 +604,70 @@ export interface AdminReports {
   };
 }
 
+export interface AdminUserReport {
+  user: {
+    id: number;
+    phone: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+  };
+  range: {
+    start_date: string;
+    end_date: string;
+    days: number;
+  };
+  wallet_balance: string;
+  summary: {
+    total_deposits: number;
+    total_transfers: number;
+    total_topups: number;
+    total_wallet_credits: number;
+    total_wallet_debits: number;
+    transaction_volume: number;
+    charges: number;
+    total_transactions: number;
+    success_count: number;
+  };
+  balance_summary: {
+    current_balance: string;
+    credits: number;
+    debits: number;
+    net: number;
+    charges: number;
+    breakdown: {
+      deposit_credits: number;
+      remittance_credits: number;
+      adjustment_credits: number;
+      topup_debits: number;
+      transfer_debits: number;
+      internet_debits: number;
+      datapack_debits: number;
+      adjustment_debits: number;
+    };
+  };
+  categories: Record<string, AdminReportCategory>;
+  volume_series: Array<{
+    date: string;
+    label: string;
+    deposits: number;
+    topups: number;
+    transfers: number;
+    remittances: number;
+    internet_bills: number;
+    data_packs: number;
+    total: number;
+  }>;
+  service_mix: Array<{ key: string; name: string; value: number; count: number }>;
+  charges_breakdown: {
+    topups: number;
+    transfers: number;
+    remittances: number;
+    internet_bills: number;
+    data_packs: number;
+  };
+}
+
 export interface AdminListStats {
   total: number;
   success: number;
@@ -524,4 +679,5 @@ export interface AdminListStats {
 export interface AdminListResponse<T> {
   items: T[];
   stats: AdminListStats;
+  summary?: AmountSummary;
 }

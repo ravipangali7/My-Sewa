@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from rest_framework import status
 from rest_framework.response import Response
 
-from ..models import Settings
+from ..models import Settings, UserFeeConfig
 
 
 def get_app_config() -> Dict[str, Any]:
@@ -19,6 +19,46 @@ def _to_decimal(value, default: str = '0') -> Decimal:
         return Decimal(str(value))
     except Exception:
         return Decimal(default)
+
+
+_USER_FEE_OVERRIDE_KEYS = (
+    'transfer_charge_enabled',
+    'transfer_charge_flat',
+    'transfer_charge_percent',
+    'topup_charge_percent',
+)
+
+
+def resolve_tx_cfg_for_user(user=None, tx_cfg=None) -> Dict[str, Any]:
+    """
+    Merge global transactions config with optional per-user UserFeeConfig overrides.
+    Null fields on UserFeeConfig mean "use global".
+    """
+    cfg = dict(tx_cfg if isinstance(tx_cfg, dict) else (get_app_config().get('transactions') or {}))
+    if user is None:
+        return cfg
+    try:
+        fee = getattr(user, 'fee_config', None)
+        if fee is None:
+            fee = UserFeeConfig.objects.filter(user_id=getattr(user, 'pk', None)).first()
+    except Exception:
+        fee = None
+    if fee is None:
+        return cfg
+    for key in _USER_FEE_OVERRIDE_KEYS:
+        value = getattr(fee, key, None)
+        if value is not None:
+            cfg[key] = value
+    return cfg
+
+
+def _platform_transfer_percent_charge(amount, percent) -> Decimal:
+    pct = _to_decimal(percent)
+    if pct <= 0:
+        return Decimal('0.00')
+    return (_to_decimal(amount) * pct / Decimal('100')).quantize(
+        Decimal('0.01'), rounding=ROUND_HALF_UP
+    )
 
 
 def payment_disabled_response(feature: str) -> Response:
@@ -75,9 +115,19 @@ def validate_amount_bounds(
     return None
 
 
-def platform_topup_charge(amount, percent) -> Decimal:
-    """Extra platform fee as a percent of top-up amount."""
-    pct = _to_decimal(percent)
+def platform_topup_charge(amount, percent=None, user=None) -> Decimal:
+    """
+    Extra platform fee as a percent of top-up amount.
+    When user is provided, prefer UserFeeConfig.topup_charge_percent over percent/global.
+    """
+    if user is not None:
+        cfg = resolve_tx_cfg_for_user(user)
+        pct = _to_decimal(cfg.get('topup_charge_percent', 0))
+    elif percent is None:
+        cfg = get_app_config().get('transactions') or {}
+        pct = _to_decimal(cfg.get('topup_charge_percent', 0))
+    else:
+        pct = _to_decimal(percent)
     if pct <= 0:
         return Decimal('0.00')
     fee = (_to_decimal(amount) * pct / Decimal('100')).quantize(
@@ -107,21 +157,25 @@ def platform_transfer_cashback(amount, flat=0, percent=0) -> Decimal:
     return cashback.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 
-def resolve_transfer_fees(amount, provider_charge, provider_cashback, tx_cfg=None):
+def resolve_transfer_fees(amount, provider_charge, provider_cashback, tx_cfg=None, user=None):
     """
     Apply Super Admin charge/cashback toggles and configured amounts.
 
-    - transfer_charge_enabled + transfer_charge_flat gate platform charge
+    - transfer_charge_enabled + transfer_charge_flat/percent gate platform charge
     - When charge is disabled, no charge is applied (provider charge ignored)
     - cashback_enabled gates cashback; configured flat/percent take priority,
       otherwise provider cashback is used when enabled
+    - Optional user prefers UserFeeConfig overrides over global Settings.config
     """
-    cfg = tx_cfg if isinstance(tx_cfg, dict) else (get_app_config().get('transactions') or {})
+    cfg = resolve_tx_cfg_for_user(user, tx_cfg)
     charge_enabled = bool(cfg.get('transfer_charge_enabled', True))
     cashback_enabled = bool(cfg.get('cashback_enabled', True))
 
     if charge_enabled:
         platform_fee = platform_transfer_charge(cfg.get('transfer_charge_flat', 0))
+        platform_fee += _platform_transfer_percent_charge(
+            amount, cfg.get('transfer_charge_percent', 0)
+        )
         charge = _to_decimal(provider_charge) + platform_fee
     else:
         platform_fee = Decimal('0.00')
@@ -145,6 +199,8 @@ def resolve_transfer_fees(amount, provider_charge, provider_cashback, tx_cfg=Non
         'cashback': cashback.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
         'platform_charge': platform_fee,
         'total_debited': total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+        'charge_enabled': charge_enabled,
+        'cashback_enabled': cashback_enabled,
     }
 
 
@@ -247,6 +303,10 @@ def public_config(config: Optional[Dict] = None) -> Dict[str, Any]:
             'email_on_deposit': bool(notifications.get('email_on_deposit')),
             'email_on_topup': bool(notifications.get('email_on_topup')),
             'sms_on_deposit_approved': bool(notifications.get('sms_on_deposit_approved')),
+            'email_on_wallet_credit': bool(notifications.get('email_on_wallet_credit')),
+            'email_on_wallet_debit': bool(notifications.get('email_on_wallet_debit')),
+            'email_on_transfer': bool(notifications.get('email_on_transfer')),
+            'email_on_wallet_adjustment': bool(notifications.get('email_on_wallet_adjustment')),
             'notify_low_balance': bool(notifications.get('notify_low_balance')),
             'low_balance_threshold': notifications.get('low_balance_threshold', 100),
         },

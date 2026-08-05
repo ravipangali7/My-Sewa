@@ -117,7 +117,7 @@ function LoadWallet() {
 
   return (
     <UserShell title={t("load.title")} back="/app">
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />
@@ -130,12 +130,12 @@ function LoadWallet() {
           </section>
         ) : null}
 
-        <section className="inset-group p-4">
+        <section className="inset-group min-w-0 max-w-full p-4">
           <h2 className="text-[15px] font-semibold">{t("load.payTo")}</h2>
           {instructions ? (
-            <p className="mt-2 text-[13px] text-muted-foreground whitespace-pre-wrap">{instructions}</p>
+            <p className="mt-2 break-words text-[13px] text-muted-foreground whitespace-pre-wrap">{instructions}</p>
           ) : null}
-          <div className="mt-3 flex gap-4">
+          <div className="mt-3 flex min-w-0 gap-4">
             <div className="flex size-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-muted text-muted-foreground">
               {settingsQuery.data?.qr_code_url ? (
                 <img
@@ -147,16 +147,16 @@ function LoadWallet() {
                 <QrCode className="size-12" />
               )}
             </div>
-            <dl className="flex-1 space-y-1.5 text-[14px]">
+            <dl className="min-w-0 flex-1 space-y-1.5 text-[14px]">
               {settingsQuery.isLoading ? (
                 <p className="text-muted-foreground">{t("load.loadingBank")}</p>
               ) : bankEntries.length === 0 ? (
                 <p className="text-muted-foreground">{t("load.bankNotConfigured")}</p>
               ) : (
                 bankEntries.map(([k, v]) => (
-                  <div key={k} className="flex justify-between gap-3">
-                    <dt className="text-muted-foreground capitalize">{k.replace(/_/g, " ")}</dt>
-                    <dd className="text-right font-medium">{v}</dd>
+                  <div key={k} className="flex min-w-0 justify-between gap-3">
+                    <dt className="shrink-0 text-muted-foreground capitalize">{k.replace(/_/g, " ")}</dt>
+                    <dd className="min-w-0 break-all text-right font-medium">{v}</dd>
                   </div>
                 ))
               )}
@@ -164,7 +164,7 @@ function LoadWallet() {
           </div>
         </section>
 
-        <section className="inset-group p-4">
+        <section className="inset-group min-w-0 max-w-full p-4">
           <form
             className="space-y-4"
             onSubmit={(e) => {
@@ -252,7 +252,7 @@ function LoadWallet() {
           </form>
         </section>
 
-        <section className="lg:col-span-2">
+        <section className="min-w-0 max-w-full lg:col-span-2">
           {lastReceiptId ? (
             <div className="mb-3">
               <TransactionResultBanner
@@ -308,12 +308,12 @@ function LoadWallet() {
               {t("load.empty")}
             </div>
           ) : (
-            <ul className="inset-group divide-y divide-border">
+            <ul className="inset-group min-w-0 divide-y divide-border overflow-hidden">
               {depositItems.map((d) => (
-                <li key={d.id} className="px-4 py-3">
-                  <div className="flex items-center gap-3">
+                <li key={d.id} className="min-w-0 px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[15px] font-medium">
+                      <p className="truncate text-[15px] font-medium">
                         {formatNPR(d.amount)}{" "}
                         <span className="text-[13px] font-normal text-muted-foreground">
                           · #{d.id}
@@ -323,12 +323,12 @@ function LoadWallet() {
                         {d.note ?? t("common.noNote")} · {formatDateTime(d.created_at)}
                       </p>
                       {d.status === "rejected" && d.rejection_reason ? (
-                        <p className="mt-0.5 text-[13px] text-destructive">
+                        <p className="mt-0.5 break-words text-[13px] text-destructive">
                           {t("common.reason", { reason: d.rejection_reason })}
                         </p>
                       ) : null}
                     </div>
-                    <StatusChip status={d.status} />
+                    <StatusChip status={d.status} className="shrink-0" />
                   </div>
                   {(d.status === "approved" || d.status === "rejected") && (
                     <div className="mt-1 flex justify-end">

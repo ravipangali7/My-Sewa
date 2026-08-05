@@ -260,7 +260,16 @@ def receive_remittance(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    from ..services.pin import transaction_pin_gate
+    pin_failed = transaction_pin_gate(
+        request.user, serializer.validated_data.get('transaction_pin')
+    )
+    if pin_failed:
+        return pin_failed
+
     data = serializer.validated_data
+    # Strip PIN so it is never persisted on the remittance row / provider payload.
+    data.pop('transaction_pin', None)
     ref_no = data['ref_no']
     samsara_link_id = data['samsara_link_id']
     amount = HimalPayAPI.normalize_rupees(data['amount'])
@@ -456,8 +465,18 @@ def receive_remittance(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def remittance_history(request):
+    from ..services.list_response import items_with_stats_response
+
     qs = RemittanceTransaction.objects.filter(user=request.user).order_by('-created_at')
-    return Response(RemittanceTransactionSerializer(qs, many=True).data)
+    return items_with_stats_response(
+        qs,
+        RemittanceTransactionSerializer,
+        request,
+        search_fields=(
+            'ref_no', 'sender_name', 'receiver_name', 'receiver_phone',
+            'merchant_txn_id', 'reference_id',
+        ),
+    )
 
 
 @api_view(['POST'])

@@ -55,10 +55,25 @@ def create_deposit(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_deposits(request):
-    """List all deposits for the current user"""
+    """List deposits for the current user as {items, stats}."""
+    from ..services.list_response import items_with_stats_response
+
     deposits = Deposit.objects.filter(user=request.user).order_by('-created_at')
-    serializer = DepositSerializer(deposits, many=True, context={'request': request})
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return items_with_stats_response(
+        deposits,
+        DepositSerializer,
+        request,
+        search_fields=('note', 'rejection_reason'),
+        success=('approved',),
+        pending=('pending',),
+        failed=('rejected',),
+        status_aliases={
+            'success': 'approved',
+            'failed': 'rejected',
+            'approved': 'approved',
+            'rejected': 'rejected',
+        },
+    )
 
 
 @api_view(['GET'])

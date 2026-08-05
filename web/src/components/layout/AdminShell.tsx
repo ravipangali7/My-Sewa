@@ -230,7 +230,7 @@ export function AdminShell({
 
   if (!token || isLoading || !user || !isStaff) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+      <div className="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">
         Loading…
       </div>
     );
@@ -274,10 +274,10 @@ export function AdminShell({
   );
 
   return (
-    <div className="min-h-screen overflow-x-clip bg-background md:flex">
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-surface px-3 py-5 md:flex">
+    <div className="min-h-dvh w-full max-w-full overflow-x-clip bg-background md:flex">
+      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border bg-surface px-3 py-5 md:flex">
         <div className="mb-6">{brandBlock}</div>
-        {navLinks}
+        <div className="min-h-0 flex-1 overflow-y-auto">{navLinks}</div>
         <div className="mt-auto border-t border-border pt-3">
           <AdminProfileControls user={user} roleLabel={roleLabel} variant="sidebar" />
         </div>
@@ -295,7 +295,7 @@ export function AdminShell({
             </SheetDescription>
             {brandBlock}
           </SheetHeader>
-          <div className="flex-1 overflow-y-auto px-3 py-4">{navLinks}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">{navLinks}</div>
           <div className="border-t border-border px-3 py-3">
             <AdminProfileControls
               user={user}
@@ -307,9 +307,9 @@ export function AdminShell({
         </SheetContent>
       </Sheet>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-border bg-surface/95 px-4 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-3 backdrop-blur md:px-8 md:pt-5 md:pb-5">
-          <div className="flex items-start gap-3">
+      <div className="flex min-w-0 max-w-full flex-1 flex-col">
+        <header className="sticky top-0 z-30 border-b border-border bg-surface/95 px-3 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-3 backdrop-blur sm:px-4 md:px-8 md:pt-5 md:pb-5">
+          <div className="flex min-w-0 items-start gap-2 sm:gap-3">
             <button
               type="button"
               aria-label="Open menu"
@@ -320,9 +320,9 @@ export function AdminShell({
               <Menu className="size-5" />
             </button>
             <div className="min-w-0 flex-1">
-              <div className="flex items-start gap-2">
+              <div className="flex min-w-0 items-start gap-2">
                 <div className="min-w-0 flex-1">
-                  <h1 className="truncate text-xl font-semibold tracking-tight md:text-[28px]">
+                  <h1 className="truncate text-lg font-semibold tracking-tight sm:text-xl md:text-[28px]">
                     {title}
                   </h1>
                   {description && (
@@ -332,7 +332,10 @@ export function AdminShell({
                   )}
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-2">
-                  <div className="hidden items-center gap-2 sm:flex">{actions}</div>
+                  {/* Inline actions only when sidebar layout has room; avoid clipping on phones/tablets */}
+                  <div className="hidden max-w-[min(100%,22rem)] items-center gap-2 overflow-x-auto md:flex [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
+                    {actions}
+                  </div>
                   <AdminProfileControls
                     user={user}
                     roleLabel={roleLabel}
@@ -342,7 +345,7 @@ export function AdminShell({
                 </div>
               </div>
               {actions ? (
-                <div className="mt-3 flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5 sm:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div className="mt-3 flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5 md:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
                   {actions}
                 </div>
               ) : null}
@@ -350,7 +353,7 @@ export function AdminShell({
           </div>
         </header>
 
-        <main className="flex-1 px-4 py-5 pb-[calc(5.5rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] md:px-8 md:py-7 md:pb-7">
+        <main className="min-w-0 max-w-full flex-1 px-3 py-5 pb-[calc(5.5rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] sm:px-4 md:px-8 md:py-7 md:pb-7">
           {children}
         </main>
 

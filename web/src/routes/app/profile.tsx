@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import {
   Camera,
   ChevronRight,
+  KeyRound,
   Lock,
   LogOut,
   Phone,
@@ -97,7 +98,7 @@ function Profile() {
 
   return (
     <UserShell title={t("profile.title")} hideHeader>
-      <div className="min-h-[100dvh] bg-[#F2F4F7] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
+      <div className="min-w-0 max-w-full overflow-x-clip bg-[#F2F4F7] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
         <section className="relative bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_32%,#0C6B7A_68%,#0A9B6E_100%)] px-4 pb-8 pt-[max(14px,env(safe-area-inset-top))]">
           <h1 className="text-[20px] font-medium tracking-tight text-white">{t("profile.title")}</h1>
 
@@ -188,12 +189,24 @@ function Profile() {
             <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
               {t("profile.security")}
             </h2>
-            <SettingsRow
-              to="/app/profile/password"
-              icon={Lock}
-              title={t("profile.changePassword")}
-              subtitle={t("profile.passwordSubtitle")}
-            />
+            <div className="space-y-2.5">
+              <SettingsRow
+                to="/app/profile/password"
+                icon={Lock}
+                title={t("profile.changePassword")}
+                subtitle={t("profile.passwordSubtitle")}
+              />
+              <SettingsRow
+                to="/app/profile/pin"
+                icon={KeyRound}
+                title={t("profile.transactionPin")}
+                subtitle={
+                  user.has_transaction_pin
+                    ? t("pin.alreadySet")
+                    : t("profile.pinSubtitle")
+                }
+              />
+            </div>
           </section>
 
           <AlertDialog>
@@ -240,7 +253,7 @@ function SettingsRow({
   title,
   subtitle,
 }: {
-  to: "/app/profile/edit" | "/app/profile/password";
+  to: "/app/profile/edit" | "/app/profile/password" | "/app/profile/pin";
   icon: typeof UserRound;
   title: string;
   subtitle: string;

@@ -100,7 +100,8 @@ export function sanitizeProviderMessage(text: string, fallback = FALLBACK): stri
     );
   }
 
-  return cleaned[0].toUpperCase() + cleaned.slice(1);
+  if (!cleaned) return cleaned;
+  return cleaned[0]!.toUpperCase() + cleaned.slice(1);
 }
 
 function errorCodeFromBody(body: unknown): number | null {

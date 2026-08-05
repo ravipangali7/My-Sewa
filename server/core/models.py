@@ -65,7 +65,13 @@ class CustomUser(AbstractUser):
         db_index=True,
         help_text="Pending users can log in but cannot perform transactions until set to Active.",
     )
-    
+    transaction_pin = models.CharField(
+        max_length=128,
+        blank=True,
+        default='',
+        help_text="Hashed transaction PIN (4–6 digits). Empty if not set.",
+    )
+
     # Use phone as the authentication field
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = []  # Remove email from required fields
@@ -111,6 +117,50 @@ class Wallet(models.Model):
         verbose_name_plural = "Wallets"
 
 
+class WalletAdjustment(models.Model):
+    """Admin wallet balance adjustment recorded in transaction history."""
+    ADJUSTMENT_TYPE_CHOICES = [
+        ('credit', 'Credit'),
+        ('debit', 'Debit'),
+    ]
+
+    wallet = models.ForeignKey(
+        Wallet, on_delete=models.CASCADE, related_name='adjustments',
+    )
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='wallet_adjustments',
+        help_text="Denormalized wallet owner for easy querying",
+    )
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Signed delta: positive for credit, negative for debit",
+    )
+    adjustment_type = models.CharField(max_length=10, choices=ADJUSTMENT_TYPE_CHOICES)
+    balance_before = models.DecimalField(max_digits=10, decimal_places=2)
+    balance_after = models.DecimalField(max_digits=10, decimal_places=2)
+    reason = models.TextField(blank=True, default='')
+    created_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='wallet_adjustments_created',
+        help_text="Admin who performed the adjustment",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    reference = models.CharField(max_length=100, unique=True, null=True, blank=True)
+
+    def __str__(self):
+        sign = '+' if self.amount >= 0 else ''
+        return f"{self.user.phone} {sign}{self.amount} ({self.adjustment_type})"
+
+    class Meta:
+        verbose_name = "Wallet Adjustment"
+        verbose_name_plural = "Wallet Adjustments"
+        ordering = ['-created_at']
+
+
 def default_app_config():
     """Default application-wide settings used by the Settings singleton."""
     return {
@@ -152,6 +202,10 @@ def default_app_config():
             'email_on_deposit': True,
             'email_on_topup': False,
             'sms_on_deposit_approved': True,
+            'email_on_wallet_credit': True,
+            'email_on_wallet_debit': False,
+            'email_on_transfer': False,
+            'email_on_wallet_adjustment': True,
             'admin_alert_email': '',
             'notify_low_balance': False,
             'low_balance_threshold': 100,
@@ -264,6 +318,8 @@ class Deposit(models.Model):
         null=True,
         help_text="Reason provided by admin when rejecting the deposit",
     )
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -302,6 +358,8 @@ class TopupTransaction(models.Model):
     charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     reference_id = models.CharField(max_length=100, blank=True, null=True)
     provider_response = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -342,6 +400,8 @@ class BankTransferTransaction(models.Model):
     charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     verified = models.BooleanField(default=False)
     provider_response = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -418,6 +478,8 @@ class RemittanceTransaction(models.Model):
     charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_credited = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     wallet_credited = models.BooleanField(default=False)
     lookup_response = models.JSONField(default=dict, blank=True)
     provider_response = models.JSONField(default=dict, blank=True)
@@ -465,6 +527,8 @@ class InternetBillTransaction(models.Model):
     charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     inquiry_response = models.JSONField(default=dict, blank=True)
     pay_payload = models.JSONField(default=dict, blank=True)
     provider_response = models.JSONField(default=dict, blank=True)
@@ -509,6 +573,8 @@ class DataPackTransaction(models.Model):
     charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     inquiry_response = models.JSONField(default=dict, blank=True)
     provider_response = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -521,3 +587,66 @@ class DataPackTransaction(models.Model):
         verbose_name = "Data Pack Transaction"
         verbose_name_plural = "Data Pack Transactions"
         ordering = ['-created_at']
+
+
+class UserFeeConfig(models.Model):
+    """Per-user overrides for transfer / top-up platform charges (null = use global)."""
+
+    user = models.OneToOneField(
+        CustomUser, on_delete=models.CASCADE, related_name='fee_config',
+    )
+    transfer_charge_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="null = use global Settings.config",
+    )
+    transfer_charge_flat = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+    )
+    transfer_charge_percent = models.DecimalField(
+        max_digits=7, decimal_places=4, null=True, blank=True,
+    )
+    topup_charge_percent = models.DecimalField(
+        max_digits=7, decimal_places=4, null=True, blank=True,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'Fee config — {self.user.phone}'
+
+    class Meta:
+        verbose_name = 'User Fee Config'
+        verbose_name_plural = 'User Fee Configs'
+
+
+class DeviceToken(models.Model):
+    """FCM / web push device token registered by the mobile shell or browser."""
+
+    PLATFORM_ANDROID = 'android'
+    PLATFORM_IOS = 'ios'
+    PLATFORM_WEB = 'web'
+    PLATFORM_UNKNOWN = 'unknown'
+    PLATFORM_CHOICES = [
+        (PLATFORM_ANDROID, 'Android'),
+        (PLATFORM_IOS, 'iOS'),
+        (PLATFORM_WEB, 'Web'),
+        (PLATFORM_UNKNOWN, 'Unknown'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='device_tokens',
+    )
+    token = models.CharField(max_length=512, unique=True, db_index=True)
+    platform = models.CharField(
+        max_length=20, choices=PLATFORM_CHOICES, default=PLATFORM_UNKNOWN,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.user.phone} ({self.platform})'
+
+    class Meta:
+        verbose_name = 'Device Token'
+        verbose_name_plural = 'Device Tokens'
+        ordering = ['-updated_at']

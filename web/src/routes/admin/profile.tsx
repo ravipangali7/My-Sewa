@@ -153,7 +153,7 @@ function AdminProfilePage() {
           </Button>
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-border bg-surface">
+        <section className="min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
           <Field label="Full name" value={name} />
           <Field label="Phone" value={user.phone} />
           <Field label="Email" value={user.email || "—"} />
@@ -166,7 +166,7 @@ function AdminProfilePage() {
           />
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-border bg-surface">
+        <section className="min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
           <ActionRow
             label="Edit profile"
             description="Name and email"

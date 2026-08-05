@@ -6,6 +6,7 @@ from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from .models import Wallet, Deposit
+from .services.txn_status import credit_wallet_for_txn
 
 User = get_user_model()
 
@@ -25,18 +26,28 @@ def handle_deposit_approval(sender, instance, **kwargs):
             old_instance = Deposit.objects.get(pk=instance.pk)
             # If status changed from non-approved to approved
             if old_instance.status != 'approved' and instance.status == 'approved':
-                wallet = Wallet.objects.get(user=instance.user)
                 with transaction.atomic():
-                    wallet.balance += instance.amount
-                    wallet.save()
+                    wallet = Wallet.objects.select_for_update().get(user=instance.user)
+                    credit_wallet_for_txn(wallet, instance, instance.amount)
                 # Flag for post_save notification (avoid double-send on create)
                 instance._notify_deposit_approved = True
+                instance._balance_after = wallet.balance
         except Deposit.DoesNotExist:
             pass  # New instance, no action needed
+        except Wallet.DoesNotExist:
+            with transaction.atomic():
+                wallet = Wallet.objects.create(user=instance.user, balance=0.00)
+                wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+                credit_wallet_for_txn(wallet, instance, instance.amount)
+            instance._notify_deposit_approved = True
+            instance._balance_after = wallet.balance
 
 
 @receiver(post_save, sender=Deposit)
 def notify_on_deposit_approved(sender, instance, **kwargs):
     if getattr(instance, '_notify_deposit_approved', False):
         from .services.notifications import notify_deposit_approved
-        notify_deposit_approved(instance)
+        notify_deposit_approved(
+            instance,
+            balance_after=getattr(instance, '_balance_after', None),
+        )

@@ -11,6 +11,7 @@ import {
   AdminMobileCardGrid,
   AdminMobileMeta,
 } from "@/components/admin/AdminDataList";
+import { StatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
 import {
   Select,
   SelectContent,
@@ -28,9 +29,13 @@ import {
 } from "@/components/ui/table";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
+import { serialNumber } from "@/lib/serial";
 import type { TxnStatus } from "@/lib/types";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
+
+const LIST_PAGE = 1;
+const LIST_PAGE_SIZE = 50;
 
 export const Route = createFileRoute("/admin/remittances")({
   head: () => ({
@@ -86,6 +91,13 @@ function RemittancesPage() {
   const remittances = remittancesQuery.data?.items ?? [];
   const remittanceStats = remittancesQuery.data?.stats;
   const filtered = remittances;
+  const amountCards = amountSummaryCards(remittancesQuery.data?.summary, {
+    keys: ["total_volume", "total_credit", "total_amount", "today_amount", "monthly_amount"],
+    labels: {
+      total_credit: "Total credit (success)",
+      total_amount: "Successful amount",
+    },
+  });
 
   const statusSelect = (id: number, status: TxnStatus) => (
     <Select
@@ -123,6 +135,7 @@ function RemittancesPage() {
           </p>
         )}
 
+        <StatsCards items={amountCards} />
         <ListPageToolbar
           stats={remittanceStats}
           filters={filters}
@@ -154,6 +167,7 @@ function RemittancesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 pr-0">S.N.</TableHead>
                   <TableHead>ID</TableHead>
                   <TableHead>User</TableHead>
                   <TableHead>Ref</TableHead>
@@ -165,13 +179,16 @@ function RemittancesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((r) => (
+                {filtered.map((r, index) => (
                   <TableRow key={r.id}>
+                    <TableCell className="w-10 pr-0 tabular text-sm text-muted-foreground">
+                      {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}
+                    </TableCell>
                     <TableCell className="text-sm">#{r.id}</TableCell>
                     <TableCell className="text-sm">{r.phone}</TableCell>
                     <TableCell className="font-mono text-xs">{r.ref_no}</TableCell>
                     <TableCell className="text-sm">{r.sender_name || "—"}</TableCell>
-                    <TableCell className="tabular text-right text-sm">
+                    <TableCell className="tabular text-right text-sm font-semibold">
                       {formatNPR(r.amount)}
                     </TableCell>
                     <TableCell className="tabular text-right text-sm">
@@ -188,19 +205,26 @@ function RemittancesPage() {
           }
           mobile={
             <AdminMobileCardGrid>
-              {filtered.map((r) => (
+              {filtered.map((r, index) => (
                 <AdminMobileCard key={r.id}>
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-medium">{r.ref_no}</p>
-                      <p className="text-xs text-muted-foreground">
-                        #{r.id} · {r.phone}
-                      </p>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <span className="tabular shrink-0 pt-0.5 text-xs text-muted-foreground">
+                        {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}.
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-medium">{r.ref_no}</p>
+                        <p className="text-xs text-muted-foreground">
+                          #{r.id} · {r.phone}
+                        </p>
+                      </div>
                     </div>
+                    <p className="tabular shrink-0 text-base font-semibold">
+                      {formatNPR(r.amount)}
+                    </p>
                   </div>
                   <AdminMobileMeta
                     items={[
-                      { label: "Amount", value: formatNPR(r.amount) },
                       {
                         label: "Credited",
                         value: formatNPR(r.total_credited || r.amount),

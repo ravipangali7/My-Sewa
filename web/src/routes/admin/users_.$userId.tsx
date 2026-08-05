@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, FileBarChart2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { BackButton } from "@/components/BackButton";
@@ -21,6 +21,7 @@ import {
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
+import { UserFeesForm } from "@/components/admin/UserFeesForm";
 
 export const Route = createFileRoute("/admin/users_/$userId")({
   head: () => ({
@@ -38,9 +39,9 @@ export const Route = createFileRoute("/admin/users_/$userId")({
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-1 border-b border-border py-3 last:border-0 sm:grid-cols-[180px_1fr] sm:gap-4">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium wrap-break-word">{children}</dd>
+    <div className="grid grid-cols-1 gap-1 border-b border-border py-3 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-4">
+      <dt className="min-w-0 break-words text-sm text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-all text-sm font-medium">{children}</dd>
     </div>
   );
 }
@@ -79,7 +80,13 @@ function UserDetailPage() {
       description={u ? `User #${u.id}` : userQuery.isLoading ? "Loading…" : "Not found"}
       actions={
         u ? (
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 [&>*]:shrink-0">
+            <Button asChild size="sm" variant="outline">
+              <Link to="/admin/users/$userId/report" params={{ userId }}>
+                <FileBarChart2 className="size-3.5" />
+                View Report
+              </Link>
+            </Button>
             <Button asChild size="sm" variant="outline">
               <Link to="/admin/users/$userId/edit" params={{ userId }}>
                 <Pencil className="size-3.5" />
@@ -127,46 +134,49 @@ function UserDetailPage() {
       )}
 
       {u && (
-        <div className="rounded-xl border border-border bg-surface p-5">
+        <div className="space-y-5">
+        <div className="min-w-0 overflow-x-clip rounded-xl border border-border bg-surface p-4 sm:p-5">
           <dl>
-            <DetailRow label="ID">{u.id}</DetailRow>
-            <DetailRow label="Phone">{u.phone}</DetailRow>
-            <DetailRow label="First name">{u.first_name || "—"}</DetailRow>
-            <DetailRow label="Last name">{u.last_name || "—"}</DetailRow>
-            <DetailRow label="Email">{u.email || "—"}</DetailRow>
-            <DetailRow label="Account status">
-              <Badge variant={u.account_status === "approved" ? "default" : "secondary"}>
-                {u.account_status === "approved" ? "Active" : "Pending"}
-              </Badge>
-            </DetailRow>
-            <DetailRow label="Login">
-              <Badge variant={u.is_active ? "default" : "secondary"}>
-                {u.is_active ? "Enabled" : "Disabled"}
-              </Badge>
-            </DetailRow>
-            <DetailRow label="Role">
-              {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : "Customer"}
-            </DetailRow>
-            <DetailRow label="Staff">{u.is_staff ? "Yes" : "No"}</DetailRow>
-            <DetailRow label="Superuser">{u.is_superuser ? "Yes" : "No"}</DetailRow>
-            <DetailRow label="Wallet ID">{u.wallet_id ?? "—"}</DetailRow>
-            <DetailRow label="Wallet balance">
-              <span className="tabular">{formatNPR(u.wallet_balance ?? "0.00")}</span>
-            </DetailRow>
-            <DetailRow label="Date joined">{formatDateTime(u.date_joined)}</DetailRow>
-            <DetailRow label="Last login">
-              {u.last_login ? formatDateTime(u.last_login) : "Never"}
-            </DetailRow>
-            {u.avatar_url && (
-              <DetailRow label="Avatar">
-                <img
-                  src={u.avatar_url}
-                  alt=""
-                  className="size-16 rounded-full object-cover"
-                />
+              <DetailRow label="ID">{u.id}</DetailRow>
+              <DetailRow label="Phone">{u.phone}</DetailRow>
+              <DetailRow label="First name">{u.first_name || "—"}</DetailRow>
+              <DetailRow label="Last name">{u.last_name || "—"}</DetailRow>
+              <DetailRow label="Email">{u.email || "—"}</DetailRow>
+              <DetailRow label="Account status">
+                <Badge variant={u.account_status === "approved" ? "default" : "secondary"}>
+                  {u.account_status === "approved" ? "Active" : "Pending"}
+                </Badge>
               </DetailRow>
-            )}
-          </dl>
+              <DetailRow label="Login">
+                <Badge variant={u.is_active ? "default" : "secondary"}>
+                  {u.is_active ? "Enabled" : "Disabled"}
+                </Badge>
+              </DetailRow>
+              <DetailRow label="Role">
+                {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : "Customer"}
+              </DetailRow>
+              <DetailRow label="Staff">{u.is_staff ? "Yes" : "No"}</DetailRow>
+              <DetailRow label="Superuser">{u.is_superuser ? "Yes" : "No"}</DetailRow>
+              <DetailRow label="Wallet ID">{u.wallet_id ?? "—"}</DetailRow>
+              <DetailRow label="Wallet balance">
+                <span className="tabular">{formatNPR(u.wallet_balance ?? "0.00")}</span>
+              </DetailRow>
+              <DetailRow label="Date joined">{formatDateTime(u.date_joined)}</DetailRow>
+              <DetailRow label="Last login">
+                {u.last_login ? formatDateTime(u.last_login) : "Never"}
+              </DetailRow>
+              {u.avatar_url && (
+                <DetailRow label="Avatar">
+                  <img
+                    src={u.avatar_url}
+                    alt=""
+                    className="size-16 rounded-full object-cover"
+                  />
+                </DetailRow>
+              )}
+            </dl>
+          </div>
+          <UserFeesForm userId={u.id} />
         </div>
       )}
     </AdminShell>

@@ -20,6 +20,7 @@ import {
   AdminMobileCardGrid,
   AdminMobileMeta,
 } from "@/components/admin/AdminDataList";
+import { StatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,7 @@ import {
 import { apiClient } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { COLORS } from "@/constants/colors";
+import { Users, Wallet, Inbox, Smartphone, Banknote } from "lucide-react";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({
@@ -61,13 +63,47 @@ function AdminDashboard() {
 
   const kpis = dash.data
     ? [
-        { label: "Total users", value: String(dash.data.kpis.total_users) },
-        { label: "Wallet float", value: formatNPR(dash.data.kpis.wallet_float) },
-        { label: "Pending deposits", value: String(dash.data.kpis.pending_deposits) },
-        { label: "Top-ups today", value: String(dash.data.kpis.topups_today) },
-        { label: "Transfers today", value: String(dash.data.kpis.transfers_today) },
+        {
+          key: "users",
+          label: "Total users",
+          value: String(dash.data.kpis.total_users),
+          icon: Users,
+          tone: "brand" as const,
+        },
+        {
+          key: "float",
+          label: "Wallet float",
+          value: formatNPR(dash.data.kpis.wallet_float),
+          icon: Wallet,
+          tone: "default" as const,
+        },
+        {
+          key: "pending",
+          label: "Pending deposits",
+          value: String(dash.data.kpis.pending_deposits),
+          icon: Inbox,
+          tone: "warning" as const,
+        },
+        {
+          key: "topups",
+          label: "Top-ups today",
+          value: String(dash.data.kpis.topups_today),
+          icon: Smartphone,
+          tone: "info" as const,
+        },
+        {
+          key: "transfers",
+          label: "Transfers today",
+          value: String(dash.data.kpis.transfers_today),
+          icon: Banknote,
+          tone: "debit" as const,
+        },
       ]
     : [];
+
+  const amountCards = amountSummaryCards(dash.data?.summary, {
+    keys: ["total_volume", "total_credit", "total_debit", "today_amount", "monthly_amount"],
+  });
 
   const volumeSeries = dash.data?.volume_series ?? [];
   const operatorSplit = dash.data?.operator_split ?? [];
@@ -82,17 +118,12 @@ function AdminDashboard() {
         <p className="text-sm text-danger">Failed to load dashboard.</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
-            {kpis.map((k) => (
-              <div
-                key={k.label}
-                className="rounded-xl border border-border bg-surface p-3.5 sm:p-4 last:col-span-2 xl:last:col-span-1"
-              >
-                <p className="text-[11px] text-muted-foreground sm:text-xs">{k.label}</p>
-                <p className="tabular mt-1 text-xl font-semibold sm:mt-1.5 sm:text-2xl">{k.value}</p>
-              </div>
-            ))}
-          </div>
+          <StatsCards items={kpis} />
+          {amountCards.length > 0 ? (
+            <div className="mt-4">
+              <StatsCards items={amountCards} />
+            </div>
+          ) : null}
 
           <div className="mt-5 grid gap-4 lg:grid-cols-3">
             <div className="rounded-xl border border-border bg-surface p-4 lg:col-span-2">
@@ -165,7 +196,9 @@ function AdminDashboard() {
                       <TableRow key={d.id}>
                         <TableCell>#{d.id}</TableCell>
                         <TableCell>{d.phone}</TableCell>
-                        <TableCell className="tabular text-right">{formatNPR(d.amount)}</TableCell>
+                        <TableCell className="tabular text-right font-semibold">
+                          {formatNPR(d.amount)}
+                        </TableCell>
                         <TableCell>{formatDateTime(d.created_at)}</TableCell>
                         <TableCell>
                           <StatusChip status={d.status} compact />

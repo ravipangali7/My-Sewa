@@ -11,6 +11,7 @@ import {
   AdminMobileCardGrid,
   AdminMobileMeta,
 } from "@/components/admin/AdminDataList";
+import { StatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -30,10 +31,14 @@ import {
 import { apiClient, ApiError } from "@/lib/api";
 import { OPERATORS } from "@/lib/constants";
 import { formatNPR, formatDateTime } from "@/lib/format";
+import { serialNumber } from "@/lib/serial";
 import type { TxnStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
+
+const LIST_PAGE = 1;
+const LIST_PAGE_SIZE = 50;
 
 export const Route = createFileRoute("/admin/topups")({
   head: () => ({
@@ -109,6 +114,13 @@ function TopupsPage() {
 
   const topups = topupsQuery.data?.items ?? [];
   const topupStats = topupsQuery.data?.stats;
+  const amountCards = amountSummaryCards(topupsQuery.data?.summary, {
+    keys: ["total_volume", "total_debit", "total_amount", "today_amount", "monthly_amount"],
+    labels: {
+      total_debit: "Total debit (success)",
+      total_amount: "Successful amount",
+    },
+  });
 
   const operatorCounts = useMemo(() => {
     const counts: Record<OperatorTab, number> = {
@@ -184,6 +196,7 @@ function TopupsPage() {
       )}
 
       <div className="space-y-4">
+        <StatsCards items={amountCards} />
         <ListPageToolbar
           stats={topupStats}
           filters={{ ...filters, status: statusTab }}
@@ -258,6 +271,7 @@ function TopupsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 pr-0">S.N.</TableHead>
                   <TableHead>ID</TableHead>
                   <TableHead>User phone</TableHead>
                   <TableHead>Mobile number</TableHead>
@@ -273,19 +287,22 @@ function TopupsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visible.map((t) => (
+                {visible.map((t, index) => (
                   <TableRow
                     key={t.id}
                     className="cursor-pointer"
                     onClick={() => openTopup(t.id)}
                   >
+                    <TableCell className="w-10 pr-0 tabular text-sm text-muted-foreground">
+                      {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}
+                    </TableCell>
                     <TableCell className="text-sm">#{t.id}</TableCell>
                     <TableCell className="text-sm">{t.phone}</TableCell>
                     <TableCell className="text-sm font-medium">{t.mobile_number}</TableCell>
                     <TableCell className="text-sm">
                       {t.product_name || OPERATORS[t.product_id]}
                     </TableCell>
-                    <TableCell className="tabular text-right text-sm">
+                    <TableCell className="tabular text-right text-sm font-semibold">
                       {formatNPR(t.amount)}
                     </TableCell>
                     <TableCell className="tabular text-right text-sm">
@@ -317,14 +334,19 @@ function TopupsPage() {
           }
           mobile={
             <AdminMobileCardGrid>
-              {visible.map((t) => (
+              {visible.map((t, index) => (
                 <AdminMobileCard key={t.id} onClick={() => openTopup(t.id)}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{t.mobile_number}</p>
-                      <p className="text-xs text-muted-foreground">
-                        #{t.id} · {t.product_name || OPERATORS[t.product_id]}
-                      </p>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <span className="tabular shrink-0 pt-0.5 text-xs text-muted-foreground">
+                        {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}.
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{t.mobile_number}</p>
+                        <p className="text-xs text-muted-foreground">
+                          #{t.id} · {t.product_name || OPERATORS[t.product_id]}
+                        </p>
+                      </div>
                     </div>
                     <p className="tabular shrink-0 text-base font-semibold">{formatNPR(t.amount)}</p>
                   </div>

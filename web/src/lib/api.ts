@@ -247,24 +247,57 @@ export const apiClient = {
 
   register: (body: {
     phone: string;
+    email: string;
     password: string;
     password2: string;
+    transaction_pin: string;
     first_name?: string;
     last_name?: string;
-    email?: string;
   }) =>
     api<{
       message: string;
       token: string;
-      user: { id: number; phone: string; email: string };
+      user: { id: number; phone: string; email: string; has_transaction_pin?: boolean };
     }>("/api/auth/register/", { method: "POST", body, auth: false }),
 
-  forgotPassword: (phone: string) =>
-    api<{ message: string; debug_otp?: string }>("/api/auth/forgot-password/", {
+  setTransactionPin: (body: { transaction_pin: string; confirm_pin: string }) =>
+    api<{ message: string; has_pin: boolean }>("/api/auth/set-transaction-pin/", {
       method: "POST",
-      body: { phone },
-      auth: false,
+      body,
     }),
+
+  hasTransactionPin: () =>
+    api<{ has_pin: boolean }>("/api/auth/has-transaction-pin/"),
+
+  verifyTransactionPin: (transaction_pin: string) =>
+    api<{ valid: boolean; message: string }>("/api/auth/verify-transaction-pin/", {
+      method: "POST",
+      body: { transaction_pin },
+    }),
+
+  registerDeviceToken: (body: { token: string; platform?: string }) =>
+    api<{
+      message: string;
+      token: string;
+      platform: string;
+      updated_at?: string | null;
+    }>("/api/auth/device-token/", { method: "POST", body }),
+
+  unregisterDeviceToken: (token: string) =>
+    api<{ message: string }>("/api/auth/device-token/", {
+      method: "DELETE",
+      body: { token },
+    }),
+
+  forgotPassword: (phone: string) =>
+    api<{ message: string; email_hint?: string; debug_otp?: string }>(
+      "/api/auth/forgot-password/",
+      {
+        method: "POST",
+        body: { phone },
+        auth: false,
+      },
+    ),
 
   resetPassword: (body: {
     phone: string;
@@ -317,7 +350,10 @@ export const apiClient = {
       formData,
     }),
 
-  listDeposits: () => api<import("./types").Deposit[]>("/api/deposit/list/"),
+  listDeposits: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").Deposit>>(
+      `/api/deposit/list/${buildAdminListQuery(filters)}`,
+    ),
 
   calculateCharge: (
     wallet_service_name: "NTC" | "NCELL" | "BANK_TRANSFER" | string,
@@ -337,7 +373,12 @@ export const apiClient = {
       body: { wallet_service_name, amount },
     }),
 
-  topupNtc: (body: { mobile_number: string; amount: number; product_id: 1 }) =>
+  topupNtc: (body: {
+    mobile_number: string;
+    amount: number;
+    product_id: 1;
+    transaction_pin: string;
+  }) =>
     api<{
       message: string;
       pending_message?: string;
@@ -347,7 +388,12 @@ export const apiClient = {
       body,
     }),
 
-  topupNcell: (body: { mobile_number: string; amount: number; product_id: 2 }) =>
+  topupNcell: (body: {
+    mobile_number: string;
+    amount: number;
+    product_id: 2;
+    transaction_pin: string;
+  }) =>
     api<{
       message: string;
       pending_message?: string;
@@ -357,7 +403,10 @@ export const apiClient = {
       body,
     }),
 
-  topupHistory: () => api<import("./types").TopupTransaction[]>("/api/topup/history/"),
+  topupHistory: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").TopupTransaction>>(
+      `/api/topup/history/${buildAdminListQuery(filters)}`,
+    ),
 
   topupStatus: (merchant_transaction_id: string) =>
     api<{
@@ -417,8 +466,10 @@ export const apiClient = {
       data: import("./types").BankTransferTransaction;
     }>("/api/bank-transfer/create/", { method: "POST", body }),
 
-  transferHistory: () =>
-    api<import("./types").BankTransferTransaction[]>("/api/bank-transfer/history/"),
+  transferHistory: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").BankTransferTransaction>>(
+      `/api/bank-transfer/history/${buildAdminListQuery(filters)}`,
+    ),
 
   transferStatus: (merchant_transaction_id: string) =>
     api<{
@@ -444,8 +495,10 @@ export const apiClient = {
       { method: "POST", body },
     ),
 
-  remittanceHistory: () =>
-    api<import("./types").RemittanceTransaction[]>("/api/remittance/history/"),
+  remittanceHistory: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").RemittanceTransaction>>(
+      `/api/remittance/history/${buildAdminListQuery(filters)}`,
+    ),
 
   remittanceStatus: (merchant_transaction_id: string) =>
     api<{
@@ -473,6 +526,7 @@ export const apiClient = {
     package_name?: string;
     customer_name?: string;
     pay_data: Record<string, unknown>;
+    transaction_pin: string;
   }) =>
     api<{
       message: string;
@@ -480,8 +534,10 @@ export const apiClient = {
       data: import("./types").InternetBillTransaction;
     }>("/api/internet/pay/", { method: "POST", body }),
 
-  internetHistory: () =>
-    api<import("./types").InternetBillTransaction[]>("/api/internet/history/"),
+  internetHistory: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").InternetBillTransaction>>(
+      `/api/internet/history/${buildAdminListQuery(filters)}`,
+    ),
 
   internetStatus: (merchant_transaction_id: string) =>
     api<{
@@ -511,6 +567,7 @@ export const apiClient = {
     package_name?: string;
     package_id?: string;
     product_code?: string;
+    transaction_pin: string;
   }) =>
     api<{
       message: string;
@@ -518,8 +575,10 @@ export const apiClient = {
       data: import("./types").DataPackTransaction;
     }>("/api/data-pack/pay/", { method: "POST", body }),
 
-  dataPackHistory: () =>
-    api<import("./types").DataPackTransaction[]>("/api/data-pack/history/"),
+  dataPackHistory: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").DataPackTransaction>>(
+      `/api/data-pack/history/${buildAdminListQuery(filters)}`,
+    ),
 
   dataPackStatus: (merchant_transaction_id: string) =>
     api<{
@@ -547,6 +606,18 @@ export const apiClient = {
       `/api/admin/users/${buildAdminListQuery(filters)}`,
     ),
   adminGetUser: (id: number) => api<import("./types").AdminUser>(`/api/admin/users/${id}/`),
+  adminUserReport: (
+    id: number,
+    filters?: { startDate?: string; endDate?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.startDate?.trim()) params.set("start_date", filters.startDate.trim());
+    if (filters?.endDate?.trim()) params.set("end_date", filters.endDate.trim());
+    const query = params.toString();
+    return api<import("./types").AdminUserReport>(
+      `/api/admin/users/${id}/report/${query ? `?${query}` : ""}`,
+    );
+  },
   adminCreateUser: (body: import("./types").AdminUserWritePayload) =>
     api<{ message: string; data: import("./types").AdminUser }>("/api/admin/users/", {
       method: "POST",
@@ -559,6 +630,13 @@ export const apiClient = {
     }),
   adminDeleteUser: (id: number) =>
     api<{ message: string }>(`/api/admin/users/${id}/`, { method: "DELETE" }),
+  adminGetUserFees: (id: number) =>
+    api<import("./types").AdminUserFeesResponse>(`/api/admin/users/${id}/fees/`),
+  adminUpdateUserFees: (id: number, body: import("./types").UserFeeConfigPayload) =>
+    api<import("./types").AdminUserFeesResponse>(`/api/admin/users/${id}/fees/`, {
+      method: "PUT",
+      body,
+    }),
   adminWallets: (filters?: AdminListFilters) =>
     api<
       import("./types").AdminListResponse<import("./types").AdminWallet> & {
@@ -567,13 +645,35 @@ export const apiClient = {
     >(`/api/admin/wallets/${buildAdminListQuery(filters)}`),
   adminGetWallet: (id: number) =>
     api<import("./types").AdminWallet>(`/api/admin/wallets/${id}/`),
-  adminUpdateWallet: (id: number, body: { balance: string | number }) =>
+  adminUpdateWallet: (
+    id: number,
+    body:
+      | { balance: string | number; reason: string; reference?: string }
+      | {
+          amount: string | number;
+          adjustment_type: "credit" | "debit";
+          reason: string;
+          reference?: string;
+        },
+  ) =>
     api<{ message: string; data: import("./types").AdminWallet }>(`/api/admin/wallets/${id}/`, {
       method: "PATCH",
       body,
     }),
   adminDeleteWallet: (id: number) =>
     api<{ message: string }>(`/api/admin/wallets/${id}/`, { method: "DELETE" }),
+  adminWalletTransactions: (
+    id: number,
+    filters?: AdminListFilters & { type?: string },
+  ) => {
+    const params = new URLSearchParams(buildAdminListQuery(filters).replace(/^\?/, ""));
+    const type = filters?.type?.trim();
+    if (type && type !== "all") params.set("type", type);
+    const query = params.toString();
+    return api<
+      import("./types").WalletTransactions & { wallet_id?: number; user_id?: number }
+    >(`/api/admin/wallets/${id}/transactions/${query ? `?${query}` : ""}`);
+  },
   adminDeposits: (filters?: AdminListFilters) =>
     api<import("./types").AdminListResponse<import("./types").Deposit>>(
       `/api/admin/deposits/${buildAdminListQuery(filters)}`,

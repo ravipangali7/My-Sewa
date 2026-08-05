@@ -82,7 +82,7 @@ export function UserShell({
 
   if (!token || isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+      <div className="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">
         {t("common.loading")}
       </div>
     );
@@ -90,7 +90,7 @@ export function UserShell({
 
   if (!user) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+      <div className="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">
         {t("common.sessionExpired")}{" "}
         <Link to="/" className="ml-1 text-brand">
           {t("common.signIn")}
@@ -107,8 +107,8 @@ export function UserShell({
     // CSS pairs it to overflow-y:auto, and Android WebView then traps
     // touch on a non-scrolling shell (every page feels frozen).
     // Desktop: fixed viewport shell with <main> as the scroller.
-    <div className="min-h-dvh w-full overflow-x-clip bg-background lg:flex lg:h-dvh lg:flex-row lg:overflow-hidden">
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex">
+    <div className="min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-background lg:flex lg:h-dvh lg:max-h-dvh lg:flex-row lg:overflow-hidden">
+      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex">
         <Link to="/app" className="mb-8 flex items-center gap-2.5 px-2">
           <img src={logoUrl} alt="MySewa" className="size-9 rounded-full object-cover" />
           <div>
@@ -157,8 +157,8 @@ export function UserShell({
 
       <div className="flex min-w-0 w-full max-w-full flex-1 flex-col lg:min-h-0 lg:overflow-hidden">
         {!hideHeader && (
-          <header className="sticky top-0 z-30 shrink-0 bg-hero-gradient px-4 pt-[max(14px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-5 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
-            <div className="flex min-w-0 items-center gap-3">
+          <header className="sticky top-0 z-30 max-w-full shrink-0 bg-hero-gradient px-3 pt-[max(14px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-5 sm:px-4 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               {headerLeading ? <div className="shrink-0">{headerLeading}</div> : null}
               {(back || onBack) && (
                 onBack ? (
@@ -190,21 +190,26 @@ export function UserShell({
                   </Link>
                 )
               )}
-              <h1 className="min-w-0 flex-1 truncate text-[28px] font-bold tracking-tight text-primary-foreground lg:text-[22px] lg:text-foreground">
+              <h1 className="min-w-0 flex-1 truncate text-[22px] font-bold tracking-tight text-primary-foreground sm:text-[28px] lg:text-[22px] lg:text-foreground">
                 {title}
               </h1>
-              {headerTrailing ? <div className="shrink-0">{headerTrailing}</div> : null}
+              {headerTrailing ? (
+                <div className="flex max-w-[45%] shrink-0 items-center justify-end gap-1.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:max-w-none">
+                  {headerTrailing}
+                </div>
+              ) : null}
             </div>
           </header>
         )}
 
         <main
           className={cn(
-            "min-w-0 max-w-full flex-1 lg:min-h-0 lg:overflow-y-auto lg:px-8 lg:pb-10",
-            hideHeader ? "px-0 pb-28" : "px-4 pb-28",
+            "min-w-0 max-w-full flex-1 overscroll-y-none lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain lg:px-8 lg:pb-10",
+            // pb-safe clears fixed bottom nav + home-indicator; desktop uses lg:pb-10.
+            hideHeader ? "px-0 pb-safe lg:pb-10" : "px-3 pb-safe sm:px-4 lg:pb-10",
           )}
         >
-          <PullToRefresh onRefresh={handlePullRefresh} className="min-w-0 w-full max-w-full">
+          <PullToRefresh onRefresh={handlePullRefresh} className="min-w-0 w-full max-w-full overscroll-y-none">
             <div
               className={cn(
                 "mx-auto min-w-0 w-full max-w-full",

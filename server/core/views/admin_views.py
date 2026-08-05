@@ -9,6 +9,7 @@ from decimal import Decimal
 from io import StringIO
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Count, Sum, Q
 from django.db.models.functions import TruncDate
 from django.http import HttpResponse
@@ -22,6 +23,7 @@ from rest_framework.response import Response
 
 from ..models import (
     Wallet,
+    WalletAdjustment,
     Deposit,
     Settings,
     TopupTransaction,
@@ -29,20 +31,25 @@ from ..models import (
     RemittanceTransaction,
     InternetBillTransaction,
     DataPackTransaction,
+    UserFeeConfig,
     merge_app_config,
 )
 from ..serializers import (
     AdminUserSerializer,
     AdminUserWriteSerializer,
     AdminWalletSerializer,
-    AdminWalletWriteSerializer,
+    WalletAdjustmentSerializer,
+    WalletAdjustmentWriteSerializer,
     DepositSerializer,
     TopupTransactionSerializer,
     AdminTopupSerializer,
     BankTransferTransactionSerializer,
     RemittanceTransactionSerializer,
     AdminRemittanceSerializer,
+    InternetBillTransactionSerializer,
+    DataPackTransactionSerializer,
     SettingsSerializer,
+    UserFeeConfigSerializer,
 )
 from ..services.himalpay import (
     HimalPayAPI,
@@ -50,6 +57,7 @@ from ..services.himalpay import (
     admin_himalpay_ip_hint,
     get_outbound_public_ip,
 )
+from ..services.app_config import get_app_config
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
 
 User = get_user_model()
@@ -109,6 +117,41 @@ class IsStaffUser(BasePermission):
 
 def _money(value):
     return float(value or 0)
+
+
+def _sum_amount(qs, amount_field='amount'):
+    return qs.aggregate(t=Sum(amount_field))['t'] or Decimal('0')
+
+
+def _amount_summary(qs, *, success_status='success', amount_field='amount', direction=None):
+    """
+    Amount-related rollups for admin list pages.
+
+    - total_volume: sum of amounts across the filtered queryset (all statuses)
+    - total_amount: sum of successful / approved amounts
+    - today_amount / monthly_amount: successful amounts for today / current calendar month
+    - total_credit / total_debit: set when direction is 'credit' or 'debit'
+    """
+    today = timezone.localdate()
+    month_start = today.replace(day=1)
+    success_qs = qs.filter(status=success_status)
+    today_qs = success_qs.filter(created_at__date=today)
+    month_qs = success_qs.filter(created_at__date__gte=month_start)
+
+    total_amount = _money(_sum_amount(success_qs, amount_field))
+    summary = {
+        'total_volume': _money(_sum_amount(qs, amount_field)),
+        'total_amount': total_amount,
+        'today_amount': _money(_sum_amount(today_qs, amount_field)),
+        'monthly_amount': _money(_sum_amount(month_qs, amount_field)),
+    }
+    if direction == 'credit':
+        summary['total_credit'] = total_amount
+        summary['total_debit'] = 0.0
+    elif direction == 'debit':
+        summary['total_debit'] = total_amount
+        summary['total_credit'] = 0.0
+    return summary
 
 
 def _status_bucket(qs, success_status='success'):
@@ -210,6 +253,16 @@ def admin_reports(request):
     total_pending_count = sum(c['pending_count'] for c in categories.values())
     total_failed_count = sum(c['failed_count'] for c in categories.values())
     total_success_count = sum(c['success_count'] for c in categories.values())
+    total_credit = (
+        categories['deposits']['success_volume']
+        + categories['remittances']['success_volume']
+    )
+    total_debit = (
+        categories['topups']['success_volume']
+        + categories['transfers']['success_volume']
+        + categories['internet_bills']['success_volume']
+        + categories['data_packs']['success_volume']
+    )
 
     wallet_float = Wallet.objects.aggregate(total=Sum('balance'))['total'] or Decimal('0.00')
 
@@ -339,6 +392,19 @@ def admin_reports(request):
                 round((total_success_count / total_txn_count) * 100, 1)
                 if total_txn_count else 0.0
             ),
+            'total_volume': sum(c['volume'] for c in categories.values()),
+            'total_amount': total_success_volume,
+            'total_credit': total_credit,
+            'total_debit': total_debit,
+            'today_amount': next(
+                (row['total'] for row in volume_series if row['date'] == today.isoformat()),
+                0.0,
+            ),
+            'monthly_amount': sum(
+                row['total']
+                for row in volume_series
+                if row['date'] >= today.replace(day=1).isoformat()
+            ),
         },
         'categories': categories,
         'volume_series': volume_series,
@@ -361,12 +427,48 @@ def admin_reports(request):
 def admin_dashboard(request):
     today = timezone.localdate()
     week_start = today - timedelta(days=6)
+    month_start = today.replace(day=1)
 
     total_users = User.objects.count()
     wallet_float = Wallet.objects.aggregate(total=Sum('balance'))['total'] or Decimal('0.00')
     pending_count = Deposit.objects.filter(status='pending').count()
     topups_today = TopupTransaction.objects.filter(created_at__date=today).count()
     transfers_today = BankTransferTransaction.objects.filter(created_at__date=today).count()
+
+    dep_approved = Deposit.objects.filter(status='approved')
+    rem_success = RemittanceTransaction.objects.filter(status='success')
+    top_success = TopupTransaction.objects.filter(status='success')
+    xfer_success = BankTransferTransaction.objects.filter(status='success')
+    net_success = InternetBillTransaction.objects.filter(status='success')
+    pack_success = DataPackTransaction.objects.filter(status='success')
+
+    total_credit = _money(_sum_amount(dep_approved) + _sum_amount(rem_success))
+    total_debit = _money(
+        _sum_amount(top_success)
+        + _sum_amount(xfer_success)
+        + _sum_amount(net_success)
+        + _sum_amount(pack_success)
+    )
+    today_credit = _money(
+        _sum_amount(dep_approved.filter(created_at__date=today))
+        + _sum_amount(rem_success.filter(created_at__date=today))
+    )
+    today_debit = _money(
+        _sum_amount(top_success.filter(created_at__date=today))
+        + _sum_amount(xfer_success.filter(created_at__date=today))
+        + _sum_amount(net_success.filter(created_at__date=today))
+        + _sum_amount(pack_success.filter(created_at__date=today))
+    )
+    month_credit = _money(
+        _sum_amount(dep_approved.filter(created_at__date__gte=month_start))
+        + _sum_amount(rem_success.filter(created_at__date__gte=month_start))
+    )
+    month_debit = _money(
+        _sum_amount(top_success.filter(created_at__date__gte=month_start))
+        + _sum_amount(xfer_success.filter(created_at__date__gte=month_start))
+        + _sum_amount(net_success.filter(created_at__date__gte=month_start))
+        + _sum_amount(pack_success.filter(created_at__date__gte=month_start))
+    )
 
     # Build 7-day volume series
     days = [week_start + timedelta(days=i) for i in range(7)]
@@ -420,6 +522,14 @@ def admin_dashboard(request):
             'pending_deposits': pending_count,
             'topups_today': topups_today,
             'transfers_today': transfers_today,
+        },
+        'summary': {
+            'total_volume': total_credit + total_debit,
+            'total_amount': total_credit + total_debit,
+            'total_credit': total_credit,
+            'total_debit': total_debit,
+            'today_amount': today_credit + today_debit,
+            'monthly_amount': month_credit + month_debit,
         },
         'volume_series': volume_series,
         'operator_split': operator_split,
@@ -495,6 +605,11 @@ def admin_list_users(request):
     success = users.filter(account_status='approved').count()
     pending = users.filter(account_status='pending').count()
     failed = users.filter(is_active=False).count()
+    wallet_total = (
+        Wallet.objects.filter(user_id__in=users.values_list('id', flat=True))
+        .aggregate(total=Sum('balance'))['total']
+        or Decimal('0.00')
+    )
     return Response({
         'items': AdminUserSerializer(users, many=True, context={'request': request}).data,
         'stats': {
@@ -502,6 +617,15 @@ def admin_list_users(request):
             'success': success,
             'pending': pending,
             'failed': failed,
+            'wallet_float': str(wallet_total),
+        },
+        'summary': {
+            'total_volume': _money(wallet_total),
+            'total_amount': _money(wallet_total),
+            'today_amount': 0.0,
+            'monthly_amount': 0.0,
+            'total_credit': _money(wallet_total),
+            'total_debit': 0.0,
         },
     })
 
@@ -539,6 +663,241 @@ def admin_user_detail(request, user_id):
     return Response({
         'message': 'User updated successfully',
         'data': AdminUserSerializer(user, context={'request': request}).data,
+    })
+
+
+def _sum_field(qs, field='amount'):
+    return qs.aggregate(t=Sum(field))['t'] or Decimal('0.00')
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_user_report(request, user_id):
+    """Per-user aggregate report for the Super Admin console."""
+    try:
+        user = User.objects.select_related('wallet').get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    today = timezone.localdate()
+    start, end = _parse_date_range(request)
+    if not end:
+        end = today
+    if not start:
+        start = end - timedelta(days=29)
+
+    day_count = (end - start).days + 1
+    if day_count > 366:
+        start = end - timedelta(days=365)
+        day_count = 366
+
+    deposits_qs = _apply_created_range(Deposit.objects.filter(user=user), start, end)
+    topups_qs = _apply_created_range(TopupTransaction.objects.filter(user=user), start, end)
+    transfers_qs = _apply_created_range(
+        BankTransferTransaction.objects.filter(user=user), start, end,
+    )
+    remittances_qs = _apply_created_range(
+        RemittanceTransaction.objects.filter(user=user), start, end,
+    )
+    internet_qs = _apply_created_range(
+        InternetBillTransaction.objects.filter(user=user), start, end,
+    )
+    datapack_qs = _apply_created_range(
+        DataPackTransaction.objects.filter(user=user), start, end,
+    )
+
+    categories = {
+        'deposits': {
+            'label': 'Deposits',
+            **_status_bucket(deposits_qs, success_status='approved'),
+        },
+        'topups': {
+            'label': 'Mobile top-ups',
+            **_status_bucket(topups_qs),
+        },
+        'transfers': {
+            'label': 'Bank transfers',
+            **_status_bucket(transfers_qs),
+        },
+        'remittances': {
+            'label': 'Remittances',
+            **_status_bucket(remittances_qs),
+        },
+        'internet_bills': {
+            'label': 'Internet bills',
+            **_status_bucket(internet_qs),
+        },
+        'data_packs': {
+            'label': 'Data packs',
+            **_status_bucket(datapack_qs),
+        },
+    }
+
+    approved_deposits = deposits_qs.filter(status='approved')
+    success_topups = topups_qs.filter(status='success')
+    success_transfers = transfers_qs.filter(status='success')
+    success_remittances = remittances_qs.filter(status='success')
+    success_internet = internet_qs.filter(status='success')
+    success_datapacks = datapack_qs.filter(status='success')
+
+    total_deposits = _sum_field(approved_deposits)
+    total_transfers = _sum_field(success_transfers)
+    total_topups = _sum_field(success_topups)
+    total_remittances = _sum_field(success_remittances)
+    total_internet = _sum_field(success_internet)
+    total_datapacks = _sum_field(success_datapacks)
+
+    # Wallet credits: deposits + remittance credits (+ optional adjustments)
+    deposit_credits = total_deposits
+    remittance_credits = _sum_field(success_remittances, 'total_credited')
+    if remittance_credits == 0:
+        remittance_credits = total_remittances
+
+    # Wallet debits: net amounts removed from wallet on successful outbound services
+    topup_debits = _sum_field(success_topups, 'total_debited')
+    if topup_debits == 0:
+        topup_debits = total_topups
+    transfer_debits = _sum_field(success_transfers, 'total_debited')
+    if transfer_debits == 0:
+        transfer_debits = total_transfers
+    internet_debits = _sum_field(success_internet, 'total_debited')
+    if internet_debits == 0:
+        internet_debits = total_internet
+    datapack_debits = _sum_field(success_datapacks, 'total_debited')
+    if datapack_debits == 0:
+        datapack_debits = total_datapacks
+
+    adjustment_credits = Decimal('0.00')
+    adjustment_debits = Decimal('0.00')
+    adj_qs = _apply_created_range(
+        WalletAdjustment.objects.filter(user=user), start, end,
+    )
+    credit_adj = adj_qs.filter(adjustment_type='credit')
+    debit_adj = adj_qs.filter(adjustment_type='debit')
+    adjustment_credits = _sum_field(credit_adj)
+    # Debits are stored as negative signed amounts; report absolute debit total.
+    adjustment_debits = abs(_sum_field(debit_adj))
+
+    total_wallet_credits = (
+        deposit_credits + remittance_credits + adjustment_credits
+    )
+    total_wallet_debits = (
+        topup_debits + transfer_debits + internet_debits + datapack_debits + adjustment_debits
+    )
+
+    transaction_volume = (
+        total_deposits
+        + total_transfers
+        + total_topups
+        + total_remittances
+        + total_internet
+        + total_datapacks
+    )
+
+    charges = (
+        _sum_field(success_topups, 'charge')
+        + _sum_field(success_transfers, 'charge')
+        + _sum_field(success_remittances, 'charge')
+        + _sum_field(success_internet, 'charge')
+        + _sum_field(success_datapacks, 'charge')
+    )
+
+    wallet_balance = Decimal('0.00')
+    if hasattr(user, 'wallet') and user.wallet is not None:
+        wallet_balance = user.wallet.balance
+
+    # Daily volume series (successful amounts)
+    dep_daily = _daily_volume(Deposit.objects.filter(user=user), start, end, 'approved')
+    top_daily = _daily_volume(TopupTransaction.objects.filter(user=user), start, end)
+    xfer_daily = _daily_volume(BankTransferTransaction.objects.filter(user=user), start, end)
+    rem_daily = _daily_volume(RemittanceTransaction.objects.filter(user=user), start, end)
+    net_daily = _daily_volume(InternetBillTransaction.objects.filter(user=user), start, end)
+    pack_daily = _daily_volume(DataPackTransaction.objects.filter(user=user), start, end)
+
+    volume_series = []
+    cursor = start
+    while cursor <= end:
+        volume_series.append({
+            'date': cursor.isoformat(),
+            'label': cursor.strftime('%d %b'),
+            'deposits': dep_daily.get(cursor, 0),
+            'topups': top_daily.get(cursor, 0),
+            'transfers': xfer_daily.get(cursor, 0),
+            'remittances': rem_daily.get(cursor, 0),
+            'internet_bills': net_daily.get(cursor, 0),
+            'data_packs': pack_daily.get(cursor, 0),
+            'total': (
+                dep_daily.get(cursor, 0)
+                + top_daily.get(cursor, 0)
+                + xfer_daily.get(cursor, 0)
+                + rem_daily.get(cursor, 0)
+                + net_daily.get(cursor, 0)
+                + pack_daily.get(cursor, 0)
+            ),
+        })
+        cursor += timedelta(days=1)
+
+    service_mix = [
+        {'key': key, 'name': data['label'], 'value': data['success_volume'], 'count': data['success_count']}
+        for key, data in categories.items()
+        if data['success_volume'] > 0 or data['success_count'] > 0
+    ]
+
+    total_txn_count = sum(c['count'] for c in categories.values())
+    total_success_count = sum(c['success_count'] for c in categories.values())
+
+    return Response({
+        'user': {
+            'id': user.id,
+            'phone': user.phone,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': getattr(user, 'email', '') or '',
+        },
+        'range': {
+            'start_date': start.isoformat(),
+            'end_date': end.isoformat(),
+            'days': day_count,
+        },
+        'wallet_balance': str(wallet_balance),
+        'summary': {
+            'total_deposits': _money(total_deposits),
+            'total_transfers': _money(total_transfers),
+            'total_topups': _money(total_topups),
+            'total_wallet_credits': _money(total_wallet_credits),
+            'total_wallet_debits': _money(total_wallet_debits),
+            'transaction_volume': _money(transaction_volume),
+            'charges': _money(charges),
+            'total_transactions': total_txn_count,
+            'success_count': total_success_count,
+        },
+        'balance_summary': {
+            'current_balance': str(wallet_balance),
+            'credits': _money(total_wallet_credits),
+            'debits': _money(total_wallet_debits),
+            'net': _money(total_wallet_credits - total_wallet_debits),
+            'charges': _money(charges),
+            'breakdown': {
+                'deposit_credits': _money(deposit_credits),
+                'remittance_credits': _money(remittance_credits),
+                'adjustment_credits': _money(adjustment_credits),
+                'topup_debits': _money(topup_debits),
+                'transfer_debits': _money(transfer_debits),
+                'internet_debits': _money(internet_debits),
+                'datapack_debits': _money(datapack_debits),
+                'adjustment_debits': _money(adjustment_debits),
+            },
+        },
+        'categories': categories,
+        'volume_series': volume_series,
+        'service_mix': service_mix,
+        'charges_breakdown': {
+            'topups': _money(_sum_field(success_topups, 'charge')),
+            'transfers': _money(_sum_field(success_transfers, 'charge')),
+            'remittances': _money(_sum_field(success_remittances, 'charge')),
+            'internet_bills': _money(_sum_field(success_internet, 'charge')),
+            'data_packs': _money(_sum_field(success_datapacks, 'charge')),
+        },
     })
 
 
@@ -586,6 +945,14 @@ def admin_list_wallets(request):
             'wallet_float': str(total),
         },
         'wallet_float': str(total),
+        'summary': {
+            'total_volume': _money(total),
+            'total_amount': _money(total),
+            'today_amount': 0.0,
+            'monthly_amount': 0.0,
+            'total_credit': _money(total),
+            'total_debit': 0.0,
+        },
     })
 
 
@@ -604,20 +971,141 @@ def admin_wallet_detail(request, wallet_id):
         wallet.delete()
         return Response({'message': 'Wallet deleted successfully'}, status=status.HTTP_200_OK)
 
-    serializer = AdminWalletWriteSerializer(
-        wallet, data=request.data, partial=(request.method == 'PATCH'),
-    )
-    if not serializer.is_valid():
+    # Prefer {amount, adjustment_type, reason}; still accept {balance, reason}.
+    write = WalletAdjustmentWriteSerializer(data=request.data)
+    if not write.is_valid():
         return Response(
-            {'error': 'Validation failed', 'errors': serializer.errors},
+            {'error': 'Validation failed', 'errors': write.errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    wallet = serializer.save()
+
+    data = write.validated_data
+    reason = data['reason']
+    reference = (data.get('reference') or '').strip() or None
+
+    try:
+        with transaction.atomic():
+            locked = (
+                Wallet.objects.select_for_update()
+                .select_related('user')
+                .get(pk=wallet_id)
+            )
+            balance_before = locked.balance
+
+            if data.get('amount') is not None and data.get('adjustment_type'):
+                magnitude = Decimal(data['amount'])
+                adjustment_type = data['adjustment_type']
+                signed = magnitude if adjustment_type == 'credit' else -magnitude
+                balance_after = balance_before + signed
+            else:
+                balance_after = Decimal(data['balance'])
+                signed = balance_after - balance_before
+                if signed == 0:
+                    return Response({
+                        'message': 'Wallet unchanged',
+                        'data': AdminWalletSerializer(locked).data,
+                    })
+                adjustment_type = 'credit' if signed > 0 else 'debit'
+
+            if balance_after < 0:
+                return Response(
+                    {'error': 'Adjustment would make wallet balance negative.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            locked.balance = balance_after
+            locked.save(update_fields=['balance', 'updated_at'])
+
+            WalletAdjustment.objects.create(
+                wallet=locked,
+                user=locked.user,
+                amount=signed,
+                adjustment_type=adjustment_type,
+                balance_before=balance_before,
+                balance_after=balance_after,
+                reason=reason,
+                created_by=request.user,
+                reference=reference,
+            )
+            wallet = locked
+            from ..services.notifications import notify_wallet_adjustment
+            notify_wallet_adjustment(
+                locked.user,
+                balance_before,
+                balance_after,
+                reason=reason,
+                ref=reference,
+            )
+    except Wallet.DoesNotExist:
+        return Response({'error': 'Wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+
     wallet = Wallet.objects.select_related('user').get(pk=wallet.pk)
     return Response({
         'message': 'Wallet updated successfully',
         'data': AdminWalletSerializer(wallet).data,
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_wallet_transactions(request, wallet_id):
+    """
+    Transaction history for a specific wallet (all types for that wallet's user).
+    Optional filters: type, start_date, end_date.
+    """
+    try:
+        wallet = Wallet.objects.select_related('user').get(pk=wallet_id)
+    except Wallet.DoesNotExist:
+        return Response({'error': 'Wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    user = wallet.user
+    start, end = _parse_date_range(request)
+    type_raw = (request.query_params.get('type') or '').strip().lower()
+    type_aliases = {
+        'deposit': 'deposits',
+        'remittance': 'remittances',
+        'topup': 'topups',
+        'transfer': 'bank_transfers',
+        'bank_transfer': 'bank_transfers',
+        'internet': 'internet_bills',
+        'data_pack': 'data_packs',
+        'adjustment': 'wallet_adjustments',
+        'wallet_adjustment': 'wallet_adjustments',
+    }
+    type_key = type_aliases.get(type_raw) if type_raw and type_raw != 'all' else None
+
+    def _bucket(qs):
+        return _apply_created_range(qs.order_by('-created_at'), start, end)
+
+    deposits = _bucket(Deposit.objects.filter(user=user))
+    remittances = _bucket(RemittanceTransaction.objects.filter(user=user))
+    topups = _bucket(TopupTransaction.objects.filter(user=user))
+    transfers = _bucket(BankTransferTransaction.objects.filter(user=user))
+    internet_bills = _bucket(InternetBillTransaction.objects.filter(user=user))
+    data_packs = _bucket(DataPackTransaction.objects.filter(user=user))
+    adjustments = _bucket(WalletAdjustment.objects.filter(user=user))
+
+    payload = {
+        'deposits': DepositSerializer(deposits, many=True).data,
+        'remittances': RemittanceTransactionSerializer(remittances, many=True).data,
+        'topups': TopupTransactionSerializer(topups, many=True).data,
+        'bank_transfers': BankTransferTransactionSerializer(transfers, many=True).data,
+        'internet_bills': InternetBillTransactionSerializer(internet_bills, many=True).data,
+        'data_packs': DataPackTransactionSerializer(data_packs, many=True).data,
+        'wallet_adjustments': WalletAdjustmentSerializer(adjustments, many=True).data,
+        'wallet_id': wallet.id,
+        'user_id': user.id,
+    }
+
+    if type_key:
+        for key in (
+            'deposits', 'remittances', 'topups', 'bank_transfers',
+            'internet_bills', 'data_packs', 'wallet_adjustments',
+        ):
+            if key != type_key:
+                payload[key] = []
+
+    return Response(payload, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
@@ -660,6 +1148,7 @@ def admin_list_deposits(request):
             'pending': qs.filter(status='pending').count(),
             'failed': qs.filter(status='rejected').count(),
         },
+        'summary': _amount_summary(qs, success_status='approved', direction='credit'),
     })
 
 
@@ -773,6 +1262,7 @@ def admin_list_topups(request):
             'pending': qs.filter(status='pending').count(),
             'failed': qs.filter(status='failed').count(),
         },
+        'summary': _amount_summary(qs, direction='debit'),
     })
 
 
@@ -834,6 +1324,7 @@ def admin_list_transfers(request):
             'pending': qs.filter(status='pending').count(),
             'failed': qs.filter(status='failed').count(),
         },
+        'summary': _amount_summary(qs, direction='debit'),
     })
 
 
@@ -847,11 +1338,23 @@ def admin_update_transfer_status(request, transfer_id):
         return Response({'error': 'Transfer not found'}, status=status.HTTP_404_NOT_FOUND)
 
     new_status = (request.data.get('status') or '').strip().lower()
+    old_status = transfer.status
     ok, err = apply_outbound_status_change(transfer, new_status)
     if not ok:
         return Response({'error': err}, status=status.HTTP_400_BAD_REQUEST)
 
     transfer.refresh_from_db()
+    if old_status != 'success' and transfer.status == 'success':
+        from ..services.notifications import notify_transfer_success, notify_low_balance_if_needed
+        from ..models import Wallet
+        bal = transfer.balance_after
+        notify_transfer_success(transfer, balance_after=bal)
+        try:
+            wallet = Wallet.objects.select_related('user').get(user=transfer.user)
+            notify_low_balance_if_needed(wallet)
+        except Wallet.DoesNotExist:
+            pass
+
     return Response({
         'message': f'Transfer status updated to {transfer.status}',
         'data': BankTransferTransactionSerializer(transfer).data,
@@ -875,8 +1378,14 @@ def admin_update_topup_status(request, topup_id):
 
     topup.refresh_from_db()
     if old_status != 'success' and topup.status == 'success':
-        from ..services.notifications import notify_topup_success
-        notify_topup_success(topup)
+        from ..services.notifications import notify_topup_success, notify_low_balance_if_needed
+        from ..models import Wallet
+        notify_topup_success(topup, balance_after=topup.balance_after)
+        try:
+            wallet = Wallet.objects.select_related('user').get(user=topup.user)
+            notify_low_balance_if_needed(wallet)
+        except Wallet.DoesNotExist:
+            pass
 
     return Response({
         'message': f'Top-up status updated to {topup.status}',
@@ -929,6 +1438,7 @@ def admin_list_remittances(request):
             'pending': qs.filter(status='pending').count(),
             'failed': qs.filter(status='failed').count(),
         },
+        'summary': _amount_summary(qs, direction='credit'),
     })
 
 
@@ -1099,3 +1609,60 @@ def admin_himalpay_status(request):
     except Exception as exc:
         result['message'] = f'HimalPay check failed: {exc}'
         return Response(result)
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_user_fees(request, user_id):
+    """GET/PUT per-user transfer and top-up charge overrides."""
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    global_tx = (get_app_config().get('transactions') or {})
+    defaults = {
+        'transfer_charge_enabled': global_tx.get('transfer_charge_enabled', True),
+        'transfer_charge_flat': global_tx.get('transfer_charge_flat', 0),
+        'transfer_charge_percent': global_tx.get('transfer_charge_percent', 0),
+        'topup_charge_percent': global_tx.get('topup_charge_percent', 0),
+    }
+
+    fee_config, _created = UserFeeConfig.objects.get_or_create(user=user)
+
+    if request.method == 'GET':
+        data = UserFeeConfigSerializer(fee_config).data
+        return Response({
+            'user_id': user.id,
+            'fees': data,
+            'defaults': defaults,
+        })
+
+    # Allow explicit null to clear overrides back to global defaults
+    payload = dict(request.data) if hasattr(request.data, 'items') else {}
+    serializer = UserFeeConfigSerializer(fee_config, data=payload, partial=True)
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Validation failed', 'errors': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    for field in (
+        'transfer_charge_enabled',
+        'transfer_charge_flat',
+        'transfer_charge_percent',
+        'topup_charge_percent',
+    ):
+        if field in payload:
+            value = payload.get(field)
+            if value is None or value == '':
+                setattr(fee_config, field, None)
+            else:
+                setattr(fee_config, field, serializer.validated_data.get(field, value))
+    fee_config.save()
+    return Response({
+        'message': 'User fees updated successfully',
+        'user_id': user.id,
+        'fees': UserFeeConfigSerializer(fee_config).data,
+        'defaults': defaults,
+    })
+

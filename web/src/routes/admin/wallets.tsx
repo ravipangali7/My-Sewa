@@ -12,6 +12,7 @@ import {
   AdminMobileCardGrid,
   AdminMobileMeta,
 } from "@/components/admin/AdminDataList";
+import { StatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
 import { WalletCard, walletDisplayName } from "@/components/admin/WalletCard";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,9 +42,13 @@ import {
 } from "@/components/ui/table";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDateTime, formatNPR } from "@/lib/format";
+import { serialNumber } from "@/lib/serial";
 import type { AdminWallet } from "@/lib/types";
 import { useListFilters } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
+
+const LIST_PAGE = 1;
+const LIST_PAGE_SIZE = 50;
 
 export const Route = createFileRoute("/admin/wallets")({
   head: () => ({
@@ -89,6 +94,16 @@ function WalletsPage() {
 
   const float = walletsQuery.data?.wallet_float ?? walletStats?.wallet_float ?? "0.00";
   const totalCount = walletStats?.total ?? 0;
+  const amountCards = amountSummaryCards(walletsQuery.data?.summary, {
+    keys: ["total_amount", "total_volume"],
+    labels: {
+      total_amount: "Total wallet float",
+      total_volume: "Combined balances",
+    },
+    hints: {
+      total_amount: `${totalCount} wallet${totalCount === 1 ? "" : "s"}`,
+    },
+  });
 
   const walletActions = (w: AdminWallet) => {
     const walletId = String(w.id);
@@ -139,6 +154,7 @@ function WalletsPage() {
       }
     >
       <div className="space-y-5">
+        <StatsCards items={amountCards} />
         <ListPageToolbar
           stats={walletStats}
           filters={filters}
@@ -183,6 +199,7 @@ function WalletsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 pr-0">S.N.</TableHead>
                   <TableHead>ID</TableHead>
                   <TableHead>User</TableHead>
                   <TableHead>Phone</TableHead>
@@ -193,8 +210,11 @@ function WalletsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {wallets.map((w) => (
+                {wallets.map((w, index) => (
                   <TableRow key={w.id}>
+                    <TableCell className="w-10 pr-0 tabular text-sm text-muted-foreground">
+                      {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}
+                    </TableCell>
                     <TableCell className="text-sm">{w.id}</TableCell>
                     <TableCell className="text-sm">{walletDisplayName(w)}</TableCell>
                     <TableCell className="text-sm font-medium">{w.phone}</TableCell>
@@ -211,14 +231,20 @@ function WalletsPage() {
           }
           mobile={
             <AdminMobileCardGrid className="sm:grid-cols-2">
-              {wallets.map((w) => {
+              {wallets.map((w, index) => {
                 const walletId = String(w.id);
+                const sn = serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index);
                 return (
                   <AdminMobileCard key={w.id}>
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold">{walletDisplayName(w)}</p>
-                        <p className="truncate text-xs text-muted-foreground">{w.phone}</p>
+                      <div className="flex min-w-0 items-start gap-2">
+                        <span className="tabular shrink-0 pt-0.5 text-xs text-muted-foreground">
+                          {sn}.
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{walletDisplayName(w)}</p>
+                          <p className="truncate text-xs text-muted-foreground">{w.phone}</p>
+                        </div>
                       </div>
                       {walletActions(w)}
                     </div>

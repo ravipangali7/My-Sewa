@@ -7,6 +7,7 @@ import type {
   BankTransferTransaction,
   InternetBillTransaction,
   DataPackTransaction,
+  WalletAdjustment,
   WalletTransactions,
 } from "./types";
 import { OPERATORS } from "./constants";
@@ -16,11 +17,30 @@ import { translateStatus } from "./status";
 
 export type { ActivityKind };
 
+export type ActivityDirection = "credit" | "debit";
+
+const DEBIT_KINDS = new Set<ActivityKind>([
+  "topup",
+  "transfer",
+  "internet",
+  "data_pack",
+  "wallet_adjustment",
+]);
+
+function adjustmentDisplayAmount(a: WalletAdjustment): string {
+  if (a.display_amount !== undefined && a.display_amount !== null) {
+    return String(a.display_amount);
+  }
+  const n = Math.abs(Number(a.amount));
+  return Number.isNaN(n) ? a.amount : String(n);
+}
+
 export function buildActivity(
   tx: WalletTransactions,
   t: TranslateFn = (key) => key,
 ): ActivityItem[] {
   const remittances = tx.remittances ?? [];
+  const adjustments = tx.wallet_adjustments ?? [];
   const items: ActivityItem[] = [
     ...tx.deposits.map((d: Deposit) => ({
       id: `dep-${d.id}`,
@@ -90,8 +110,53 @@ export function buildActivity(
       status: dp.status,
       created_at: dp.created_at,
     })),
+    ...adjustments.map((a: WalletAdjustment) => {
+      const isCredit = a.adjustment_type === "credit";
+      return {
+        id: `adj-${a.id}`,
+        kind: "wallet_adjustment" as const,
+        title: isCredit
+          ? t("activity.walletCredit")
+          : t("activity.walletDebit"),
+        subtitle:
+          a.reason?.trim() || a.reference || t("activity.walletAdjustment"),
+        amount: adjustmentDisplayAmount(a),
+        credit: isCredit,
+        status: "success" as const,
+        created_at: a.created_at,
+      };
+    }),
   ];
   return items.sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+/** True when the item should appear in wallet Credit History. */
+export function isWalletCredit(item: ActivityItem): boolean {
+  if (!item.credit) return false;
+  if (item.kind === "deposit") return item.status === "approved";
+  if (item.kind === "remittance") return item.status === "success";
+  if (item.kind === "wallet_adjustment") return true;
+  return false;
+}
+
+/** True when the item should appear in wallet Debit History. */
+export function isWalletDebit(item: ActivityItem): boolean {
+  if (item.credit) return false;
+  return DEBIT_KINDS.has(item.kind);
+}
+
+export function activityDirection(item: ActivityItem): ActivityDirection | null {
+  if (isWalletCredit(item)) return "credit";
+  if (isWalletDebit(item)) return "debit";
+  return null;
+}
+
+export function filterWalletCredits(items: ActivityItem[]): ActivityItem[] {
+  return items.filter(isWalletCredit);
+}
+
+export function filterWalletDebits(items: ActivityItem[]): ActivityItem[] {
+  return items.filter(isWalletDebit);
 }
 
 export function findActivity(
@@ -129,6 +194,20 @@ function pushDetail(
   rows.push(row);
 }
 
+function pushBalanceRows(
+  rows: StatementRow[],
+  t: TranslateFn,
+  balanceBefore: string | null | undefined,
+  balanceAfter: string | null | undefined,
+) {
+  if (balanceBefore != null && String(balanceBefore).trim() !== "") {
+    pushDetail(rows, t("history.balanceBefore"), formatNPR(balanceBefore));
+  }
+  if (balanceAfter != null && String(balanceAfter).trim() !== "") {
+    pushDetail(rows, t("history.balanceAfter"), formatNPR(balanceAfter));
+  }
+}
+
 export function buildActivityStatement(
   tx: WalletTransactions,
   id: string,
@@ -155,6 +234,7 @@ export function buildActivityStatement(
         danger: true,
       });
     }
+    pushBalanceRows(details, t, d.balance_before, d.balance_after);
     pushDetail(details, t("history.updated"), formatDateTime(d.updated_at));
     pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
     return {
@@ -188,6 +268,7 @@ export function buildActivityStatement(
     pushDetail(details, t("common.charge"), formatNPR(r.charge));
     pushDetail(details, t("common.cashback"), formatNPR(r.cashback));
     pushDetail(details, t("history.totalCredited"), formatNPR(r.total_credited));
+    pushBalanceRows(details, t, r.balance_before, r.balance_after);
     pushDetail(details, t("history.merchantTxn"), r.merchant_txn_id, {
       mono: true,
       skipEmpty: true,
@@ -233,6 +314,7 @@ export function buildActivityStatement(
     pushDetail(details, t("common.charge"), formatNPR(top.charge));
     pushDetail(details, t("common.cashback"), formatNPR(top.cashback));
     pushDetail(details, t("common.totalDebited"), formatNPR(top.total_debited));
+    pushBalanceRows(details, t, top.balance_before, top.balance_after);
     pushDetail(details, t("history.merchantTxn"), top.merchant_txn_id, {
       mono: true,
       skipEmpty: true,
@@ -285,6 +367,7 @@ export function buildActivityStatement(
     pushDetail(details, t("common.charge"), formatNPR(bill.charge));
     pushDetail(details, t("common.cashback"), formatNPR(bill.cashback));
     pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
+    pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
       mono: true,
       skipEmpty: true,
@@ -331,6 +414,7 @@ export function buildActivityStatement(
     pushDetail(details, t("common.charge"), formatNPR(dp.charge));
     pushDetail(details, t("common.cashback"), formatNPR(dp.cashback));
     pushDetail(details, t("common.totalDebited"), formatNPR(dp.total_debited));
+    pushBalanceRows(details, t, dp.balance_before, dp.balance_after);
     pushDetail(details, t("history.merchantTxn"), dp.merchant_txn_id, {
       mono: true,
       skipEmpty: true,
@@ -350,6 +434,45 @@ export function buildActivityStatement(
         dp.total_debited !== "0.00" ? dp.total_debited : dp.amount,
       ),
       amountCaption: t("history.totalDebited"),
+      footer: t("history.footer"),
+      details,
+    };
+  }
+
+  if (item.kind === "wallet_adjustment") {
+    const adj = (tx.wallet_adjustments ?? []).find((x) => `adj-${x.id}` === id);
+    if (!adj) return undefined;
+    const reference = adj.reference || `#${adj.id}`;
+    const displayAmount = adjustmentDisplayAmount(adj);
+    const details: StatementRow[] = [];
+    pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("history.dateTime"), formatDateTime(adj.created_at));
+    pushDetail(details, t("history.channel"), t("history.channelAdmin"));
+    pushDetail(details, t("history.serviceName"), t("notif.typeWalletAdjustment"));
+    pushDetail(details, t("common.status"), translateStatus("success", t));
+    pushDetail(
+      details,
+      t("history.adjustmentType"),
+      adj.adjustment_type === "credit"
+        ? t("activity.walletCredit")
+        : t("activity.walletDebit"),
+    );
+    pushDetail(details, t("common.amountNpr"), formatNPR(displayAmount));
+    pushDetail(details, t("history.balanceBefore"), formatNPR(adj.balance_before));
+    pushDetail(details, t("history.balanceAfter"), formatNPR(adj.balance_after));
+    pushDetail(details, t("common.note"), adj.reason?.trim() || "—");
+    pushDetail(details, t("history.adminPhone"), adj.created_by_phone, {
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
+    return {
+      item,
+      reference,
+      headlineAmount: formatNPR(displayAmount),
+      amountCaption:
+        adj.adjustment_type === "credit"
+          ? t("history.walletCredit")
+          : t("history.walletDebit"),
       footer: t("history.footer"),
       details,
     };
@@ -394,6 +517,7 @@ export function buildActivityStatement(
   pushDetail(details, t("common.charge"), formatNPR(b.charge));
   pushDetail(details, t("common.cashback"), formatNPR(b.cashback));
   pushDetail(details, t("common.totalDebited"), formatNPR(b.total_debited));
+  pushBalanceRows(details, t, b.balance_before, b.balance_after);
   pushDetail(details, t("common.remarks"), b.transaction_remarks?.trim() || "—");
   pushDetail(details, t("history.merchantTxn"), b.merchant_txn_id, {
     mono: true,

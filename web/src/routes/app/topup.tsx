@@ -21,6 +21,7 @@ import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
+import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
 import type { TopupTransaction } from "@/lib/types";
 
@@ -60,6 +61,8 @@ function TopUp() {
   const [touchedMobile, setTouchedMobile] = useState(false);
   const [providerBlocked, setProviderBlocked] = useState(false);
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -81,6 +84,7 @@ function TopUp() {
     queryFn: () => apiClient.topupHistory(),
     refetchInterval: LIVE_REFETCH_MS,
   });
+  const topupItems = historyQuery.data?.items ?? [];
 
   const servicesQuery = useQuery({
     queryKey: ["topup", "services"],
@@ -178,7 +182,7 @@ function TopUp() {
 
   // Auto-poll HimalPay status for pending top-ups (docs: wallet-service-reseller-status)
   useEffect(() => {
-    const pending = (historyQuery.data ?? []).filter((item) => item.status === "pending");
+    const pending = topupItems.filter((item) => item.status === "pending");
     if (!pending.length) return;
 
     let cancelled = false;
@@ -220,7 +224,7 @@ function TopUp() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [historyQuery.data, queryClient, t]);
+  }, [topupItems, queryClient, t]);
 
   const refreshStatus = async (item: TopupTransaction) => {
     setRefreshingId(item.id);
@@ -254,7 +258,7 @@ function TopUp() {
   };
 
   const submitMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (transaction_pin: string) => {
       if (accountPending) throw new Error(t("account.pending"));
       if (!topupsEnabled) throw new Error(t("topup.disabledError"));
       setTouchedMobile(true);
@@ -279,11 +283,14 @@ function TopUp() {
         // Rupees with 2 decimals; server converts to paisa (×100) for HimalPay.
         amount: Number(amt.toFixed(2)),
         product_id: productId,
+        transaction_pin,
       };
       if (productId === 1) return apiClient.topupNtc({ ...body, product_id: 1 });
       return apiClient.topupNcell({ ...body, product_id: 2 });
     },
     onSuccess: (res) => {
+      setPinOpen(false);
+      setPinError(null);
       const isPending = res.data.status === "pending";
       if (isPending) {
         toast.message(res.message || t("topup.pendingTitle", { operator: OPERATORS[productId] }), {
@@ -310,7 +317,13 @@ function TopUp() {
     onError: (err) => {
       if (err instanceof ApiError && err.body && typeof err.body === "object") {
         const body = err.body as Record<string, unknown>;
+        const errors = body["errors"] as Record<string, string[]> | undefined;
+        if (errors?.["transaction_pin"]?.[0] || body["code"] === "pin_not_set") {
+          setPinError(errors?.["transaction_pin"]?.[0] || t("pin.incorrect"));
+          return;
+        }
         if (body["error"] === "Insufficient balance") {
+          setPinOpen(false);
           toastApiError(err, {
             title: t("topup.failed"),
             fallback: t("topup.insufficient", {
@@ -321,6 +334,7 @@ function TopUp() {
           return;
         }
       }
+      setPinOpen(false);
       toastApiError(err, {
         title: t("topup.failed"),
         fallback: t("topup.failed"),
@@ -332,7 +346,7 @@ function TopUp() {
 
   return (
     <UserShell title={t("topup.title")} back="/app">
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />
@@ -351,8 +365,8 @@ function TopUp() {
           </section>
         ) : null}
 
-        <section className="inset-group p-4">
-          <div className="mb-4 flex items-center justify-between rounded-xl bg-muted px-3 py-2.5">
+        <section className="inset-group min-w-0 max-w-full p-4">
+          <div className="mb-4 flex min-w-0 items-center justify-between gap-2 rounded-xl bg-muted px-3 py-2.5">
             <div>
               <p className="text-[12px] text-muted-foreground">{t("topup.walletLabel")}</p>
               <p className="tabular text-[17px] font-semibold">
@@ -373,7 +387,8 @@ function TopUp() {
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              submitMutation.mutate();
+              setPinError(null);
+              setPinOpen(true);
             }}
           >
             <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
@@ -531,36 +546,36 @@ function TopUp() {
           </form>
         </section>
 
-        <section>
+        <section className="min-w-0 max-w-full">
           <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("topup.recent")}</h2>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
             </div>
-          ) : !historyQuery.data?.length ? (
+          ) : !topupItems.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("topup.empty")}
             </div>
           ) : (
-            <ul className="inset-group divide-y divide-border">
-              {historyQuery.data.map((item) => (
-                <li key={item.id} className="px-4 py-3">
-                  <div className="flex items-center gap-3">
+            <ul className="inset-group min-w-0 divide-y divide-border overflow-hidden">
+              {topupItems.map((item) => (
+                <li key={item.id} className="min-w-0 px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[15px] font-medium">
+                      <p className="truncate text-[15px] font-medium">
                         {item.product_name || OPERATORS[item.product_id]} · {item.mobile_number}
                       </p>
                       <p className="truncate text-[13px] text-muted-foreground">
                         {item.merchant_txn_id} · {formatDateTime(item.created_at)}
                       </p>
                     </div>
-                    <div className="text-right">
+                    <div className="shrink-0 text-right">
                       <p className="tabular text-[15px] font-semibold">{formatNPR(item.amount)}</p>
                       <StatusChip status={item.status} compact className="mt-1" />
                     </div>
                   </div>
-                  <div className="mt-1 flex items-center justify-between gap-2">
-                    <p className="text-[12px] text-muted-foreground">
+                  <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
+                    <p className="min-w-0 truncate text-[12px] text-muted-foreground">
                       {t("topup.chargeLine", {
                         charge: formatNPR(item.charge),
                         cashback: formatNPR(item.cashback),
@@ -586,6 +601,21 @@ function TopUp() {
           )}
         </section>
       </div>
+
+      <TransactionPinDialog
+        open={pinOpen}
+        onOpenChange={(open) => {
+          setPinOpen(open);
+          if (!open) setPinError(null);
+        }}
+        hasPin={Boolean(user?.has_transaction_pin)}
+        confirming={submitMutation.isPending}
+        error={pinError}
+        onConfirm={(pin) => {
+          setPinError(null);
+          submitMutation.mutate(pin);
+        }}
+      />
     </UserShell>
   );
 }
