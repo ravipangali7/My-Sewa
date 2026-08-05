@@ -458,6 +458,61 @@ export interface AdminDashboard {
   pending_deposits: Deposit[];
 }
 
+export interface AdminReportCategory {
+  label: string;
+  count: number;
+  volume: number;
+  success_count: number;
+  success_volume: number;
+  pending_count: number;
+  pending_volume: number;
+  failed_count: number;
+  failed_volume: number;
+  success_rate: number;
+}
+
+export interface AdminReports {
+  range: {
+    start_date: string;
+    end_date: string;
+    days: number;
+  };
+  summary: {
+    total_users: number;
+    new_users: number;
+    wallet_float: string;
+    total_transactions: number;
+    success_volume: number;
+    success_count: number;
+    pending_count: number;
+    failed_count: number;
+    success_rate: number;
+  };
+  categories: Record<string, AdminReportCategory>;
+  volume_series: Array<{
+    date: string;
+    label: string;
+    deposits: number;
+    topups: number;
+    transfers: number;
+    remittances: number;
+    internet_bills: number;
+    data_packs: number;
+    total: number;
+  }>;
+  service_mix: Array<{ key: string; name: string; value: number; count: number }>;
+  status_mix: Array<{ name: string; value: number; volume: number }>;
+  operator_split: Array<{ name: string; value: number; count: number }>;
+  isp_split: Array<{ name: string; value: number; count: number }>;
+  user_series: Array<{ date: string; label: string; users: number }>;
+  recent: {
+    deposits: Deposit[];
+    topups: TopupTransaction[];
+    transfers: BankTransferTransaction[];
+    remittances: RemittanceTransaction[];
+  };
+}
+
 export interface AdminListStats {
   total: number;
   success: number;

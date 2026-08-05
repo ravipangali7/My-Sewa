@@ -9,7 +9,7 @@ from decimal import Decimal
 from io import StringIO
 
 from django.contrib.auth import get_user_model
-from django.db.models import Sum, Q
+from django.db.models import Count, Sum, Q
 from django.db.models.functions import TruncDate
 from django.http import HttpResponse
 from django.utils.dateparse import parse_date
@@ -27,6 +27,8 @@ from ..models import (
     TopupTransaction,
     BankTransferTransaction,
     RemittanceTransaction,
+    InternetBillTransaction,
+    DataPackTransaction,
     merge_app_config,
 )
 from ..serializers import (
@@ -103,6 +105,255 @@ class IsStaffUser(BasePermission):
             and request.user.is_authenticated
             and (request.user.is_staff or request.user.is_superuser)
         )
+
+
+def _money(value):
+    return float(value or 0)
+
+
+def _status_bucket(qs, success_status='success'):
+    """Return count/volume totals split by pending / success / failed (or rejected)."""
+    total = qs.count()
+    success_qs = qs.filter(status=success_status)
+    pending_qs = qs.filter(status='pending')
+    failed_statuses = ['failed', 'rejected']
+    failed_qs = qs.filter(status__in=failed_statuses)
+
+    success_count = success_qs.count()
+    pending_count = pending_qs.count()
+    failed_count = failed_qs.count()
+
+    return {
+        'count': total,
+        'volume': _money(qs.aggregate(t=Sum('amount'))['t']),
+        'success_count': success_count,
+        'success_volume': _money(success_qs.aggregate(t=Sum('amount'))['t']),
+        'pending_count': pending_count,
+        'pending_volume': _money(pending_qs.aggregate(t=Sum('amount'))['t']),
+        'failed_count': failed_count,
+        'failed_volume': _money(failed_qs.aggregate(t=Sum('amount'))['t']),
+        'success_rate': round((success_count / total) * 100, 1) if total else 0.0,
+    }
+
+
+def _daily_volume(qs, start, end, success_status='success'):
+    filtered = qs.filter(status=success_status)
+    filtered = _apply_created_range(filtered, start, end)
+    by_day = {
+        row['day']: row['total'] or Decimal('0')
+        for row in filtered.annotate(day=TruncDate('created_at'))
+        .values('day')
+        .annotate(total=Sum('amount'))
+    }
+    days = []
+    cursor = start
+    while cursor <= end:
+        days.append(cursor)
+        cursor += timedelta(days=1)
+    return {d: _money(by_day.get(d, 0)) for d in days}
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_reports(request):
+    """Aggregated analytics for the Super Admin Reports module."""
+    today = timezone.localdate()
+    start, end = _parse_date_range(request)
+    if not end:
+        end = today
+    if not start:
+        start = end - timedelta(days=29)
+
+    # Inclusive day span for series
+    day_count = (end - start).days + 1
+    if day_count > 366:
+        start = end - timedelta(days=365)
+        day_count = 366
+
+    deposits_qs = _apply_created_range(Deposit.objects.all(), start, end)
+    topups_qs = _apply_created_range(TopupTransaction.objects.all(), start, end)
+    transfers_qs = _apply_created_range(BankTransferTransaction.objects.all(), start, end)
+    remittances_qs = _apply_created_range(RemittanceTransaction.objects.all(), start, end)
+    internet_qs = _apply_created_range(InternetBillTransaction.objects.all(), start, end)
+    datapack_qs = _apply_created_range(DataPackTransaction.objects.all(), start, end)
+    users_qs = User.objects.filter(date_joined__date__gte=start, date_joined__date__lte=end)
+
+    categories = {
+        'deposits': {
+            'label': 'Deposits',
+            **_status_bucket(deposits_qs, success_status='approved'),
+        },
+        'topups': {
+            'label': 'Mobile top-ups',
+            **_status_bucket(topups_qs),
+        },
+        'transfers': {
+            'label': 'Bank transfers',
+            **_status_bucket(transfers_qs),
+        },
+        'remittances': {
+            'label': 'Remittances',
+            **_status_bucket(remittances_qs),
+        },
+        'internet_bills': {
+            'label': 'Internet bills',
+            **_status_bucket(internet_qs),
+        },
+        'data_packs': {
+            'label': 'Data packs',
+            **_status_bucket(datapack_qs),
+        },
+    }
+
+    total_txn_count = sum(c['count'] for c in categories.values())
+    total_success_volume = sum(c['success_volume'] for c in categories.values())
+    total_pending_count = sum(c['pending_count'] for c in categories.values())
+    total_failed_count = sum(c['failed_count'] for c in categories.values())
+    total_success_count = sum(c['success_count'] for c in categories.values())
+
+    wallet_float = Wallet.objects.aggregate(total=Sum('balance'))['total'] or Decimal('0.00')
+
+    # Daily volume series (successful amounts)
+    dep_daily = _daily_volume(Deposit.objects.all(), start, end, 'approved')
+    top_daily = _daily_volume(TopupTransaction.objects.all(), start, end)
+    xfer_daily = _daily_volume(BankTransferTransaction.objects.all(), start, end)
+    rem_daily = _daily_volume(RemittanceTransaction.objects.all(), start, end)
+    net_daily = _daily_volume(InternetBillTransaction.objects.all(), start, end)
+    pack_daily = _daily_volume(DataPackTransaction.objects.all(), start, end)
+
+    volume_series = []
+    cursor = start
+    while cursor <= end:
+        volume_series.append({
+            'date': cursor.isoformat(),
+            'label': cursor.strftime('%d %b'),
+            'deposits': dep_daily.get(cursor, 0),
+            'topups': top_daily.get(cursor, 0),
+            'transfers': xfer_daily.get(cursor, 0),
+            'remittances': rem_daily.get(cursor, 0),
+            'internet_bills': net_daily.get(cursor, 0),
+            'data_packs': pack_daily.get(cursor, 0),
+            'total': (
+                dep_daily.get(cursor, 0)
+                + top_daily.get(cursor, 0)
+                + xfer_daily.get(cursor, 0)
+                + rem_daily.get(cursor, 0)
+                + net_daily.get(cursor, 0)
+                + pack_daily.get(cursor, 0)
+            ),
+        })
+        cursor += timedelta(days=1)
+
+    service_mix = [
+        {'key': key, 'name': data['label'], 'value': data['success_volume'], 'count': data['success_count']}
+        for key, data in categories.items()
+        if data['success_volume'] > 0 or data['success_count'] > 0
+    ]
+
+    status_mix = [
+        {
+            'name': 'Success',
+            'value': total_success_count,
+            'volume': total_success_volume,
+        },
+        {
+            'name': 'Pending',
+            'value': total_pending_count,
+            'volume': sum(c['pending_volume'] for c in categories.values()),
+        },
+        {
+            'name': 'Failed',
+            'value': total_failed_count,
+            'volume': sum(c['failed_volume'] for c in categories.values()),
+        },
+    ]
+
+    operator_qs = (
+        topups_qs.filter(status='success')
+        .values('product_id')
+        .annotate(value=Sum('amount'), count=Count('id'))
+    )
+    operator_split = []
+    for row in operator_qs:
+        name = 'NTC' if row['product_id'] == 1 else 'NCELL'
+        operator_split.append({
+            'name': name,
+            'value': _money(row['value']),
+            'count': row['count'] or 0,
+        })
+
+    # Top ISPs by successful internet bill volume
+    isp_qs = (
+        internet_qs.filter(status='success')
+        .values('isp_name')
+        .annotate(value=Sum('amount'), count=Count('id'))
+        .order_by('-value')[:8]
+    )
+    isp_split = [
+        {
+            'name': row['isp_name'] or 'Unknown',
+            'value': _money(row['value']),
+            'count': row['count'] or 0,
+        }
+        for row in isp_qs
+    ]
+
+    # New users by day
+    user_by_day = {
+        row['day']: row['count']
+        for row in users_qs.annotate(day=TruncDate('date_joined'))
+        .values('day')
+        .annotate(count=Count('id'))
+    }
+    user_series = []
+    cursor = start
+    while cursor <= end:
+        user_series.append({
+            'date': cursor.isoformat(),
+            'label': cursor.strftime('%d %b'),
+            'users': user_by_day.get(cursor, 0),
+        })
+        cursor += timedelta(days=1)
+
+    # Recent activity snapshots (latest 10 per category in range)
+    def recent_rows(qs, serializer_cls, limit=8):
+        items = qs.select_related('user').order_by('-created_at')[:limit]
+        return serializer_cls(items, many=True, context={'request': request}).data
+
+    return Response({
+        'range': {
+            'start_date': start.isoformat(),
+            'end_date': end.isoformat(),
+            'days': day_count,
+        },
+        'summary': {
+            'total_users': User.objects.count(),
+            'new_users': users_qs.count(),
+            'wallet_float': str(wallet_float),
+            'total_transactions': total_txn_count,
+            'success_volume': total_success_volume,
+            'success_count': total_success_count,
+            'pending_count': total_pending_count,
+            'failed_count': total_failed_count,
+            'success_rate': (
+                round((total_success_count / total_txn_count) * 100, 1)
+                if total_txn_count else 0.0
+            ),
+        },
+        'categories': categories,
+        'volume_series': volume_series,
+        'service_mix': service_mix,
+        'status_mix': status_mix,
+        'operator_split': operator_split,
+        'isp_split': isp_split,
+        'user_series': user_series,
+        'recent': {
+            'deposits': recent_rows(deposits_qs, DepositSerializer),
+            'topups': recent_rows(topups_qs, TopupTransactionSerializer),
+            'transfers': recent_rows(transfers_qs, BankTransferTransactionSerializer),
+            'remittances': recent_rows(remittances_qs, RemittanceTransactionSerializer),
+        },
+    })
 
 
 @api_view(['GET'])

@@ -12,6 +12,7 @@ import {
   LogOut,
   ChevronDown,
   ArrowDownToLine,
+  BarChart3,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,7 @@ import {
 
 const NAV = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/admin/reports", label: "Reports", icon: BarChart3 },
   { to: "/admin/users", label: "Users", icon: Users },
   { to: "/admin/wallets", label: "Wallets", icon: Wallet },
   { to: "/admin/deposits", label: "Deposits", icon: Inbox },

@@ -533,6 +533,15 @@ export const apiClient = {
     }),
 
   adminDashboard: () => api<import("./types").AdminDashboard>("/api/admin/dashboard/"),
+  adminReports: (filters?: { startDate?: string; endDate?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.startDate?.trim()) params.set("start_date", filters.startDate.trim());
+    if (filters?.endDate?.trim()) params.set("end_date", filters.endDate.trim());
+    const query = params.toString();
+    return api<import("./types").AdminReports>(
+      `/api/admin/reports/${query ? `?${query}` : ""}`,
+    );
+  },
   adminUsers: (filters?: AdminListFilters) =>
     api<import("./types").AdminListResponse<import("./types").AdminUser>>(
       `/api/admin/users/${buildAdminListQuery(filters)}`,

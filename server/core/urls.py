@@ -72,6 +72,7 @@ urlpatterns = [
 
     # Admin / staff console
     path('api/admin/dashboard/', admin_views.admin_dashboard, name='admin_dashboard'),
+    path('api/admin/reports/', admin_views.admin_reports, name='admin_reports'),
     path('api/admin/users/', admin_views.admin_list_users, name='admin_list_users'),
     path('api/admin/users/<int:user_id>/', admin_views.admin_user_detail, name='admin_user_detail'),
     path('api/admin/wallets/', admin_views.admin_list_wallets, name='admin_list_wallets'),
