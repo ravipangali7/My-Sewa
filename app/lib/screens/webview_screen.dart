@@ -480,7 +480,7 @@ class _WebViewScreenState extends State<WebViewScreen>
 
       if (_isHandlingDownload) return;
 
-      const isShare = type == 'share';
+      final isShare = type == 'share';
       const allowedTypes = {
         'download',
         'share',
