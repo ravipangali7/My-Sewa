@@ -458,8 +458,10 @@ class _WebViewScreenState extends State<WebViewScreen>
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return;
       final type = decoded['type']?.toString().toLowerCase() ?? 'download';
+      const isShare = type == 'share';
       const allowedTypes = {
         'download',
+        'share',
         'receipt',
         'transaction_receipt',
         'transactionreceipt',
@@ -486,7 +488,11 @@ class _WebViewScreenState extends State<WebViewScreen>
       );
       _isHandlingDownload = true;
       final bytes = await compute(_decodeBase64InBackground, base64Data);
-      await _saveReceiptBytes(bytes, filename, mime);
+      if (isShare) {
+        await _shareReceiptBytes(bytes, filename, mime);
+      } else {
+        await _saveReceiptBytes(bytes, filename, mime);
+      }
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -562,11 +568,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     return 'receipt_$normalizedStatus${txnPart}_$stamp.$ext';
   }
 
-  Future<void> _saveReceiptBytes(
-    List<int> bytes,
-    String filename,
-    String mime,
-  ) async {
+  Future<File> _writeReceiptFile(List<int> bytes, String filename) async {
     final root = await getApplicationDocumentsDirectory();
     final folder = Directory('${root.path}/MySewa/receipts');
     if (!await folder.exists()) {
@@ -574,6 +576,30 @@ class _WebViewScreenState extends State<WebViewScreen>
     }
     final file = File('${folder.path}/$filename');
     await file.writeAsBytes(bytes, flush: true);
+    return file;
+  }
+
+  Future<void> _shareReceiptBytes(
+    List<int> bytes,
+    String filename,
+    String mime,
+  ) async {
+    final file = await _writeReceiptFile(bytes, filename);
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path, mimeType: mime, name: filename)],
+        subject: filename,
+        text: 'MySewa statement',
+      ),
+    );
+  }
+
+  Future<void> _saveReceiptBytes(
+    List<int> bytes,
+    String filename,
+    String mime,
+  ) async {
+    final file = await _writeReceiptFile(bytes, filename);
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

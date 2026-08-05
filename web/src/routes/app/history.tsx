@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { ChevronRight, Download, Search, Send, Smartphone } from "lucide-react";
+import { ChevronRight, Download, FileDown, Loader2, Search, Send, Smartphone } from "lucide-react";
+import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
@@ -9,12 +10,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { apiClient } from "@/lib/api";
-import { buildActivity } from "@/lib/activity";
+import { buildActivity, buildActivityStatement } from "@/lib/activity";
 import type { ActivityKind } from "@/lib/types";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { downloadStatementPdf } from "@/lib/statement-pdf";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 import { TXN_STATUS_OPTIONS, type ListStatus } from "@/hooks/use-list-filters";
 
 export const Route = createFileRoute("/app/history")({
@@ -61,6 +65,14 @@ const DEFAULT_FILTERS: HistorySearchFilters = {
   endDate: "",
 };
 
+function statusHeadlineKey(status: string): MessageKey {
+  const key = status.toLowerCase();
+  if (key === "success" || key === "approved") return "history.successTitle";
+  if (key === "failed") return "history.failedTitle";
+  if (key === "rejected") return "history.rejectedTitle";
+  return "history.pendingTitle";
+}
+
 function toDayStart(value: string) {
   if (!value) return null;
   const d = new Date(`${value}T00:00:00`);
@@ -75,8 +87,11 @@ function toDayEnd(value: string) {
 
 function HistoryPage() {
   const { t, locale } = useI18n();
+  const { user } = useAuth();
+  const { logoUrl } = useSiteBranding();
   const [searchOpen, setSearchOpen] = useState(false);
   const [filters, setFilters] = useState<HistorySearchFilters>(DEFAULT_FILTERS);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
@@ -126,6 +141,34 @@ function HistoryPage() {
     filters.endDate !== "";
 
   const clearFilters = () => setFilters(DEFAULT_FILTERS);
+
+  async function handleDownloadPdf(activityId: string, status: string) {
+    if (!txQuery.data || downloadingId) return;
+    setDownloadingId(activityId);
+    try {
+      const statement = buildActivityStatement(
+        txQuery.data,
+        activityId,
+        t,
+        user?.phone,
+      );
+      if (!statement) {
+        toast.error(t("history.downloadPdfFailed"));
+        return;
+      }
+      await downloadStatementPdf({
+        statement,
+        title: t(statusHeadlineKey(status)),
+        detailsHeading: t("history.transactionDetails"),
+        logoUrl,
+        brandName: t("history.statementBrand"),
+      });
+    } catch {
+      toast.error(t("history.downloadPdfFailed"));
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   return (
     <UserShell
@@ -186,48 +229,69 @@ function HistoryPage() {
           </div>
         ) : (
           <ul className="inset-group min-w-0 divide-y divide-border overflow-hidden">
-            {items.map((item) => (
-              <li key={item.id}>
-                <Link
-                  to="/app/history/$activityId"
-                  params={{ activityId: item.id }}
-                  className="flex items-center gap-3 px-4 py-3 transition-colors active:bg-muted/60"
-                >
-                  <span
-                    className={cn(
-                      "flex size-10 shrink-0 items-center justify-center rounded-full",
-                      item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
-                    )}
+            {items.map((item) => {
+              const isDownloading = downloadingId === item.id;
+              return (
+                <li key={item.id} className="flex items-stretch">
+                  <Link
+                    to="/app/history/$activityId"
+                    params={{ activityId: item.id }}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 transition-colors active:bg-muted/60"
                   >
-                    {item.kind === "deposit" ? (
-                      <Download className="size-[18px]" />
-                    ) : item.kind === "topup" ? (
-                      <Smartphone className="size-[18px]" />
-                    ) : (
-                      <Send className="size-[18px]" />
-                    )}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-medium">{item.title}</p>
-                    <p className="truncate text-[13px] text-muted-foreground">
-                      {item.subtitle} · {formatDateTime(item.created_at)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p
+                    <span
                       className={cn(
-                        "tabular text-[15px] font-semibold",
-                        item.credit ? "text-success" : "text-label",
+                        "flex size-10 shrink-0 items-center justify-center rounded-full",
+                        item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
                       )}
                     >
-                      {item.credit ? "+" : "−"} {formatNPR(item.amount)}
-                    </p>
-                    <StatusChip status={item.status} compact className="mt-1" />
-                  </div>
-                  <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
-                </Link>
-              </li>
-            ))}
+                      {item.kind === "deposit" ? (
+                        <Download className="size-[18px]" />
+                      ) : item.kind === "topup" ? (
+                        <Smartphone className="size-[18px]" />
+                      ) : (
+                        <Send className="size-[18px]" />
+                      )}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[15px] font-medium">{item.title}</p>
+                      <p className="truncate text-[13px] text-muted-foreground">
+                        {item.subtitle} · {formatDateTime(item.created_at)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p
+                        className={cn(
+                          "tabular text-[15px] font-semibold",
+                          item.credit ? "text-success" : "text-label",
+                        )}
+                      >
+                        {item.credit ? "+" : "−"} {formatNPR(item.amount)}
+                      </p>
+                      <StatusChip status={item.status} compact className="mt-1" />
+                    </div>
+                    <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleDownloadPdf(item.id, item.status);
+                    }}
+                    disabled={Boolean(downloadingId)}
+                    aria-label={t("history.downloadPdf")}
+                    title={t("history.downloadPdf")}
+                    className="inline-flex w-12 shrink-0 items-center justify-center border-l border-border text-brand transition-colors hover:bg-brand-soft disabled:opacity-60"
+                  >
+                    {isDownloading ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <FileDown className="size-4" />
+                    )}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

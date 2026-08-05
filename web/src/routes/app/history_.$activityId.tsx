@@ -11,6 +11,7 @@ import {
   Phone,
   ReceiptText,
   ShieldCheck,
+  Share2,
   UserRound,
   Check,
   ExternalLink,
@@ -25,7 +26,7 @@ import { UserShell } from "@/components/layout/UserShell";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { buildActivityStatement } from "@/lib/activity";
-import { downloadStatementPdf } from "@/lib/statement-pdf";
+import { downloadStatementPdf, shareStatementPdf } from "@/lib/statement-pdf";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
@@ -59,6 +60,7 @@ function HistoryStatementPage() {
   const { user } = useAuth();
   const { logoUrl } = useSiteBranding();
   const [downloading, setDownloading] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
@@ -173,21 +175,37 @@ function HistoryStatementPage() {
         }))
     : [];
 
-  async function handleDownloadPdf() {
-    if (!statement || downloading) return;
-    setDownloading(true);
-    try {
-      await downloadStatementPdf({
+  const pdfOptions = statement
+    ? {
         statement,
         title: pageTitle,
         detailsHeading: t("history.transactionDetails"),
         logoUrl,
         brandName: t("history.statementBrand"),
-      });
+      }
+    : null;
+
+  async function handleDownloadPdf() {
+    if (!pdfOptions || downloading || sharing) return;
+    setDownloading(true);
+    try {
+      await downloadStatementPdf(pdfOptions);
     } catch {
       toast.error(t("history.downloadPdfFailed"));
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function handleShare() {
+    if (!pdfOptions || downloading || sharing) return;
+    setSharing(true);
+    try {
+      await shareStatementPdf(pdfOptions);
+    } catch {
+      toast.error(t("history.shareFailed"));
+    } finally {
+      setSharing(false);
     }
   }
 
@@ -206,6 +224,46 @@ function HistoryStatementPage() {
         </div>
       ) : (
         <article className="relative mx-auto min-h-[calc(100dvh-7rem)] max-w-4xl bg-gradient-to-b from-background to-muted/20 px-3 pb-8 pt-[max(16px,var(--safe-area-top,env(safe-area-inset-top,0px)))] sm:px-6 print:min-h-0 print:max-w-none">
+          <div className="mb-3 flex items-center justify-between gap-3 print:hidden">
+            <Link
+              to="/app/history"
+              className="text-[14px] font-semibold text-brand"
+            >
+              {t("history.back")}
+            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleShare()}
+                disabled={sharing || downloading}
+                aria-label={t("history.share")}
+                title={t("history.share")}
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-brand/25 bg-brand-soft/60 px-3 text-[13px] font-semibold text-brand-dark transition-colors hover:bg-brand-soft disabled:opacity-60"
+              >
+                {sharing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Share2 className="size-4" />
+                )}
+                {t("history.share")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDownloadPdf()}
+                disabled={downloading || sharing}
+                aria-label={t("history.downloadPdf")}
+                title={t("history.downloadPdf")}
+                className="inline-flex size-9 items-center justify-center rounded-xl border border-border/70 bg-background text-brand transition-colors hover:bg-brand-soft disabled:opacity-60"
+              >
+                {downloading ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <FileDown className="size-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
           <div className="overflow-hidden rounded-[28px] border border-brand/15 bg-card shadow-[0_18px_45px_-26px_rgba(2,8,23,0.45)]">
             <div className="grid border-b border-border/70 md:grid-cols-[1.05fr_1.3fr]">
               <div className="flex items-center gap-3 bg-white px-4 py-4">
@@ -315,20 +373,6 @@ function HistoryStatementPage() {
                     <ReceiptText className="size-4" />
                     {t("history.transactionDetails")}
                   </h2>
-                  <button
-                    type="button"
-                    onClick={() => void handleDownloadPdf()}
-                    disabled={downloading}
-                    aria-label={t("history.downloadPdf")}
-                    title={t("history.downloadPdf")}
-                    className="inline-flex size-8 items-center justify-center rounded-lg border border-border/70 bg-background text-brand transition-colors hover:bg-brand-soft disabled:opacity-60 print:hidden"
-                  >
-                    {downloading ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <FileDown className="size-4" />
-                    )}
-                  </button>
                 </div>
                 <dl className="px-3 py-1">
                   {transactionRows.map((row) => (

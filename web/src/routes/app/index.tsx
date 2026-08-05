@@ -340,14 +340,15 @@ function WalletHome() {
               </div>
             ) : (
               <ul className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)]">
-                {activity.map((item, idx) => (
-                  <li key={item.id}>
-                    <div
-                      className={cn(
-                        "flex items-center gap-3 px-3.5 py-3.5",
-                        idx > 0 && "border-t border-[#EEF1F5]",
-                      )}
-                    >
+                {activity.map((item, idx) => {
+                  const viewable = canViewStatement(item.status);
+                  const rowClass = cn(
+                    "flex w-full items-center gap-3 px-3.5 py-3.5 text-left transition-colors",
+                    idx > 0 && "border-t border-[#EEF1F5]",
+                    viewable && "active:bg-[#F7F9FC]",
+                  );
+                  const rowBody = (
+                    <>
                       <span
                         className={cn(
                           "flex size-10 shrink-0 items-center justify-center rounded-full",
@@ -378,24 +379,39 @@ function WalletHome() {
                       >
                         {item.credit ? "+" : "−"} {formatRu(item.amount)}
                       </span>
-                      {canViewStatement(item.status) ? (
-                        <Link
-                          to="/app/history/$activityId"
-                          params={{ activityId: item.id }}
-                          className="ml-1 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[#C0C7D1] transition-colors hover:bg-muted/40"
-                          aria-label={t("history.downloadStatement")}
+                      {viewable ? (
+                        <span
+                          className="ml-1 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[#C0C7D1]"
+                          aria-hidden
                         >
                           <ChevronRight className="size-4" />
-                        </Link>
+                        </span>
                       ) : (
                         <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-[#E5EAF0] bg-[#F8FAFC] px-2 py-1 text-[10px] font-semibold text-[#7F8A99]">
                           <Lock className="size-3" />
                           {t("history.viewLocked")}
                         </span>
                       )}
-                    </div>
-                  </li>
-                ))}
+                    </>
+                  );
+
+                  return (
+                    <li key={item.id}>
+                      {viewable ? (
+                        <Link
+                          to="/app/history/$activityId"
+                          params={{ activityId: item.id }}
+                          className={rowClass}
+                          aria-label={t("history.openStatement")}
+                        >
+                          {rowBody}
+                        </Link>
+                      ) : (
+                        <div className={rowClass}>{rowBody}</div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>

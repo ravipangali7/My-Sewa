@@ -249,16 +249,17 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(parts.join(""));
 }
 
-/** Hand the file to the Flutter shell (share sheet / Files app). */
-function downloadViaNativeBridge(
+/** Hand the file to the Flutter shell (save and/or open the system share sheet). */
+function sendViaNativeBridge(
   bytes: Uint8Array,
   filename: string,
   mime: string,
+  type: "download" | "share",
 ): boolean {
   if (!hasNativeFileBridge()) return false;
 
   const payload = {
-    type: "download",
+    type,
     filename,
     mime,
     base64: bytesToBase64(bytes),
@@ -291,7 +292,7 @@ async function triggerDownload(bytes: Uint8Array, filename: string, mime: string
   if (isMySewaNativeApp()) {
     await waitForNativeFileBridge();
   }
-  if (downloadViaNativeBridge(bytes, filename, mime)) return;
+  if (sendViaNativeBridge(bytes, filename, mime, "download")) return;
 
   const copy = new Uint8Array(bytes);
   const blob = new Blob([copy], { type: mime });
@@ -337,6 +338,36 @@ async function triggerDownload(bytes: Uint8Array, filename: string, mime: string
   a.remove();
 }
 
+async function triggerShare(bytes: Uint8Array, filename: string, mime: string) {
+  if (isMySewaNativeApp()) {
+    await waitForNativeFileBridge();
+  }
+  if (sendViaNativeBridge(bytes, filename, mime, "share")) return;
+
+  const copy = new Uint8Array(bytes);
+  const blob = new Blob([copy], { type: mime });
+  const file = new File([blob], filename, { type: mime });
+  const nav = window.navigator as Navigator & {
+    canShare?: (data?: ShareData) => boolean;
+    share?: (data?: ShareData) => Promise<void>;
+  };
+
+  if (typeof nav.share === "function") {
+    const data: ShareData = { title: filename, text: "MySewa statement", files: [file] };
+    try {
+      if (!nav.canShare || nav.canShare(data)) {
+        await nav.share(data);
+        return;
+      }
+    } catch (err) {
+      // User cancel should not fall through to a download.
+      if (err instanceof DOMException && err.name === "AbortError") return;
+    }
+  }
+
+  await triggerDownload(bytes, filename, mime);
+}
+
 export interface StatementPdfOptions {
   statement: ActivityStatement;
   title: string;
@@ -345,13 +376,13 @@ export interface StatementPdfOptions {
   brandName?: string;
 }
 
-export async function downloadStatementPdf({
+async function buildStatementPdfBytes({
   statement,
   title,
   detailsHeading,
   logoUrl,
   brandName = "MySewa",
-}: StatementPdfOptions): Promise<void> {
+}: StatementPdfOptions): Promise<{ bytes: Uint8Array; filename: string }> {
   const canvas = document.createElement("canvas");
   canvas.width = PAGE_W;
   canvas.height = PAGE_H;
@@ -438,6 +469,16 @@ export async function downloadStatementPdf({
   ctx.fillText(brandName, MARGIN + contentW, PAGE_H - 24 * SCALE);
 
   const jpeg = await canvasToJpegBytes(canvas);
-  const pdfBytes = jpegToPdfBytes(jpeg, PAGE_W, PAGE_H);
-  await triggerDownload(pdfBytes, safeFilename(statement.reference), "application/pdf");
+  const bytes = jpegToPdfBytes(jpeg, PAGE_W, PAGE_H);
+  return { bytes, filename: safeFilename(statement.reference) };
+}
+
+export async function downloadStatementPdf(options: StatementPdfOptions): Promise<void> {
+  const { bytes, filename } = await buildStatementPdfBytes(options);
+  await triggerDownload(bytes, filename, "application/pdf");
+}
+
+export async function shareStatementPdf(options: StatementPdfOptions): Promise<void> {
+  const { bytes, filename } = await buildStatementPdfBytes(options);
+  await triggerShare(bytes, filename, "application/pdf");
 }
