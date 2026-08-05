@@ -77,10 +77,10 @@ export interface UserProfile {
   citizenship_number?: string | null;
   /** Denormalized KYC workflow status from the profile API. */
   kyc_status?: KycStatus | null;
-  /** True when KYC is approved — identity fields are locked. */
-  kyc_verified?: boolean;
-  /** Alias for identity lock; same as kyc_verified when true. */
-  profile_locked?: boolean;
+  /** True when KYC is approved — identity fields are locked. Always returned by profile API. */
+  kyc_verified: boolean;
+  /** Alias for identity lock; same as kyc_verified when true. Always returned by profile API. */
+  profile_locked: boolean;
   avatar: string | null;
   avatar_url: string | null;
   is_active: boolean;

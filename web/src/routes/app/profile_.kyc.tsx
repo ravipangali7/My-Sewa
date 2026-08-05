@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { FileCheck2, Upload } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { FileCheck2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { KycDocumentsLockedNotice } from "@/components/KycDocumentsLockedNotice";
 import { UserShell } from "@/components/layout/UserShell";
@@ -13,7 +13,13 @@ import { apiClient, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { isIdentityLocked } from "@/lib/kyc-lock";
-import type { KycDocumentType } from "@/lib/types";
+import {
+  flattenDocFiles,
+  requiresBothSides,
+  validateDocSidesForSubmit,
+  type DocFileMap,
+} from "@/lib/kyc-documents";
+import type { KycDocumentSide, KycDocumentType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 
@@ -53,14 +59,30 @@ const DOC_LABEL_KEY: Record<KycDocumentType, MessageKey> = {
   other: "kyc.doc.other",
 };
 
+const SIDE_LABEL_KEY: Record<KycDocumentSide, MessageKey> = {
+  front: "kyc.side.front",
+  back: "kyc.side.back",
+  single: "kyc.side.single",
+};
+
 function KycPage() {
   const t = useT();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [citizenshipNumber, setCitizenshipNumber] = useState("");
-  const [files, setFiles] = useState<Partial<Record<KycDocumentType, File>>>({});
+  const [files, setFiles] = useState<DocFileMap>({});
+  const [previews, setPreviews] = useState<
+    Partial<Record<KycDocumentType, Partial<Record<KycDocumentSide, string>>>>
+  >({});
   const [extraType, setExtraType] = useState<KycDocumentType>("other");
+  const [extraSide, setExtraSide] = useState<KycDocumentSide>("single");
   const [extraFile, setExtraFile] = useState<File | null>(null);
+  const [extraPreview, setExtraPreview] = useState<string | null>(null);
+  const previewUrlsRef = useRef<string[]>([]);
+
+  const trackPreview = (url: string | null | undefined) => {
+    if (url) previewUrlsRef.current.push(url);
+  };
 
   const kycQuery = useQuery({
     queryKey: ["kyc"],
@@ -68,17 +90,17 @@ function KycPage() {
   });
 
   const status = kycQuery.data?.kyc_status ?? user?.kyc_status ?? "not_submitted";
-  const verified =
+  const submission = kycQuery.data?.submission ?? null;
+  const documents = submission?.documents ?? [];
+  const locked =
     isIdentityLocked(user) ||
     isIdentityLocked({
       kyc_status: status,
       kyc_verified: kycQuery.data?.kyc_verified,
       profile_locked: kycQuery.data?.profile_locked,
     });
-  // Never allow replace/delete/re-submit after verification.
-  const canSubmit = !verified && Boolean(kycQuery.data?.can_submit);
-  const submission = kycQuery.data?.submission ?? null;
-  const documents = submission?.documents ?? [];
+  // No replace / delete / re-submit after KYC verification.
+  const canSubmit = !locked && Boolean(kycQuery.data?.can_submit);
 
   useEffect(() => {
     if (!canSubmit || citizenshipNumber) return;
@@ -92,26 +114,69 @@ function KycPage() {
     submission?.citizenship_number,
   ]);
 
+  useEffect(() => {
+    if (requiresBothSides(extraType)) {
+      setExtraSide((s) => (s === "single" ? "front" : s));
+    } else {
+      setExtraSide("single");
+    }
+  }, [extraType]);
+
+  useEffect(() => {
+    return () => {
+      for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
+      previewUrlsRef.current = [];
+    };
+  }, []);
+
+  const setSideFile = (
+    type: KycDocumentType,
+    side: KycDocumentSide,
+    file: File | null,
+  ) => {
+    setFiles((prev) => {
+      const slot = { ...(prev[type] ?? {}) };
+      slot[side] = file;
+      return { ...prev, [type]: slot };
+    });
+    setPreviews((prev) => {
+      const prevUrl = prev[type]?.[side];
+      if (prevUrl) URL.revokeObjectURL(prevUrl);
+      const nextSide = { ...(prev[type] ?? {}) };
+      if (file) {
+        const url = URL.createObjectURL(file);
+        trackPreview(url);
+        nextSide[side] = url;
+      } else {
+        delete nextSide[side];
+      }
+      return { ...prev, [type]: nextSide };
+    });
+  };
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       const number = citizenshipNumber.trim();
       if (number.length < 3) throw new Error(t("kyc.citizenshipNumberRequired"));
-      if (!files.citizenship) throw new Error(t("kyc.citizenshipFileRequired"));
+      const sideError = validateDocSidesForSubmit(files);
+      if (sideError) throw new Error(t(sideError as MessageKey));
 
+      const rows = flattenDocFiles(files);
       const fd = new FormData();
       fd.append("citizenship_number", number);
-      for (const slot of DOC_SLOTS) {
-        const file = files[slot.type];
-        if (!file) continue;
-        fd.append("file", file);
-        fd.append("document_type", slot.type);
-        fd.append("side", "single");
+      for (const row of rows) {
+        fd.append("file", row.file);
+        fd.append("document_type", row.type);
+        fd.append("side", row.side);
       }
       return apiClient.submitKyc(fd);
     },
     onSuccess: (res) => {
       toast.success(res.message || t("kyc.submitted"));
+      for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
+      previewUrlsRef.current = [];
       setFiles({});
+      setPreviews({});
       queryClient.invalidateQueries({ queryKey: ["kyc"] });
     },
     onError: (err) => {
@@ -124,15 +189,22 @@ function KycPage() {
   const uploadExtraMutation = useMutation({
     mutationFn: async () => {
       if (!extraFile) throw new Error(t("kyc.fileRequired"));
+      const side = requiresBothSides(extraType)
+        ? extraSide === "back"
+          ? "back"
+          : "front"
+        : "single";
       const fd = new FormData();
       fd.append("document_type", extraType);
-      fd.append("side", "single");
+      fd.append("side", side);
       fd.append("file", extraFile);
       return apiClient.uploadKycDocument(fd);
     },
     onSuccess: (res) => {
       toast.success(res.message || t("kyc.documentUploaded"));
+      if (extraPreview) URL.revokeObjectURL(extraPreview);
       setExtraFile(null);
+      setExtraPreview(null);
       queryClient.invalidateQueries({ queryKey: ["kyc"] });
     },
     onError: (err) => {
@@ -141,15 +213,6 @@ function KycPage() {
       );
     },
   });
-
-  const setFile = (type: KycDocumentType, file: File | null) => {
-    setFiles((prev) => {
-      const next = { ...prev };
-      if (file) next[type] = file;
-      else delete next[type];
-      return next;
-    });
-  };
 
   const helpText =
     status === "approved"
@@ -171,6 +234,8 @@ function KycPage() {
             </div>
             <StatusChip status={status} />
           </div>
+
+          {locked ? <KycDocumentsLockedNotice /> : null}
 
           {submission?.rejection_reason ? (
             <div className="rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2.5">
@@ -199,8 +264,6 @@ function KycPage() {
           ) : null}
         </section>
 
-        {verified ? <KycDocumentsLockedNotice className="px-0" /> : null}
-
         {documents.length > 0 ? (
           <section className="inset-group space-y-3 p-4">
             <h2 className="text-[15px] font-semibold">{t("kyc.uploadedDocs")}</h2>
@@ -210,9 +273,24 @@ function KycPage() {
                   key={doc.id}
                   className="flex items-center gap-3 rounded-xl border border-separator/70 px-3 py-2.5"
                 >
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-                    <FileCheck2 className="size-4" />
-                  </span>
+                  {doc.file_url ? (
+                    <a
+                      href={doc.file_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="size-12 shrink-0 overflow-hidden rounded-lg border border-separator/70 bg-muted"
+                    >
+                      <img
+                        src={doc.file_url}
+                        alt=""
+                        className="size-full object-cover"
+                      />
+                    </a>
+                  ) : (
+                    <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                      <FileCheck2 className="size-4" />
+                    </span>
+                  )}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[14px] font-medium">
                       {t(DOC_LABEL_KEY[doc.document_type] ?? "kyc.doc.other")}
@@ -223,6 +301,8 @@ function KycPage() {
                       ) : null}
                     </p>
                     <p className="text-[12px] text-muted-foreground">
+                      {t(SIDE_LABEL_KEY[doc.side] ?? "kyc.side.single")}
+                      {" · "}
                       {formatDateTime(doc.uploaded_at)}
                     </p>
                   </div>
@@ -272,8 +352,7 @@ function KycPage() {
               <div className="space-y-2.5">
                 <Label>{t("kyc.documents")}</Label>
                 {DOC_SLOTS.map((slot) => {
-                  const inputId = `kyc-file-${slot.type}`;
-                  const file = files[slot.type];
+                  const dual = requiresBothSides(slot.type);
                   return (
                     <div
                       key={slot.type}
@@ -298,23 +377,50 @@ function KycPage() {
                           )}
                         </p>
                       </div>
-                      <label
-                        htmlFor={inputId}
-                        className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-separator bg-background px-3 py-3 text-[14px] text-muted-foreground"
-                      >
-                        <Upload className="size-4 shrink-0" />
-                        <span className="min-w-0 truncate">
-                          {file?.name ?? t("kyc.chooseFile")}
-                        </span>
-                      </label>
-                      <input
-                        id={inputId}
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        required={Boolean(slot.primary)}
-                        onChange={(e) => setFile(slot.type, e.target.files?.[0] ?? null)}
-                      />
+                      {dual ? (
+                        <p className="mb-2 text-[12px] text-muted-foreground">
+                          {t("kyc.bothSidesHint")}
+                        </p>
+                      ) : (
+                        <p className="mb-2 text-[12px] text-muted-foreground">
+                          {t("kyc.singleSideHint")}
+                        </p>
+                      )}
+                      {dual ? (
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <SideUploadSlot
+                            id={`kyc-${slot.type}-front`}
+                            label={t("kyc.side.front")}
+                            required={Boolean(slot.primary)}
+                            file={files[slot.type]?.front ?? null}
+                            previewUrl={previews[slot.type]?.front}
+                            onChange={(file) => setSideFile(slot.type, "front", file)}
+                            chooseLabel={t("kyc.chooseFile")}
+                            clearLabel={t("kyc.clear")}
+                          />
+                          <SideUploadSlot
+                            id={`kyc-${slot.type}-back`}
+                            label={t("kyc.side.back")}
+                            required={Boolean(slot.primary)}
+                            file={files[slot.type]?.back ?? null}
+                            previewUrl={previews[slot.type]?.back}
+                            onChange={(file) => setSideFile(slot.type, "back", file)}
+                            chooseLabel={t("kyc.chooseFile")}
+                            clearLabel={t("kyc.clear")}
+                          />
+                        </div>
+                      ) : (
+                        <SideUploadSlot
+                          id={`kyc-${slot.type}-single`}
+                          label={t("kyc.side.single")}
+                          required={false}
+                          file={files[slot.type]?.single ?? null}
+                          previewUrl={previews[slot.type]?.single}
+                          onChange={(file) => setSideFile(slot.type, "single", file)}
+                          chooseLabel={t("kyc.chooseFile")}
+                          clearLabel={t("kyc.clear")}
+                        />
+                      )}
                     </div>
                   );
                 })}
@@ -331,7 +437,7 @@ function KycPage() {
           </section>
         ) : null}
 
-        {status === "pending" ? (
+        {status === "pending" && !locked ? (
           <section className="inset-group space-y-3 p-4">
             <div>
               <h2 className="text-[15px] font-semibold">{t("kyc.addSupporting")}</h2>
@@ -353,21 +459,45 @@ function KycPage() {
                 ))}
               </select>
             </div>
+            {requiresBothSides(extraType) ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="extra_side">{t("kyc.sideLabel")}</Label>
+                <select
+                  id="extra_side"
+                  value={extraSide === "back" ? "back" : "front"}
+                  onChange={(e) => setExtraSide(e.target.value as KycDocumentSide)}
+                  className="flex h-11 w-full rounded-xl border border-input bg-background px-3 text-[14px]"
+                >
+                  <option value="front">{t("kyc.side.front")}</option>
+                  <option value="back">{t("kyc.side.back")}</option>
+                </select>
+              </div>
+            ) : null}
             <div className="space-y-1.5">
               <Label htmlFor="extra_file">{t("kyc.file")}</Label>
-              <label
-                htmlFor="extra_file"
-                className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
-              >
-                <Upload className="size-5" />
-                {extraFile?.name ?? t("kyc.chooseFile")}
-              </label>
-              <input
+              <SideUploadSlot
                 id="extra_file"
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={(e) => setExtraFile(e.target.files?.[0] ?? null)}
+                label={
+                  requiresBothSides(extraType)
+                    ? t(SIDE_LABEL_KEY[extraSide === "back" ? "back" : "front"])
+                    : t("kyc.side.single")
+                }
+                required={false}
+                file={extraFile}
+                previewUrl={extraPreview ?? undefined}
+                onChange={(file) => {
+                  if (extraPreview) URL.revokeObjectURL(extraPreview);
+                  setExtraFile(file);
+                  if (!file) {
+                    setExtraPreview(null);
+                    return;
+                  }
+                  const url = URL.createObjectURL(file);
+                  trackPreview(url);
+                  setExtraPreview(url);
+                }}
+                chooseLabel={t("kyc.chooseFile")}
+                clearLabel={t("kyc.clear")}
               />
             </div>
             <Button
@@ -394,5 +524,64 @@ function KycPage() {
         ) : null}
       </div>
     </UserShell>
+  );
+}
+
+function SideUploadSlot({
+  id,
+  label,
+  required,
+  file,
+  previewUrl,
+  onChange,
+  chooseLabel,
+  clearLabel,
+}: {
+  id: string;
+  label: string;
+  required: boolean;
+  file: File | null;
+  previewUrl?: string | undefined;
+  onChange: (file: File | null) => void;
+  chooseLabel: string;
+  clearLabel: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+        {required ? " *" : ""}
+      </p>
+      {previewUrl ? (
+        <div className="relative overflow-hidden rounded-lg border border-separator bg-muted">
+          <img src={previewUrl} alt="" className="aspect-[4/3] w-full object-cover" />
+          <button
+            type="button"
+            aria-label={clearLabel}
+            className="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-full bg-black/55 text-white"
+            onClick={() => onChange(null)}
+          >
+            <X className="size-3.5" strokeWidth={2.5} />
+          </button>
+          <p className="truncate px-2 py-1.5 text-[11px] text-muted-foreground">{file?.name}</p>
+        </div>
+      ) : (
+        <label
+          htmlFor={id}
+          className="flex min-h-[5.5rem] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-separator bg-background px-2 py-3 text-center text-[13px] text-muted-foreground"
+        >
+          <Upload className="size-4 shrink-0" />
+          <span>{chooseLabel}</span>
+        </label>
+      )}
+      <input
+        id={id}
+        type="file"
+        accept="image/*"
+        className="sr-only"
+        required={required && !file}
+        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+      />
+    </div>
   );
 }

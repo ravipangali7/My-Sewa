@@ -264,7 +264,9 @@ function Profile() {
                 to="/app/profile/kyc"
                 icon={ShieldCheck}
                 title={t("profile.kyc")}
-                subtitle={t("profile.kycSubtitle")}
+                subtitle={
+                  identityLocked ? t("profile.kycVerified") : t("profile.kycSubtitle")
+                }
               />
             </div>
           </section>

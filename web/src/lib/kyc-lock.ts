@@ -1,21 +1,13 @@
-import type { UserProfile } from "./types";
-
-/** Values aligned with CustomUser.KYC_STATUS_* on the server. */
-export type KycStatus =
-  | "not_submitted"
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "verified";
-
-type KycLockSource = Pick<
-  UserProfile,
-  "kyc_status" | "kyc_verified" | "profile_locked"
-> | null | undefined;
+type KycLockSource = {
+  kyc_status?: string | null | undefined;
+  kyc_verified?: boolean | null | undefined;
+  profile_locked?: boolean | null | undefined;
+} | null | undefined;
 
 /**
  * True when identity fields must stay read-only after KYC verification.
- * Prefers explicit API flags; falls back to `kyc_status === 'approved'|'verified'`.
+ * Prefers explicit API flags (`kyc_verified` / `profile_locked`);
+ * falls back to `kyc_status === 'approved'|'verified'`.
  */
 export function isKycVerified(user: KycLockSource): boolean {
   if (!user) return false;
