@@ -101,8 +101,8 @@ const CATEGORY_META: Record<
   topups: { icon: Smartphone, href: "/admin/topups", color: COLORS.ocean },
   transfers: { icon: Banknote, href: "/admin/transfers", color: COLORS.success },
   remittances: { icon: ArrowDownToLine, href: "/admin/remittances", color: COLORS.info },
-  internet_bills: { icon: Wifi, href: "/admin/reports", color: COLORS.warning },
-  data_packs: { icon: Package, href: "/admin/reports", color: COLORS.brandAccent },
+  internet_bills: { icon: Wifi, href: "/admin/internet", color: COLORS.warning },
+  data_packs: { icon: Package, href: "/admin/data-topups", color: COLORS.brandAccent },
 };
 
 const PIE_COLORS = [
@@ -699,7 +699,6 @@ function CategoryCard({
     color: COLORS.brand,
   };
   const Icon = meta.icon;
-  const hasAdminList = !["internet_bills", "data_packs"].includes(categoryKey);
 
   return (
     <div className="rounded-xl border border-border bg-background/60 p-3.5">
@@ -716,11 +715,9 @@ function CategoryCard({
             <p className="text-[11px] text-muted-foreground">{category.count} transactions</p>
           </div>
         </div>
-        {hasAdminList ? (
-          <Button asChild size="sm" variant="ghost" className="h-7 px-2 text-xs">
-            <Link to={meta.href}>View</Link>
-          </Button>
-        ) : null}
+        <Button asChild size="sm" variant="ghost" className="h-7 px-2 text-xs">
+          <Link to={meta.href}>View</Link>
+        </Button>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-lg bg-muted/40 px-2.5 py-2">

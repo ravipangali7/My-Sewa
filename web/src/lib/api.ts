@@ -748,6 +748,34 @@ export const apiClient = {
       `/api/admin/topups/${id}/status/`,
       { method: "POST", body: { status } },
     ),
+  adminDataPacks: (filters?: AdminListFilters & { operator?: "NTC" | "NCELL" | "all" }) => {
+    const params = new URLSearchParams(buildAdminListQuery(filters).replace(/^\?/, ""));
+    if (filters?.operator && filters.operator !== "all") {
+      params.set("operator", filters.operator);
+    }
+    const query = params.toString();
+    return api<import("./types").AdminListResponse<import("./types").DataPackTransaction>>(
+      `/api/admin/data-packs/${query ? `?${query}` : ""}`,
+    );
+  },
+  adminGetDataPack: (id: number) =>
+    api<import("./types").DataPackTransaction>(`/api/admin/data-packs/${id}/`),
+  adminUpdateDataPackStatus: (id: number, status: import("./types").TxnStatus) =>
+    api<{ message: string; data: import("./types").DataPackTransaction }>(
+      `/api/admin/data-packs/${id}/status/`,
+      { method: "POST", body: { status } },
+    ),
+  adminInternetBills: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").InternetBillTransaction>>(
+      `/api/admin/internet-bills/${buildAdminListQuery(filters)}`,
+    ),
+  adminGetInternetBill: (id: number) =>
+    api<import("./types").InternetBillTransaction>(`/api/admin/internet-bills/${id}/`),
+  adminUpdateInternetBillStatus: (id: number, status: import("./types").TxnStatus) =>
+    api<{ message: string; data: import("./types").InternetBillTransaction }>(
+      `/api/admin/internet-bills/${id}/status/`,
+      { method: "POST", body: { status } },
+    ),
   adminTransfers: (filters?: AdminListFilters) =>
     api<import("./types").AdminListResponse<import("./types").BankTransferTransaction>>(
       `/api/admin/transfers/${buildAdminListQuery(filters)}`,

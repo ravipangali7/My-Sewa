@@ -48,7 +48,9 @@ from ..serializers import (
     RemittanceTransactionSerializer,
     AdminRemittanceSerializer,
     InternetBillTransactionSerializer,
+    AdminInternetBillSerializer,
     DataPackTransactionSerializer,
+    AdminDataPackSerializer,
     SettingsSerializer,
     UserFeeConfigSerializer,
     KYCSubmissionSerializer,
@@ -1124,6 +1126,8 @@ def admin_list_deposits(request):
     if q:
         qs = qs.filter(
             Q(user__phone__icontains=q)
+            | Q(transaction_id__icontains=q)
+            | Q(bank_name__icontains=q)
             | Q(note__icontains=q)
             | Q(rejection_reason__icontains=q)
             | _maybe_id_query(q, 'id')
@@ -1133,10 +1137,15 @@ def admin_list_deposits(request):
     if _is_csv_export(request):
         return _csv_response(
             'admin-deposits.csv',
-            ['id', 'phone', 'amount', 'status', 'note', 'rejection_reason', 'created_at', 'updated_at'],
+            [
+                'id', 'phone', 'amount', 'transaction_id', 'deposit_date', 'bank_name',
+                'status', 'note', 'rejection_reason', 'created_at', 'updated_at',
+            ],
             [
                 [
-                    d.id, d.user.phone, d.amount, d.status, d.note or '', d.rejection_reason or '',
+                    d.id, d.user.phone, d.amount, d.transaction_id or '',
+                    d.deposit_date.isoformat() if d.deposit_date else '',
+                    d.bank_name or '', d.status, d.note or '', d.rejection_reason or '',
                     d.created_at.isoformat() if d.created_at else '',
                     d.updated_at.isoformat() if d.updated_at else '',
                 ]
@@ -1394,6 +1403,196 @@ def admin_update_topup_status(request, topup_id):
     return Response({
         'message': f'Top-up status updated to {topup.status}',
         'data': AdminTopupSerializer(topup).data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_list_data_packs(request):
+    qs = DataPackTransaction.objects.select_related('user').order_by('-created_at')
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+    status_filter = request.query_params.get('status')
+    if status_filter in ('pending', 'success', 'failed'):
+        qs = qs.filter(status=status_filter)
+    operator_filter = (request.query_params.get('operator') or '').strip().upper()
+    if operator_filter in ('NTC', 'NCELL'):
+        qs = qs.filter(operator=operator_filter)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(mobile_number__icontains=q)
+            | Q(package_name__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-data-packs.csv',
+            [
+                'id', 'phone', 'operator', 'mobile_number', 'package_name', 'package_id',
+                'product_code', 'amount', 'charge', 'cashback', 'total_debited',
+                'merchant_txn_id', 'service_hub_txn_id', 'status', 'created_at',
+            ],
+            [
+                [
+                    t.id, t.user.phone, t.operator, t.mobile_number, t.package_name,
+                    t.package_id, t.product_code, t.amount, t.charge, t.cashback,
+                    t.total_debited, t.merchant_txn_id, t.service_hub_txn_id or '',
+                    t.status, t.created_at.isoformat() if t.created_at else '',
+                ]
+                for t in qs
+            ],
+        )
+
+    return Response({
+        'items': DataPackTransactionSerializer(qs, many=True).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status='success').count(),
+            'pending': qs.filter(status='pending').count(),
+            'failed': qs.filter(status='failed').count(),
+        },
+        'summary': _amount_summary(qs, direction='debit'),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_get_data_pack(request, data_pack_id):
+    try:
+        data_pack = DataPackTransaction.objects.select_related('user').get(pk=data_pack_id)
+    except DataPackTransaction.DoesNotExist:
+        return Response({'error': 'Data pack not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(AdminDataPackSerializer(data_pack).data)
+
+
+@api_view(['POST', 'PATCH'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_update_data_pack_status(request, data_pack_id):
+    """Change data pack status from the admin list (pending / success / failed)."""
+    try:
+        data_pack = DataPackTransaction.objects.select_related('user').get(pk=data_pack_id)
+    except DataPackTransaction.DoesNotExist:
+        return Response({'error': 'Data pack not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    new_status = (request.data.get('status') or '').strip().lower()
+    old_status = data_pack.status
+    ok, err = apply_outbound_status_change(data_pack, new_status)
+    if not ok:
+        return Response({'error': err}, status=status.HTTP_400_BAD_REQUEST)
+
+    data_pack.refresh_from_db()
+    if old_status != 'success' and data_pack.status == 'success':
+        from ..services.notifications import notify_low_balance_if_needed
+        from ..models import Wallet
+        try:
+            wallet = Wallet.objects.select_related('user').get(user=data_pack.user)
+            notify_low_balance_if_needed(wallet)
+        except Wallet.DoesNotExist:
+            pass
+
+    return Response({
+        'message': f'Data pack status updated to {data_pack.status}',
+        'data': AdminDataPackSerializer(data_pack).data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_list_internet_bills(request):
+    qs = InternetBillTransaction.objects.select_related('user').order_by('-created_at')
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+    status_filter = request.query_params.get('status')
+    if status_filter in ('pending', 'success', 'failed'):
+        qs = qs.filter(status=status_filter)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(isp_name__icontains=q)
+            | Q(isp_id__icontains=q)
+            | Q(customer_id__icontains=q)
+            | Q(customer_name__icontains=q)
+            | Q(package_name__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-internet-bills.csv',
+            [
+                'id', 'phone', 'isp_id', 'isp_name', 'customer_id', 'customer_name',
+                'package_name', 'amount', 'charge', 'cashback', 'total_debited',
+                'merchant_txn_id', 'service_hub_txn_id', 'status', 'created_at',
+            ],
+            [
+                [
+                    t.id, t.user.phone, t.isp_id, t.isp_name, t.customer_id,
+                    t.customer_name, t.package_name, t.amount, t.charge, t.cashback,
+                    t.total_debited, t.merchant_txn_id, t.service_hub_txn_id or '',
+                    t.status, t.created_at.isoformat() if t.created_at else '',
+                ]
+                for t in qs
+            ],
+        )
+
+    return Response({
+        'items': InternetBillTransactionSerializer(qs, many=True).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status='success').count(),
+            'pending': qs.filter(status='pending').count(),
+            'failed': qs.filter(status='failed').count(),
+        },
+        'summary': _amount_summary(qs, direction='debit'),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_get_internet_bill(request, bill_id):
+    try:
+        bill = InternetBillTransaction.objects.select_related('user').get(pk=bill_id)
+    except InternetBillTransaction.DoesNotExist:
+        return Response({'error': 'Internet bill not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(AdminInternetBillSerializer(bill).data)
+
+
+@api_view(['POST', 'PATCH'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_update_internet_bill_status(request, bill_id):
+    """Change internet bill status from the admin list (pending / success / failed)."""
+    try:
+        bill = InternetBillTransaction.objects.select_related('user').get(pk=bill_id)
+    except InternetBillTransaction.DoesNotExist:
+        return Response({'error': 'Internet bill not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    new_status = (request.data.get('status') or '').strip().lower()
+    old_status = bill.status
+    ok, err = apply_outbound_status_change(bill, new_status)
+    if not ok:
+        return Response({'error': err}, status=status.HTTP_400_BAD_REQUEST)
+
+    bill.refresh_from_db()
+    if old_status != 'success' and bill.status == 'success':
+        from ..services.notifications import notify_low_balance_if_needed
+        from ..models import Wallet
+        try:
+            wallet = Wallet.objects.select_related('user').get(user=bill.user)
+            notify_low_balance_if_needed(wallet)
+        except Wallet.DoesNotExist:
+            pass
+
+    return Response({
+        'message': f'Internet bill status updated to {bill.status}',
+        'data': AdminInternetBillSerializer(bill).data,
     })
 
 

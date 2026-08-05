@@ -18,17 +18,17 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatDateTime, formatNPR } from "@/lib/format";
+import { formatDate, formatDateTime, formatNPR } from "@/lib/format";
 
 export const Route = createFileRoute("/admin/deposits_/$depositId")({
   head: () => ({
     meta: [
-      { title: "Deposit Statement — MySewa Admin" },
+      { title: "Manual Deposit — MySewa Admin" },
       {
         name: "description",
-        content: "View full deposit remittance details, proof screenshot, and approval status.",
+        content: "View full manual wallet load details, proof screenshot, and approval status.",
       },
-      { property: "og:title", content: "Deposit Statement — MySewa Admin" },
+      { property: "og:title", content: "Manual Deposit — MySewa Admin" },
     ],
   }),
   component: DepositDetailPage,
@@ -114,10 +114,10 @@ function DepositDetailPage() {
 
   return (
     <AdminShell
-      title={d ? `Deposit #${d.id}` : "Deposit"}
+      title={d ? `Manual Deposit #${d.id}` : "Manual Deposit"}
       description={
         d
-          ? "Remittance statement"
+          ? "Wallet load request"
           : depositQuery.isLoading
             ? "Loading…"
             : "Not found"
@@ -144,7 +144,7 @@ function DepositDetailPage() {
       }
     >
       <div className="mb-5">
-        <BackButton to="/admin/deposits" label="Back to deposits" />
+        <BackButton to="/admin/deposits" label="Back to Manual Deposit" />
       </div>
 
       {depositQuery.isError && (
@@ -162,10 +162,10 @@ function DepositDetailPage() {
               <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-                    MySewa Remittance
+                    MySewa Manual Deposit
                   </p>
                   <h2 className="mt-1 break-words text-xl font-semibold tracking-tight sm:text-2xl">
-                    Deposit statement
+                    Wallet load request
                   </h2>
                   <p className="mt-1 break-words text-sm text-muted-foreground">
                     Reference #{d.id} · Issued {formatDateTime(d.created_at)}
@@ -212,7 +212,14 @@ function DepositDetailPage() {
                   Transaction
                 </h3>
                 <dl>
-                  <StatementRow label="Type">Wallet remittance / load</StatementRow>
+                  <StatementRow label="Type">Manual wallet load</StatementRow>
+                  <StatementRow label="Transaction ID">
+                    {d.transaction_id?.trim() || "—"}
+                  </StatementRow>
+                  <StatementRow label="Deposit date">
+                    {d.deposit_date ? formatDate(d.deposit_date) : "—"}
+                  </StatementRow>
+                  <StatementRow label="User bank">{d.bank_name?.trim() || "—"}</StatementRow>
                   <StatementRow label="Status">{d.status_display}</StatementRow>
                   <StatementRow label="Submitted">{formatDateTime(d.created_at)}</StatementRow>
                   <StatementRow label="Updated">{formatDateTime(d.updated_at)}</StatementRow>
@@ -231,7 +238,7 @@ function DepositDetailPage() {
                 Narrative
               </h3>
               <dl>
-                <StatementRow label="User note">{d.note?.trim() || "—"}</StatementRow>
+                <StatementRow label="Remarks">{d.note?.trim() || "—"}</StatementRow>
                 {d.status === "rejected" && (
                   <StatementRow label="Rejection">
                     <span className="break-words text-destructive">{d.rejection_reason || "—"}</span>

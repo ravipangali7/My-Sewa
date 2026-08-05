@@ -96,11 +96,18 @@ class WalletAdjustmentAdmin(admin.ModelAdmin):
 
 @admin.register(Deposit)
 class DepositAdmin(admin.ModelAdmin):
-    list_display = ('user', 'amount', 'status', 'created_at', 'updated_at')
-    list_filter = ('status', 'created_at', 'updated_at')
-    search_fields = ('user__username', 'user__email', 'note', 'rejection_reason')
+    list_display = (
+        'user', 'amount', 'transaction_id', 'deposit_date', 'status',
+        'created_at', 'updated_at',
+    )
+    list_filter = ('status', 'deposit_date', 'created_at', 'updated_at')
+    search_fields = (
+        'user__username', 'user__email', 'user__phone',
+        'transaction_id', 'bank_name', 'note', 'rejection_reason',
+    )
     readonly_fields = (
-        'user', 'amount', 'screenshot_proof', 'note', 'rejection_reason',
+        'user', 'amount', 'transaction_id', 'deposit_date', 'bank_name',
+        'screenshot_proof', 'note', 'rejection_reason',
         'balance_before', 'balance_after',
         'created_at', 'updated_at',
     )

@@ -18,8 +18,7 @@ import {
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-const PIN_MIN = 4;
-const PIN_MAX = 6;
+const PIN_LENGTH = 4;
 
 type TransactionPinDialogProps = {
   open: boolean;
@@ -54,7 +53,7 @@ export function TransactionPinDialog({
     }
   }, [open]);
 
-  const canSubmit = hasPin && pin.length >= PIN_MIN && !confirming;
+  const canSubmit = hasPin && pin.length === PIN_LENGTH && !confirming;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -75,9 +74,9 @@ export function TransactionPinDialog({
         {hasPin ? (
           <div className="flex flex-col items-center gap-3">
             <InputOTP
-              maxLength={PIN_MAX}
+              maxLength={PIN_LENGTH}
               value={pin}
-              onChange={setPin}
+              onChange={(value) => setPin(value.replace(/\D/g, "").slice(0, PIN_LENGTH))}
               disabled={confirming}
               autoFocus
               inputMode="numeric"
@@ -91,7 +90,7 @@ export function TransactionPinDialog({
               }}
             >
               <InputOTPGroup>
-                {Array.from({ length: PIN_MAX }).map((_, index) => (
+                {Array.from({ length: PIN_LENGTH }).map((_, index) => (
                   <InputOTPSlot
                     key={index}
                     index={index}

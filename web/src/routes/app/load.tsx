@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatNPR, formatDateTime } from "@/lib/format";
+import { formatNPR, formatDateTime, formatDate } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
@@ -25,21 +25,29 @@ import { useSiteBranding } from "@/hooks/use-site-branding";
 export const Route = createFileRoute("/app/load")({
   head: () => ({
     meta: [
-      { title: "Load Wallet — MySewa Remittance Deposit" },
+      { title: "Manual Wallet Load — MySewa" },
       {
         name: "description",
         content:
-          "Fund your MySewa wallet: scan the company QR or transfer to the bank account, then submit your deposit with screenshot proof.",
+          "Fund your MySewa wallet: transfer to the deposit account, then submit transaction details with payment screenshot.",
       },
-      { property: "og:title", content: "Load Wallet — MySewa" },
+      { property: "og:title", content: "Manual Wallet Load — MySewa" },
       {
         property: "og:description",
-        content: "Submit a remittance deposit with proof and track approval status.",
+        content: "Submit a manual wallet load request with proof and track approval status.",
       },
     ],
   }),
   component: LoadWallet,
 });
+
+function todayIsoDate() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 function LoadWallet() {
   const queryClient = useQueryClient();
@@ -55,7 +63,10 @@ function LoadWallet() {
   const [exporting, setExporting] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
+  const [transactionId, setTransactionId] = useState("");
   const [amount, setAmount] = useState("");
+  const [depositDate, setDepositDate] = useState(todayIsoDate);
+  const [bankName, setBankName] = useState("");
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
@@ -80,27 +91,40 @@ function LoadWallet() {
   const maxDeposit = payment?.max_deposit ?? 100000;
   const instructions = payment?.deposit_instructions?.trim() || "";
 
+  const resetForm = () => {
+    setTransactionId("");
+    setAmount("");
+    setDepositDate(todayIsoDate());
+    setBankName("");
+    setNote("");
+    setFile(null);
+  };
+
   const createMutation = useMutation({
     mutationFn: async () => {
       if (accountPending) throw new Error(t("account.pending"));
       if (!depositsEnabled) throw new Error(t("load.disabledError"));
+      const tid = transactionId.trim();
+      if (!tid) throw new Error(t("load.txnIdRequired"));
       const amt = Number(amount);
       if (!Number.isFinite(amt) || amt <= 0) throw new Error(t("load.validAmount"));
       if (amt < minDeposit) throw new Error(t("load.minError", { min: minDeposit }));
       if (maxDeposit > 0 && amt > maxDeposit)
         throw new Error(t("load.maxError", { max: maxDeposit }));
+      if (!depositDate) throw new Error(t("load.depositDateRequired"));
       if (requireScreenshot && !file) throw new Error(t("load.screenshotRequired"));
       const fd = new FormData();
       fd.append("amount", amount);
+      fd.append("transaction_id", tid);
+      fd.append("deposit_date", depositDate);
+      if (bankName.trim()) fd.append("bank_name", bankName.trim());
       if (note.trim()) fd.append("note", note.trim());
       if (file) fd.append("screenshot_proof", file);
       return apiClient.createDeposit(fd);
     },
     onSuccess: (res) => {
       toast.success(t("load.submitted"), { description: t("load.pendingApproval") });
-      setAmount("");
-      setNote("");
-      setFile(null);
+      resetForm();
       setLastReceiptId(activityIdForKind("deposit", res.data.id));
       queryClient.invalidateQueries({ queryKey: ["deposits"] });
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
@@ -113,7 +137,6 @@ function LoadWallet() {
   });
 
   const bank = settingsQuery.data?.bank_details ?? {};
-  const bankEntries = Object.entries(bank).filter(([, v]) => v);
 
   return (
     <UserShell title={t("load.title")} back="/app">
@@ -133,14 +156,14 @@ function LoadWallet() {
         {depositsEnabled ? (
           <>
             <section className="inset-group min-w-0 max-w-full p-4">
-              <h2 className="text-[15px] font-semibold">{t("load.payTo")}</h2>
+              <h2 className="text-[15px] font-semibold">{t("load.depositAccount")}</h2>
               {instructions ? (
                 <p className="mt-2 break-words text-[13px] text-muted-foreground whitespace-pre-wrap">
                   {instructions}
                 </p>
               ) : null}
-              <div className="mt-3 flex min-w-0 gap-4">
-                <div className="flex size-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-muted text-muted-foreground">
+              <div className="mt-3 flex min-w-0 flex-col gap-4 sm:flex-row">
+                <div className="mx-auto flex size-36 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-muted text-muted-foreground sm:mx-0">
                   {settingsQuery.data?.qr_code_url ? (
                     <img
                       src={settingsQuery.data.qr_code_url}
@@ -151,26 +174,49 @@ function LoadWallet() {
                     <QrCode className="size-12" />
                   )}
                 </div>
-                <dl className="min-w-0 flex-1 space-y-1.5 text-[14px]">
+                <dl className="min-w-0 flex-1 space-y-2 text-[14px]">
                   {settingsQuery.isLoading ? (
                     <p className="text-muted-foreground">{t("load.loadingBank")}</p>
-                  ) : bankEntries.length === 0 ? (
+                  ) : !bank.bank_name && !bank.account_name && !bank.account_number ? (
                     <p className="text-muted-foreground">{t("load.bankNotConfigured")}</p>
                   ) : (
-                    bankEntries.map(([k, v]) => (
-                      <div key={k} className="flex min-w-0 justify-between gap-3">
-                        <dt className="shrink-0 text-muted-foreground capitalize">
-                          {k.replace(/_/g, " ")}
-                        </dt>
-                        <dd className="min-w-0 break-all text-right font-medium">{v}</dd>
-                      </div>
-                    ))
+                    <>
+                      {bank.bank_name ? (
+                        <div className="flex min-w-0 justify-between gap-3">
+                          <dt className="shrink-0 text-muted-foreground">{t("load.bankName")}</dt>
+                          <dd className="min-w-0 break-all text-right font-medium">{bank.bank_name}</dd>
+                        </div>
+                      ) : null}
+                      {bank.account_name ? (
+                        <div className="flex min-w-0 justify-between gap-3">
+                          <dt className="shrink-0 text-muted-foreground">{t("load.accountName")}</dt>
+                          <dd className="min-w-0 break-all text-right font-medium">
+                            {bank.account_name}
+                          </dd>
+                        </div>
+                      ) : null}
+                      {bank.account_number ? (
+                        <div className="flex min-w-0 justify-between gap-3">
+                          <dt className="shrink-0 text-muted-foreground">{t("load.accountNumber")}</dt>
+                          <dd className="min-w-0 break-all text-right font-medium tabular">
+                            {bank.account_number}
+                          </dd>
+                        </div>
+                      ) : null}
+                      {bank.branch ? (
+                        <div className="flex min-w-0 justify-between gap-3">
+                          <dt className="shrink-0 text-muted-foreground">{t("load.branch")}</dt>
+                          <dd className="min-w-0 break-all text-right font-medium">{bank.branch}</dd>
+                        </div>
+                      ) : null}
+                    </>
                   )}
                 </dl>
               </div>
             </section>
 
             <section className="inset-group min-w-0 max-w-full p-4">
+              <h2 className="mb-3 text-[15px] font-semibold">{t("load.submitTitle")}</h2>
               <form
                 className="space-y-4"
                 onSubmit={(e) => {
@@ -179,7 +225,18 @@ function LoadWallet() {
                 }}
               >
                 <div className="space-y-1.5">
-                  <Label htmlFor="amount">{t("common.amountNpr")}</Label>
+                  <Label htmlFor="transaction_id">{t("load.transactionId")}</Label>
+                  <Input
+                    id="transaction_id"
+                    value={transactionId}
+                    onChange={(e) => setTransactionId(e.target.value)}
+                    className="h-11 rounded-xl"
+                    placeholder={t("load.transactionIdPlaceholder")}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="amount">{t("load.depositedAmount")}</Label>
                   <Input
                     id="amount"
                     inputMode="decimal"
@@ -194,14 +251,35 @@ function LoadWallet() {
                   </p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="note">{t("load.noteOptional")}</Label>
+                  <Label htmlFor="deposit_date">{t("load.depositDate")}</Label>
+                  <Input
+                    id="deposit_date"
+                    type="date"
+                    value={depositDate}
+                    onChange={(e) => setDepositDate(e.target.value)}
+                    className="h-11 rounded-xl"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="bank_name">{t("load.userBankOptional")}</Label>
+                  <Input
+                    id="bank_name"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    className="h-11 rounded-xl"
+                    placeholder={t("load.userBankPlaceholder")}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="note">{t("load.remarksOptional")}</Label>
                   <Textarea
                     id="note"
                     rows={2}
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     className="rounded-xl"
-                    placeholder={t("load.notePlaceholder")}
+                    placeholder={t("load.remarksPlaceholder")}
                   />
                 </div>
                 {requireScreenshot ? (
@@ -324,7 +402,12 @@ function LoadWallet() {
                         </span>
                       </p>
                       <p className="truncate text-[13px] text-muted-foreground">
-                        {d.note ?? t("common.noNote")} · {formatDateTime(d.created_at)}
+                        {d.transaction_id
+                          ? `${t("common.txnId")}: ${d.transaction_id}`
+                          : t("common.noNote")}
+                        {d.deposit_date ? ` · ${formatDate(d.deposit_date)}` : ""}
+                        {" · "}
+                        {formatDateTime(d.created_at)}
                       </p>
                       {d.status === "rejected" && d.rejection_reason ? (
                         <p className="mt-0.5 break-words text-[13px] text-destructive">

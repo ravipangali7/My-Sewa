@@ -51,7 +51,7 @@ function SetTransactionPinPage() {
               toast.error(t("pin.mismatch"));
               return;
             }
-            if (!/^\d{4,6}$/.test(pin)) {
+            if (!/^\d{4}$/.test(pin)) {
               toast.error(t("pin.invalidFormat"));
               return;
             }
@@ -79,10 +79,10 @@ function SetTransactionPinPage() {
               inputMode="numeric"
               autoComplete="off"
               value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
               required
               minLength={4}
-              maxLength={6}
+              maxLength={4}
               placeholder="••••"
             />
           </div>
@@ -93,10 +93,10 @@ function SetTransactionPinPage() {
               inputMode="numeric"
               autoComplete="off"
               value={confirmPin}
-              onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
               required
               minLength={4}
-              maxLength={6}
+              maxLength={4}
               placeholder="••••"
             />
           </div>

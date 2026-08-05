@@ -27,15 +27,15 @@ from .models import (
 
 User = get_user_model()
 
-_TRANSACTION_PIN_RE = re.compile(r'^\d{4,6}$')
+_TRANSACTION_PIN_RE = re.compile(r'^\d{4}$')
 
 
 def validate_transaction_pin_value(value):
-    """Ensure transaction PIN is 4–6 numeric digits."""
+    """Ensure transaction PIN is exactly 4 numeric digits."""
     pin = (value or '').strip()
     if not _TRANSACTION_PIN_RE.match(pin):
         raise serializers.ValidationError(
-            'Transaction PIN must be 4 to 6 digits.'
+            'Transaction PIN must be exactly 4 digits.'
         )
     return pin
 
@@ -53,7 +53,7 @@ class UserSerializer(serializers.ModelSerializer):
     """User serializer for registration and profile - phone number as username"""
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     password2 = serializers.CharField(write_only=True, required=True, label="Confirm Password")
-    transaction_pin = serializers.CharField(write_only=True, required=True, min_length=4, max_length=6)
+    transaction_pin = serializers.CharField(write_only=True, required=True, min_length=4, max_length=4)
     has_transaction_pin = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -466,8 +466,8 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 class SetTransactionPinSerializer(serializers.Serializer):
     """Set transaction PIN for authenticated users who do not yet have one."""
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
-    confirm_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    confirm_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
 
     def validate_transaction_pin(self, value):
         return validate_transaction_pin_value(value)
@@ -485,7 +485,7 @@ class SetTransactionPinSerializer(serializers.Serializer):
 
 class VerifyTransactionPinSerializer(serializers.Serializer):
     """Client-side pre-check for transaction PIN before submitting a payment."""
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
 
     def validate_transaction_pin(self, value):
         return validate_transaction_pin_value(value)
@@ -572,6 +572,7 @@ class DepositSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
             'amount', 'status', 'status_display',
+            'transaction_id', 'deposit_date', 'bank_name',
             'screenshot_proof', 'note', 'rejection_reason',
             'balance_before', 'balance_after', 'created_at', 'updated_at',
         )
@@ -589,10 +590,23 @@ class DepositSerializer(serializers.ModelSerializer):
 class DepositCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating deposit requests — limits come from Settings.config."""
     screenshot_proof = serializers.ImageField(required=False, allow_null=True)
+    transaction_id = serializers.CharField(max_length=120, required=True, allow_blank=False)
+    deposit_date = serializers.DateField(required=True)
+    bank_name = serializers.CharField(max_length=120, required=False, allow_blank=True, default='')
+    note = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = Deposit
-        fields = ('amount', 'screenshot_proof', 'note')
+        fields = (
+            'amount', 'transaction_id', 'deposit_date', 'bank_name',
+            'screenshot_proof', 'note',
+        )
+
+    def validate_transaction_id(self, value):
+        tid = (value or '').strip()
+        if not tid:
+            raise serializers.ValidationError("Transaction ID is required.")
+        return tid
 
     def validate_amount(self, value):
         if value <= 0:
@@ -617,6 +631,8 @@ class DepositCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'screenshot_proof': 'Screenshot proof is required for deposit requests.',
             })
+        if 'bank_name' in attrs and attrs['bank_name'] is not None:
+            attrs['bank_name'] = attrs['bank_name'].strip()
         return attrs
 
 
@@ -704,7 +720,7 @@ class TopupCreateSerializer(serializers.Serializer):
     mobile_number = serializers.CharField(max_length=50, required=True)
     amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
     product_id = serializers.IntegerField(required=True)
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
 
     def validate_transaction_pin(self, value):
         return validate_transaction_pin_value(value)
@@ -823,7 +839,7 @@ class BankTransferCreateSerializer(serializers.Serializer):
     transaction_remarks_2 = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
     transaction_remarks_3 = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
     merchant_txn_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
 
     def validate_transaction_pin(self, value):
         return validate_transaction_pin_value(value)
@@ -949,7 +965,7 @@ class RemittanceReceiveSerializer(serializers.Serializer):
     payment_type = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
     send_agent = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
     txn_date = serializers.CharField(max_length=80, required=False, allow_blank=True, default='')
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
 
     beneficiary_gender = serializers.CharField(max_length=20, required=True)
 
@@ -1061,6 +1077,13 @@ class InternetBillTransactionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class AdminInternetBillSerializer(InternetBillTransactionSerializer):
+    """Staff internet bill detail — includes raw provider response for support."""
+
+    class Meta(InternetBillTransactionSerializer.Meta):
+        fields = InternetBillTransactionSerializer.Meta.fields + ('provider_response',)
+
+
 class InternetBillInquirySerializer(serializers.Serializer):
     isp_id = serializers.CharField(max_length=50)
     customer_id = serializers.CharField(max_length=100)
@@ -1079,7 +1102,7 @@ class InternetBillPaySerializer(serializers.Serializer):
     package_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
     pay_data = serializers.JSONField()
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
 
     def validate_transaction_pin(self, value):
         return validate_transaction_pin_value(value)
@@ -1111,6 +1134,13 @@ class DataPackTransactionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class AdminDataPackSerializer(DataPackTransactionSerializer):
+    """Staff data pack detail — includes raw provider response for support."""
+
+    class Meta(DataPackTransactionSerializer.Meta):
+        fields = DataPackTransactionSerializer.Meta.fields + ('provider_response',)
+
+
 class DataPackInquirySerializer(serializers.Serializer):
     operator = serializers.ChoiceField(choices=['NTC', 'NCELL'])
     mobile_number = serializers.CharField(max_length=50, required=False, allow_blank=True)
@@ -1123,7 +1153,7 @@ class DataPackPaySerializer(serializers.Serializer):
     package_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     package_id = serializers.CharField(max_length=50, required=False, allow_blank=True)
     product_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=6)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
 
     def validate_transaction_pin(self, value):
         return validate_transaction_pin_value(value)

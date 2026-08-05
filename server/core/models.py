@@ -69,7 +69,7 @@ class CustomUser(AbstractUser):
         max_length=128,
         blank=True,
         default='',
-        help_text="Hashed transaction PIN (4–6 digits). Empty if not set.",
+        help_text="Hashed transaction PIN (exactly 4 digits). Empty if not set.",
     )
     date_of_birth = models.DateField(
         null=True,
@@ -352,13 +352,30 @@ class Deposit(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='deposits')
     amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    transaction_id = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+        help_text="Bank / payment transaction ID provided by the user",
+    )
+    deposit_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date the user deposited funds to the company account",
+    )
+    bank_name = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+        help_text="Optional bank name used for the deposit",
+    )
     screenshot_proof = models.ImageField(
         upload_to='deposits/',
         null=True,
         blank=True,
         help_text="Screenshot proof of payment (required when security.require_deposit_screenshot is on)",
     )
-    note = models.TextField(blank=True, null=True, help_text="Optional note from user")
+    note = models.TextField(blank=True, null=True, help_text="Optional remarks from user")
     rejection_reason = models.TextField(
         blank=True,
         null=True,

@@ -13,7 +13,9 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminDataTopupsRouteImport } from './routes/admin/data-topups'
 import { Route as AdminDepositsRouteImport } from './routes/admin/deposits'
+import { Route as AdminInternetRouteImport } from './routes/admin/internet'
 import { Route as AdminKycRouteImport } from './routes/admin/kyc'
 import { Route as AdminProfileRouteImport } from './routes/admin/profile'
 import { Route as AdminRemittancesRouteImport } from './routes/admin/remittances'
@@ -35,7 +37,9 @@ import { Route as AppServicesRouteImport } from './routes/app/services'
 import { Route as AppTopupRouteImport } from './routes/app/topup'
 import { Route as AppTransferRouteImport } from './routes/app/transfer'
 import { Route as AppWalletHistoryRouteImport } from './routes/app/wallet-history'
+import { Route as AdminDataTopupsDataTopupIdRouteImport } from './routes/admin/data-topups_.$dataTopupId'
 import { Route as AdminDepositsDepositIdRouteImport } from './routes/admin/deposits_.$depositId'
+import { Route as AdminInternetInternetIdRouteImport } from './routes/admin/internet_.$internetId'
 import { Route as AdminKycKycIdRouteImport } from './routes/admin/kyc_.$kycId'
 import { Route as AdminTopupsTopupIdRouteImport } from './routes/admin/topups_.$topupId'
 import { Route as AdminUsersUserIdRouteImport } from './routes/admin/users_.$userId'
@@ -73,9 +77,19 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/admin/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminDataTopupsRoute = AdminDataTopupsRouteImport.update({
+  id: '/admin/data-topups',
+  path: '/admin/data-topups',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminDepositsRoute = AdminDepositsRouteImport.update({
   id: '/admin/deposits',
   path: '/admin/deposits',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminInternetRoute = AdminInternetRouteImport.update({
+  id: '/admin/internet',
+  path: '/admin/internet',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminKycRoute = AdminKycRouteImport.update({
@@ -183,9 +197,20 @@ const AppWalletHistoryRoute = AppWalletHistoryRouteImport.update({
   path: '/app/wallet-history',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminDataTopupsDataTopupIdRoute =
+  AdminDataTopupsDataTopupIdRouteImport.update({
+    id: '/admin/data-topups_/$dataTopupId',
+    path: '/admin/data-topups/$dataTopupId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AdminDepositsDepositIdRoute = AdminDepositsDepositIdRouteImport.update({
   id: '/admin/deposits_/$depositId',
   path: '/admin/deposits/$depositId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminInternetInternetIdRoute = AdminInternetInternetIdRouteImport.update({
+  id: '/admin/internet_/$internetId',
+  path: '/admin/internet/$internetId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminKycKycIdRoute = AdminKycKycIdRouteImport.update({
@@ -276,7 +301,9 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/data-topups': typeof AdminDataTopupsRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/remittances': typeof AdminRemittancesRoute
@@ -299,7 +326,9 @@ export interface FileRoutesByFullPath {
   '/app/wallet-history': typeof AppWalletHistoryRoute
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
+  '/admin/data-topups/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
   '/admin/deposits/$depositId': typeof AdminDepositsDepositIdRoute
+  '/admin/internet/$internetId': typeof AdminInternetInternetIdRoute
   '/admin/kyc/$kycId': typeof AdminKycKycIdRoute
   '/admin/topups/$topupId': typeof AdminTopupsTopupIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
@@ -321,7 +350,9 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/data-topups': typeof AdminDataTopupsRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/remittances': typeof AdminRemittancesRoute
@@ -344,7 +375,9 @@ export interface FileRoutesByTo {
   '/app/wallet-history': typeof AppWalletHistoryRoute
   '/admin': typeof AdminIndexRoute
   '/app': typeof AppIndexRoute
+  '/admin/data-topups/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
   '/admin/deposits/$depositId': typeof AdminDepositsDepositIdRoute
+  '/admin/internet/$internetId': typeof AdminInternetInternetIdRoute
   '/admin/kyc/$kycId': typeof AdminKycKycIdRoute
   '/admin/topups/$topupId': typeof AdminTopupsTopupIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
@@ -367,7 +400,9 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/data-topups': typeof AdminDataTopupsRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/remittances': typeof AdminRemittancesRoute
@@ -390,7 +425,9 @@ export interface FileRoutesById {
   '/app/wallet-history': typeof AppWalletHistoryRoute
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
+  '/admin/data-topups_/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
   '/admin/deposits_/$depositId': typeof AdminDepositsDepositIdRoute
+  '/admin/internet_/$internetId': typeof AdminInternetInternetIdRoute
   '/admin/kyc_/$kycId': typeof AdminKycKycIdRoute
   '/admin/topups_/$topupId': typeof AdminTopupsTopupIdRoute
   '/admin/users_/$userId': typeof AdminUsersUserIdRoute
@@ -414,7 +451,9 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/data-topups'
     | '/admin/deposits'
+    | '/admin/internet'
     | '/admin/kyc'
     | '/admin/profile'
     | '/admin/remittances'
@@ -437,7 +476,9 @@ export interface FileRouteTypes {
     | '/app/wallet-history'
     | '/admin/'
     | '/app/'
+    | '/admin/data-topups/$dataTopupId'
     | '/admin/deposits/$depositId'
+    | '/admin/internet/$internetId'
     | '/admin/kyc/$kycId'
     | '/admin/topups/$topupId'
     | '/admin/users/$userId'
@@ -459,7 +500,9 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/data-topups'
     | '/admin/deposits'
+    | '/admin/internet'
     | '/admin/kyc'
     | '/admin/profile'
     | '/admin/remittances'
@@ -482,7 +525,9 @@ export interface FileRouteTypes {
     | '/app/wallet-history'
     | '/admin'
     | '/app'
+    | '/admin/data-topups/$dataTopupId'
     | '/admin/deposits/$depositId'
+    | '/admin/internet/$internetId'
     | '/admin/kyc/$kycId'
     | '/admin/topups/$topupId'
     | '/admin/users/$userId'
@@ -504,7 +549,9 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/data-topups'
     | '/admin/deposits'
+    | '/admin/internet'
     | '/admin/kyc'
     | '/admin/profile'
     | '/admin/remittances'
@@ -527,7 +574,9 @@ export interface FileRouteTypes {
     | '/app/wallet-history'
     | '/admin/'
     | '/app/'
+    | '/admin/data-topups_/$dataTopupId'
     | '/admin/deposits_/$depositId'
+    | '/admin/internet_/$internetId'
     | '/admin/kyc_/$kycId'
     | '/admin/topups_/$topupId'
     | '/admin/users_/$userId'
@@ -550,7 +599,9 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   RegisterRoute: typeof RegisterRoute
+  AdminDataTopupsRoute: typeof AdminDataTopupsRoute
   AdminDepositsRoute: typeof AdminDepositsRoute
+  AdminInternetRoute: typeof AdminInternetRoute
   AdminKycRoute: typeof AdminKycRoute
   AdminProfileRoute: typeof AdminProfileRoute
   AdminRemittancesRoute: typeof AdminRemittancesRoute
@@ -573,7 +624,9 @@ export interface RootRouteChildren {
   AppWalletHistoryRoute: typeof AppWalletHistoryRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AppIndexRoute: typeof AppIndexRoute
+  AdminDataTopupsDataTopupIdRoute: typeof AdminDataTopupsDataTopupIdRoute
   AdminDepositsDepositIdRoute: typeof AdminDepositsDepositIdRoute
+  AdminInternetInternetIdRoute: typeof AdminInternetInternetIdRoute
   AdminKycKycIdRoute: typeof AdminKycKycIdRoute
   AdminTopupsTopupIdRoute: typeof AdminTopupsTopupIdRoute
   AdminUsersUserIdRoute: typeof AdminUsersUserIdRoute
@@ -622,11 +675,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/data-topups': {
+      id: '/admin/data-topups'
+      path: '/admin/data-topups'
+      fullPath: '/admin/data-topups'
+      preLoaderRoute: typeof AdminDataTopupsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/deposits': {
       id: '/admin/deposits'
       path: '/admin/deposits'
       fullPath: '/admin/deposits'
       preLoaderRoute: typeof AdminDepositsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/internet': {
+      id: '/admin/internet'
+      path: '/admin/internet'
+      fullPath: '/admin/internet'
+      preLoaderRoute: typeof AdminInternetRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/kyc': {
@@ -776,11 +843,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWalletHistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/data-topups_/$dataTopupId': {
+      id: '/admin/data-topups_/$dataTopupId'
+      path: '/admin/data-topups/$dataTopupId'
+      fullPath: '/admin/data-topups/$dataTopupId'
+      preLoaderRoute: typeof AdminDataTopupsDataTopupIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/deposits_/$depositId': {
       id: '/admin/deposits_/$depositId'
       path: '/admin/deposits/$depositId'
       fullPath: '/admin/deposits/$depositId'
       preLoaderRoute: typeof AdminDepositsDepositIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/internet_/$internetId': {
+      id: '/admin/internet_/$internetId'
+      path: '/admin/internet/$internetId'
+      fullPath: '/admin/internet/$internetId'
+      preLoaderRoute: typeof AdminInternetInternetIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/kyc_/$kycId': {
@@ -902,7 +983,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   RegisterRoute: RegisterRoute,
+  AdminDataTopupsRoute: AdminDataTopupsRoute,
   AdminDepositsRoute: AdminDepositsRoute,
+  AdminInternetRoute: AdminInternetRoute,
   AdminKycRoute: AdminKycRoute,
   AdminProfileRoute: AdminProfileRoute,
   AdminRemittancesRoute: AdminRemittancesRoute,
@@ -925,7 +1008,9 @@ const rootRouteChildren: RootRouteChildren = {
   AppWalletHistoryRoute: AppWalletHistoryRoute,
   AdminIndexRoute: AdminIndexRoute,
   AppIndexRoute: AppIndexRoute,
+  AdminDataTopupsDataTopupIdRoute: AdminDataTopupsDataTopupIdRoute,
   AdminDepositsDepositIdRoute: AdminDepositsDepositIdRoute,
+  AdminInternetInternetIdRoute: AdminInternetInternetIdRoute,
   AdminKycKycIdRoute: AdminKycKycIdRoute,
   AdminTopupsTopupIdRoute: AdminTopupsTopupIdRoute,
   AdminUsersUserIdRoute: AdminUsersUserIdRoute,

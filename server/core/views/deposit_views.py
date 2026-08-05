@@ -28,9 +28,12 @@ def create_deposit(request):
         deposit = Deposit.objects.create(
             user=request.user,
             amount=serializer.validated_data['amount'],
+            transaction_id=serializer.validated_data.get('transaction_id', ''),
+            deposit_date=serializer.validated_data.get('deposit_date'),
+            bank_name=serializer.validated_data.get('bank_name', ''),
             screenshot_proof=serializer.validated_data.get('screenshot_proof'),
-            note=serializer.validated_data.get('note', ''),
-            status='pending'
+            note=serializer.validated_data.get('note') or '',
+            status='pending',
         )
         notify_deposit_submitted(deposit)
 
@@ -63,7 +66,7 @@ def list_deposits(request):
         deposits,
         DepositSerializer,
         request,
-        search_fields=('note', 'rejection_reason'),
+        search_fields=('transaction_id', 'bank_name', 'note', 'rejection_reason'),
         success=('approved',),
         pending=('pending',),
         failed=('rejected',),

@@ -12,7 +12,7 @@ import type {
 } from "./types";
 import { OPERATORS } from "./constants";
 import type { TranslateFn } from "./i18n";
-import { formatNPR, formatDateTime } from "./format";
+import { formatNPR, formatDateTime, formatDate } from "./format";
 import { translateStatus } from "./status";
 
 export type { ActivityKind };
@@ -223,12 +223,17 @@ export function buildActivityStatement(
     const reference = `#${d.id}`;
     const details: StatementRow[] = [];
     pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("common.txnId"), d.transaction_id?.trim() || "—", { mono: true });
     pushDetail(details, t("history.dateTime"), formatDateTime(d.created_at));
+    if (d.deposit_date) {
+      pushDetail(details, t("load.depositDate"), formatDate(d.deposit_date));
+    }
     pushDetail(details, t("history.channel"), t("history.channelOnline"));
     pushDetail(details, t("history.serviceName"), t("notif.typeDeposit"));
     pushDetail(details, t("common.status"), translateStatus(d.status, t));
     pushDetail(details, t("common.amountNpr"), formatNPR(d.amount));
-    pushDetail(details, t("common.note"), d.note?.trim() || "—");
+    pushDetail(details, t("common.bank"), d.bank_name?.trim() || "—");
+    pushDetail(details, t("common.remarks"), d.note?.trim() || "—");
     if (d.rejection_reason) {
       pushDetail(details, t("history.rejection"), d.rejection_reason, {
         danger: true,

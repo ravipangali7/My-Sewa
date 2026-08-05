@@ -222,6 +222,9 @@ export interface Deposit {
   amount: string;
   status: DepositStatus;
   status_display: string;
+  transaction_id: string;
+  deposit_date: string | null;
+  bank_name: string;
   screenshot_proof: string | null;
   note: string | null;
   rejection_reason: string | null;
@@ -387,6 +390,7 @@ export interface InternetBillTransaction {
   reference_id: string | null;
   created_at: string;
   updated_at: string;
+  provider_response?: Record<string, unknown> | null;
 }
 
 export interface IspOption {
@@ -448,6 +452,7 @@ export interface DataPackTransaction {
   reference_id: string | null;
   created_at: string;
   updated_at: string;
+  provider_response?: Record<string, unknown> | null;
 }
 
 export interface DataPackOption {

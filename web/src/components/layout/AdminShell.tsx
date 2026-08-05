@@ -14,6 +14,8 @@ import {
   ArrowDownToLine,
   BarChart3,
   ShieldCheck,
+  Package,
+  Wifi,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -52,10 +54,12 @@ const NAV = [
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
   { to: "/admin/users", label: "Users", icon: Users },
   { to: "/admin/wallets", label: "Wallets", icon: Wallet },
-  { to: "/admin/deposits", label: "Deposits", icon: Inbox },
+  { to: "/admin/deposits", label: "Manual Deposit", icon: Inbox },
   { to: "/admin/kyc", label: "KYC", icon: ShieldCheck },
   { to: "/admin/remittances", label: "Remittances", icon: ArrowDownToLine },
   { to: "/admin/topups", label: "Top-ups", icon: Smartphone },
+  { to: "/admin/data-topups", label: "Data Top-Up", icon: Package },
+  { to: "/admin/internet", label: "Internet", icon: Wifi },
   { to: "/admin/transfers", label: "Bank transfers", icon: Banknote },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
@@ -64,7 +68,7 @@ const NAV = [
 const BOTTOM_TABS = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { to: "/admin/users", label: "Users", icon: Users },
-  { to: "/admin/deposits", label: "Deposits", icon: Inbox },
+  { to: "/admin/deposits", label: "Manual Deposit", icon: Inbox },
   { to: "/admin/wallets", label: "Wallets", icon: Wallet },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ] as const;

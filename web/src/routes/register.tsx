@@ -106,7 +106,7 @@ function RegisterPage() {
                 toast.error(t("auth.passwordMin"));
                 return;
               }
-              if (!/^\d{4,6}$/.test(transactionPin)) {
+              if (!/^\d{4}$/.test(transactionPin)) {
                 toast.error(t("auth.pinDigits"));
                 return;
               }
@@ -231,10 +231,10 @@ function RegisterPage() {
                 id="transaction_pin"
                 inputMode="numeric"
                 value={transactionPin}
-                onChange={(e) => setTransactionPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onChange={(e) => setTransactionPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
                 className="h-12 rounded-xl"
                 minLength={4}
-                maxLength={6}
+                maxLength={4}
                 required
                 autoComplete="off"
                 placeholder={t("auth.pinPlaceholder")}
@@ -247,10 +247,10 @@ function RegisterPage() {
                 id="confirm_pin"
                 inputMode="numeric"
                 value={confirmPin}
-                onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
                 className="h-12 rounded-xl"
                 minLength={4}
-                maxLength={6}
+                maxLength={4}
                 required
                 autoComplete="off"
                 placeholder={t("auth.pinPlaceholder")}

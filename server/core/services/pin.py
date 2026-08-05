@@ -1,12 +1,15 @@
 """
 Transaction PIN verification helpers for sensitive financial operations.
 """
+import re
 from typing import Optional
 
 from django.contrib.auth.hashers import check_password
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+
+_TRANSACTION_PIN_RE = re.compile(r'^\d{4}$')
 
 
 def verify_transaction_pin(user, pin) -> bool:
@@ -15,7 +18,7 @@ def verify_transaction_pin(user, pin) -> bool:
     if not stored:
         return False
     raw = (pin or '').strip() if isinstance(pin, str) else str(pin or '').strip()
-    if not raw:
+    if not _TRANSACTION_PIN_RE.match(raw):
         return False
     return check_password(raw, stored)
 
@@ -41,6 +44,11 @@ def require_transaction_pin(user, pin) -> None:
     if not raw:
         raise ValidationError(
             {'transaction_pin': ['Transaction PIN is required.']}
+        )
+
+    if not _TRANSACTION_PIN_RE.match(raw):
+        raise ValidationError(
+            {'transaction_pin': ['Transaction PIN must be exactly 4 digits.']}
         )
 
     if not verify_transaction_pin(user, raw):

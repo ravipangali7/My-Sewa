@@ -46,14 +46,14 @@ const LIST_PAGE_SIZE = 50;
 export const Route = createFileRoute("/admin/deposits")({
   head: () => ({
     meta: [
-      { title: "Deposit Approvals — MySewa Admin" },
+      { title: "Manual Deposit — MySewa Admin" },
       {
         name: "description",
         content:
-          "Review MySewa deposit requests with screenshot proof and approve or reject to credit user wallets.",
+          "Review MySewa manual wallet load requests with screenshot proof and approve or reject to credit user wallets.",
       },
-      { property: "og:title", content: "Deposit Approvals — MySewa Admin" },
-      { property: "og:description", content: "Pending deposit queue with approve and reject actions." },
+      { property: "og:title", content: "Manual Deposit — MySewa Admin" },
+      { property: "og:description", content: "Pending manual deposit queue with approve and reject actions." },
     ],
   }),
   component: DepositsPage,
@@ -210,8 +210,8 @@ function DepositsPage() {
 
   return (
     <AdminShell
-      title="Deposits"
-      description="Remittance / load requests awaiting review"
+      title="Manual Deposit"
+      description="Manual wallet load requests awaiting review"
     >
       {depositsQuery.isLoading && (
         <p className="mb-4 text-sm text-muted-foreground">Loading deposits…</p>
@@ -239,7 +239,7 @@ function DepositsPage() {
             }
           }}
           exporting={exporting}
-          searchPlaceholder="Search phone, note, ID…"
+          searchPlaceholder="Search phone, txn ID, note…"
           exportLabel="Download CSV"
           statsLabels={{
             total: "Total",
@@ -266,8 +266,9 @@ function DepositsPage() {
                 <TableHead>ID</TableHead>
                 <TableHead>User phone</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
+                <TableHead>Txn ID</TableHead>
                 <TableHead>Screenshot proof</TableHead>
-                <TableHead>Note</TableHead>
+                <TableHead>Remarks</TableHead>
                 <TableHead>Created at</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -287,6 +288,9 @@ function DepositsPage() {
                   <TableCell className="text-sm font-medium">{d.phone}</TableCell>
                   <TableCell className="tabular text-right text-sm font-semibold">
                     {formatNPR(d.amount)}
+                  </TableCell>
+                  <TableCell className="max-w-36 truncate text-sm text-muted-foreground">
+                    {d.transaction_id || "—"}
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>{proofThumb(d)}</TableCell>
                   <TableCell className="max-w-55 text-sm text-muted-foreground">
@@ -352,9 +356,10 @@ function DepositsPage() {
                 </div>
                 <AdminMobileMeta
                   items={[
+                    { label: "Txn ID", value: d.transaction_id || "—" },
                     { label: "Created", value: formatDateTime(d.created_at) },
                     {
-                      label: "Note",
+                      label: "Remarks",
                       value:
                         d.status === "rejected" && d.rejection_reason
                           ? d.rejection_reason

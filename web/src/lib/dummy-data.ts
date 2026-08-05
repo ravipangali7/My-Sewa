@@ -46,6 +46,9 @@ export interface Deposit {
   user: number;
   amount: string;
   status: DepositStatus;
+  transaction_id: string;
+  deposit_date: string | null;
+  bank_name: string;
   screenshot_proof: string;
   note: string | null;
   rejection_reason: string | null;
@@ -237,6 +240,9 @@ export const deposits: Deposit[] = [
     user: 1,
     amount: "25000.00",
     status: "approved",
+    transaction_id: "FT-QTR-88213",
+    deposit_date: "2024-12-20",
+    bank_name: "Nabil Bank",
     screenshot_proof: "deposits/proof-41.jpg",
     note: "Remittance from Qatar",
     rejection_reason: null,
@@ -248,6 +254,9 @@ export const deposits: Deposit[] = [
     user: 2,
     amount: "8000.00",
     status: "pending",
+    transaction_id: "MB-991122",
+    deposit_date: "2024-12-20",
+    bank_name: "NIC Asia",
     screenshot_proof: "deposits/proof-40.jpg",
     note: "Mobile banking transfer",
     rejection_reason: null,
@@ -259,6 +268,9 @@ export const deposits: Deposit[] = [
     user: 5,
     amount: "43000.00",
     status: "pending",
+    transaction_id: "ESEWA-4411",
+    deposit_date: "2024-12-19",
+    bank_name: "",
     screenshot_proof: "deposits/proof-39.jpg",
     note: null,
     rejection_reason: null,
@@ -270,6 +282,9 @@ export const deposits: Deposit[] = [
     user: 1,
     amount: "18500.00",
     status: "approved",
+    transaction_id: "KHALTI-7788",
+    deposit_date: "2024-12-12",
+    bank_name: "Global IME",
     screenshot_proof: "deposits/proof-38.jpg",
     note: "Remittance received",
     rejection_reason: null,
@@ -281,6 +296,9 @@ export const deposits: Deposit[] = [
     user: 3,
     amount: "2000.00",
     status: "rejected",
+    transaction_id: "FT-BLUR-01",
+    deposit_date: "2024-12-08",
+    bank_name: "Prabhu Bank",
     screenshot_proof: "deposits/proof-37.jpg",
     note: "Blurry screenshot",
     rejection_reason: "Screenshot unclear",

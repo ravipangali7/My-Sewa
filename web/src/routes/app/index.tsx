@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
@@ -14,6 +14,7 @@ import {
   Wifi,
   Signal,
   Lock,
+  CirclePlus,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { MountainBackdrop } from "@/components/home/MountainBackdrop";
@@ -122,6 +123,7 @@ function formatPhone(phone: string) {
 }
 
 function WalletHome() {
+  const navigate = useNavigate();
   const { user, wallet } = useAuth();
   const { logoUrl } = useSiteBranding();
   const { t, locale } = useI18n();
@@ -132,6 +134,12 @@ function WalletHome() {
     queryFn: () => apiClient.walletTransactions(),
     refetchInterval: LIVE_REFETCH_MS,
   });
+  const settingsQuery = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => apiClient.settings(),
+  });
+  const manualLoadEnabled =
+    settingsQuery.data?.config?.payment?.deposits_enabled !== false && !accountPending;
 
   const activity = useMemo(
     () => (txQuery.data ? buildActivity(txQuery.data, t).slice(0, 3) : []),
@@ -263,9 +271,28 @@ function WalletHome() {
                       : "रु. ••••••"
                     : "रु. —"}
                 </p>
-                <p className="mt-2 text-[11px] font-medium text-white/75">
-                  {t("home.balanceCaption")}
-                </p>
+                {manualLoadEnabled ? (
+                  <button
+                    type="button"
+                    aria-label={t("home.manualWalletLoad")}
+                    title={t("home.manualWalletLoad")}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void navigate({ to: "/app/load" });
+                    }}
+                    className="mt-2.5 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1.5 text-white shadow-sm ring-1 ring-white/25 backdrop-blur-sm transition-colors hover:bg-white/25"
+                  >
+                    <CirclePlus className="size-4" strokeWidth={2.25} />
+                    <span className="text-[11px] font-semibold tracking-wide">
+                      {t("home.manualWalletLoad")}
+                    </span>
+                  </button>
+                ) : (
+                  <p className="mt-2 text-[11px] font-medium text-white/75">
+                    {t("home.balanceCaption")}
+                  </p>
+                )}
               </div>
               <WalletIllustration className="mb-[-4px] h-[88px] w-[108px] shrink-0" />
             </div>
