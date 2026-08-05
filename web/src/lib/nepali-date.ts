@@ -164,6 +164,26 @@ export function formatBsDisplay(
   return `${monthName} ${day}, ${year}`;
 }
 
+/** Convert an AD ISO date (YYYY-MM-DD or datetime) to a BS display string. */
+export function formatAdIsoAsBs(
+  iso: string | null | undefined,
+  locale: "en" | "ne",
+  style: "long" | "short" = "long",
+): string | null {
+  if (!iso) return null;
+  const datePart = iso.trim().slice(0, 10);
+  const parts = adIsoToBs(datePart);
+  if (!parts) return null;
+  return formatBsDisplay(parts, locale, style);
+}
+
+/** Normalize API date values to YYYY-MM-DD for BsDatePicker. */
+export function toAdIsoDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+  return match?.[1] ?? "";
+}
+
 export function getBsMonthGrid(year: number, month: number): Array<number | null> {
   const days = getDaysInBsMonth(year, month);
   const first = new NepaliDate(year, month, 1);

@@ -102,6 +102,7 @@ def register(request):
                 'id': user.id,
                 'phone': user.phone,  # phone is the authentication field
                 'email': user.email if user.email else '',
+                'date_of_birth': user.date_of_birth.isoformat() if user.date_of_birth else None,
                 'has_transaction_pin': bool(user.transaction_pin),
             }
         }, status=status.HTTP_201_CREATED)
@@ -272,20 +273,78 @@ def profile(request):
     if request.method == 'GET':
         serializer = UserProfileSerializer(request.user, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
-    else:  # PUT or PATCH
-        serializer = UserProfileUpdateSerializer(
-            request.user, data=request.data, partial=True
-        )
-        if serializer.is_valid():
-            serializer.save()
-            profile_serializer = UserProfileSerializer(
-                request.user, context={'request': request}
-            )
-            return Response({
-                'message': 'Profile updated successfully',
-                'user': profile_serializer.data
-            }, status=status.HTTP_200_OK)
+
+    # PUT or PATCH
+    from ..models import KYCAuditLog
+    from ..services.kyc import (
+        PROFILE_IDENTITY_LOCKED_FIELDS,
+        collect_locked_field_errors,
+        is_profile_locked,
+        log_kyc_audit,
+    )
+
+    user = request.user
+    before = {
+        field: getattr(user, field)
+        for field in ('email', 'first_name', 'last_name', 'date_of_birth', 'citizenship_number')
+    }
+    before['avatar'] = bool(user.avatar)
+
+    serializer = UserProfileUpdateSerializer(
+        user, data=request.data, partial=True
+    )
+    if not serializer.is_valid():
+        # Audit blocked attempts to change locked identity fields.
+        if is_profile_locked(user):
+            proposed = {
+                field: request.data.get(field)
+                for field in PROFILE_IDENTITY_LOCKED_FIELDS
+                if field in request.data
+            }
+            lock_errors = collect_locked_field_errors(user, proposed)
+            if lock_errors:
+                log_kyc_audit(
+                    user=user,
+                    action=KYCAuditLog.ACTION_PROFILE_LOCK_BLOCKED,
+                    actor=user,
+                    details={
+                        'fields': list(lock_errors.keys()),
+                        'attempted': {
+                            k: str(v) if v is not None else None
+                            for k, v in proposed.items()
+                        },
+                    },
+                )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    serializer.save()
+    user.refresh_from_db()
+    changed = {}
+    for field, old in before.items():
+        if field == 'avatar':
+            new_val = bool(user.avatar)
+        else:
+            new_val = getattr(user, field)
+        if old != new_val:
+            changed[field] = {
+                'from': str(old) if old is not None else None,
+                'to': str(new_val) if new_val is not None else None,
+            }
+    if changed:
+        log_kyc_audit(
+            user=user,
+            action=KYCAuditLog.ACTION_PROFILE_UPDATED,
+            actor=user,
+            details={'changed_fields': changed},
+        )
+
+    profile_serializer = UserProfileSerializer(
+        user, context={'request': request}
+    )
+    return Response({
+        'message': 'Profile updated successfully',
+        'user': profile_serializer.data
+    }, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -423,7 +482,7 @@ def forgot_password(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def reset_password(request):
-    """Reset password using phone + OTP from forgot_password."""
+    """Reset password using phone + OTP + date of birth from forgot_password."""
     from django.core.cache import cache
 
     serializer = ResetPasswordSerializer(data=request.data)
@@ -433,7 +492,21 @@ def reset_password(request):
 
     phone = serializer.validated_data['phone']
     otp = serializer.validated_data['otp'].strip()
+    date_of_birth = serializer.validated_data['date_of_birth']
     cached = cache.get(f'password_reset_otp:{phone}')
+
+    identity_failed = {
+        'message': (
+            'Unable to verify your identity. '
+            'Please check your details and try again.'
+        ),
+        'errors': {
+            'date_of_birth': [
+                'Unable to verify your identity. '
+                'Please check your details and try again.'
+            ],
+        },
+    }
 
     if not cached:
         return Response({
@@ -484,6 +557,10 @@ def reset_password(request):
             'message': 'Your account has been deactivated. Please contact support.',
             'errors': {'phone': ['Your account has been deactivated. Please contact support.']},
         }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Exact AD date match; missing DOB on account fails generically (no leak).
+    if user.date_of_birth is None or user.date_of_birth != date_of_birth:
+        return Response(identity_failed, status=status.HTTP_400_BAD_REQUEST)
 
     user.set_password(serializer.validated_data['new_password'])
     user.save()

@@ -582,3 +582,55 @@ def notify_low_balance_if_needed(wallet) -> None:
         event='low_balance',
         extra={'balance': wallet.balance, 'threshold': threshold_val},
     )
+
+
+def notify_kyc_approved(submission) -> None:
+    """Notify user when KYC is approved (email + push)."""
+    site_name = _site_name()
+    user = submission.user
+    message = (
+        f'{site_name}: Your KYC verification (#{submission.id}) has been approved. '
+        f'Your identity details are now verified.'
+    )
+    if _user_email(user):
+        body = (
+            f'Your KYC verification has been approved.\n\n'
+            f'Submission ID: {submission.id}\n'
+            f'Citizenship number: {submission.citizenship_number}\n'
+            f'Status: approved\n'
+        )
+        _send_email(f'[{site_name}] KYC approved', body, [user.email])
+    _push(
+        user,
+        f'{site_name}: KYC approved',
+        message,
+        event='kyc',
+        extra={'kyc_id': submission.id, 'subtype': 'approved'},
+    )
+
+
+def notify_kyc_rejected(submission) -> None:
+    """Notify user when KYC is rejected (email + push), including reason."""
+    site_name = _site_name()
+    user = submission.user
+    reason = (submission.rejection_reason or '').strip() or 'No reason provided'
+    message = (
+        f'{site_name}: Your KYC verification (#{submission.id}) was rejected. '
+        f'Reason: {reason}'
+    )
+    if _user_email(user):
+        body = (
+            f'Your KYC verification was rejected.\n\n'
+            f'Submission ID: {submission.id}\n'
+            f'Reason: {reason}\n'
+            f'Status: rejected\n\n'
+            f'You may submit again after correcting the issues.\n'
+        )
+        _send_email(f'[{site_name}] KYC rejected', body, [user.email])
+    _push(
+        user,
+        f'{site_name}: KYC rejected',
+        message,
+        event='kyc',
+        extra={'kyc_id': submission.id, 'subtype': 'rejected'},
+    )

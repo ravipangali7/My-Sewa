@@ -125,7 +125,7 @@ function WalletsPage() {
           <DropdownMenuItem asChild>
             <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
               <Pencil className="size-3.5" />
-              Edit
+              Add Fund / Adjust
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -263,7 +263,7 @@ function WalletsPage() {
                       </Button>
                       <Button asChild size="sm" variant="secondary" className="flex-1">
                         <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
-                          Edit
+                          Add Fund
                         </Link>
                       </Button>
                     </div>

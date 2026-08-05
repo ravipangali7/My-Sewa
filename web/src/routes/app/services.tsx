@@ -132,23 +132,25 @@ function Services() {
           ))}
         </ul>
 
-        <section className="inset-group p-4">
-          <h2 className="text-[15px] font-semibold">{t("services.depositAccount")}</h2>
-          <dl className="mt-3 space-y-2 text-[15px]">
-            {settingsQuery.isLoading ? (
-              <p className="text-muted-foreground">{t("common.loading")}</p>
-            ) : bankEntries.length === 0 ? (
-              <p className="text-muted-foreground">{t("services.notConfigured")}</p>
-            ) : (
-              bankEntries.map(([k, v]) => (
-                <div key={k} className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground capitalize">{k.replace(/_/g, " ")}</dt>
-                  <dd className="font-medium">{v}</dd>
-                </div>
-              ))
-            )}
-          </dl>
-        </section>
+        {payment?.deposits_enabled !== false && !accountPending ? (
+          <section className="inset-group p-4">
+            <h2 className="text-[15px] font-semibold">{t("services.depositAccount")}</h2>
+            <dl className="mt-3 space-y-2 text-[15px]">
+              {settingsQuery.isLoading ? (
+                <p className="text-muted-foreground">{t("common.loading")}</p>
+              ) : bankEntries.length === 0 ? (
+                <p className="text-muted-foreground">{t("services.notConfigured")}</p>
+              ) : (
+                bankEntries.map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground capitalize">{k.replace(/_/g, " ")}</dt>
+                    <dd className="font-medium">{v}</dd>
+                  </div>
+                ))
+              )}
+            </dl>
+          </section>
+        ) : null}
       </div>
     </UserShell>
   );

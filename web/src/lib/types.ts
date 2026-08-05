@@ -1,4 +1,15 @@
 export type DepositStatus = "pending" | "approved" | "rejected";
+/** Denormalized KYC status on the user (mirrors latest submission). */
+export type KycStatus = "not_submitted" | "pending" | "approved" | "rejected";
+export type KycSubmissionStatus = "pending" | "approved" | "rejected";
+export type KycDocumentType =
+  | "citizenship"
+  | "passport"
+  | "driving_license"
+  | "national_id"
+  | "other";
+/** Document side — Task 14 owns front/back UX; API default is `single`. */
+export type KycDocumentSide = "front" | "back" | "single";
 export type TxnStatus = "pending" | "success" | "failed";
 export type ActivityKind =
   | "deposit"
@@ -13,12 +24,63 @@ export type WalletAdjustmentType = "credit" | "debit";
 /** Account approval status — pending users can log in but cannot transact. */
 export type AccountStatus = "pending" | "approved";
 
+export interface KycDocument {
+  id: number;
+  document_type: KycDocumentType;
+  document_type_display: string;
+  side: KycDocumentSide;
+  side_display: string;
+  file: string | null;
+  file_url: string | null;
+  uploaded_at: string;
+}
+
+export interface KycSubmission {
+  id: number;
+  user_id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  status: KycSubmissionStatus;
+  status_display: string;
+  citizenship_number: string;
+  rejection_reason: string;
+  reviewed_by: number | null;
+  reviewed_by_phone: string | null;
+  reviewed_at: string | null;
+  submitted_at: string | null;
+  documents: KycDocument[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KycStatusPayload {
+  kyc_status: KycStatus;
+  citizenship_number: string;
+  /** True when `kyc_status === "approved"`. */
+  kyc_verified: boolean;
+  /** Identity fields locked after KYC verification. */
+  profile_locked: boolean;
+  can_submit: boolean;
+  submission: KycSubmission | null;
+}
+
 export interface UserProfile {
   id: number;
   phone: string;
   email: string | null;
   first_name: string;
   last_name: string;
+  /** AD ISO date `YYYY-MM-DD`, or null for legacy users who have not set it yet. */
+  date_of_birth: string | null;
+  /** Citizenship / national ID from KYC (read-only after verification). */
+  citizenship_number?: string | null;
+  /** Denormalized KYC workflow status from the profile API. */
+  kyc_status?: KycStatus | null;
+  /** True when KYC is approved — identity fields are locked. */
+  kyc_verified?: boolean;
+  /** Alias for identity lock; same as kyc_verified when true. */
+  profile_locked?: boolean;
   avatar: string | null;
   avatar_url: string | null;
   is_active: boolean;

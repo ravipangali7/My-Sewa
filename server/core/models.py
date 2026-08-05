@@ -71,6 +71,36 @@ class CustomUser(AbstractUser):
         default='',
         help_text="Hashed transaction PIN (4–6 digits). Empty if not set.",
     )
+    date_of_birth = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date of birth (AD). Required for new registrations; nullable for legacy users.",
+    )
+
+    KYC_STATUS_NOT_SUBMITTED = 'not_submitted'
+    KYC_STATUS_PENDING = 'pending'
+    KYC_STATUS_APPROVED = 'approved'
+    KYC_STATUS_REJECTED = 'rejected'
+    KYC_STATUS_CHOICES = [
+        (KYC_STATUS_NOT_SUBMITTED, 'Not Submitted'),
+        (KYC_STATUS_PENDING, 'Pending'),
+        (KYC_STATUS_APPROVED, 'Approved'),
+        (KYC_STATUS_REJECTED, 'Rejected'),
+    ]
+
+    kyc_status = models.CharField(
+        max_length=20,
+        choices=KYC_STATUS_CHOICES,
+        default=KYC_STATUS_NOT_SUBMITTED,
+        db_index=True,
+        help_text="Denormalized KYC status for fast access checks and field locking.",
+    )
+    citizenship_number = models.CharField(
+        max_length=50,
+        blank=True,
+        default='',
+        help_text="Citizenship / national ID number from the latest KYC submission.",
+    )
 
     # Use phone as the authentication field
     USERNAME_FIELD = 'phone'
@@ -82,7 +112,23 @@ class CustomUser(AbstractUser):
         if self.is_staff or self.is_superuser:
             return True
         return self.account_status == self.ACCOUNT_STATUS_APPROVED
-    
+
+    @property
+    def is_kyc_approved(self):
+        if self.is_staff or self.is_superuser:
+            return True
+        return self.kyc_status == self.KYC_STATUS_APPROVED
+
+    @property
+    def is_kyc_verified(self):
+        """True when KYC is approved (no staff bypass — used for identity field locks)."""
+        return self.kyc_status == self.KYC_STATUS_APPROVED
+
+    @property
+    def profile_locked(self):
+        """Identity fields (name, DOB, citizenship, KYC docs) are locked after verification."""
+        return self.is_kyc_verified
+
     def save(self, *args, **kwargs):
         # Automatically set username = phone for compatibility
         if self.phone:
@@ -118,9 +164,9 @@ class Wallet(models.Model):
 
 
 class WalletAdjustment(models.Model):
-    """Admin wallet balance adjustment recorded in transaction history."""
+    """Admin wallet balance adjustment (manual load / debit) in transaction history."""
     ADJUSTMENT_TYPE_CHOICES = [
-        ('credit', 'Credit'),
+        ('credit', 'Manual Load (Add Fund)'),
         ('debit', 'Debit'),
     ]
 
@@ -650,3 +696,145 @@ class DeviceToken(models.Model):
         verbose_name = 'Device Token'
         verbose_name_plural = 'Device Tokens'
         ordering = ['-updated_at']
+
+
+class KYCSubmission(models.Model):
+    """User KYC verification submission (supports resubmit after rejection)."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='kyc_submissions',
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True,
+    )
+    citizenship_number = models.CharField(max_length=50)
+    rejection_reason = models.TextField(blank=True, default='')
+    reviewed_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='kyc_reviews',
+        help_text='Admin who approved or rejected this submission',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.user.phone} — KYC {self.status}'
+
+    class Meta:
+        verbose_name = 'KYC Submission'
+        verbose_name_plural = 'KYC Submissions'
+        ordering = ['-created_at']
+
+
+class KYCDocument(models.Model):
+    """Identity document image attached to a KYC submission."""
+
+    DOC_CITIZENSHIP = 'citizenship'
+    DOC_PASSPORT = 'passport'
+    DOC_DRIVING_LICENSE = 'driving_license'
+    DOC_NATIONAL_ID = 'national_id'
+    DOC_OTHER = 'other'
+    DOCUMENT_TYPE_CHOICES = [
+        (DOC_CITIZENSHIP, 'Citizenship'),
+        (DOC_PASSPORT, 'Passport'),
+        (DOC_DRIVING_LICENSE, 'Driving License'),
+        (DOC_NATIONAL_ID, 'National ID'),
+        (DOC_OTHER, 'Other'),
+    ]
+
+    SIDE_FRONT = 'front'
+    SIDE_BACK = 'back'
+    SIDE_SINGLE = 'single'
+    SIDE_CHOICES = [
+        (SIDE_FRONT, 'Front'),
+        (SIDE_BACK, 'Back'),
+        (SIDE_SINGLE, 'Single'),
+    ]
+
+    submission = models.ForeignKey(
+        KYCSubmission, on_delete=models.CASCADE, related_name='documents',
+    )
+    document_type = models.CharField(max_length=30, choices=DOCUMENT_TYPE_CHOICES)
+    side = models.CharField(max_length=10, choices=SIDE_CHOICES, default=SIDE_SINGLE)
+    file = models.ImageField(
+        upload_to='kyc/',
+        help_text='Scanned or photographed identity document',
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.submission_id} — {self.document_type}/{self.side}'
+
+    class Meta:
+        verbose_name = 'KYC Document'
+        verbose_name_plural = 'KYC Documents'
+        ordering = ['uploaded_at', 'id']
+
+
+class KYCAuditLog(models.Model):
+    """Audit trail for KYC create / update / review actions."""
+
+    ACTION_CREATED = 'created'
+    ACTION_UPDATED = 'updated'
+    ACTION_DOCUMENT_UPLOADED = 'document_uploaded'
+    ACTION_APPROVED = 'approved'
+    ACTION_REJECTED = 'rejected'
+    ACTION_STATUS_CHANGED = 'status_changed'
+    ACTION_PROFILE_UPDATED = 'profile_updated'
+    ACTION_PROFILE_LOCK_BLOCKED = 'profile_lock_blocked'
+    ACTION_CHOICES = [
+        (ACTION_CREATED, 'Created'),
+        (ACTION_UPDATED, 'Updated'),
+        (ACTION_DOCUMENT_UPLOADED, 'Document Uploaded'),
+        (ACTION_APPROVED, 'Approved'),
+        (ACTION_REJECTED, 'Rejected'),
+        (ACTION_STATUS_CHANGED, 'Status Changed'),
+        (ACTION_PROFILE_UPDATED, 'Profile Updated'),
+        (ACTION_PROFILE_LOCK_BLOCKED, 'Profile Lock Blocked'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='kyc_audit_logs',
+    )
+    submission = models.ForeignKey(
+        KYCSubmission,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs',
+    )
+    action = models.CharField(max_length=30, choices=ACTION_CHOICES)
+    actor = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='kyc_actions_performed',
+        help_text='User or admin who performed the action',
+    )
+    old_status = models.CharField(max_length=20, blank=True, default='')
+    new_status = models.CharField(max_length=20, blank=True, default='')
+    details = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.user.phone} — {self.action} @ {self.created_at}'
+
+    class Meta:
+        verbose_name = 'KYC Audit Log'
+        verbose_name_plural = 'KYC Audit Logs'
+        ordering = ['-created_at']

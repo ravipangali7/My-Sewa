@@ -130,127 +130,131 @@ function LoadWallet() {
           </section>
         ) : null}
 
-        <section className="inset-group min-w-0 max-w-full p-4">
-          <h2 className="text-[15px] font-semibold">{t("load.payTo")}</h2>
-          {instructions ? (
-            <p className="mt-2 break-words text-[13px] text-muted-foreground whitespace-pre-wrap">{instructions}</p>
-          ) : null}
-          <div className="mt-3 flex min-w-0 gap-4">
-            <div className="flex size-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-muted text-muted-foreground">
-              {settingsQuery.data?.qr_code_url ? (
-                <img
-                  src={settingsQuery.data.qr_code_url}
-                  alt={t("load.qrAlt")}
-                  className="size-full object-contain"
-                />
-              ) : (
-                <QrCode className="size-12" />
-              )}
-            </div>
-            <dl className="min-w-0 flex-1 space-y-1.5 text-[14px]">
-              {settingsQuery.isLoading ? (
-                <p className="text-muted-foreground">{t("load.loadingBank")}</p>
-              ) : bankEntries.length === 0 ? (
-                <p className="text-muted-foreground">{t("load.bankNotConfigured")}</p>
-              ) : (
-                bankEntries.map(([k, v]) => (
-                  <div key={k} className="flex min-w-0 justify-between gap-3">
-                    <dt className="shrink-0 text-muted-foreground capitalize">{k.replace(/_/g, " ")}</dt>
-                    <dd className="min-w-0 break-all text-right font-medium">{v}</dd>
-                  </div>
-                ))
-              )}
-            </dl>
-          </div>
-        </section>
+        {depositsEnabled ? (
+          <>
+            <section className="inset-group min-w-0 max-w-full p-4">
+              <h2 className="text-[15px] font-semibold">{t("load.payTo")}</h2>
+              {instructions ? (
+                <p className="mt-2 break-words text-[13px] text-muted-foreground whitespace-pre-wrap">
+                  {instructions}
+                </p>
+              ) : null}
+              <div className="mt-3 flex min-w-0 gap-4">
+                <div className="flex size-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-muted text-muted-foreground">
+                  {settingsQuery.data?.qr_code_url ? (
+                    <img
+                      src={settingsQuery.data.qr_code_url}
+                      alt={t("load.qrAlt")}
+                      className="size-full object-contain"
+                    />
+                  ) : (
+                    <QrCode className="size-12" />
+                  )}
+                </div>
+                <dl className="min-w-0 flex-1 space-y-1.5 text-[14px]">
+                  {settingsQuery.isLoading ? (
+                    <p className="text-muted-foreground">{t("load.loadingBank")}</p>
+                  ) : bankEntries.length === 0 ? (
+                    <p className="text-muted-foreground">{t("load.bankNotConfigured")}</p>
+                  ) : (
+                    bankEntries.map(([k, v]) => (
+                      <div key={k} className="flex min-w-0 justify-between gap-3">
+                        <dt className="shrink-0 text-muted-foreground capitalize">
+                          {k.replace(/_/g, " ")}
+                        </dt>
+                        <dd className="min-w-0 break-all text-right font-medium">{v}</dd>
+                      </div>
+                    ))
+                  )}
+                </dl>
+              </div>
+            </section>
 
-        <section className="inset-group min-w-0 max-w-full p-4">
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              createMutation.mutate();
-            }}
-          >
-            <div className="space-y-1.5">
-              <Label htmlFor="amount">{t("common.amountNpr")}</Label>
-              <Input
-                id="amount"
-                inputMode="decimal"
-                placeholder={t("common.amountPlaceholder")}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="tabular h-12 rounded-xl text-[22px] font-semibold"
-                required
-                disabled={!depositsEnabled}
-              />
-              <p className="text-[12px] text-muted-foreground">
-                {t("common.minMax", { min: minDeposit, max: maxDeposit })}
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="note">{t("load.noteOptional")}</Label>
-              <Textarea
-                id="note"
-                rows={2}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                className="rounded-xl"
-                placeholder={t("load.notePlaceholder")}
-                disabled={!depositsEnabled}
-              />
-            </div>
-            {requireScreenshot ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="proof">{t("load.screenshot")}</Label>
-                <label
-                  htmlFor="proof"
-                  className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
+            <section className="inset-group min-w-0 max-w-full p-4">
+              <form
+                className="space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  createMutation.mutate();
+                }}
+              >
+                <div className="space-y-1.5">
+                  <Label htmlFor="amount">{t("common.amountNpr")}</Label>
+                  <Input
+                    id="amount"
+                    inputMode="decimal"
+                    placeholder={t("common.amountPlaceholder")}
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="tabular h-12 rounded-xl text-[22px] font-semibold"
+                    required
+                  />
+                  <p className="text-[12px] text-muted-foreground">
+                    {t("common.minMax", { min: minDeposit, max: maxDeposit })}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="note">{t("load.noteOptional")}</Label>
+                  <Textarea
+                    id="note"
+                    rows={2}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    className="rounded-xl"
+                    placeholder={t("load.notePlaceholder")}
+                  />
+                </div>
+                {requireScreenshot ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="proof">{t("load.screenshot")}</Label>
+                    <label
+                      htmlFor="proof"
+                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
+                    >
+                      <Upload className="size-5" />
+                      {file?.name ?? t("load.uploadScreenshot")}
+                    </label>
+                    <input
+                      id="proof"
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                      required={requireScreenshot}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="proof">
+                      {t("load.screenshot")} {t("load.screenshotOptional")}
+                    </Label>
+                    <label
+                      htmlFor="proof"
+                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
+                    >
+                      <Upload className="size-5" />
+                      {file?.name ?? t("load.uploadScreenshot")}
+                    </label>
+                    <input
+                      id="proof"
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    />
+                  </div>
+                )}
+                <Button
+                  type="submit"
+                  disabled={createMutation.isPending}
+                  className="h-12 w-full rounded-xl text-[17px]"
                 >
-                  <Upload className="size-5" />
-                  {file?.name ?? t("load.uploadScreenshot")}
-                </label>
-                <input
-                  id="proof"
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  required={requireScreenshot}
-                  disabled={!depositsEnabled}
-                />
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <Label htmlFor="proof">
-                  {t("load.screenshot")} {t("load.screenshotOptional")}
-                </Label>
-                <label
-                  htmlFor="proof"
-                  className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-separator px-4 py-4 text-[15px] text-muted-foreground"
-                >
-                  <Upload className="size-5" />
-                  {file?.name ?? t("load.uploadScreenshot")}
-                </label>
-                <input
-                  id="proof"
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  disabled={!depositsEnabled}
-                />
-              </div>
-            )}
-            <Button
-              type="submit"
-              disabled={createMutation.isPending || !depositsEnabled}
-              className="h-12 w-full rounded-xl text-[17px]"
-            >
-              {createMutation.isPending ? t("common.submitting") : t("load.submit")}
-            </Button>
-          </form>
-        </section>
+                  {createMutation.isPending ? t("common.submitting") : t("load.submit")}
+                </Button>
+              </form>
+            </section>
+          </>
+        ) : null}
 
         <section className="min-w-0 max-w-full lg:col-span-2">
           {lastReceiptId ? (

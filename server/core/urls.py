@@ -10,6 +10,7 @@ from .views import (
     internet_views,
     data_pack_views,
     admin_views,
+    kyc_views,
 )
 
 urlpatterns = [
@@ -35,6 +36,11 @@ urlpatterns = [
     path('api/deposit/create/', deposit_views.create_deposit, name='create_deposit'),
     path('api/deposit/list/', deposit_views.list_deposits, name='list_deposits'),
     path('api/deposit/<int:deposit_id>/', deposit_views.get_deposit, name='get_deposit'),
+
+    # KYC endpoints (multi-document identity verification)
+    path('api/kyc/', kyc_views.get_kyc_status, name='kyc_status'),
+    path('api/kyc/submit/', kyc_views.submit_kyc, name='kyc_submit'),
+    path('api/kyc/documents/', kyc_views.kyc_documents, name='kyc_documents'),
 
     # Settings endpoints
     path('api/settings/', settings_views.get_settings, name='get_settings'),
@@ -88,6 +94,10 @@ urlpatterns = [
     path('api/admin/deposits/<int:deposit_id>/', admin_views.admin_get_deposit, name='admin_get_deposit'),
     path('api/admin/deposits/<int:deposit_id>/approve/', admin_views.admin_approve_deposit, name='admin_approve_deposit'),
     path('api/admin/deposits/<int:deposit_id>/reject/', admin_views.admin_reject_deposit, name='admin_reject_deposit'),
+    path('api/admin/kyc/', admin_views.admin_list_kyc, name='admin_list_kyc'),
+    path('api/admin/kyc/<int:kyc_id>/', admin_views.admin_get_kyc, name='admin_get_kyc'),
+    path('api/admin/kyc/<int:kyc_id>/approve/', admin_views.admin_approve_kyc, name='admin_approve_kyc'),
+    path('api/admin/kyc/<int:kyc_id>/reject/', admin_views.admin_reject_kyc, name='admin_reject_kyc'),
     path('api/admin/topups/', admin_views.admin_list_topups, name='admin_list_topups'),
     path('api/admin/topups/<int:topup_id>/', admin_views.admin_get_topup, name='admin_get_topup'),
     path('api/admin/topups/<int:topup_id>/status/', admin_views.admin_update_topup_status, name='admin_update_topup_status'),

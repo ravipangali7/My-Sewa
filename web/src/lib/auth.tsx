@@ -32,6 +32,7 @@ type AuthContextValue = {
     password: string;
     password2: string;
     transaction_pin: string;
+    date_of_birth: string;
     first_name?: string;
     last_name?: string;
   }) => Promise<UserProfile>;
@@ -112,6 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password: string;
       password2: string;
       transaction_pin: string;
+      date_of_birth: string;
       first_name?: string;
       last_name?: string;
     }) => {

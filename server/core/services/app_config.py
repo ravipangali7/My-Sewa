@@ -63,7 +63,7 @@ def _platform_transfer_percent_charge(amount, percent) -> Decimal:
 
 def payment_disabled_response(feature: str) -> Response:
     labels = {
-        'deposits': 'Wallet deposits are currently disabled.',
+        'deposits': 'Manual wallet load is currently disabled.',
         'topups': 'Mobile top-ups are currently disabled.',
         'transfers': 'Bank transfers are currently disabled.',
         'remittances': 'Remittance payouts are currently disabled.',

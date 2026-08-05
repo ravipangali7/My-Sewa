@@ -2,6 +2,7 @@
 DRF Serializers for all models
 """
 import re
+from datetime import date
 from decimal import Decimal
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
@@ -19,6 +20,9 @@ from .models import (
     DataPackTransaction,
     DeviceToken,
     UserFeeConfig,
+    KYCSubmission,
+    KYCDocument,
+    KYCAuditLog,
 )
 
 User = get_user_model()
@@ -36,6 +40,15 @@ def validate_transaction_pin_value(value):
     return pin
 
 
+def validate_date_of_birth_value(value):
+    """Ensure date of birth is present and not in the future."""
+    if value is None:
+        raise serializers.ValidationError('Date of birth is required.')
+    if value > date.today():
+        raise serializers.ValidationError('Date of birth cannot be in the future.')
+    return value
+
+
 class UserSerializer(serializers.ModelSerializer):
     """User serializer for registration and profile - phone number as username"""
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
@@ -46,13 +59,14 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = (
-            'id', 'phone', 'email', 'first_name', 'last_name',
+            'id', 'phone', 'email', 'first_name', 'last_name', 'date_of_birth',
             'password', 'password2', 'transaction_pin', 'has_transaction_pin',
         )
         extra_kwargs = {
             'phone': {'required': True},
             # Model allows blank/null for legacy rows; registration always requires email.
             'email': {'required': True, 'allow_blank': False, 'allow_null': False},
+            'date_of_birth': {'required': True, 'allow_null': False},
             'first_name': {'required': False},
             'last_name': {'required': False},
         }
@@ -65,6 +79,9 @@ class UserSerializer(serializers.ModelSerializer):
         if not email:
             raise serializers.ValidationError('Email address is required.')
         return email
+
+    def validate_date_of_birth(self, value):
+        return validate_date_of_birth_value(value)
 
     def validate_transaction_pin(self, value):
         return validate_transaction_pin_value(value)
@@ -85,6 +102,7 @@ class UserSerializer(serializers.ModelSerializer):
             password=validated_data['password'],
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', ''),
+            date_of_birth=validated_data['date_of_birth'],
             account_status=User.ACCOUNT_STATUS_PENDING,
             transaction_pin=make_password(raw_pin),
         )
@@ -96,18 +114,24 @@ class UserProfileSerializer(serializers.ModelSerializer):
     """User profile serializer for reading profile information (no password fields)"""
     avatar_url = serializers.SerializerMethodField()
     has_transaction_pin = serializers.SerializerMethodField()
+    kyc_verified = serializers.SerializerMethodField()
+    profile_locked = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = (
-            'id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url',
+            'id', 'phone', 'email', 'first_name', 'last_name', 'date_of_birth',
+            'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
+            'kyc_status', 'citizenship_number', 'kyc_verified', 'profile_locked',
             'has_transaction_pin',
             'date_joined', 'last_login',
         )
         read_only_fields = (
             'id', 'phone', 'avatar', 'is_active', 'is_staff', 'is_superuser',
-            'account_status', 'has_transaction_pin', 'date_joined', 'last_login',
+            'account_status', 'kyc_status', 'citizenship_number',
+            'kyc_verified', 'profile_locked',
+            'has_transaction_pin', 'date_joined', 'last_login',
         )
 
     def get_avatar_url(self, obj):
@@ -121,6 +145,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def get_has_transaction_pin(self, obj):
         return bool(obj.transaction_pin)
 
+    def get_kyc_verified(self, obj):
+        return obj.kyc_status == User.KYC_STATUS_APPROVED
+
+    def get_profile_locked(self, obj):
+        return obj.kyc_status == User.KYC_STATUS_APPROVED
+
 
 class AdminUserSerializer(serializers.ModelSerializer):
     """Admin user list with wallet balance"""
@@ -133,6 +163,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
+            'kyc_status', 'citizenship_number',
             'date_joined', 'last_login',
             'wallet_id', 'wallet_balance',
         )
@@ -301,14 +332,22 @@ class WalletAdjustmentSerializer(serializers.ModelSerializer):
 
 class WalletAdjustmentWriteSerializer(serializers.Serializer):
     """
-    Prefer auditable adjustment payload.
+    Admin manual load / wallet adjust payload.
+    Prefer {amount, adjustment_type, reason}:
+      - credit = Manual Load / Add Fund
+      - debit  = subtract funds
     Also accepts legacy `{balance, reason}` to set an absolute balance.
+    Creates a WalletAdjustment audit row on success.
     """
     amount = serializers.DecimalField(
         max_digits=10, decimal_places=2, required=False, min_value=Decimal('0.01'),
     )
     adjustment_type = serializers.ChoiceField(
-        choices=('credit', 'debit'), required=False,
+        choices=(
+            ('credit', 'Manual Load (Add Fund)'),
+            ('debit', 'Debit'),
+        ),
+        required=False,
     )
     balance = serializers.DecimalField(
         max_digits=10, decimal_places=2, required=False, min_value=Decimal('0'),
@@ -335,17 +374,80 @@ class WalletAdjustmentWriteSerializer(serializers.Serializer):
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
-    """User profile update serializer (email, name, avatar)"""
+    """User profile update serializer (email, name, DOB, avatar).
+
+    After KYC verification, first_name / last_name / date_of_birth /
+    citizenship_number cannot be changed (Task 16).
+    """
+    # Accepted so clients get a clear lock error if they try to change it.
+    citizenship_number = serializers.CharField(
+        required=False, allow_blank=True, max_length=50,
+    )
 
     class Meta:
         model = User
-        fields = ('email', 'first_name', 'last_name', 'avatar')
+        fields = (
+            'email', 'first_name', 'last_name', 'date_of_birth',
+            'citizenship_number', 'avatar',
+        )
         extra_kwargs = {
             'email': {'required': False, 'allow_blank': True},
             'first_name': {'required': False, 'allow_blank': True},
             'last_name': {'required': False, 'allow_blank': True},
+            # Required when missing on the account; otherwise optional to change.
+            'date_of_birth': {'required': False, 'allow_null': False},
             'avatar': {'required': False},
         }
+
+    def validate_date_of_birth(self, value):
+        return validate_date_of_birth_value(value)
+
+    def validate(self, attrs):
+        from .services.kyc import (
+            PROFILE_IDENTITY_LOCKED_FIELDS,
+            collect_locked_field_errors,
+            is_profile_locked,
+        )
+
+        instance = self.instance
+        if instance is not None and is_profile_locked(instance):
+            # Prefer initial_data so unchanged re-posts and citizenship attempts are caught.
+            proposed = {}
+            for field in PROFILE_IDENTITY_LOCKED_FIELDS:
+                if field in self.initial_data:
+                    proposed[field] = (
+                        attrs[field] if field in attrs else self.initial_data.get(field)
+                    )
+            lock_errors = collect_locked_field_errors(instance, proposed)
+            if lock_errors:
+                lock_errors['non_field_errors'] = [
+                    'Identity fields are locked after KYC verification.',
+                ]
+                raise serializers.ValidationError(lock_errors)
+            # Drop locked fields from attrs so identical re-posts do not write them.
+            for field in PROFILE_IDENTITY_LOCKED_FIELDS:
+                attrs.pop(field, None)
+
+        if instance is not None and not instance.date_of_birth:
+            # Require DOB when completing identity fields; allow avatar-only patches.
+            identity_keys = {'email', 'first_name', 'last_name', 'date_of_birth'}
+            if identity_keys.intersection(attrs) and attrs.get('date_of_birth') is None:
+                raise serializers.ValidationError({
+                    'date_of_birth': 'Date of birth is required.',
+                })
+
+        # Citizenship number is managed via KYC submit, not free-form profile edits.
+        if instance is not None and 'citizenship_number' in attrs:
+            from .services.kyc import identity_field_changed
+            if identity_field_changed(instance, 'citizenship_number', attrs['citizenship_number']):
+                raise serializers.ValidationError({
+                    'citizenship_number': (
+                        'Citizenship number can only be updated via KYC submission.'
+                    ),
+                })
+            attrs.pop('citizenship_number', None)
+
+        return attrs
 
 
 class ChangePasswordSerializer(serializers.Serializer):
@@ -402,11 +504,23 @@ class ForgotPasswordSerializer(serializers.Serializer):
 class ResetPasswordSerializer(serializers.Serializer):
     phone = serializers.CharField(required=True, max_length=50)
     otp = serializers.CharField(required=True, max_length=10)
+    date_of_birth = serializers.DateField(
+        required=True,
+        input_formats=['%Y-%m-%d'],
+        error_messages={
+            'required': 'Date of birth is required.',
+            'invalid': 'Enter a valid date of birth in YYYY-MM-DD format.',
+            'null': 'Date of birth is required.',
+        },
+    )
     new_password = serializers.CharField(required=True, write_only=True, min_length=8)
     confirm_password = serializers.CharField(required=True, write_only=True)
 
     def validate_phone(self, value):
         return (value or '').strip()
+
+    def validate_date_of_birth(self, value):
+        return validate_date_of_birth_value(value)
 
     def validate(self, attrs):
         if attrs['new_password'] != attrs['confirm_password']:
@@ -1078,4 +1192,99 @@ class DeviceTokenSerializer(serializers.Serializer):
             defaults={'user': user, 'platform': platform},
         )
         return obj
+
+
+class KYCDocumentSerializer(serializers.ModelSerializer):
+    """Read serializer for KYC document images."""
+    document_type_display = serializers.CharField(
+        source='get_document_type_display', read_only=True,
+    )
+    side_display = serializers.CharField(source='get_side_display', read_only=True)
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KYCDocument
+        fields = (
+            'id', 'document_type', 'document_type_display',
+            'side', 'side_display', 'file', 'file_url', 'uploaded_at',
+        )
+        read_only_fields = fields
+
+    def get_file_url(self, obj):
+        if not obj.file:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url
+
+
+class KYCDocumentUploadSerializer(serializers.Serializer):
+    """Multipart upload for a single KYC document."""
+    document_type = serializers.ChoiceField(choices=KYCDocument.DOCUMENT_TYPE_CHOICES)
+    side = serializers.ChoiceField(
+        choices=KYCDocument.SIDE_CHOICES,
+        required=False,
+        default=KYCDocument.SIDE_SINGLE,
+    )
+    file = serializers.ImageField()
+
+
+class KYCSubmissionSerializer(serializers.ModelSerializer):
+    """Full KYC submission with nested documents."""
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    documents = KYCDocumentSerializer(many=True, read_only=True)
+    reviewed_by_phone = serializers.CharField(
+        source='reviewed_by.phone', read_only=True, default=None,
+    )
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+
+    class Meta:
+        model = KYCSubmission
+        fields = (
+            'id', 'user_id', 'phone', 'first_name', 'last_name',
+            'status', 'status_display', 'citizenship_number',
+            'rejection_reason', 'reviewed_by', 'reviewed_by_phone',
+            'reviewed_at', 'submitted_at', 'documents',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+
+class KYCSubmitSerializer(serializers.Serializer):
+    """Create or resubmit KYC (citizenship number + optional document batch)."""
+    citizenship_number = serializers.CharField(max_length=50)
+
+    def validate_citizenship_number(self, value):
+        number = (value or '').strip()
+        if len(number) < 3:
+            raise serializers.ValidationError('Citizenship number is required.')
+        return number
+
+
+class KYCStatusSerializer(serializers.Serializer):
+    """Aggregate KYC status payload for the authenticated user."""
+    kyc_status = serializers.CharField()
+    citizenship_number = serializers.CharField(allow_blank=True)
+    kyc_verified = serializers.BooleanField()
+    profile_locked = serializers.BooleanField()
+    can_submit = serializers.BooleanField()
+    submission = KYCSubmissionSerializer(allow_null=True)
+
+
+class KYCAuditLogSerializer(serializers.ModelSerializer):
+    actor_phone = serializers.CharField(source='actor.phone', read_only=True, default=None)
+    action_display = serializers.CharField(source='get_action_display', read_only=True)
+
+    class Meta:
+        model = KYCAuditLog
+        fields = (
+            'id', 'user', 'submission', 'action', 'action_display',
+            'actor', 'actor_phone', 'old_status', 'new_status',
+            'details', 'created_at',
+        )
+        read_only_fields = fields
 

@@ -12,6 +12,9 @@ from .models import (
     RemittanceTransaction,
     UserFeeConfig,
     DeviceToken,
+    KYCSubmission,
+    KYCDocument,
+    KYCAuditLog,
 )
 
 User = get_user_model()
@@ -24,7 +27,8 @@ class CustomUserAdminForm(forms.ModelForm):
         model = User
         fields = (
             'phone', 'email', 'first_name', 'last_name', 'avatar',
-            'account_status', 'is_active', 'is_staff',
+            'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
+            'is_active', 'is_staff',
         )
 
     def __init__(self, *args, **kwargs):
@@ -33,6 +37,7 @@ class CustomUserAdminForm(forms.ModelForm):
         # New users must have an email; existing legacy accounts may still be blank.
         if not self.instance.pk:
             self.fields['email'].required = True
+            self.fields['date_of_birth'].required = True
 
     def clean_email(self):
         email = (self.cleaned_data.get('email') or '').strip()
@@ -44,13 +49,18 @@ class CustomUserAdminForm(forms.ModelForm):
 @admin.register(User)
 class CustomUserAdmin(admin.ModelAdmin):
     form = CustomUserAdminForm
-    list_display = ('phone', 'email', 'first_name', 'last_name', 'account_status', 'is_active', 'date_joined')
-    list_filter = ('account_status', 'is_active', 'is_staff', 'date_joined')
-    search_fields = ('phone', 'email', 'first_name', 'last_name')
+    list_display = (
+        'phone', 'email', 'first_name', 'last_name',
+        'account_status', 'kyc_status', 'is_active', 'date_joined',
+    )
+    list_filter = ('account_status', 'kyc_status', 'is_active', 'is_staff', 'date_joined')
+    search_fields = ('phone', 'email', 'first_name', 'last_name', 'citizenship_number')
     readonly_fields = ('date_joined', 'last_login')
     fields = (
         'phone', 'email', 'first_name', 'last_name', 'avatar',
-        'account_status', 'is_active', 'is_staff', 'date_joined', 'last_login',
+        'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
+        'is_active', 'is_staff',
+        'date_joined', 'last_login',
     )
 
 
@@ -239,3 +249,70 @@ class DeviceTokenAdmin(admin.ModelAdmin):
         if len(t) <= 24:
             return t
         return f'{t[:12]}…{t[-8:]}'
+
+
+class KYCDocumentInline(admin.TabularInline):
+    model = KYCDocument
+    extra = 0
+    readonly_fields = ('document_type', 'side', 'file', 'uploaded_at')
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(KYCSubmission)
+class KYCSubmissionAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'user', 'citizenship_number', 'status', 'reviewed_by',
+        'submitted_at', 'created_at',
+    )
+    list_filter = ('status', 'submitted_at', 'created_at')
+    search_fields = (
+        'user__phone', 'user__email', 'citizenship_number', 'rejection_reason',
+    )
+    readonly_fields = (
+        'user', 'citizenship_number', 'status', 'rejection_reason',
+        'reviewed_by', 'reviewed_at', 'submitted_at', 'created_at', 'updated_at',
+    )
+    inlines = [KYCDocumentInline]
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(KYCDocument)
+class KYCDocumentAdmin(admin.ModelAdmin):
+    list_display = ('submission', 'document_type', 'side', 'uploaded_at')
+    list_filter = ('document_type', 'side', 'uploaded_at')
+    search_fields = (
+        'submission__user__phone', 'submission__citizenship_number',
+    )
+    readonly_fields = (
+        'submission', 'document_type', 'side', 'file', 'uploaded_at',
+    )
+    ordering = ('-uploaded_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(KYCAuditLog)
+class KYCAuditLogAdmin(admin.ModelAdmin):
+    list_display = (
+        'user', 'action', 'actor', 'old_status', 'new_status', 'created_at',
+    )
+    list_filter = ('action', 'created_at')
+    search_fields = ('user__phone', 'actor__phone')
+    readonly_fields = (
+        'user', 'submission', 'action', 'actor',
+        'old_status', 'new_status', 'details', 'created_at',
+    )
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

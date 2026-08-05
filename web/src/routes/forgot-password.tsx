@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { BsDatePicker } from "@/components/BsDatePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,13 +26,16 @@ export const Route = createFileRoute("/forgot-password")({
   component: ForgotPasswordPage,
 });
 
+type ForgotStep = "request" | "verify_dob" | "reset";
+
 function ForgotPasswordPage() {
   const navigate = useNavigate();
   const { token, user, isStaff, isLoading } = useAuth();
   const { logoUrl } = useSiteBranding();
   const t = useT();
-  const [step, setStep] = useState<"request" | "reset">("request");
+  const [step, setStep] = useState<ForgotStep>("request");
   const [phone, setPhone] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
@@ -44,6 +48,20 @@ function ForgotPasswordPage() {
       navigate({ to: isStaff ? "/admin" : "/app" });
     }
   }, [token, isLoading, user, isStaff, navigate]);
+
+  const title =
+    step === "request"
+      ? t("auth.forgotTitle")
+      : step === "verify_dob"
+        ? t("auth.verifyDobTitle")
+        : t("auth.setNewPassword");
+
+  const subtitle =
+    step === "request"
+      ? t("auth.sendCodeSubtitle")
+      : step === "verify_dob"
+        ? t("auth.verifyDobSubtitle")
+        : t("auth.enterCode", { email: emailHint || "your email" });
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
@@ -67,14 +85,8 @@ function ForgotPasswordPage() {
         <div className="w-full max-w-sm">
           <div className="mb-8 flex flex-col items-center lg:items-start">
             <img src={logoUrl} alt="MySewa" className="size-14 rounded-2xl object-cover lg:hidden" />
-            <h1 className="mt-4 text-[34px] font-bold tracking-tight lg:mt-0">
-              {step === "request" ? t("auth.forgotTitle") : t("auth.setNewPassword")}
-            </h1>
-            <p className="mt-1 text-[15px] text-muted-foreground">
-              {step === "request"
-                ? t("auth.sendCodeSubtitle")
-                : t("auth.enterCode", { email: emailHint || "your email" })}
-            </p>
+            <h1 className="mt-4 text-[34px] font-bold tracking-tight lg:mt-0">{title}</h1>
+            <p className="mt-1 text-[15px] text-muted-foreground">{subtitle}</p>
           </div>
 
           {step === "request" ? (
@@ -90,7 +102,7 @@ function ForgotPasswordPage() {
                   if (res.debug_otp) setDebugOtp(res.debug_otp);
                   if (res.email_hint) setEmailHint(res.email_hint);
                   toast.success(t("auth.checkEmail"), { description: res.message });
-                  setStep("reset");
+                  setStep("verify_dob");
                 } catch (err) {
                   toast.error(err instanceof ApiError ? err.message : t("common.requestFailed"));
                 } finally {
@@ -118,11 +130,51 @@ function ForgotPasswordPage() {
                 {submitting ? t("auth.sending") : t("auth.sendCode")}
               </Button>
             </form>
+          ) : step === "verify_dob" ? (
+            <form
+              className="space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!dateOfBirth) {
+                  toast.error(t("auth.dobRequired"));
+                  return;
+                }
+                setStep("reset");
+              }}
+            >
+              <div className="space-y-1.5">
+                <Label htmlFor="date_of_birth">{t("auth.dateOfBirth")}</Label>
+                <BsDatePicker
+                  id="date_of_birth"
+                  value={dateOfBirth}
+                  onChange={setDateOfBirth}
+                  placeholder={t("auth.dobPlaceholder")}
+                  disableFuture
+                  required
+                  className="h-12"
+                />
+              </div>
+              <Button type="submit" className="h-12 w-full rounded-xl text-[17px]">
+                {t("auth.continueToReset")}
+              </Button>
+              <button
+                type="button"
+                className="w-full text-center text-[13px] font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => setStep("request")}
+              >
+                {t("auth.useDifferentPhone")}
+              </button>
+            </form>
           ) : (
             <form
               className="space-y-4"
               onSubmit={async (e) => {
                 e.preventDefault();
+                if (!dateOfBirth) {
+                  toast.error(t("auth.dobRequired"));
+                  setStep("verify_dob");
+                  return;
+                }
                 if (password !== password2) {
                   toast.error(t("auth.passwordsMismatch"));
                   return;
@@ -132,6 +184,7 @@ function ForgotPasswordPage() {
                   const res = await apiClient.resetPassword({
                     phone: phone.trim(),
                     otp: otp.trim(),
+                    date_of_birth: dateOfBirth,
                     new_password: password,
                     confirm_password: password2,
                   });
@@ -195,9 +248,9 @@ function ForgotPasswordPage() {
               <button
                 type="button"
                 className="w-full text-center text-[13px] font-medium text-muted-foreground hover:text-foreground"
-                onClick={() => setStep("request")}
+                onClick={() => setStep("verify_dob")}
               >
-                {t("auth.useDifferentPhone")}
+                {t("auth.backToDob")}
               </button>
             </form>
           )}

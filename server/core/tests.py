@@ -1,9 +1,23 @@
+from datetime import date
 from decimal import Decimal
 
-from django.test import SimpleTestCase
+from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from django.test import SimpleTestCase, TestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APIClient
 
+from .serializers import ResetPasswordSerializer
 from .services.himalpay import HimalPayAPI, HimalPayError
 from .views.bank_transfer_views import _resolve_destination_bank
+
+User = get_user_model()
+
+_RESET_DOB_IDENTITY_MESSAGE = (
+    'Unable to verify your identity. '
+    'Please check your details and try again.'
+)
 
 
 class RupeesPaisaConversionTests(SimpleTestCase):
@@ -304,3 +318,119 @@ class RemittanceLookupParseTests(SimpleTestCase):
         parsed = HimalPayAPI.parse_remittance_lookup(raw)
         self.assertEqual(parsed['payout_amt'], Decimal('0.00'))
         self.assertEqual(HimalPayAPI.extract_provider_message(raw), 'Amount is locked')
+
+
+class ResetPasswordSerializerTests(SimpleTestCase):
+    """date_of_birth must be present and YYYY-MM-DD before reset can proceed."""
+
+    def _base(self, **overrides):
+        data = {
+            'phone': '9800000001',
+            'otp': '123456',
+            'date_of_birth': '1990-05-15',
+            'new_password': 'securepass1',
+            'confirm_password': 'securepass1',
+        }
+        data.update(overrides)
+        return data
+
+    def test_accepts_iso_date(self):
+        serializer = ResetPasswordSerializer(data=self._base())
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data['date_of_birth'], date(1990, 5, 15))
+
+    def test_rejects_missing_date_of_birth(self):
+        data = self._base()
+        del data['date_of_birth']
+        serializer = ResetPasswordSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('date_of_birth', serializer.errors)
+
+    def test_rejects_invalid_date_format(self):
+        serializer = ResetPasswordSerializer(data=self._base(date_of_birth='15/05/1990'))
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('date_of_birth', serializer.errors)
+        self.assertIn(
+            'YYYY-MM-DD',
+            ' '.join(str(e) for e in serializer.errors['date_of_birth']),
+        )
+
+    def test_rejects_future_date_of_birth(self):
+        serializer = ResetPasswordSerializer(
+            data=self._base(date_of_birth='2999-01-01'),
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('date_of_birth', serializer.errors)
+
+
+class ResetPasswordDobMatchTests(TestCase):
+    """Password reset succeeds only when submitted DOB equals registered DOB."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.url = reverse('reset_password')
+        self.phone = '9801112233'
+        self.otp = '654321'
+        self.dob = date(1992, 3, 20)
+        self.user = User.objects.create_user(
+            self.phone,
+            password='oldpassword1',
+            email='reset@example.com',
+            date_of_birth=self.dob,
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        cache.set(f'password_reset_otp:{self.phone}', self.otp, timeout=900)
+
+    def _payload(self, **overrides):
+        data = {
+            'phone': self.phone,
+            'otp': self.otp,
+            'date_of_birth': self.dob.isoformat(),
+            'new_password': 'newpassword1',
+            'confirm_password': 'newpassword1',
+        }
+        data.update(overrides)
+        return data
+
+    def test_reset_succeeds_when_dob_matches(self):
+        response = self.client.post(self.url, self._payload(), format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('newpassword1'))
+        self.assertIsNone(cache.get(f'password_reset_otp:{self.phone}'))
+
+    def test_reset_rejects_wrong_dob_with_non_leaky_error(self):
+        response = self.client.post(
+            self.url,
+            self._payload(date_of_birth='1990-01-01'),
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['message'], _RESET_DOB_IDENTITY_MESSAGE)
+        self.assertEqual(
+            response.data['errors']['date_of_birth'],
+            [_RESET_DOB_IDENTITY_MESSAGE],
+        )
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('oldpassword1'))
+
+    def test_reset_rejects_missing_dob_on_account_same_error(self):
+        self.user.date_of_birth = None
+        self.user.save(update_fields=['date_of_birth'])
+        response = self.client.post(self.url, self._payload(), format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['message'], _RESET_DOB_IDENTITY_MESSAGE)
+        self.assertEqual(
+            response.data['errors']['date_of_birth'],
+            [_RESET_DOB_IDENTITY_MESSAGE],
+        )
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('oldpassword1'))
+
+    def test_reset_requires_date_of_birth_field(self):
+        payload = self._payload()
+        del payload['date_of_birth']
+        response = self.client.post(self.url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('date_of_birth', response.data.get('errors', {}))

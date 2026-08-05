@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Camera, ChevronRight, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/AdminShell";
@@ -21,6 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { DateOfBirthDisplay, DateOfBirthField } from "@/components/DateOfBirthField";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -28,6 +29,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { toAdIsoDate } from "@/lib/nepali-date";
 
 export const Route = createFileRoute("/admin/profile")({
   head: () => ({
@@ -58,6 +60,7 @@ function AdminProfilePage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
 
   const [newPhone, setNewPhone] = useState("");
   const [phonePassword, setPhonePassword] = useState("");
@@ -157,6 +160,10 @@ function AdminProfilePage() {
           <Field label="Full name" value={name} />
           <Field label="Phone" value={user.phone} />
           <Field label="Email" value={user.email || "—"} />
+          <Field
+            label="Date of birth"
+            value={<DateOfBirthDisplay value={user.date_of_birth} emptyLabel="—" />}
+          />
           <Field label="Role" value={roleLabel} />
           <Field label="Account status" value={user.is_active ? "Active" : "Inactive"} />
           <Field label="Date joined" value={formatDate(user.date_joined)} />
@@ -169,11 +176,12 @@ function AdminProfilePage() {
         <section className="min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
           <ActionRow
             label="Edit profile"
-            description="Name and email"
+            description="Name, email and date of birth"
             onClick={() => {
               setFirstName(user.first_name || "");
               setLastName(user.last_name || "");
               setEmail(user.email || "");
+              setDateOfBirth(toAdIsoDate(user.date_of_birth));
               setEditOpen(true);
             }}
           />
@@ -217,11 +225,16 @@ function AdminProfilePage() {
             className="space-y-3"
             onSubmit={async (e) => {
               e.preventDefault();
+              if (!dateOfBirth) {
+                toast.error("Date of birth is required");
+                return;
+              }
               try {
                 const fd = new FormData();
                 fd.append("first_name", firstName);
                 fd.append("last_name", lastName);
                 fd.append("email", email);
+                fd.append("date_of_birth", dateOfBirth);
                 await apiClient.updateProfile(fd);
                 await refreshProfile();
                 toast.success("Profile updated");
@@ -256,6 +269,11 @@ function AdminProfilePage() {
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
+            <DateOfBirthField
+              value={dateOfBirth}
+              onChange={setDateOfBirth}
+              required
+            />
             <DialogFooter>
               <Button type="submit">Save</Button>
             </DialogFooter>
@@ -391,7 +409,13 @@ function AdminProfilePage() {
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3 last:border-b-0">
       <span className="text-sm text-muted-foreground">{label}</span>

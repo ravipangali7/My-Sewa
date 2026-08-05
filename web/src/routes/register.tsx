@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { DateOfBirthField } from "@/components/DateOfBirthField";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,6 +35,7 @@ function RegisterPage() {
   const [emailError, setEmailError] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
   const [transactionPin, setTransactionPin] = useState("");
@@ -92,6 +94,10 @@ function RegisterPage() {
                 return;
               }
               setEmailError("");
+              if (!dateOfBirth) {
+                toast.error(t("auth.dobRequired"));
+                return;
+              }
               if (password !== password2) {
                 toast.error(t("auth.passwordsMismatch"));
                 return;
@@ -116,6 +122,7 @@ function RegisterPage() {
                   password,
                   password2,
                   transaction_pin: transactionPin,
+                  date_of_birth: dateOfBirth,
                   first_name: firstName.trim(),
                   last_name: lastName.trim(),
                 });
@@ -188,6 +195,12 @@ function RegisterPage() {
                 />
               </div>
             </div>
+            <DateOfBirthField
+              value={dateOfBirth}
+              onChange={setDateOfBirth}
+              required
+              pickerClassName="h-12"
+            />
             <div className="space-y-1.5">
               <Label htmlFor="password">{t("auth.password")}</Label>
               <PasswordInput

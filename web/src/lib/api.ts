@@ -251,13 +251,20 @@ export const apiClient = {
     password: string;
     password2: string;
     transaction_pin: string;
+    date_of_birth: string;
     first_name?: string;
     last_name?: string;
   }) =>
     api<{
       message: string;
       token: string;
-      user: { id: number; phone: string; email: string; has_transaction_pin?: boolean };
+      user: {
+        id: number;
+        phone: string;
+        email: string;
+        date_of_birth?: string | null;
+        has_transaction_pin?: boolean;
+      };
     }>("/api/auth/register/", { method: "POST", body, auth: false }),
 
   setTransactionPin: (body: { transaction_pin: string; confirm_pin: string }) =>
@@ -302,6 +309,7 @@ export const apiClient = {
   resetPassword: (body: {
     phone: string;
     otp: string;
+    date_of_birth: string;
     new_password: string;
     confirm_password: string;
   }) =>
@@ -341,6 +349,23 @@ export const apiClient = {
 
   walletTransactions: () =>
     api<import("./types").WalletTransactions>("/api/wallet/transactions/"),
+
+  getKyc: () => api<import("./types").KycStatusPayload>("/api/kyc/"),
+
+  submitKyc: (formData: FormData) =>
+    api<{ message: string; data: import("./types").KycStatusPayload }>("/api/kyc/submit/", {
+      method: "POST",
+      formData,
+    }),
+
+  listKycDocuments: () =>
+    api<{ items: import("./types").KycDocument[] }>("/api/kyc/documents/"),
+
+  uploadKycDocument: (formData: FormData) =>
+    api<{ message: string; data: import("./types").KycDocument }>("/api/kyc/documents/", {
+      method: "POST",
+      formData,
+    }),
 
   settings: () => api<import("./types").AppSettings>("/api/settings/", { auth: false }),
 
@@ -688,6 +713,22 @@ export const apiClient = {
   adminRejectDeposit: (id: number, body: { rejection_reason: string }) =>
     api<{ message: string; data: import("./types").Deposit }>(
       `/api/admin/deposits/${id}/reject/`,
+      { method: "POST", body },
+    ),
+  adminKyc: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").KycSubmission>>(
+      `/api/admin/kyc/${buildAdminListQuery(filters)}`,
+    ),
+  adminGetKyc: (id: number) =>
+    api<import("./types").KycSubmission>(`/api/admin/kyc/${id}/`),
+  adminApproveKyc: (id: number) =>
+    api<{ message: string; data: import("./types").KycSubmission }>(
+      `/api/admin/kyc/${id}/approve/`,
+      { method: "POST" },
+    ),
+  adminRejectKyc: (id: number, body: { rejection_reason: string }) =>
+    api<{ message: string; data: import("./types").KycSubmission }>(
+      `/api/admin/kyc/${id}/reject/`,
       { method: "POST", body },
     ),
   adminTopups: (filters?: AdminListFilters & { productId?: "1" | "2" | "all" }) => {

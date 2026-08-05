@@ -70,6 +70,8 @@ function TopUp() {
   });
   const topupsEnabled =
     settingsQuery.data?.config?.payment?.topups_enabled !== false && !accountPending;
+  const depositsEnabled =
+    settingsQuery.data?.config?.payment?.deposits_enabled !== false && !accountPending;
   const minTopup = settingsQuery.data?.config?.transactions?.min_topup ?? 10;
   const maxTopup = settingsQuery.data?.config?.transactions?.max_topup ?? 5000;
 
@@ -373,7 +375,7 @@ function TopUp() {
                 {walletQuery.isLoading ? "…" : formatNPR(walletBalance)}
               </p>
             </div>
-            {insufficient ? (
+            {insufficient && depositsEnabled ? (
               <Link
                 to="/app/load"
                 className="text-[13px] font-medium text-brand underline-offset-2 hover:underline"

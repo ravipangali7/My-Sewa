@@ -101,6 +101,8 @@ function Transfer() {
   });
   const transfersEnabled =
     settingsQuery.data?.config?.payment?.transfers_enabled !== false && !accountPending;
+  const depositsEnabled =
+    settingsQuery.data?.config?.payment?.deposits_enabled !== false && !accountPending;
   const minTransfer = settingsQuery.data?.config?.transactions?.min_transfer ?? 10;
   const maxTransfer = settingsQuery.data?.config?.transactions?.max_transfer ?? 100000;
   const dailyLimit = settingsQuery.data?.config?.transactions?.daily_transfer_limit ?? 200000;
@@ -488,6 +490,25 @@ function Transfer() {
           </section>
         ) : null}
         <section className="inset-group min-w-0 p-4">
+          <div className="mb-4 flex min-w-0 items-center justify-between gap-2 rounded-xl bg-muted px-3 py-2.5">
+            <div>
+              <p className="text-[12px] text-muted-foreground">
+                {t("transfer.availableBalance")}
+              </p>
+              <p className="tabular text-[17px] font-semibold">
+                {walletQuery.isLoading ? "…" : formatNPR(walletBalance)}
+              </p>
+            </div>
+            {insufficient && depositsEnabled ? (
+              <Link
+                to="/app/load"
+                className="text-[13px] font-medium text-brand underline-offset-2 hover:underline"
+              >
+                {t("topup.loadWallet")}
+              </Link>
+            ) : null}
+          </div>
+
           <Tabs
             value={method}
             onValueChange={(v) => setMethod(v as TransferMethod)}

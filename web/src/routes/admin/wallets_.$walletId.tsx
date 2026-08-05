@@ -87,7 +87,7 @@ function WalletDetailPage() {
             <Button asChild size="sm" variant="outline">
               <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
                 <Pencil className="size-3.5" />
-                Edit
+                Add Fund / Adjust
               </Link>
             </Button>
             <AlertDialog>

@@ -45,6 +45,7 @@ export const STATUS_TONE = {
   success: "success",
   rejected: "danger",
   failed: "danger",
+  not_submitted: "warning",
 } as const;
 
 export type StatusKey = keyof typeof STATUS_TONE;

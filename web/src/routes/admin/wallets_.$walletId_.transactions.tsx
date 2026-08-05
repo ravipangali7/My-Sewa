@@ -58,7 +58,7 @@ const TYPE_TABS: { value: TypeTab; label: string }[] = [
   { value: "transfer", label: "Transfers" },
   { value: "internet", label: "Internet" },
   { value: "data_pack", label: "Data packs" },
-  { value: "wallet_adjustment", label: "Adjustments" },
+  { value: "wallet_adjustment", label: "Manual loads / adjustments" },
 ];
 
 const TYPE_LABELS: Record<ActivityKind, string> = {
@@ -68,7 +68,7 @@ const TYPE_LABELS: Record<ActivityKind, string> = {
   transfer: "Transfer",
   internet: "Internet",
   data_pack: "Data pack",
-  wallet_adjustment: "Adjustment",
+  wallet_adjustment: "Manual load / adjust",
 };
 
 function WalletTransactionsPage() {

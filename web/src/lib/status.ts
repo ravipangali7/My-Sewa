@@ -6,12 +6,14 @@ const STATUS_LABEL: Record<string, MessageKey> = {
   rejected: "status.rejected",
   success: "status.success",
   failed: "status.failed",
+  not_submitted: "status.notSubmitted",
 };
 
 /** Normalize backend status / status_display strings to a catalog key. */
 function normalizeStatus(status: string): string {
-  const raw = status.trim().toLowerCase();
+  const raw = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (STATUS_LABEL[raw]) return raw;
+  if (raw.includes("not_submit") || raw === "notsubmitted") return "not_submitted";
   if (raw.includes("reject")) return "rejected";
   if (raw.includes("approv") || raw.includes("credit")) return "approved";
   if (raw.includes("success") || raw.includes("complete")) return "success";

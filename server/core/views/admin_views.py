@@ -32,6 +32,7 @@ from ..models import (
     InternetBillTransaction,
     DataPackTransaction,
     UserFeeConfig,
+    KYCSubmission,
     merge_app_config,
 )
 from ..serializers import (
@@ -50,7 +51,9 @@ from ..serializers import (
     DataPackTransactionSerializer,
     SettingsSerializer,
     UserFeeConfigSerializer,
+    KYCSubmissionSerializer,
 )
+from ..services.kyc import mark_submission_reviewed
 from ..services.himalpay import (
     HimalPayAPI,
     HimalPayError,
@@ -971,7 +974,8 @@ def admin_wallet_detail(request, wallet_id):
         wallet.delete()
         return Response({'message': 'Wallet deleted successfully'}, status=status.HTTP_200_OK)
 
-    # Prefer {amount, adjustment_type, reason}; still accept {balance, reason}.
+    # Manual load / adjust: prefer {amount, adjustment_type, reason}
+    # (credit = add fund / manual load, debit = subtract). Still accept {balance, reason}.
     write = WalletAdjustmentWriteSerializer(data=request.data)
     if not write.is_valid():
         return Response(
@@ -1609,6 +1613,174 @@ def admin_himalpay_status(request):
     except Exception as exc:
         result['message'] = f'HimalPay check failed: {exc}'
         return Response(result)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_list_kyc(request):
+    """List KYC submissions with optional status / search / date filters."""
+    qs = (
+        KYCSubmission.objects.select_related('user', 'reviewed_by')
+        .prefetch_related('documents')
+        .order_by('-created_at')
+    )
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+    status_filter = request.query_params.get('status')
+    if status_filter in (
+        KYCSubmission.STATUS_PENDING,
+        KYCSubmission.STATUS_APPROVED,
+        KYCSubmission.STATUS_REJECTED,
+    ):
+        qs = qs.filter(status=status_filter)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(user__first_name__icontains=q)
+            | Q(user__last_name__icontains=q)
+            | Q(citizenship_number__icontains=q)
+            | Q(rejection_reason__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-kyc.csv',
+            [
+                'id', 'phone', 'first_name', 'last_name', 'citizenship_number',
+                'status', 'rejection_reason', 'reviewed_by', 'reviewed_at',
+                'submitted_at', 'created_at', 'updated_at',
+            ],
+            [
+                [
+                    s.id,
+                    s.user.phone,
+                    s.user.first_name or '',
+                    s.user.last_name or '',
+                    s.citizenship_number,
+                    s.status,
+                    s.rejection_reason or '',
+                    s.reviewed_by.phone if s.reviewed_by else '',
+                    s.reviewed_at.isoformat() if s.reviewed_at else '',
+                    s.submitted_at.isoformat() if s.submitted_at else '',
+                    s.created_at.isoformat() if s.created_at else '',
+                    s.updated_at.isoformat() if s.updated_at else '',
+                ]
+                for s in qs
+            ],
+        )
+
+    return Response({
+        'items': KYCSubmissionSerializer(qs, many=True, context={'request': request}).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status=KYCSubmission.STATUS_APPROVED).count(),
+            'pending': qs.filter(status=KYCSubmission.STATUS_PENDING).count(),
+            'failed': qs.filter(status=KYCSubmission.STATUS_REJECTED).count(),
+        },
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_get_kyc(request, kyc_id):
+    """KYC submission detail including document previews."""
+    try:
+        submission = (
+            KYCSubmission.objects.select_related('user', 'reviewed_by')
+            .prefetch_related('documents')
+            .get(pk=kyc_id)
+        )
+    except KYCSubmission.DoesNotExist:
+        return Response({'error': 'KYC submission not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(KYCSubmissionSerializer(submission, context={'request': request}).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_approve_kyc(request, kyc_id):
+    """Approve a pending KYC submission and sync user.kyc_status."""
+    try:
+        submission = (
+            KYCSubmission.objects.select_related('user')
+            .prefetch_related('documents')
+            .get(pk=kyc_id)
+        )
+    except KYCSubmission.DoesNotExist:
+        return Response({'error': 'KYC submission not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if submission.status != KYCSubmission.STATUS_PENDING:
+        return Response(
+            {'error': f'KYC submission is already {submission.status}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with transaction.atomic():
+        mark_submission_reviewed(
+            submission,
+            status=KYCSubmission.STATUS_APPROVED,
+            reviewer=request.user,
+        )
+
+    submission.refresh_from_db()
+    try:
+        from ..services.notifications import notify_kyc_approved
+        notify_kyc_approved(submission)
+    except Exception:
+        pass
+
+    return Response({
+        'message': 'KYC approved successfully',
+        'data': KYCSubmissionSerializer(submission, context={'request': request}).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_reject_kyc(request, kyc_id):
+    """Reject a pending KYC submission with a required reason."""
+    try:
+        submission = (
+            KYCSubmission.objects.select_related('user')
+            .prefetch_related('documents')
+            .get(pk=kyc_id)
+        )
+    except KYCSubmission.DoesNotExist:
+        return Response({'error': 'KYC submission not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if submission.status != KYCSubmission.STATUS_PENDING:
+        return Response(
+            {'error': f'KYC submission is already {submission.status}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    reason = (request.data.get('rejection_reason') or request.data.get('reason') or '').strip()
+    if not reason:
+        return Response(
+            {'error': 'Rejection reason is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with transaction.atomic():
+        mark_submission_reviewed(
+            submission,
+            status=KYCSubmission.STATUS_REJECTED,
+            reviewer=request.user,
+            rejection_reason=reason,
+        )
+
+    submission.refresh_from_db()
+    try:
+        from ..services.notifications import notify_kyc_rejected
+        notify_kyc_rejected(submission)
+    except Exception:
+        pass
+
+    return Response({
+        'message': 'KYC rejected',
+        'data': KYCSubmissionSerializer(submission, context={'request': request}).data,
+    })
 
 
 @api_view(['GET', 'PUT'])

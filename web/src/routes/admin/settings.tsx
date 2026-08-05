@@ -524,8 +524,8 @@ function SettingsPage() {
             >
               <div className="space-y-3">
                 <ToggleRow
-                  label="Wallet deposits"
-                  description="Allow customers to submit deposit requests"
+                  label="Manual Wallet Load"
+                  description="ON allows users to fund their wallet via deposit (user deposit load). OFF disables wallet funding requests."
                   checked={config.payment.deposits_enabled}
                   onCheckedChange={(v) =>
                     setConfig((c) => ({
@@ -1400,7 +1400,22 @@ function ToggleRow({
         <p className="text-sm font-medium">{label}</p>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <div className="flex shrink-0 items-center gap-2">
+        <span
+          className={cn(
+            "text-xs font-medium tabular-nums",
+            checked ? "text-foreground" : "text-muted-foreground",
+          )}
+          aria-hidden
+        >
+          {checked ? "ON" : "OFF"}
+        </span>
+        <Switch
+          checked={checked}
+          onCheckedChange={onCheckedChange}
+          aria-label={`${label}: ${checked ? "ON" : "OFF"}`}
+        />
+      </div>
     </div>
   );
 }

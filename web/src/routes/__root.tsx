@@ -15,6 +15,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth";
 import { I18nProvider } from "@/lib/i18n";
+import { OfflineGate, OnlineProvider } from "@/lib/online";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { ensureNativeDocumentScroll, isMySewaNativeApp } from "@/lib/native-app";
@@ -132,14 +133,18 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <I18nProvider>
-        <AuthProvider>
-          <SiteBrandingSync />
-          <LiveRefreshSync />
-          <NativeScrollSync />
-          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <Outlet />
-          <Toaster position="top-center" />
-        </AuthProvider>
+        <OnlineProvider>
+          <OfflineGate>
+            <AuthProvider>
+              <SiteBrandingSync />
+              <LiveRefreshSync />
+              <NativeScrollSync />
+              {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+              <Outlet />
+              <Toaster position="top-center" />
+            </AuthProvider>
+          </OfflineGate>
+        </OnlineProvider>
       </I18nProvider>
     </QueryClientProvider>
   );

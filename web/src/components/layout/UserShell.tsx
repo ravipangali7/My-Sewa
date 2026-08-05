@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Home, ArrowLeftRight, History, User, ArrowLeft } from "lucide-react";
+import { Home, ArrowLeftRight, ArrowDownToLine, History, User, ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,12 @@ const TABS = [
     labelKey: "nav.transfer" as const satisfies MessageKey,
     icon: ArrowLeftRight,
     match: (p: string) => p.startsWith("/app/transfer"),
+  },
+  {
+    to: "/app/remittance",
+    labelKey: "nav.remittance" as const satisfies MessageKey,
+    icon: ArrowDownToLine,
+    match: (p: string) => p.startsWith("/app/remittance"),
   },
   {
     to: "/app/history",
@@ -228,7 +234,7 @@ export function UserShell({
         </main>
 
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface pb-[max(10px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] lg:hidden">
-          <ul className="grid grid-cols-4">
+          <ul className="grid grid-cols-5">
             {TABS.map((tab) => {
               const active = tab.match(pathname);
               return (
@@ -236,7 +242,7 @@ export function UserShell({
                   <Link
                     to={tab.to}
                     className={cn(
-                      "relative flex min-h-[56px] flex-col items-center justify-center gap-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
+                      "relative flex min-h-[56px] flex-col items-center justify-center gap-0.5 px-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
                       "active:bg-transparent focus-visible:bg-transparent",
                       active ? "text-brand" : "text-[#8A94A6]",
                     )}
@@ -244,11 +250,11 @@ export function UserShell({
                     {active ? (
                       <span
                         aria-hidden
-                        className="absolute inset-x-6 top-0 h-[2.5px] rounded-b-full bg-brand"
+                        className="absolute inset-x-3 top-0 h-[2.5px] rounded-b-full bg-brand sm:inset-x-4"
                       />
                     ) : null}
-                    <tab.icon className={cn("size-[22px]", active && "stroke-[2.25px]")} />
-                    <span className="leading-none">{t(tab.labelKey)}</span>
+                    <tab.icon className={cn("size-[22px] shrink-0", active && "stroke-[2.25px]")} />
+                    <span className="max-w-full truncate leading-none">{t(tab.labelKey)}</span>
                   </Link>
                 </li>
               );

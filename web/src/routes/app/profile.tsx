@@ -1,19 +1,24 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
+  Cake,
   Camera,
   ChevronRight,
   KeyRound,
   Lock,
   LogOut,
   Phone,
+  ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
+import { DateOfBirthDisplay } from "@/components/DateOfBirthField";
+import { KycVerifiedBadge } from "@/components/IdentityLockedBanner";
 import { UserShell } from "@/components/layout/UserShell";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
 import { isAccountActive } from "@/lib/account-status";
+import { isIdentityLocked } from "@/lib/kyc-lock";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import {
@@ -68,6 +73,8 @@ function Profile() {
     `${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase() ||
     user.phone.slice(0, 2);
   const accountActive = isAccountActive(user);
+  const identityLocked = isIdentityLocked(user);
+  const citizenship = (user.citizenship_number || "").trim();
 
   const handleAvatarChange = async (file: File | null) => {
     if (!file) return;
@@ -143,46 +150,123 @@ function Profile() {
             <p className="mt-3.5 text-center text-[22px] font-bold tracking-tight text-white">
               {displayName}
             </p>
-            <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[12px] font-medium text-white/95 ring-1 ring-white/20">
-              <span
-                className={cn(
-                  "size-1.5 rounded-full",
-                  accountActive ? "bg-[#22C55E]" : "bg-[#EAB308]",
-                )}
-                aria-hidden
-              />
-              {accountActive ? t("account.activeLabel") : t("account.pendingLabel")}
-            </p>
+            <div className="mt-1.5 flex flex-wrap items-center justify-center gap-2">
+              <p className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[12px] font-medium text-white/95 ring-1 ring-white/20">
+                <span
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    accountActive ? "bg-[#22C55E]" : "bg-[#EAB308]",
+                  )}
+                  aria-hidden
+                />
+                {accountActive ? t("account.activeLabel") : t("account.pendingLabel")}
+              </p>
+              {identityLocked ? <KycVerifiedBadge className="bg-white/95 ring-white/40" /> : null}
+            </div>
           </div>
         </section>
 
         <div className="space-y-5 px-4 pb-8 pt-4">
-          <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
-              <Phone className="size-[18px]" strokeWidth={2} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-medium text-[#8A94A6]">{t("profile.phoneNumber")}</p>
-              <p className="truncate text-[16px] font-semibold text-[#0F172A]">{user.phone}</p>
+          <div className="space-y-2.5">
+            <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+                <Phone className="size-[18px]" strokeWidth={2} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-medium text-[#8A94A6]">{t("profile.phoneNumber")}</p>
+                <p className="truncate text-[16px] font-semibold text-[#0F172A]">{user.phone}</p>
+              </div>
+              <Link
+                to="/app/profile/phone"
+                className="shrink-0 px-1 text-[15px] font-semibold text-[#2563EB]"
+              >
+                {t("profile.change")}
+              </Link>
             </div>
-            <Link
-              to="/app/profile/phone"
-              className="shrink-0 px-1 text-[15px] font-semibold text-[#2563EB]"
-            >
-              {t("profile.change")}
-            </Link>
+
+            <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+                <Cake className="size-[18px]" strokeWidth={2} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-medium text-[#8A94A6]">{t("profile.dateOfBirth")}</p>
+                <p className="truncate text-[16px] font-semibold text-[#0F172A]">
+                  <DateOfBirthDisplay value={user.date_of_birth} />
+                </p>
+              </div>
+              {identityLocked ? (
+                <span
+                  className="shrink-0 px-1 text-[13px] font-semibold text-[#64748B]"
+                  title={t("profile.identityLockedTitle")}
+                >
+                  {t("profile.kycVerified")}
+                </span>
+              ) : (
+                <Link
+                  to="/app/profile/edit"
+                  className="shrink-0 px-1 text-[15px] font-semibold text-[#2563EB]"
+                >
+                  {user.date_of_birth ? t("profile.change") : t("profile.editProfile")}
+                </Link>
+              )}
+            </div>
           </div>
+
+          {identityLocked ? (
+            <section>
+              <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
+                {t("profile.identitySection")}
+              </h2>
+              <div className="rounded-2xl bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
+                <div className="flex items-start gap-3">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#ECFDF5] text-[#15803D]">
+                    <ShieldCheck className="size-[18px]" strokeWidth={2} />
+                  </span>
+                  <div className="min-w-0 flex-1 space-y-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-[16px] font-semibold text-[#0F172A]">
+                        {t("profile.identityLockedTitle")}
+                      </p>
+                      <KycVerifiedBadge />
+                    </div>
+                    <p className="text-[13px] text-[#64748B]">{t("profile.identityLockedBody")}</p>
+                    <dl className="space-y-2 border-t border-[#F1F5F9] pt-2.5 text-[14px]">
+                      <IdentityFact label={t("profile.fullName")} value={displayName} />
+                      <IdentityFact
+                        label={t("profile.dateOfBirth")}
+                        value={<DateOfBirthDisplay value={user.date_of_birth} />}
+                      />
+                      <IdentityFact
+                        label={t("profile.citizenshipNumber")}
+                        value={citizenship || t("profile.citizenshipEmpty")}
+                      />
+                    </dl>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           <section>
             <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
               {t("profile.account")}
             </h2>
-            <SettingsRow
-              to="/app/profile/edit"
-              icon={UserRound}
-              title={t("profile.editProfile")}
-              subtitle={t("profile.editSubtitle")}
-            />
+            <div className="space-y-2.5">
+              <SettingsRow
+                to="/app/profile/edit"
+                icon={UserRound}
+                title={t("profile.editProfile")}
+                subtitle={
+                  identityLocked ? t("profile.editSubtitleLocked") : t("profile.editSubtitle")
+                }
+              />
+              <SettingsRow
+                to="/app/profile/kyc"
+                icon={ShieldCheck}
+                title={t("profile.kyc")}
+                subtitle={t("profile.kycSubtitle")}
+              />
+            </div>
           </section>
 
           <section>
@@ -247,13 +331,22 @@ function Profile() {
   );
 }
 
+function IdentityFact({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="shrink-0 text-[12px] font-medium text-[#8A94A6]">{label}</dt>
+      <dd className="min-w-0 text-right font-semibold text-[#0F172A]">{value}</dd>
+    </div>
+  );
+}
+
 function SettingsRow({
   to,
   icon: Icon,
   title,
   subtitle,
 }: {
-  to: "/app/profile/edit" | "/app/profile/password" | "/app/profile/pin";
+  to: "/app/profile/edit" | "/app/profile/kyc" | "/app/profile/password" | "/app/profile/pin";
   icon: typeof UserRound;
   title: string;
   subtitle: string;

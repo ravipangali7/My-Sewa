@@ -98,6 +98,8 @@ function DataTopUp() {
   });
   const enabled =
     settingsQuery.data?.config?.payment?.data_packs_enabled !== false && !accountPending;
+  const depositsEnabled =
+    settingsQuery.data?.config?.payment?.deposits_enabled !== false && !accountPending;
 
   const walletQuery = useQuery({
     queryKey: ["wallet", "balance"],
@@ -523,7 +525,7 @@ function DataTopUp() {
                 <p className="tabular text-[17px] font-semibold">
                   {walletQuery.isLoading ? "…" : formatNPR(walletBalance)}
                 </p>
-                {insufficient ? (
+                {insufficient && depositsEnabled ? (
                   <Link
                     to="/app/load"
                     className="mt-1 inline-block text-[13px] font-medium text-brand underline-offset-2 hover:underline"
