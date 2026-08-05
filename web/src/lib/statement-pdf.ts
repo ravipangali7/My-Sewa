@@ -5,7 +5,6 @@ import {
   isMySewaNativeApp,
   waitForNativeFileBridge,
 } from "./native-app";
-import { toJpeg } from "html-to-image";
 
 /** A4 at 2× for crisp output (points → CSS px ≈ 96/72). */
 const SCALE = 2;
@@ -237,16 +236,6 @@ function canvasToJpegBytes(
   });
 }
 
-function dataUrlToBytes(dataUrl: string): Uint8Array {
-  const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1]! : dataUrl;
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
 function bytesToBase64(bytes: Uint8Array): string {
   const chunk = 0x8000;
   const parts: string[] = [];
@@ -393,27 +382,72 @@ export interface ReceiptCaptureOptions {
   reference: string;
 }
 
+/** Inline computed styles onto a clone so SVG foreignObject capture keeps layout. */
+function inlineComputedStyles(source: Element, target: Element) {
+  const computed = window.getComputedStyle(source);
+  let css = "";
+  for (let i = 0; i < computed.length; i++) {
+    const prop = computed.item(i);
+    if (!prop) continue;
+    css += `${prop}:${computed.getPropertyValue(prop)};`;
+  }
+  (target as HTMLElement).style.cssText = css;
+
+  const sourceChildren = source.children;
+  const targetChildren = target.children;
+  for (let i = 0; i < sourceChildren.length; i++) {
+    const srcChild = sourceChildren[i];
+    const tgtChild = targetChildren[i];
+    if (srcChild && tgtChild) inlineComputedStyles(srcChild, tgtChild);
+  }
+}
+
+/**
+ * Capture a DOM node as JPEG via SVG foreignObject (no external deps).
+ * Used for on-screen receipt → PDF export.
+ */
 async function captureElementAsJpeg(
   element: HTMLElement,
 ): Promise<{ jpeg: Uint8Array; width: number; height: number }> {
-  // Ensure fonts/images are settled before snapshot.
   await document.fonts?.ready.catch(() => undefined);
 
-  const dataUrl = await toJpeg(element, {
-    quality: 0.95,
-    pixelRatio: 2,
-    cacheBust: true,
-    backgroundColor: "#ffffff",
-    style: {
-      // Avoid clipping rounded corners / shadows in the export.
-      transform: "none",
-      margin: "0",
-    },
-  });
+  const rect = element.getBoundingClientRect();
+  const width = Math.max(1, Math.ceil(rect.width));
+  const height = Math.max(1, Math.ceil(rect.height));
+  const pixelRatio = 2;
 
-  const jpeg = dataUrlToBytes(dataUrl);
-  const img = await loadImage(dataUrl);
-  return { jpeg, width: img.naturalWidth || img.width, height: img.naturalHeight || img.height };
+  const clone = element.cloneNode(true) as HTMLElement;
+  inlineComputedStyles(element, clone);
+  clone.style.margin = "0";
+  clone.style.transform = "none";
+  clone.style.backgroundColor =
+    clone.style.backgroundColor ||
+    window.getComputedStyle(element).backgroundColor ||
+    "#ffffff";
+
+  const serializer = new XMLSerializer();
+  const xhtml = serializer.serializeToString(clone);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+    <foreignObject width="100%" height="100%">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;background:#ffffff;">${xhtml}</div>
+    </foreignObject>
+  </svg>`;
+
+  const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  const img = await loadImage(svgUrl);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(width * pixelRatio);
+  canvas.height = Math.round(height * pixelRatio);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.scale(pixelRatio, pixelRatio);
+  ctx.drawImage(img, 0, 0, width, height);
+
+  const jpeg = await canvasToJpegBytes(canvas, 0.95);
+  return { jpeg, width: canvas.width, height: canvas.height };
 }
 
 async function buildReceiptPdfFromElement({
