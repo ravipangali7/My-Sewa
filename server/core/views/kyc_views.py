@@ -14,7 +14,6 @@ from ..serializers import (
     KYCDocumentSerializer,
     KYCDocumentUploadSerializer,
     KYCStatusSerializer,
-    KYCSubmissionSerializer,
     KYCSubmitSerializer,
 )
 from ..services.kyc import (
@@ -36,13 +35,11 @@ def _status_payload(user, request):
         'kyc_verified': verified,
         'profile_locked': verified,
         'can_submit': user_may_submit_kyc(user),
-        'submission': (
-            KYCSubmissionSerializer(submission, context={'request': request}).data
-            if submission
-            else None
-        ),
+        # Pass the model instance (not .data) so nested serializers
+        # receive KYCDocument objects, not already-serialized dicts.
+        'submission': submission,
     }
-    return KYCStatusSerializer(data).data
+    return KYCStatusSerializer(data, context={'request': request}).data
 
 
 def _parse_optional_documents(request):
