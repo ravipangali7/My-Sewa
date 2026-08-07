@@ -24,6 +24,7 @@ urlpatterns = [
     path('api/auth/forgot-password/', auth_views.forgot_password, name='forgot_password'),
     path('api/auth/reset-password/', auth_views.reset_password, name='reset_password'),
     path('api/auth/set-transaction-pin/', auth_views.set_transaction_pin, name='set_transaction_pin'),
+    path('api/auth/change-transaction-pin/', auth_views.change_transaction_pin, name='change_transaction_pin'),
     path('api/auth/has-transaction-pin/', auth_views.has_transaction_pin, name='has_transaction_pin'),
     path('api/auth/verify-transaction-pin/', auth_views.verify_transaction_pin, name='verify_transaction_pin'),
     path('api/auth/device-token/', auth_views.device_token, name='device_token'),

@@ -273,6 +273,16 @@ export const apiClient = {
       body,
     }),
 
+  changeTransactionPin: (body: {
+    current_pin: string;
+    transaction_pin: string;
+    confirm_pin: string;
+  }) =>
+    api<{ message: string; has_pin: boolean }>("/api/auth/change-transaction-pin/", {
+      method: "POST",
+      body,
+    }),
+
   hasTransactionPin: () =>
     api<{ has_pin: boolean }>("/api/auth/has-transaction-pin/"),
 

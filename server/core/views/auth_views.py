@@ -18,6 +18,7 @@ from ..serializers import (
     ForgotPasswordSerializer,
     ResetPasswordSerializer,
     SetTransactionPinSerializer,
+    ChangeTransactionPinSerializer,
     VerifyTransactionPinSerializer,
     DeviceTokenSerializer,
 )
@@ -596,6 +597,41 @@ def set_transaction_pin(request):
 
     return Response({
         'message': 'Transaction PIN set successfully',
+        'has_pin': True,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_transaction_pin(request):
+    """Change transaction PIN after verifying the current PIN."""
+    from django.contrib.auth.hashers import make_password
+    from ..services.pin import verify_transaction_pin
+
+    user = request.user
+    if not user.transaction_pin:
+        return Response({
+            'message': 'Transaction PIN is not set. Please set a PIN first.',
+            'errors': {'current_pin': ['Transaction PIN is not set.']},
+            'code': 'pin_not_set',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    serializer = ChangeTransactionPinSerializer(data=request.data)
+    if not serializer.is_valid():
+        formatted = format_validation_errors(serializer.errors)
+        return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
+
+    if not verify_transaction_pin(user, serializer.validated_data['current_pin']):
+        return Response({
+            'message': 'Current transaction PIN is incorrect',
+            'errors': {'current_pin': ['Current transaction PIN is incorrect']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    user.transaction_pin = make_password(serializer.validated_data['transaction_pin'])
+    user.save(update_fields=['transaction_pin'])
+
+    return Response({
+        'message': 'Transaction PIN changed successfully',
         'has_pin': True,
     }, status=status.HTTP_200_OK)
 

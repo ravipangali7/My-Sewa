@@ -285,10 +285,14 @@ function Profile() {
               <SettingsRow
                 to="/app/profile/pin"
                 icon={KeyRound}
-                title={t("profile.transactionPin")}
+                title={
+                  user.has_transaction_pin
+                    ? t("pin.changeTitle")
+                    : t("profile.transactionPin")
+                }
                 subtitle={
                   user.has_transaction_pin
-                    ? t("pin.alreadySet")
+                    ? t("profile.pinChangeSubtitle")
                     : t("profile.pinSubtitle")
                 }
               />

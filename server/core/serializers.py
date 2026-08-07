@@ -483,6 +483,33 @@ class SetTransactionPinSerializer(serializers.Serializer):
         return attrs
 
 
+class ChangeTransactionPinSerializer(serializers.Serializer):
+    """Change transaction PIN after verifying the current PIN."""
+    current_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    confirm_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+
+    def validate_current_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate_confirm_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate(self, attrs):
+        if attrs['transaction_pin'] != attrs['confirm_pin']:
+            raise serializers.ValidationError(
+                {'confirm_pin': 'PIN fields did not match.'}
+            )
+        if attrs['current_pin'] == attrs['transaction_pin']:
+            raise serializers.ValidationError(
+                {'transaction_pin': 'New PIN must be different from the current PIN.'}
+            )
+        return attrs
+
+
 class VerifyTransactionPinSerializer(serializers.Serializer):
     """Client-side pre-check for transaction PIN before submitting a payment."""
     transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)

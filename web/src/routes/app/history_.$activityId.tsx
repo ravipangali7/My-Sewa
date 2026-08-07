@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   BadgeCheck,
+  CalendarClock,
   CheckCircle2,
   Clock3,
   Hash,
@@ -19,7 +20,9 @@ import {
   ImageIcon,
   Loader2,
   Tag,
+  Wallet,
   X,
+  Coins,
 } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
@@ -54,7 +57,6 @@ function statusHeadlineKey(status: string): MessageKey {
   return "history.pendingTitle";
 }
 
-/** Stacked on mobile; side-by-side from md. Labels wrap; values break-all. */
 function DetailKv({
   label,
   value,
@@ -67,39 +69,89 @@ function DetailKv({
   success?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-1 border-b border-border/60 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] md:items-start md:gap-3">
-      <dt className="flex min-w-0 items-start gap-2 text-[13px] text-foreground/85">
-        {icon ? (
-          <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-soft/50 text-brand-dark">
-            {icon}
-          </span>
-        ) : null}
-        <span className={cn("min-w-0 break-words", icon && "pt-1")}>{label}</span>
-      </dt>
-      <dd
-        className={cn(
-          "min-w-0 break-all text-[14px] font-semibold",
-          icon ? "pl-9 md:pl-0 md:text-right" : "md:text-right",
-          success && "text-brand",
-        )}
-      >
-        {value}
-      </dd>
+    <div className="flex items-start gap-3 border-b border-border/50 py-3.5 last:border-b-0">
+      {icon ? (
+        <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-dark">
+          {icon}
+        </span>
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <dt className="text-[12px] font-medium text-muted-foreground">{label}</dt>
+        <dd
+          className={cn(
+            "mt-0.5 break-words text-[15px] font-semibold text-foreground",
+            success && "text-brand",
+          )}
+        >
+          {value}
+        </dd>
+      </div>
     </div>
   );
 }
 
-function SettlementRow({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
+function SettlementRow({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon: ReactNode;
+}) {
   return (
-    <div className="grid grid-cols-1 gap-0.5 rounded-xl border border-border/70 px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-3">
-      <span className="min-w-0 break-words text-muted-foreground">{label}</span>
+    <div className="flex items-center gap-3 py-2.5">
+      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 break-words text-[14px] text-foreground/80">{label}</span>
+      <span className="shrink-0 break-all text-right text-[14px] font-semibold tabular-nums text-foreground">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function QuickInfoCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 rounded-2xl border border-border/60 bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
+          {icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+            {label}
+          </p>
+          <p className="mt-1 break-words text-[13px] font-semibold leading-snug text-foreground">
+            {value}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WalletIllustration({ credit }: { credit: boolean }) {
+  return (
+    <div className="relative flex size-[88px] shrink-0 items-center justify-center sm:size-[104px]" aria-hidden>
+      <div className="absolute inset-0 rounded-full bg-brand-soft/70" />
+      <Wallet className="relative size-12 text-brand sm:size-14" strokeWidth={1.5} />
       <span
         className={cn(
-          "break-all font-semibold tabular-nums md:text-right",
-          emphasize && "text-brand-dark",
+          "absolute -right-0.5 -top-0.5 inline-flex size-8 items-center justify-center rounded-full border-2 border-white shadow-sm",
+          credit ? "bg-success text-white" : "bg-brand text-white",
         )}
       >
-        {value}
+        {credit ? <Coins className="size-4" /> : <Check className="size-4 stroke-[2.5]" />}
       </span>
     </div>
   );
@@ -275,12 +327,9 @@ function HistoryStatementPage() {
           </Link>
         </div>
       ) : (
-        <article className="relative mx-auto w-full min-w-0 max-w-4xl overflow-x-clip bg-gradient-to-b from-background to-muted/20 px-3 pb-8 pt-[max(16px,var(--safe-area-top,env(safe-area-inset-top,0px)))] sm:px-6 print:max-w-none">
-          <div className="mb-3 flex min-w-0 items-center justify-between gap-2 print:hidden sm:gap-3">
-            <Link
-              to="/app/history"
-              className="shrink-0 text-[14px] font-semibold text-brand"
-            >
+        <article className="relative mx-auto w-full min-w-0 max-w-lg overflow-x-clip bg-[#F5F7FA] px-3.5 pb-8 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] sm:max-w-2xl sm:px-5 print:max-w-none print:bg-white">
+          <div className="mb-3 flex min-w-0 items-center justify-between gap-2 print:hidden">
+            <Link to="/app/history" className="shrink-0 text-[14px] font-semibold text-brand">
               {t("history.back")}
             </Link>
             <div className="flex shrink-0 items-center gap-2">
@@ -290,14 +339,14 @@ function HistoryStatementPage() {
                 disabled={sharing || downloading}
                 aria-label={t("history.share")}
                 title={t("history.share")}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-brand/25 bg-brand-soft/60 px-2.5 text-[13px] font-semibold text-brand-dark transition-colors hover:bg-brand-soft disabled:opacity-60 sm:px-3"
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-brand/25 bg-white px-2.5 text-[13px] font-semibold text-brand-dark transition-colors hover:bg-brand-soft disabled:opacity-60"
               >
                 {sharing ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (
                   <Share2 className="size-4" />
                 )}
-                <span className="hidden sm:inline">{t("history.share")}</span>
+                <span className="hidden xs:inline sm:inline">{t("history.share")}</span>
               </button>
               <button
                 type="button"
@@ -305,7 +354,7 @@ function HistoryStatementPage() {
                 disabled={downloading || sharing}
                 aria-label={t("history.downloadPdf")}
                 title={t("history.downloadPdf")}
-                className="inline-flex size-9 items-center justify-center rounded-xl border border-border/70 bg-background text-brand transition-colors hover:bg-brand-soft disabled:opacity-60"
+                className="inline-flex size-9 items-center justify-center rounded-xl border border-border/70 bg-white text-brand transition-colors hover:bg-brand-soft disabled:opacity-60"
               >
                 {downloading ? (
                   <Loader2 className="size-4 animate-spin" />
@@ -316,186 +365,200 @@ function HistoryStatementPage() {
             </div>
           </div>
 
-          <div
-            ref={receiptRef}
-            className="min-w-0 overflow-x-clip rounded-[22px] border border-brand/15 bg-card shadow-[0_18px_45px_-26px_rgba(2,8,23,0.45)] sm:rounded-[28px]"
-          >
-            <div className="grid min-w-0 border-b border-border/70 md:grid-cols-2">
-              <div className="flex min-w-0 items-center gap-2.5 bg-white px-3 py-3.5 sm:gap-3 sm:px-4 sm:py-4">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-brand/20 bg-brand-soft/70 p-1.5 sm:size-12">
+          <div ref={receiptRef} className="min-w-0 space-y-3.5 overflow-x-clip">
+            {/* Brand + status header */}
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-full border border-brand/15 bg-white p-1.5 shadow-sm">
                   <img src={logoUrl} alt="MySewa" className="size-full object-contain" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[28px] leading-none font-black tracking-tight text-brand-dark sm:text-[36px]">
+                  <p className="text-[22px] leading-none font-black tracking-tight text-brand-dark">
                     My<span className="text-primary">Sewa</span>
                   </p>
-                  <p className="mt-0.5 text-[11px] font-medium text-muted-foreground sm:text-[12px]">
-                    Your Trusted Digital Wallet
+                  <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">
+                    {t("history.trustedWallet")}
                   </p>
                 </div>
               </div>
-              <div className="flex min-w-0 items-center justify-between gap-2 bg-gradient-to-r from-brand-dark to-brand px-3 py-3.5 text-white sm:gap-3 sm:px-4 sm:py-4">
-                <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-                  <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-white/40 bg-white/10 sm:size-11">
-                    {tone === "success" ? (
-                      <Check className="size-5 stroke-[2.8] sm:size-7" />
-                    ) : tone === "danger" ? (
-                      <X className="size-5 stroke-[2.8] sm:size-7" />
-                    ) : (
-                      <Clock3 className="size-5 stroke-[2.8] sm:size-7" />
+              <div className="inline-flex max-w-full items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-dark to-brand px-3 py-2.5 text-white shadow-[0_10px_24px_-12px_rgba(10,122,75,0.85)]">
+                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-white/35 bg-white/15">
+                  {tone === "success" ? (
+                    <Check className="size-4 stroke-[2.8]" />
+                  ) : tone === "danger" ? (
+                    <X className="size-4 stroke-[2.8]" />
+                  ) : (
+                    <Clock3 className="size-4 stroke-[2.8]" />
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <p className="break-words text-[12px] leading-tight font-black tracking-wide uppercase">
+                    {pageTitle}
+                  </p>
+                  <p className="text-[10px] text-white/85">{t("history.thankYou")}</p>
+                </div>
+                <span className="ml-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-lg border border-white/30 bg-white/10">
+                  <LockKeyhole className="size-3.5" />
+                </span>
+              </div>
+            </div>
+
+            {/* Amount hero card */}
+            <section className="relative overflow-hidden rounded-[20px] border border-border/50 bg-white p-4 shadow-[0_8px_28px_-18px_rgba(2,8,23,0.35)] sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold tracking-[0.12em] text-brand/80 uppercase">
+                    {t("common.amountNpr")}
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-2 break-all text-[34px] leading-none font-black tracking-tight tabular-nums sm:text-[40px]",
+                      statement.item.credit ? "text-success" : "text-brand-dark",
                     )}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold tracking-[0.08em] uppercase sm:text-xs">
-                      Transaction
-                    </p>
-                    <p className="break-words text-[20px] leading-tight font-black uppercase sm:text-[28px] sm:leading-none">
-                      {statement.item.status}
-                    </p>
-                    <p className="text-[11px] text-white/85 sm:text-xs">Thank you for using MySewa</p>
-                  </div>
-                </div>
-                <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/40 bg-white/10 sm:size-12">
-                  <LockKeyhole className="size-5 sm:size-6" />
-                </span>
-              </div>
-            </div>
-
-            {/* Task 8: prominent amount — full-width hero; scales down on narrow viewports */}
-            <div className="min-w-0 border-b border-border/70 bg-gradient-to-br from-brand-soft/80 via-white to-white px-3 py-5 text-center sm:px-6">
-              <p className="text-[11px] font-semibold tracking-[0.12em] text-brand-dark/70 uppercase sm:text-[12px]">
-                {t("common.amountNpr")}
-              </p>
-              <p
-                className={cn(
-                  "mt-2 break-all tabular-nums text-[32px] leading-none font-black tracking-tight sm:text-[44px]",
-                  statement.item.credit ? "text-success" : "text-brand-dark",
-                )}
-              >
-                {statement.item.credit ? "+" : "−"} {amountNpr}
-              </p>
-              <p className="mt-2 break-words text-[13px] font-medium text-muted-foreground">
-                {statement.item.credit
-                  ? t("history.totalCredited")
-                  : t("common.totalDebited")}
-                :{" "}
-                <span className="break-all font-semibold text-foreground tabular-nums">
-                  {totalNpr}
-                </span>
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 border-b border-border/70 bg-background p-3 md:grid-cols-2 lg:grid-cols-4">
-              <div className="min-w-0 rounded-xl border border-border/70 px-3 py-2">
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase">
-                  {t("history.dateTime")}
-                </p>
-                <p className="mt-1 break-words text-[13px] font-semibold">{summaryMeta?.dateTime}</p>
-              </div>
-              <div className="min-w-0 rounded-xl border border-border/70 px-3 py-2">
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase">
-                  {t("history.referenceCode")}
-                </p>
-                <p className="mt-1 break-all text-[13px] font-semibold">{summaryMeta?.reference}</p>
-              </div>
-              <div className="min-w-0 rounded-xl border border-border/70 px-3 py-2">
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase">
-                  {t("history.channel")}
-                </p>
-                <p className="mt-1 break-words text-[13px] font-semibold">{summaryMeta?.channel}</p>
-              </div>
-              <div className="min-w-0 rounded-xl border border-border/70 px-3 py-2">
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase">
-                  Receipt No.
-                </p>
-                <p className="mt-1 break-all text-[13px] font-semibold">{receiptNo}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2">
-              <section className="min-w-0 overflow-x-clip rounded-2xl border border-brand/20 bg-white">
-                <div className="border-b border-brand/15 bg-brand-soft/40 px-3 py-3 sm:px-4">
-                  <p className="text-[12px] font-semibold tracking-wide text-brand-dark uppercase">
-                    Settlement
+                  >
+                    {statement.item.credit ? "+" : "−"} {amountNpr}
+                  </p>
+                  <p className="mt-2.5 break-words text-[13px] font-medium text-muted-foreground">
+                    {statement.item.credit
+                      ? t("history.totalCredited")
+                      : t("common.totalDebited")}
+                    :{" "}
+                    <span className="break-all font-semibold tabular-nums text-foreground">
+                      {totalNpr}
+                    </span>
                   </p>
                 </div>
-                <div className="space-y-2 px-3 py-3 text-[14px]">
-                  <SettlementRow label={t("common.amountNpr")} value={amountNpr} emphasize />
-                  <SettlementRow label={t("common.charge")} value={chargeNpr} />
-                  <SettlementRow label={t("common.cashback")} value={cashbackNpr} />
-                  {balanceBeforeNpr ? (
-                    <SettlementRow label={t("history.balanceBefore")} value={balanceBeforeNpr} />
-                  ) : null}
-                  {balanceAfterNpr ? (
-                    <SettlementRow label={t("history.balanceAfter")} value={balanceAfterNpr} />
-                  ) : null}
-                  <div className="rounded-xl border border-brand/25 bg-brand-soft/50 px-3 py-3">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase">
-                      {statement.item.credit
-                        ? t("history.totalCredited")
-                        : t("common.totalDebited")}
-                    </p>
-                    <p className="mt-1 break-all text-[24px] leading-none font-black text-brand-dark tabular-nums sm:text-[30px]">
-                      {totalNpr}
-                    </p>
-                  </div>
-                  <div className="flex items-start gap-2 rounded-xl border border-brand/20 bg-brand-soft/45 px-3 py-2 text-[12px] font-medium text-brand-dark sm:items-center sm:text-[13px]">
-                    <ShieldCheck className="mt-0.5 size-4 shrink-0 sm:mt-0" />
-                    <span className="min-w-0 break-words">
-                      Your transaction is 100% secure and encrypted
-                    </span>
-                  </div>
-                </div>
-              </section>
+                <WalletIllustration credit={statement.item.credit} />
+              </div>
+            </section>
 
-              <section className="min-w-0 overflow-x-clip rounded-2xl border border-border/70 bg-white">
-                <div className="border-b border-border/70 bg-muted/35 px-3 py-2.5">
-                  <h2 className="flex min-w-0 items-center gap-2 text-sm font-bold tracking-wide text-brand-dark uppercase">
-                    <ReceiptText className="size-4 shrink-0" />
-                    <span className="min-w-0 break-words">{t("history.transactionDetails")}</span>
-                  </h2>
-                </div>
-                <dl className="px-3 py-1">
-                  {transactionRows.map((row) => (
-                    <DetailKv
-                      key={row.label}
-                      label={row.label}
-                      value={row.value}
-                      icon={row.icon}
-                      success={row.success}
-                    />
-                  ))}
-                </dl>
-              </section>
+            {/* Quick info 2×2 */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <QuickInfoCard
+                label={t("history.dateTime")}
+                value={summaryMeta?.dateTime ?? "—"}
+                icon={<CalendarClock className="size-4" />}
+              />
+              <QuickInfoCard
+                label={t("history.referenceCode")}
+                value={summaryMeta?.reference ?? "—"}
+                icon={<Hash className="size-4" />}
+              />
+              <QuickInfoCard
+                label={t("history.channel")}
+                value={summaryMeta?.channel ?? "—"}
+                icon={<UserRound className="size-4" />}
+              />
+              <QuickInfoCard
+                label={t("history.receiptNo")}
+                value={receiptNo}
+                icon={<ReceiptText className="size-4" />}
+              />
             </div>
 
-            <div className="grid grid-cols-1 gap-2 border-t border-border/70 bg-background px-3 py-3 text-[12px] md:grid-cols-2 lg:grid-cols-5">
-              <div className="flex min-w-0 items-center gap-2 rounded-xl border border-border/70 px-2.5 py-2">
-                <ShieldCheck className="size-4 shrink-0 text-brand" />
-                <span className="min-w-0 break-words">Secure transactions</span>
+            {/* Settlement */}
+            <section className="overflow-hidden rounded-[20px] border border-border/50 bg-white shadow-[0_8px_28px_-18px_rgba(2,8,23,0.28)]">
+              <div className="px-4 pt-4 pb-1">
+                <p className="text-[12px] font-bold tracking-[0.1em] text-brand uppercase">
+                  {t("history.settlement")}
+                </p>
               </div>
-              <div className="flex min-w-0 items-center gap-2 rounded-xl border border-border/70 px-2.5 py-2">
-                <Clock3 className="size-4 shrink-0 text-brand" />
-                <span className="min-w-0 break-words">Fast transfer</span>
+              <div className="space-y-0.5 px-4 pb-3">
+                <SettlementRow
+                  label={t("common.amountNpr")}
+                  value={amountNpr}
+                  icon={<Coins className="size-4" />}
+                />
+                <SettlementRow
+                  label={t("common.charge")}
+                  value={chargeNpr}
+                  icon={<Tag className="size-4" />}
+                />
+                <SettlementRow
+                  label={t("common.cashback")}
+                  value={cashbackNpr}
+                  icon={<BadgeCheck className="size-4" />}
+                />
+                {balanceBeforeNpr ? (
+                  <SettlementRow
+                    label={t("history.balanceBefore")}
+                    value={balanceBeforeNpr}
+                    icon={<Wallet className="size-4" />}
+                  />
+                ) : null}
+                {balanceAfterNpr ? (
+                  <SettlementRow
+                    label={t("history.balanceAfter")}
+                    value={balanceAfterNpr}
+                    icon={<Wallet className="size-4" />}
+                  />
+                ) : null}
               </div>
-              <div className="flex min-w-0 items-center gap-2 rounded-xl border border-border/70 px-2.5 py-2">
-                <Hash className="size-4 shrink-0 text-brand" />
-                <span className="min-w-0 break-words">Scan MySewa App</span>
+              <div className="mx-3 mb-3 rounded-xl bg-brand-soft/80 px-3.5 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-semibold tracking-wide text-brand-dark/70 uppercase">
+                    {statement.item.credit
+                      ? t("history.totalCredited")
+                      : t("common.totalDebited")}
+                  </p>
+                  <p className="break-all text-[22px] leading-none font-black tabular-nums text-brand-dark sm:text-[26px]">
+                    {totalNpr}
+                  </p>
+                </div>
               </div>
-              <div className="flex min-w-0 items-center gap-2 rounded-xl border border-border/70 px-2.5 py-2">
-                <Phone className="size-4 shrink-0 text-brand" />
-                <span className="min-w-0 break-words">24/7 support</span>
+              <div className="flex items-center gap-2 border-t border-brand/10 bg-brand-soft/40 px-4 py-2.5 text-[12px] font-medium text-brand-dark">
+                <ShieldCheck className="size-4 shrink-0" />
+                <span className="min-w-0 break-words">{t("history.secureEncrypted")}</span>
               </div>
-              <div className="flex min-w-0 items-center gap-2 rounded-xl border border-border/70 px-2.5 py-2">
-                <BadgeCheck className="size-4 shrink-0 text-brand" />
-                <span className="min-w-0 break-words">Reliable service</span>
+            </section>
+
+            {/* Transaction details */}
+            <section className="overflow-hidden rounded-[20px] border border-border/50 bg-white shadow-[0_8px_28px_-18px_rgba(2,8,23,0.28)]">
+              <div className="flex items-center gap-2 border-b border-border/50 px-4 py-3">
+                <ReceiptText className="size-4 shrink-0 text-brand" />
+                <h2 className="text-[12px] font-bold tracking-[0.08em] text-brand-dark uppercase">
+                  {t("history.transactionDetails")}
+                </h2>
               </div>
+              <dl className="px-4 py-1">
+                {transactionRows.map((row) => (
+                  <DetailKv
+                    key={row.label}
+                    label={row.label}
+                    value={row.value}
+                    icon={row.icon}
+                    success={row.success}
+                  />
+                ))}
+              </dl>
+            </section>
+
+            {/* Trust strip */}
+            <div className="grid grid-cols-5 gap-1.5 rounded-[18px] border border-border/50 bg-white px-2 py-3 shadow-[0_4px_18px_-14px_rgba(2,8,23,0.3)] sm:gap-2 sm:px-3">
+              {(
+                [
+                  { icon: ShieldCheck, label: t("history.trustSecure") },
+                  { icon: Clock3, label: t("history.trustFast") },
+                  { icon: Hash, label: t("history.trustScan") },
+                  { icon: Phone, label: t("history.trustSupport") },
+                  { icon: BadgeCheck, label: t("history.trustReliable") },
+                ] as const
+              ).map(({ icon: Icon, label }) => (
+                <div key={label} className="flex min-w-0 flex-col items-center gap-1.5 text-center">
+                  <span className="inline-flex size-8 items-center justify-center rounded-full bg-brand-soft text-brand">
+                    <Icon className="size-3.5" />
+                  </span>
+                  <span className="line-clamp-2 text-[9px] leading-tight font-medium text-muted-foreground sm:text-[10px]">
+                    {label}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
 
           {statement.item.kind === "deposit" && (
-            <section className="relative mt-5 min-w-0 overflow-x-clip rounded-2xl border border-border/70 bg-card p-4 shadow-sm sm:p-5">
-              <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2 sm:gap-3">
+            <section className="relative mt-3.5 min-w-0 overflow-x-clip rounded-[20px] border border-border/50 bg-white p-4 shadow-[0_8px_28px_-18px_rgba(2,8,23,0.28)]">
+              <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <h3 className="flex min-w-0 items-center gap-2 text-[13px] font-semibold tracking-[0.04em] text-brand/95 uppercase">
                   <ImageIcon className="size-4 shrink-0" />
                   <span className="min-w-0 break-words">{t("history.sectionProof")}</span>
@@ -534,10 +597,10 @@ function HistoryStatementPage() {
             </section>
           )}
 
-          <div className="relative mt-6">
+          <div className="relative mt-5">
             <Link
               to="/app/history"
-              className="flex h-12 w-full items-center justify-center rounded-xl bg-brand text-[16px] font-semibold text-white shadow-[0_10px_25px_-10px_rgba(17,143,85,0.9)] transition-colors hover:bg-brand-dark print:hidden"
+              className="flex h-12 w-full items-center justify-center rounded-2xl bg-brand text-[16px] font-semibold text-white shadow-[0_12px_28px_-12px_rgba(10,122,75,0.9)] transition-colors hover:bg-brand-dark print:hidden"
             >
               {t("history.done")}
             </Link>
