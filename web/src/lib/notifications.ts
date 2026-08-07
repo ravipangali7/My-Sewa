@@ -4,6 +4,13 @@ import { formatNPR, formatDateTime } from "./format";
 import type { TranslateFn } from "./i18n";
 import { translateStatus } from "./status";
 
+export interface NotificationDetailRow {
+  label: string;
+  value: string;
+  /** Long unbroken IDs — wrap with break-all and show a copy control. */
+  mono?: boolean;
+}
+
 export interface AppNotification {
   id: string;
   title: string;
@@ -14,7 +21,7 @@ export interface AppNotification {
   kind: ActivityItem["kind"];
   created_at: string;
   unread: boolean;
-  details: Array<{ label: string; value: string }>;
+  details: NotificationDetailRow[];
 }
 
 const READ_KEY = "mysewa_read_notifications";
@@ -45,7 +52,7 @@ export function markAllNotificationsRead(ids: string[]) {
 }
 
 function pushBalanceDetail(
-  rows: Array<{ label: string; value: string }>,
+  rows: NotificationDetailRow[],
   t: TranslateFn,
   before: string | null | undefined,
   after: string | null | undefined,
@@ -62,11 +69,11 @@ function detailRows(
   item: ActivityItem,
   tx: WalletTransactions,
   t: TranslateFn,
-): Array<{ label: string; value: string }> {
+): NotificationDetailRow[] {
   if (item.kind === "deposit") {
     const d = tx.deposits.find((x) => `dep-${x.id}` === item.id);
     if (!d) return [];
-    const rows = [
+    const rows: NotificationDetailRow[] = [
       { label: t("common.type"), value: t("notif.typeDeposit") },
       { label: t("common.amount"), value: formatNPR(d.amount) },
       { label: t("common.status"), value: translateStatus(d.status, t) },
@@ -82,9 +89,9 @@ function detailRows(
   if (item.kind === "remittance") {
     const r = (tx.remittances ?? []).find((x) => `rem-${x.id}` === item.id);
     if (!r) return [];
-    const rows = [
+    const rows: NotificationDetailRow[] = [
       { label: t("common.type"), value: t("notif.typeRemittance") },
-      { label: t("remittance.refNo"), value: r.ref_no },
+      { label: t("remittance.refNo"), value: r.ref_no, mono: true },
       { label: t("remittance.sender"), value: r.sender_name || "—" },
       { label: t("common.amount"), value: formatNPR(r.amount) },
       {
@@ -92,7 +99,7 @@ function detailRows(
         value: formatNPR(r.total_credited),
       },
       { label: t("common.status"), value: translateStatus(r.status, t) },
-      { label: t("common.txnId"), value: r.merchant_txn_id },
+      { label: t("common.txnId"), value: r.merchant_txn_id, mono: true },
     ];
     pushBalanceDetail(rows, t, r.balance_before, r.balance_after);
     rows.push({ label: t("common.date"), value: formatDateTime(r.created_at) });
@@ -110,7 +117,7 @@ function detailRows(
       { label: t("common.cashback"), value: formatNPR(top.cashback) },
       { label: t("common.totalDebited"), value: formatNPR(top.total_debited) },
       { label: t("common.status"), value: translateStatus(top.status, t) },
-      { label: t("common.txnId"), value: top.merchant_txn_id },
+      { label: t("common.txnId"), value: top.merchant_txn_id, mono: true },
       { label: t("common.date"), value: formatDateTime(top.created_at) },
     ];
   }
@@ -162,7 +169,7 @@ function detailRows(
     { label: t("common.totalDebited"), value: formatNPR(b.total_debited) },
     { label: t("common.remarks"), value: b.transaction_remarks || "—" },
     { label: t("common.status"), value: translateStatus(b.status, t) },
-    { label: t("common.txnId"), value: b.merchant_txn_id },
+    { label: t("common.txnId"), value: b.merchant_txn_id, mono: true },
     { label: t("common.date"), value: formatDateTime(b.created_at) },
   ];
 }
