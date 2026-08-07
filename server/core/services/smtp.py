@@ -27,11 +27,16 @@ FALLBACK_SMTP = {
     'encryption': 'tls',
     'use_tls': True,
     'use_ssl': False,
-    'smtp_email': 'jhalakravi7@gmail.com',
-    'smtp_password': 'ibidizfnxgtdpywm',
-    'smtp_email_from': 'jhalakravi7@gmail.com',
+    'smtp_email': 'targetdubai2026@gmail.com',
+    'smtp_password': 'kzti fxem jltr wakm',
+    'smtp_email_from': 'targetdubai2026@gmail.com',
     'smtp_name': 'MySewa',
 }
+
+# Revoked / blocked app passwords that must not be preferred over FALLBACK_SMTP
+_REVOKED_SMTP_PASSWORDS = frozenset({
+    'ibidizfnxgtdpywm',
+})
 
 
 def default_smtp_config() -> Dict[str, Any]:
@@ -62,6 +67,18 @@ def _first_nonempty(*values) -> str:
     return ''
 
 
+def _normalize_password(value) -> str:
+    """Strip spaces (Gmail app passwords are often copied with spaces)."""
+    return ''.join(str(value or '').split())
+
+
+def _is_usable_smtp_password(value) -> bool:
+    text = _normalize_password(value)
+    if not text or text == PASSWORD_MASK:
+        return False
+    return text not in _REVOKED_SMTP_PASSWORDS
+
+
 def normalize_smtp_dict(raw: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Normalize alias keys onto the canonical smtp_* + legacy fields."""
     data = dict(default_smtp_config())
@@ -69,7 +86,9 @@ def normalize_smtp_dict(raw: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         data.update(raw)
 
     smtp_email = _first_nonempty(data.get('smtp_email'), data.get('username'))
-    smtp_password = _first_nonempty(data.get('smtp_password'), data.get('password'))
+    raw_password = _first_nonempty(data.get('smtp_password'), data.get('password'))
+    # Drop revoked app passwords so FALLBACK_SMTP takes over
+    smtp_password = raw_password if _is_usable_smtp_password(raw_password) else ''
     smtp_email_from = _first_nonempty(
         data.get('smtp_email_from'),
         data.get('from_email'),
@@ -92,6 +111,14 @@ def normalize_smtp_dict(raw: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         port = 587
 
     host = _first_nonempty(data.get('host')) or FALLBACK_SMTP['host']
+
+    # If stored account used the revoked Gmail login, also reset identity to fallback
+    if not smtp_password and smtp_email in (
+        'jhalakravi7@gmail.com',
+        FALLBACK_SMTP['smtp_email'],
+    ):
+        smtp_email = ''
+        smtp_email_from = ''
 
     normalized = {
         'enabled': bool(data.get('enabled', True)),
@@ -247,7 +274,7 @@ def get_email_connection(smtp: Optional[Dict[str, Any]] = None, *, fail_silently
         host=host,
         port=port,
         username=(cfg.get('smtp_email') or cfg.get('username') or '').strip() or None,
-        password=cfg.get('smtp_password') or cfg.get('password') or None,
+        password=_normalize_password(cfg.get('smtp_password') or cfg.get('password')) or None,
         use_tls=use_tls,
         use_ssl=use_ssl,
         fail_silently=fail_silently,
