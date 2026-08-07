@@ -16,6 +16,7 @@ import {
   Droplets,
   Zap,
   CirclePlus,
+  User,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { MountainBackdrop } from "@/components/home/MountainBackdrop";
@@ -97,6 +98,12 @@ const ACTIONS = [
     labelKey: "home.history" as const satisfies MessageKey,
     icon: History,
     iconBg: "bg-[#7C3AED]",
+  },
+  {
+    to: "/app/profile",
+    labelKey: "home.profile" as const satisfies MessageKey,
+    icon: User,
+    iconBg: "bg-[#E11D48]",
   },
 ] as const;
 
