@@ -266,7 +266,7 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'jhalakravi7@gmail.com')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'ibidizfnxgtdpywm')
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
 EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'false').lower() in ('1', 'true', 'yes')
-EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'ATOZ Store')
+EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'MySewa')
 DEFAULT_FROM_EMAIL = os.environ.get(
     'DEFAULT_FROM_EMAIL',
     f'{EMAIL_FROM_NAME} <{EMAIL_HOST_USER}>',

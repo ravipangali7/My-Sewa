@@ -952,6 +952,30 @@ export const apiClient = {
       `/api/admin/internet-bills/${id}/status/`,
       { method: "POST", body: { status } },
     ),
+  adminWaterBills: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").WaterBillTransaction>>(
+      `/api/admin/water-bills/${buildAdminListQuery(filters)}`,
+    ),
+  adminGetWaterBill: (id: number) =>
+    api<import("./types").WaterBillTransaction>(`/api/admin/water-bills/${id}/`),
+  adminUpdateWaterBillStatus: (id: number, status: import("./types").TxnStatus) =>
+    api<{ message: string; data: import("./types").WaterBillTransaction }>(
+      `/api/admin/water-bills/${id}/status/`,
+      { method: "POST", body: { status } },
+    ),
+  adminCommunityElectricity: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").CommunityElectricityTransaction>>(
+      `/api/admin/community-electricity/${buildAdminListQuery(filters)}`,
+    ),
+  adminGetCommunityElectricity: (id: number) =>
+    api<import("./types").CommunityElectricityTransaction>(
+      `/api/admin/community-electricity/${id}/`,
+    ),
+  adminUpdateCommunityElectricityStatus: (id: number, status: import("./types").TxnStatus) =>
+    api<{ message: string; data: import("./types").CommunityElectricityTransaction }>(
+      `/api/admin/community-electricity/${id}/status/`,
+      { method: "POST", body: { status } },
+    ),
   adminTransfers: (filters?: AdminListFilters) =>
     api<import("./types").AdminListResponse<import("./types").BankTransferTransaction>>(
       `/api/admin/transfers/${buildAdminListQuery(filters)}`,

@@ -16,6 +16,8 @@ import {
   ShieldCheck,
   Package,
   Wifi,
+  Droplets,
+  Zap,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -60,6 +62,8 @@ const NAV = [
   { to: "/admin/topups", label: "Top-ups", icon: Smartphone },
   { to: "/admin/data-topups", label: "Data Top-Up", icon: Package },
   { to: "/admin/internet", label: "Internet", icon: Wifi },
+  { to: "/admin/water", label: "Khanepani", icon: Droplets },
+  { to: "/admin/community-electricity", label: "Community Power", icon: Zap },
   { to: "/admin/transfers", label: "Bank transfers", icon: Banknote },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ] as const;

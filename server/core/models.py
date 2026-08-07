@@ -290,11 +290,11 @@ def default_app_config():
             'smtp_email': 'jhalakravi7@gmail.com',
             'smtp_password': 'ibidizfnxgtdpywm',
             'smtp_email_from': 'jhalakravi7@gmail.com',
-            'smtp_name': 'ATOZ Store',
+            'smtp_name': 'MySewa',
             'username': 'jhalakravi7@gmail.com',
             'password': 'ibidizfnxgtdpywm',
             'from_email': 'jhalakravi7@gmail.com',
-            'from_name': 'ATOZ Store',
+            'from_name': 'MySewa',
         },
         # Agent / branch defaults sent with SAMSARA_PAY (not collected from the user)
         'remittance': {

@@ -280,13 +280,16 @@ def _send_email(
         logger.info('Email skipped (no recipients): %s', subject)
         return False
     try:
-        send_smtp_email(
+        sent = send_smtp_email(
             subject,
             message,
             recipients,
             html_body=html_message,
             fail_silently=fail_silently,
         )
+        if not sent:
+            logger.error('Email not accepted by SMTP for %s: %s', recipients, subject)
+            return False
         logger.info('Email sent to %s: %s', recipients, subject)
         return True
     except Exception:
@@ -349,7 +352,7 @@ def send_password_reset_otp(email: str, otp: str) -> bool:
         ],
         footer_note='If you did not request a password reset, you can ignore this email.',
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=False)
+    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
 
 
 def send_transaction_pin_reset_otp(email: str, otp: str) -> bool:
@@ -378,7 +381,7 @@ def send_transaction_pin_reset_otp(email: str, otp: str) -> bool:
             'and keep using your current PIN.'
         ),
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=False)
+    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
 
 
 def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
@@ -407,7 +410,7 @@ def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
             'If you did not request this change, secure your account immediately.'
         ),
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=False)
+    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
 
 
 def send_email_change_otp(email: str, otp: str, new_email: str) -> bool:
@@ -437,7 +440,7 @@ def send_email_change_otp(email: str, otp: str, new_email: str) -> bool:
             'If you did not request this change, secure your account immediately.'
         ),
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=False)
+    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
 
 
 def notify_welcome_signup(user) -> None:

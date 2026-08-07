@@ -30,7 +30,7 @@ FALLBACK_SMTP = {
     'smtp_email': 'jhalakravi7@gmail.com',
     'smtp_password': 'ibidizfnxgtdpywm',
     'smtp_email_from': 'jhalakravi7@gmail.com',
-    'smtp_name': 'ATOZ Store',
+    'smtp_name': 'MySewa',
 }
 
 
@@ -278,8 +278,8 @@ def send_smtp_email(
     )
     if html_body:
         message.attach_alternative(html_body, 'text/html')
-    message.send(fail_silently=fail_silently)
-    return True
+    sent_count = message.send(fail_silently=fail_silently)
+    return bool(sent_count)
 
 
 def smtp_config_for_admin(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
