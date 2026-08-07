@@ -126,6 +126,8 @@ export const messages = {
     "walletHistory.emptyDebit": "No debit history yet.",
     "walletHistory.loading": "Loading wallet history…",
     "walletHistory.count": "{count} transactions",
+    "walletHistory.beforeBalance": "Before",
+    "walletHistory.afterBalance": "After",
 
     "activity.remittanceReceived": "Remittance Received",
     "activity.walletLoad": "Wallet load",
@@ -1054,6 +1056,8 @@ export const messages = {
     "walletHistory.emptyDebit": "अहिले कुनै डेबिट इतिहास छैन।",
     "walletHistory.loading": "वालेट इतिहास लोड हुँदै…",
     "walletHistory.count": "{count} कारोबार",
+    "walletHistory.beforeBalance": "अघि",
+    "walletHistory.afterBalance": "पछि",
 
     "activity.remittanceReceived": "रेमिटेन्स प्राप्त",
     "activity.walletLoad": "वालेट लोड",

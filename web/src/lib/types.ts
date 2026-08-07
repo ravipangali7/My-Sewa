@@ -656,6 +656,8 @@ export interface ActivityItem {
   credit: boolean;
   status: DepositStatus | TxnStatus;
   created_at: string;
+  balance_before?: string | null;
+  balance_after?: string | null;
 }
 
 export interface AdminUser extends UserProfile {

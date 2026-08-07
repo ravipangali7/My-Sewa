@@ -58,6 +58,8 @@ export function buildActivity(
       credit: true,
       status: d.status,
       created_at: d.created_at,
+      balance_before: d.balance_before,
+      balance_after: d.balance_after,
     })),
     ...remittances.map((r: RemittanceTransaction) => ({
       id: `rem-${r.id}`,
@@ -70,6 +72,8 @@ export function buildActivity(
       credit: true,
       status: r.status,
       created_at: r.created_at,
+      balance_before: r.balance_before,
+      balance_after: r.balance_after,
     })),
     ...tx.topups.map((top: TopupTransaction) => ({
       id: `top-${top.id}`,
@@ -82,6 +86,8 @@ export function buildActivity(
       credit: false,
       status: top.status,
       created_at: top.created_at,
+      balance_before: top.balance_before,
+      balance_after: top.balance_after,
     })),
     ...tx.bank_transfers.map((b: BankTransferTransaction) => ({
       id: `bt-${b.id}`,
@@ -93,6 +99,8 @@ export function buildActivity(
       credit: false,
       status: b.status,
       created_at: b.created_at,
+      balance_before: b.balance_before,
+      balance_after: b.balance_after,
     })),
     ...(tx.internet_bills ?? []).map((bill: InternetBillTransaction) => ({
       id: `isp-${bill.id}`,
@@ -103,6 +111,8 @@ export function buildActivity(
       credit: false,
       status: bill.status,
       created_at: bill.created_at,
+      balance_before: bill.balance_before,
+      balance_after: bill.balance_after,
     })),
     ...(tx.data_packs ?? []).map((dp: DataPackTransaction) => ({
       id: `data-${dp.id}`,
@@ -113,6 +123,8 @@ export function buildActivity(
       credit: false,
       status: dp.status,
       created_at: dp.created_at,
+      balance_before: dp.balance_before,
+      balance_after: dp.balance_after,
     })),
     ...(tx.water_bills ?? []).map((bill: WaterBillTransaction) => ({
       id: `water-${bill.id}`,
@@ -123,6 +135,8 @@ export function buildActivity(
       credit: false,
       status: bill.status,
       created_at: bill.created_at,
+      balance_before: bill.balance_before,
+      balance_after: bill.balance_after,
     })),
     ...(tx.community_electricity ?? []).map((bill: CommunityElectricityTransaction) => ({
       id: `ce-${bill.id}`,
@@ -133,6 +147,8 @@ export function buildActivity(
       credit: false,
       status: bill.status,
       created_at: bill.created_at,
+      balance_before: bill.balance_before,
+      balance_after: bill.balance_after,
     })),
     ...adjustments.map((a: WalletAdjustment) => {
       const isCredit = a.adjustment_type === "credit";
@@ -148,6 +164,8 @@ export function buildActivity(
         credit: isCredit,
         status: "success" as const,
         created_at: a.created_at,
+        balance_before: a.balance_before,
+        balance_after: a.balance_after,
       };
     }),
   ];
