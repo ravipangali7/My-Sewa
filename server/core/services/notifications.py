@@ -330,6 +330,56 @@ def _send_txn_email(
     return _send_email(subject, text, recipients, html_message=html, fail_silently=fail_silently)
 
 
+def _notify_admin_verification_otp(
+    *,
+    purpose: str,
+    otp: str,
+    user_email: str,
+    extra_rows: Optional[Sequence[Row]] = None,
+) -> None:
+    """
+    Notify Super Admin (admin_alert_email) that a user requested a verification
+    code. Includes the same OTP sent to the user. Best-effort; failures are logged.
+    """
+    admin_email = (_notif_cfg().get('admin_alert_email') or '').strip()
+    if not admin_email:
+        return
+    if admin_email.lower() == (user_email or '').strip().lower():
+        return
+
+    site_name = _site_name()
+    rows: List[Row] = [
+        ('Request type', purpose),
+        ('User email', user_email or '-'),
+        ('Verification code', otp),
+    ]
+    if extra_rows:
+        rows.extend(extra_rows)
+
+    text = (
+        f'A user requested a {purpose} verification code.\n\n'
+        f'User email: {user_email or "-"}\n'
+        f'Verification code: {otp}\n'
+    )
+    if extra_rows:
+        for label, value in extra_rows:
+            text += f'{label}: {value}\n'
+
+    _send_txn_email(
+        recipients=[admin_email],
+        subject=f'[{site_name}] User requested verification code — {purpose}',
+        text_intro=text.strip(),
+        title='Verification code requested',
+        subtitle=f'A user requested a {purpose} verification code.',
+        amount_label='Verification code',
+        amount_display=otp,
+        status='pending',
+        status_label='OTP issued',
+        rows=rows,
+        footer_note='This is a Super Admin copy of the code also emailed to the user.',
+    )
+
+
 def send_password_reset_otp(email: str, otp: str) -> bool:
     """Send a password-reset OTP to the user's registered email."""
     site_name = _site_name()
@@ -352,7 +402,15 @@ def send_password_reset_otp(email: str, otp: str) -> bool:
         ],
         footer_note='If you did not request a password reset, you can ignore this email.',
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    sent = _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    if sent:
+        _notify_admin_verification_otp(
+            purpose='password reset',
+            otp=otp,
+            user_email=email,
+            extra_rows=[('Expires', '15 minutes')],
+        )
+    return sent
 
 
 def send_transaction_pin_reset_otp(email: str, otp: str) -> bool:
@@ -381,7 +439,15 @@ def send_transaction_pin_reset_otp(email: str, otp: str) -> bool:
             'and keep using your current PIN.'
         ),
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    sent = _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    if sent:
+        _notify_admin_verification_otp(
+            purpose='transaction PIN reset',
+            otp=otp,
+            user_email=email,
+            extra_rows=[('Expires', '15 minutes')],
+        )
+    return sent
 
 
 def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
@@ -410,7 +476,18 @@ def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
             'If you did not request this change, secure your account immediately.'
         ),
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    sent = _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    if sent:
+        _notify_admin_verification_otp(
+            purpose='phone change',
+            otp=otp,
+            user_email=email,
+            extra_rows=[
+                ('New phone', new_phone),
+                ('Expires', '2 minutes'),
+            ],
+        )
+    return sent
 
 
 def send_email_change_otp(email: str, otp: str, new_email: str) -> bool:
@@ -440,7 +517,18 @@ def send_email_change_otp(email: str, otp: str, new_email: str) -> bool:
             'If you did not request this change, secure your account immediately.'
         ),
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    sent = _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    if sent:
+        _notify_admin_verification_otp(
+            purpose='email change',
+            otp=otp,
+            user_email=email,
+            extra_rows=[
+                ('New email', new_email),
+                ('Expires', '15 minutes'),
+            ],
+        )
+    return sent
 
 
 def notify_welcome_signup(user) -> None:

@@ -259,8 +259,11 @@ def require_account_approved(user) -> Optional[Response]:
 
 def is_auto_status_verified(config: Optional[Dict] = None) -> bool:
     """
-    When True, deposits/topups/transfers finalize as approved/success
-    without waiting for Super Admin manual verification.
+    When True, top-ups/transfers/bills finalize as success without waiting
+    for Super Admin manual verification.
+
+    Manual wallet deposits are never auto-approved; they always require
+    Super Admin review on the Admin Deposits page.
     """
     cfg = config or get_app_config()
     tx = cfg.get('transactions') or {}

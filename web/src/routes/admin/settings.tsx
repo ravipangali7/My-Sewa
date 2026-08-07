@@ -911,7 +911,7 @@ function SettingsPage() {
                 </div>
                 <ToggleRow
                   label="Auto Status Verified"
-                  description="When enabled, deposits are approved and top-ups/transfers finalize as success automatically. When disabled, they stay pending until an admin updates status on Deposits, Top-ups, or Transfers."
+                  description="When enabled, top-ups/transfers/bills finalize as success automatically. Manual deposits always stay pending for Super Admin approval. When disabled, top-ups and transfers also stay pending until an admin updates status."
                   checked={config.transactions.auto_status_verified === true}
                   onCheckedChange={(v) =>
                     setConfig((c) => ({
