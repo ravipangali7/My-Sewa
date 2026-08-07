@@ -1515,18 +1515,25 @@ function SettingsPage() {
                 />
               </div>
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <Field
-                  id="admin_alert_email"
-                  label="Admin alert email"
-                  type="email"
-                  value={config.notifications.admin_alert_email}
-                  onChange={(v) =>
-                    setConfig((c) => ({
-                      ...c,
-                      notifications: { ...c.notifications, admin_alert_email: v },
-                    }))
-                  }
-                />
+                <div className="space-y-1.5">
+                  <Field
+                    id="admin_alert_email"
+                    label="Super Admin email"
+                    type="email"
+                    value={config.notifications.admin_alert_email}
+                    onChange={(v) =>
+                      setConfig((c) => ({
+                        ...c,
+                        notifications: { ...c.notifications, admin_alert_email: v },
+                      }))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Receives a copy of every email the system sends to users
+                    (transactions, verification codes, and other notifications).
+                    If empty, active Super Admin account emails are used.
+                  </p>
+                </div>
                 <NumberField
                   id="low_balance_threshold"
                   label="Low balance threshold (Rs.)"

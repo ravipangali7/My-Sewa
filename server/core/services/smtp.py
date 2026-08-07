@@ -289,9 +289,11 @@ def send_smtp_email(
     html_body: Optional[str] = None,
     smtp: Optional[Dict[str, Any]] = None,
     fail_silently: bool = True,
+    bcc: Optional[list] = None,
 ) -> bool:
     """Send an email using the configured (or overridden) SMTP connection."""
     recipients = [r for r in recipients if r]
+    bcc_list = [r for r in (bcc or []) if r]
     if not recipients:
         return False
     cfg = normalize_smtp_dict(smtp or get_smtp_config())
@@ -301,6 +303,7 @@ def send_smtp_email(
         body=text_body,
         from_email=format_from_address(cfg),
         to=recipients,
+        bcc=bcc_list or None,
         connection=connection,
     )
     if html_body:

@@ -267,6 +267,43 @@ def _rows_to_text(rows: Sequence[Row]) -> str:
     return '\n'.join(lines)
 
 
+def _admin_alert_emails() -> List[str]:
+    """
+    Resolve Super Admin inbox(es) for notification copies.
+
+    Prefer Settings.config.notifications.admin_alert_email; if unset, fall back
+    to active superuser account emails.
+    """
+    alert = (_notif_cfg().get('admin_alert_email') or '').strip()
+    if alert:
+        return [alert]
+
+    try:
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        emails = list(
+            User.objects.filter(is_superuser=True, is_active=True)
+            .exclude(email__isnull=True)
+            .exclude(email='')
+            .values_list('email', flat=True)
+        )
+    except Exception:
+        logger.exception('Failed to resolve Super Admin emails')
+        return []
+
+    seen = set()
+    result: List[str] = []
+    for raw in emails:
+        email = (raw or '').strip()
+        key = email.lower()
+        if not email or key in seen:
+            continue
+        seen.add(key)
+        result.append(email)
+    return result
+
+
 def _send_email(
     subject: str,
     message: str,
@@ -274,11 +311,19 @@ def _send_email(
     html_message: Optional[str] = None,
     *,
     fail_silently: bool = True,
+    copy_admin: bool = True,
 ) -> bool:
+    """
+    Send an email via configured SMTP.
+
+    When copy_admin is True (default), the identical message is also sent to the
+    Super Admin so every notification email is mirrored.
+    """
     recipients = [r for r in recipients if r]
     if not recipients:
         logger.info('Email skipped (no recipients): %s', subject)
         return False
+
     try:
         sent = send_smtp_email(
             subject,
@@ -291,12 +336,58 @@ def _send_email(
             logger.error('Email not accepted by SMTP for %s: %s', recipients, subject)
             return False
         logger.info('Email sent to %s: %s', recipients, subject)
-        return True
     except Exception:
         logger.exception('Failed to send email: %s', subject)
         if not fail_silently:
             raise
         return False
+
+    if copy_admin:
+        _mirror_email_to_admin(
+            subject=subject,
+            message=message,
+            html_message=html_message,
+            primary_recipients=recipients,
+        )
+    return True
+
+
+def _mirror_email_to_admin(
+    *,
+    subject: str,
+    message: str,
+    html_message: Optional[str],
+    primary_recipients: list,
+) -> None:
+    """Best-effort: send the same email content to Super Admin inbox(es)."""
+    primary = {(r or '').strip().lower() for r in primary_recipients}
+    admin_recipients = [
+        email for email in _admin_alert_emails() if email.lower() not in primary
+    ]
+    if not admin_recipients:
+        return
+    try:
+        mirrored = send_smtp_email(
+            subject,
+            message,
+            admin_recipients,
+            html_body=html_message,
+            fail_silently=True,
+        )
+        if mirrored:
+            logger.info(
+                'Mirrored email to Super Admin %s: %s',
+                admin_recipients,
+                subject,
+            )
+        else:
+            logger.error(
+                'Failed to mirror email to Super Admin %s: %s',
+                admin_recipients,
+                subject,
+            )
+    except Exception:
+        logger.exception('Failed to mirror email to Super Admin: %s', subject)
 
 
 def _send_txn_email(
@@ -314,6 +405,7 @@ def _send_txn_email(
     fail_silently: bool = True,
     greeting: str = '',
     footer_note: str = '',
+    copy_admin: bool = True,
 ) -> bool:
     text = text_intro.rstrip() + '\n\n' + _rows_to_text(rows) + '\n'
     html = render_transaction_email(
@@ -327,56 +419,13 @@ def _send_txn_email(
         greeting=greeting,
         footer_note=footer_note,
     )
-    return _send_email(subject, text, recipients, html_message=html, fail_silently=fail_silently)
-
-
-def _notify_admin_verification_otp(
-    *,
-    purpose: str,
-    otp: str,
-    user_email: str,
-    extra_rows: Optional[Sequence[Row]] = None,
-) -> None:
-    """
-    Notify Super Admin (admin_alert_email) that a user requested a verification
-    code. Includes the same OTP sent to the user. Best-effort; failures are logged.
-    """
-    admin_email = (_notif_cfg().get('admin_alert_email') or '').strip()
-    if not admin_email:
-        return
-    if admin_email.lower() == (user_email or '').strip().lower():
-        return
-
-    site_name = _site_name()
-    rows: List[Row] = [
-        ('Request type', purpose),
-        ('User email', user_email or '-'),
-        ('Verification code', otp),
-    ]
-    if extra_rows:
-        rows.extend(extra_rows)
-
-    text = (
-        f'A user requested a {purpose} verification code.\n\n'
-        f'User email: {user_email or "-"}\n'
-        f'Verification code: {otp}\n'
-    )
-    if extra_rows:
-        for label, value in extra_rows:
-            text += f'{label}: {value}\n'
-
-    _send_txn_email(
-        recipients=[admin_email],
-        subject=f'[{site_name}] User requested verification code — {purpose}',
-        text_intro=text.strip(),
-        title='Verification code requested',
-        subtitle=f'A user requested a {purpose} verification code.',
-        amount_label='Verification code',
-        amount_display=otp,
-        status='pending',
-        status_label='OTP issued',
-        rows=rows,
-        footer_note='This is a Super Admin copy of the code also emailed to the user.',
+    return _send_email(
+        subject,
+        text,
+        recipients,
+        html_message=html,
+        fail_silently=fail_silently,
+        copy_admin=copy_admin,
     )
 
 
@@ -402,15 +451,7 @@ def send_password_reset_otp(email: str, otp: str) -> bool:
         ],
         footer_note='If you did not request a password reset, you can ignore this email.',
     )
-    sent = _send_email(subject, text, [email], html_message=html, fail_silently=True)
-    if sent:
-        _notify_admin_verification_otp(
-            purpose='password reset',
-            otp=otp,
-            user_email=email,
-            extra_rows=[('Expires', '15 minutes')],
-        )
-    return sent
+    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
 
 
 def send_transaction_pin_reset_otp(email: str, otp: str) -> bool:
@@ -439,15 +480,7 @@ def send_transaction_pin_reset_otp(email: str, otp: str) -> bool:
             'and keep using your current PIN.'
         ),
     )
-    sent = _send_email(subject, text, [email], html_message=html, fail_silently=True)
-    if sent:
-        _notify_admin_verification_otp(
-            purpose='transaction PIN reset',
-            otp=otp,
-            user_email=email,
-            extra_rows=[('Expires', '15 minutes')],
-        )
-    return sent
+    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
 
 
 def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
@@ -476,18 +509,7 @@ def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
             'If you did not request this change, secure your account immediately.'
         ),
     )
-    sent = _send_email(subject, text, [email], html_message=html, fail_silently=True)
-    if sent:
-        _notify_admin_verification_otp(
-            purpose='phone change',
-            otp=otp,
-            user_email=email,
-            extra_rows=[
-                ('New phone', new_phone),
-                ('Expires', '2 minutes'),
-            ],
-        )
-    return sent
+    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
 
 
 def send_email_change_otp(email: str, otp: str, new_email: str) -> bool:
@@ -517,19 +539,7 @@ def send_email_change_otp(email: str, otp: str, new_email: str) -> bool:
             'If you did not request this change, secure your account immediately.'
         ),
     )
-    sent = _send_email(subject, text, [email], html_message=html, fail_silently=True)
-    if sent:
-        _notify_admin_verification_otp(
-            purpose='email change',
-            otp=otp,
-            user_email=email,
-            extra_rows=[
-                ('New email', new_email),
-                ('Expires', '15 minutes'),
-            ],
-        )
-    return sent
-
+    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
 
 def notify_welcome_signup(user) -> None:
     """Thank-you / welcome email after successful registration (when email is set)."""
@@ -729,8 +739,8 @@ def notify_debit(user, amount, *, reason: str, ref: str = '') -> None:
 def notify_deposit_submitted(deposit) -> None:
     cfg = _notif_cfg()
     site_name = _site_name()
-    if cfg.get('email_on_deposit'):
-        admin_email = (cfg.get('admin_alert_email') or '').strip()
+    admin_emails = _admin_alert_emails()
+    if cfg.get('email_on_deposit') and admin_emails:
         rows: List[Row] = [
             ('Deposit ID', str(deposit.id)),
             ('User', getattr(deposit.user, 'phone', '-')),
@@ -740,7 +750,7 @@ def notify_deposit_submitted(deposit) -> None:
             ('Date', _format_when(getattr(deposit, 'created_at', None))),
         ]
         _send_txn_email(
-            recipients=[admin_email],
+            recipients=admin_emails,
             subject=f'[{site_name}] New deposit request #{deposit.id}',
             text_intro='A new deposit request was submitted.',
             title='New deposit request',
@@ -749,6 +759,7 @@ def notify_deposit_submitted(deposit) -> None:
             status='pending',
             status_label=str(deposit.status or 'Pending').title(),
             rows=rows,
+            copy_admin=False,
         )
 
     _push(
@@ -1113,10 +1124,10 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
             greeting=f'Hi {getattr(remittance.user, "first_name", "") or "there"},',
         )
 
-    admin_email = (cfg.get('admin_alert_email') or '').strip()
-    if admin_email and cfg.get('email_on_deposit'):
+    admin_emails = _admin_alert_emails()
+    if admin_emails and cfg.get('email_on_deposit'):
         _send_txn_email(
-            recipients=[admin_email],
+            recipients=admin_emails,
             subject=f'[{site_name}] Remittance received #{remittance.id}',
             text_intro='Remittance payout completed.',
             title='Remittance received',
@@ -1131,6 +1142,7 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
                 ('Amount', _fmt_amount(credited)),
                 ('Date', _format_when(getattr(remittance, 'created_at', None))),
             ],
+            copy_admin=False,
         )
 
     _push(
@@ -1157,10 +1169,12 @@ def notify_low_balance_if_needed(wallet) -> None:
         threshold_val = 100.0
     if float(wallet.balance) > threshold_val:
         return
-    admin_email = (cfg.get('admin_alert_email') or '').strip()
+    admin_emails = _admin_alert_emails()
+    if not admin_emails:
+        return
     site_name = _site_name()
     _send_txn_email(
-        recipients=[admin_email],
+        recipients=admin_emails,
         subject=f'[{site_name}] Low wallet balance alert',
         text_intro='Wallet balance is at or below the configured threshold.',
         title='Low wallet balance',
@@ -1175,6 +1189,7 @@ def notify_low_balance_if_needed(wallet) -> None:
             ('Threshold', _fmt_amount(threshold_val)),
             ('Date', _format_when()),
         ],
+        copy_admin=False,
     )
     _push(
         wallet.user,
