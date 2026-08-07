@@ -5,7 +5,6 @@ import {
   ArrowDownToLine,
   ChevronRight,
   Download,
-  Lock,
   Redo2,
   Send,
   Signal,
@@ -53,20 +52,6 @@ export const Route = createFileRoute("/app/wallet-history")({
 });
 
 type HistoryTab = "credit" | "debit";
-
-function canViewStatement(status: string) {
-  const normalized = status.toLowerCase();
-  return normalized === "success" || normalized === "approved";
-}
-
-function formatRu(value: string | number) {
-  const n = typeof value === "string" ? Number(value) : value;
-  if (Number.isNaN(n)) return "रु. —";
-  return `रु. ${n.toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
 
 function KindIcon({ item }: { item: ActivityItem }) {
   if (item.kind === "deposit") return <Download className="size-[18px]" strokeWidth={2.25} />;
@@ -117,69 +102,49 @@ function HistoryList({
   return (
     <ul className="divide-y divide-border">
       {items.map((item, index) => {
-        const viewable = canViewStatement(item.status);
         const sn = serialNumber(1, items.length || 1, index);
-        const rowClass = cn(
-          "flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors",
-          viewable && "active:bg-muted/60",
-        );
-        const body = (
-          <>
-            <span className="tabular w-5 shrink-0 text-center text-[12px] text-muted-foreground">
-              {sn}
-            </span>
-            <span
-              className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-full",
-                item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
-              )}
-            >
-              <KindIcon item={item} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[15px] font-medium text-[#0B2B4A]">
-                {item.title}
-              </span>
-              <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
-                {item.subtitle} · {formatDateTime(item.created_at)}
-              </span>
-            </span>
-            <span className="shrink-0 text-right">
-              <span
-                className={cn(
-                  "tabular block text-[15px] font-semibold",
-                  item.credit ? "text-success" : "text-[#0B2B4A]",
-                )}
-              >
-                {item.credit ? "+" : "−"} {formatNPR(item.amount)}
-              </span>
-              <StatusChip status={item.status} compact className="mt-1" />
-            </span>
-            {viewable ? (
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
-            ) : (
-              <span className="inline-flex items-center gap-1 rounded-full border border-[#E5EAF0] bg-[#F8FAFC] px-2 py-1 text-[10px] font-semibold text-[#7F8A99]">
-                <Lock className="size-3" />
-                {t("history.viewLocked")}
-              </span>
-            )}
-          </>
-        );
-
+        const rowClass =
+          "flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors active:bg-muted/60";
         return (
           <li key={item.id}>
-            {viewable ? (
-              <Link
-                to="/app/history/$activityId"
-                params={{ activityId: item.id }}
-                className={rowClass}
-                aria-label={t("history.openStatement")}
+            <Link
+              to="/app/history/$activityId"
+              params={{ activityId: item.id }}
+              className={rowClass}
+              aria-label={t("history.openStatement")}
+            >
+              <span className="tabular w-5 shrink-0 text-center text-[12px] text-muted-foreground">
+                {sn}
+              </span>
+              <span
+                className={cn(
+                  "flex size-10 shrink-0 items-center justify-center rounded-full",
+                  item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
+                )}
               >
-                {body}
-              </Link>
-            ) : (
-              <div className={rowClass}>{body}</div>
-            )}
+                <KindIcon item={item} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-medium text-[#0B2B4A]">
+                  {item.title}
+                </span>
+                <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
+                  {item.subtitle} · {formatDateTime(item.created_at)}
+                </span>
+              </span>
+              <span className="shrink-0 text-right">
+                <span
+                  className={cn(
+                    "tabular block text-[15px] font-semibold",
+                    item.credit ? "text-success" : "text-[#0B2B4A]",
+                  )}
+                >
+                  {item.credit ? "+" : "−"} {formatNPR(item.amount)}
+                </span>
+                <StatusChip status={item.status} compact className="mt-1" />
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+            </Link>
           </li>
         );
       })}

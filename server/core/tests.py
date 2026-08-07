@@ -434,3 +434,224 @@ class ResetPasswordDobMatchTests(TestCase):
         response = self.client.post(self.url, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('date_of_birth', response.data.get('errors', {}))
+
+
+class KycManualReviewWorkflowTests(TestCase):
+    """
+    KYC never auto-verifies. Submit/resubmit → Pending; only staff Approve
+    or Reject (with mandatory reason) changes status. Rejected users may
+    resubmit, which returns to Pending.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            '9802223344',
+            password='testpass12',
+            email='kyc-user@example.com',
+            first_name='Kyc',
+            last_name='User',
+            date_of_birth=date(1990, 1, 15),
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        self.staff = User.objects.create_user(
+            '9802223355',
+            password='staffpass12',
+            email='kyc-admin@example.com',
+            is_staff=True,
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        self.submit_url = reverse('kyc_submit')
+        self.status_url = reverse('kyc_status')
+
+    def _tiny_png(self, name='doc.png'):
+        from io import BytesIO
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        try:
+            from PIL import Image
+        except ImportError:  # pragma: no cover
+            self.skipTest('Pillow is required for KYC image upload tests')
+        buf = BytesIO()
+        Image.new('RGB', (8, 8), color=(20, 40, 80)).save(buf, format='PNG')
+        return SimpleUploadedFile(name, buf.getvalue(), content_type='image/png')
+
+    def _submit_kyc(self, citizenship_number='12-34-56-78901'):
+        """POST multipart with citizenship front+back (same keys as the web client)."""
+        from django.test.client import BOUNDARY
+
+        self.user.refresh_from_db()
+        self.client.force_authenticate(user=self.user)
+        front = self._tiny_png('front.png')
+        back = self._tiny_png('back.png')
+        parts = []
+
+        def add_field(name, value):
+            parts.append(
+                f'--{BOUNDARY}\r\n'
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+                f'{value}\r\n'
+            )
+
+        def add_file(name, uploaded):
+            content = uploaded.read()
+            parts.append(
+                f'--{BOUNDARY}\r\n'
+                f'Content-Disposition: form-data; name="{name}"; '
+                f'filename="{uploaded.name}"\r\n'
+                f'Content-Type: {uploaded.content_type}\r\n\r\n'
+            )
+            parts.append(content)
+            parts.append('\r\n')
+
+        add_field('citizenship_number', citizenship_number)
+        add_file('file', front)
+        add_field('document_type', 'citizenship')
+        add_field('side', 'front')
+        add_file('file', back)
+        add_field('document_type', 'citizenship')
+        add_field('side', 'back')
+        parts.append(f'--{BOUNDARY}--\r\n')
+
+        payload = b''.join(
+            p.encode('utf-8') if isinstance(p, str) else p for p in parts
+        )
+        return self.client.post(
+            self.submit_url,
+            data=payload,
+            content_type=f'multipart/form-data; boundary={BOUNDARY}',
+        )
+
+    def test_submit_stays_pending_not_auto_verified(self):
+        response = self._submit_kyc()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.kyc_status, User.KYC_STATUS_PENDING)
+        self.assertFalse(self.user.is_kyc_verified)
+        payload = response.data['data']
+        self.assertEqual(payload['kyc_status'], 'pending')
+        self.assertFalse(payload['kyc_verified'])
+        self.assertFalse(payload['can_submit'])
+        self.assertEqual(payload['submission']['status'], 'pending')
+
+    def test_reject_requires_reason_and_sets_rejected(self):
+        submit = self._submit_kyc()
+        kyc_id = submit.data['data']['submission']['id']
+
+        self.client.force_authenticate(user=self.staff)
+        missing = self.client.post(
+            reverse('admin_reject_kyc', kwargs={'kyc_id': kyc_id}),
+            {},
+            format='json',
+        )
+        self.assertEqual(missing.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('reason', missing.data['error'].lower())
+
+        rejected = self.client.post(
+            reverse('admin_reject_kyc', kwargs={'kyc_id': kyc_id}),
+            {'rejection_reason': 'Citizenship image is blurry'},
+            format='json',
+        )
+        self.assertEqual(rejected.status_code, status.HTTP_200_OK)
+        self.assertEqual(rejected.data['data']['status'], 'rejected')
+        self.assertEqual(
+            rejected.data['data']['rejection_reason'],
+            'Citizenship image is blurry',
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.kyc_status, User.KYC_STATUS_REJECTED)
+        self.assertFalse(self.user.is_kyc_verified)
+
+        self.client.force_authenticate(user=self.user)
+        status_res = self.client.get(self.status_url)
+        self.assertEqual(status_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(status_res.data['kyc_status'], 'rejected')
+        self.assertTrue(status_res.data['can_submit'])
+        self.assertEqual(
+            status_res.data['submission']['rejection_reason'],
+            'Citizenship image is blurry',
+        )
+
+    def test_resubmit_after_reject_returns_to_pending(self):
+        submit = self._submit_kyc('11-22-33-44444')
+        kyc_id = submit.data['data']['submission']['id']
+
+        self.client.force_authenticate(user=self.staff)
+        self.client.post(
+            reverse('admin_reject_kyc', kwargs={'kyc_id': kyc_id}),
+            {'rejection_reason': 'Wrong document side'},
+            format='json',
+        )
+
+        resubmit = self._submit_kyc('11-22-33-55555')
+        self.assertEqual(resubmit.status_code, status.HTTP_201_CREATED)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.kyc_status, User.KYC_STATUS_PENDING)
+        self.assertFalse(self.user.is_kyc_verified)
+        self.assertEqual(resubmit.data['data']['kyc_status'], 'pending')
+        self.assertEqual(resubmit.data['data']['submission']['status'], 'pending')
+        self.assertNotEqual(resubmit.data['data']['submission']['id'], kyc_id)
+        self.assertFalse(resubmit.data['data']['submission'].get('rejection_reason'))
+
+    def test_approve_marks_verified_and_blocks_resubmit(self):
+        submit = self._submit_kyc()
+        kyc_id = submit.data['data']['submission']['id']
+
+        self.client.force_authenticate(user=self.staff)
+        approved = self.client.post(
+            reverse('admin_approve_kyc', kwargs={'kyc_id': kyc_id}),
+            {},
+            format='json',
+        )
+        self.assertEqual(approved.status_code, status.HTTP_200_OK)
+        self.assertEqual(approved.data['data']['status'], 'approved')
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.kyc_status, User.KYC_STATUS_APPROVED)
+        self.assertTrue(self.user.is_kyc_verified)
+
+        blocked = self._submit_kyc()
+        self.assertEqual(blocked.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('verification', blocked.data['error'].lower())
+
+    def test_admin_can_edit_pending_kyc_then_approve(self):
+        submit = self._submit_kyc('99-88-77-66554')
+        kyc_id = submit.data['data']['submission']['id']
+
+        self.client.force_authenticate(user=self.staff)
+        updated = self.client.patch(
+            reverse('admin_get_kyc', kwargs={'kyc_id': kyc_id}),
+            {
+                'citizenship_number': '11-22-33-44556',
+                'first_name': 'Corrected',
+                'last_name': 'Name',
+                'date_of_birth': '1991-05-20',
+            },
+            format='json',
+        )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        self.assertEqual(updated.data['data']['citizenship_number'], '11-22-33-44556')
+        self.assertEqual(updated.data['data']['first_name'], 'Corrected')
+        self.assertEqual(updated.data['data']['last_name'], 'Name')
+        self.assertEqual(str(updated.data['data']['date_of_birth']), '1991-05-20')
+        self.assertEqual(updated.data['data']['status'], 'pending')
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.citizenship_number, '11-22-33-44556')
+        self.assertEqual(self.user.first_name, 'Corrected')
+        self.assertEqual(self.user.last_name, 'Name')
+        self.assertEqual(self.user.kyc_status, User.KYC_STATUS_PENDING)
+
+        approved = self.client.post(
+            reverse('admin_approve_kyc', kwargs={'kyc_id': kyc_id}),
+            {},
+            format='json',
+        )
+        self.assertEqual(approved.status_code, status.HTTP_200_OK)
+        self.assertEqual(approved.data['data']['status'], 'approved')
+        self.assertEqual(approved.data['data']['citizenship_number'], '11-22-33-44556')
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.kyc_status, User.KYC_STATUS_APPROVED)
+        self.assertTrue(self.user.is_kyc_verified)
+        self.assertEqual(self.user.citizenship_number, '11-22-33-44556')

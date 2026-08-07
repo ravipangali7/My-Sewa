@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Lock, Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { BankCombobox } from "@/components/BankCombobox";
@@ -56,10 +56,6 @@ export const Route = createFileRoute("/app/transfer")({
 });
 
 type TransferMethod = "bank" | "phone";
-
-function canViewStatement(status: string) {
-  return status.toLowerCase() === "success";
-}
 
 function Transfer() {
   const queryClient = useQueryClient();
@@ -782,74 +778,39 @@ function Transfer() {
               {transferItems.map((b) => (
                 <li key={b.id}>
                   <div className="flex items-stretch gap-1 px-2 py-1">
-                    {canViewStatement(b.status) ? (
-                      <Link
-                        to="/app/history/$activityId"
-                        params={{ activityId: activityIdForKind("transfer", b.id) }}
-                        className="min-w-0 flex-1 rounded-lg px-2 py-2 transition-colors active:bg-muted/60"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-[15px] font-medium">
-                              {b.destination_acc_name || b.destination_acc_no}
-                            </p>
-                            <p className="truncate text-[13px] text-muted-foreground">
-                              {b.is_destination_mobile
-                                ? t("transfer.phonePrefix", { phone: b.destination_acc_no })
-                                : `${b.destination_bank_name || b.destination_bank} · ${b.destination_acc_no}`}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="tabular text-[15px] font-semibold">
-                              {displayTransferTotal(b)}
-                            </p>
-                            <StatusChip status={b.status} compact className="mt-1" />
-                          </div>
-                          <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+                    <Link
+                      to="/app/history/$activityId"
+                      params={{ activityId: activityIdForKind("transfer", b.id) }}
+                      className="min-w-0 flex-1 rounded-lg px-2 py-2 transition-colors active:bg-muted/60"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[15px] font-medium">
+                            {b.destination_acc_name || b.destination_acc_no}
+                          </p>
+                          <p className="truncate text-[13px] text-muted-foreground">
+                            {b.is_destination_mobile
+                              ? t("transfer.phonePrefix", { phone: b.destination_acc_no })
+                              : `${b.destination_bank_name || b.destination_bank} · ${b.destination_acc_no}`}
+                          </p>
                         </div>
-                        <p className="mt-1 truncate text-[12px] text-muted-foreground">
-                          {b.merchant_txn_id} · {formatDateTime(b.created_at)} ·{" "}
-                          {b.status === "failed"
-                            ? t("transfer.notDebited", { amount: formatNPR(b.total_debited) })
-                            : b.status === "pending"
-                              ? t("transfer.pendingDebit", { amount: formatNPR(b.total_debited) })
-                              : t("transfer.debited", { amount: formatNPR(b.total_debited) })}
-                        </p>
-                      </Link>
-                    ) : (
-                      <div className="min-w-0 flex-1 rounded-lg px-2 py-2 opacity-90">
-                        <div className="flex items-center gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-[15px] font-medium">
-                              {b.destination_acc_name || b.destination_acc_no}
-                            </p>
-                            <p className="truncate text-[13px] text-muted-foreground">
-                              {b.is_destination_mobile
-                                ? t("transfer.phonePrefix", { phone: b.destination_acc_no })
-                                : `${b.destination_bank_name || b.destination_bank} · ${b.destination_acc_no}`}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="tabular text-[15px] font-semibold">
-                              {displayTransferTotal(b)}
-                            </p>
-                            <StatusChip status={b.status} compact className="mt-1" />
-                          </div>
-                          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                            <Lock className="size-3" />
-                            {t("history.viewLocked")}
-                          </span>
+                        <div className="text-right">
+                          <p className="tabular text-[15px] font-semibold">
+                            {displayTransferTotal(b)}
+                          </p>
+                          <StatusChip status={b.status} compact className="mt-1" />
                         </div>
-                        <p className="mt-1 truncate text-[12px] text-muted-foreground">
-                          {b.merchant_txn_id} · {formatDateTime(b.created_at)} ·{" "}
-                          {b.status === "failed"
-                            ? t("transfer.notDebited", { amount: formatNPR(b.total_debited) })
-                            : b.status === "pending"
-                              ? t("transfer.pendingDebit", { amount: formatNPR(b.total_debited) })
-                              : t("transfer.debited", { amount: formatNPR(b.total_debited) })}
-                        </p>
+                        <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
                       </div>
-                    )}
+                      <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                        {b.merchant_txn_id} · {formatDateTime(b.created_at)} ·{" "}
+                        {b.status === "failed"
+                          ? t("transfer.notDebited", { amount: formatNPR(b.total_debited) })
+                          : b.status === "pending"
+                            ? t("transfer.pendingDebit", { amount: formatNPR(b.total_debited) })
+                            : t("transfer.debited", { amount: formatNPR(b.total_debited) })}
+                      </p>
+                    </Link>
                     <div className="flex shrink-0 flex-col items-end justify-center gap-1 self-center px-2">
                       {(b.status === "success" || b.status === "failed") && (
                         <ReceiptDownloadLink

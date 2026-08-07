@@ -899,6 +899,19 @@ export const apiClient = {
     ),
   adminGetKyc: (id: number) =>
     api<import("./types").KycSubmission>(`/api/admin/kyc/${id}/`),
+  adminUpdateKyc: (
+    id: number,
+    body: {
+      citizenship_number?: string;
+      first_name?: string;
+      last_name?: string;
+      date_of_birth?: string | null;
+    },
+  ) =>
+    api<{ message: string; data: import("./types").KycSubmission }>(
+      `/api/admin/kyc/${id}/`,
+      { method: "PATCH", body },
+    ),
   adminApproveKyc: (id: number) =>
     api<{ message: string; data: import("./types").KycSubmission }>(
       `/api/admin/kyc/${id}/approve/`,

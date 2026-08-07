@@ -442,9 +442,15 @@ function InternetBillPayment() {
               <dl className="space-y-2 rounded-xl bg-muted/50 p-3 text-[14px]">
                 <Row label={t("internet.isp")} value={inquiry.isp_name} />
                 <Row label={selectedIsp?.customer_label ?? t("internet.customerId")} value={inquiry.customer_id} mono />
-                {inquiry.customer_name ? (
-                  <Row label={t("internet.customerName")} value={inquiry.customer_name} />
-                ) : null}
+                <Row
+                  label={t("internet.customerName")}
+                  value={
+                    (inquiry.customer_name || "").trim() ||
+                    [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
+                    (user?.nickname || "").trim() ||
+                    t("profile.emailEmpty")
+                  }
+                />
                 {inquiry.current_package ? (
                   <Row label={t("internet.currentPackage")} value={inquiry.current_package} />
                 ) : null}
@@ -460,7 +466,10 @@ function InternetBillPayment() {
                 {inquiry.payable_amount ? (
                   <Row label={t("internet.payableAmount")} value={formatNPR(inquiry.payable_amount)} strong />
                 ) : null}
-                {inquiry.phone ? <Row label={t("common.mobile")} value={inquiry.phone} /> : null}
+                <Row
+                  label={t("common.mobile")}
+                  value={(inquiry.phone || "").trim() || user?.phone || "—"}
+                />
               </dl>
 
               <div className="space-y-2">

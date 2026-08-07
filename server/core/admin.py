@@ -30,7 +30,7 @@ class CustomUserAdminForm(forms.ModelForm):
         model = User
         fields = (
             'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
-            'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
+            'date_of_birth', 'account_status',
             'is_active', 'is_staff',
         )
 
@@ -61,7 +61,11 @@ class CustomUserAdmin(admin.ModelAdmin):
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name',
         'citizenship_number',
     )
-    readonly_fields = ('date_joined', 'last_login')
+    # KYC identity fields are corrected via the admin KYC review APIs
+    # (PATCH pending submission, then Approve / Reject).
+    readonly_fields = (
+        'date_joined', 'last_login', 'kyc_status', 'citizenship_number',
+    )
     fields = (
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
         'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',

@@ -193,14 +193,31 @@ def validate_document_sides(docs):
 
 
 def mark_submission_reviewed(submission, *, status, reviewer, rejection_reason=''):
+    """
+    Admin-only review step. KYC never auto-verifies — only Approve or Reject
+    (reject requires a reason) may leave Pending.
+    """
+    if submission.status != KYCSubmission.STATUS_PENDING:
+        raise ValidationError(
+            f'KYC submission is already {submission.status}'
+        )
+    if status not in (
+        KYCSubmission.STATUS_APPROVED,
+        KYCSubmission.STATUS_REJECTED,
+    ):
+        raise ValidationError('Review status must be approved or rejected.')
+
+    reason = (rejection_reason or '').strip()
+    if status == KYCSubmission.STATUS_REJECTED and not reason:
+        raise ValidationError({'rejection_reason': 'Rejection reason is required.'})
+
     old_status = submission.status
     submission.status = status
     submission.reviewed_by = reviewer
     submission.reviewed_at = timezone.now()
-    if status == KYCSubmission.STATUS_REJECTED:
-        submission.rejection_reason = (rejection_reason or '').strip()
-    else:
-        submission.rejection_reason = ''
+    submission.rejection_reason = (
+        reason if status == KYCSubmission.STATUS_REJECTED else ''
+    )
     submission.save(
         update_fields=[
             'status', 'reviewed_by', 'reviewed_at', 'rejection_reason', 'updated_at',
@@ -224,4 +241,92 @@ def mark_submission_reviewed(submission, *, status, reviewer, rejection_reason='
             'reviewed_by_id': reviewer.pk if reviewer else None,
         },
     )
+    return submission
+
+
+def update_pending_kyc_submission(
+    submission,
+    *,
+    actor,
+    citizenship_number=None,
+    first_name=None,
+    last_name=None,
+    date_of_birth=None,
+):
+    """
+    Super Admin / staff correction of a pending KYC before approve/reject.
+    Updates citizenship on the submission and identity fields on the user
+    so approval can proceed without forcing the user to resubmit.
+    """
+    if submission.status != KYCSubmission.STATUS_PENDING:
+        raise ValidationError(
+            f'Only pending KYC submissions can be edited (currently {submission.status}).'
+        )
+
+    user = submission.user
+    changes = {}
+
+    if citizenship_number is not None:
+        number = (citizenship_number or '').strip()
+        if len(number) < 3:
+            raise ValidationError({'citizenship_number': 'Citizenship number is required.'})
+        if number != (submission.citizenship_number or '').strip():
+            changes['citizenship_number'] = {
+                'old': submission.citizenship_number,
+                'new': number,
+            }
+            submission.citizenship_number = number
+            submission.save(update_fields=['citizenship_number', 'updated_at'])
+
+    user_updates = {}
+    if first_name is not None:
+        value = (first_name or '').strip()
+        if value != (user.first_name or '').strip():
+            changes['first_name'] = {'old': user.first_name, 'new': value}
+            user_updates['first_name'] = value
+    if last_name is not None:
+        value = (last_name or '').strip()
+        if value != (user.last_name or '').strip():
+            changes['last_name'] = {'old': user.last_name, 'new': value}
+            user_updates['last_name'] = value
+    if date_of_birth is not None:
+        # Allow clearing with empty string → None; accept ISO date strings.
+        new_dob = date_of_birth
+        if isinstance(new_dob, str):
+            raw = new_dob.strip()
+            if not raw:
+                new_dob = None
+            else:
+                try:
+                    new_dob = date.fromisoformat(raw)
+                except ValueError as exc:
+                    raise ValidationError(
+                        {'date_of_birth': 'Enter date of birth as YYYY-MM-DD.'}
+                    ) from exc
+        if new_dob != user.date_of_birth:
+            changes['date_of_birth'] = {
+                'old': str(user.date_of_birth) if user.date_of_birth else None,
+                'new': str(new_dob) if new_dob else None,
+            }
+            user_updates['date_of_birth'] = new_dob
+
+    if user_updates:
+        for key, value in user_updates.items():
+            setattr(user, key, value)
+        user.save(update_fields=[*user_updates.keys()])
+
+    # Keep denormalized citizenship in sync even if only name/DOB changed.
+    sync_user_kyc_from_submission(user, submission)
+
+    if changes:
+        log_kyc_audit(
+            user=user,
+            action=KYCAuditLog.ACTION_UPDATED,
+            actor=actor,
+            submission=submission,
+            old_status=submission.status,
+            new_status=submission.status,
+            details={'admin_corrections': changes},
+        )
+
     return submission

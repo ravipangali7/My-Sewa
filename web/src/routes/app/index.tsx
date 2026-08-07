@@ -15,8 +15,11 @@ import {
   Signal,
   Droplets,
   Zap,
-  Lock,
   CirclePlus,
+  UserRound,
+  Phone,
+  Mail,
+  ShieldCheck,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { MountainBackdrop } from "@/components/home/MountainBackdrop";
@@ -101,11 +104,6 @@ const ACTIONS = [
   },
 ] as const;
 
-function canViewStatement(status: string) {
-  const normalized = status.toLowerCase();
-  return normalized === "success" || normalized === "approved";
-}
-
 function formatRu(value: string | number) {
   const n = typeof value === "string" ? Number(value) : value;
   if (Number.isNaN(n)) return "रु. —";
@@ -167,18 +165,31 @@ function WalletHome() {
     [txQuery.data, t, locale],
   );
   const firstName = user?.first_name?.trim() || t("common.user");
+  const legalName =
+    [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
+    t("common.user");
+  const displayName = (user?.nickname || "").trim() || legalName;
   const initials = [user?.first_name, user?.last_name]
     .filter(Boolean)
     .map((s) => s![0])
     .join("")
     .slice(0, 2)
     .toUpperCase() || "MS";
+  const kycStatus = user?.kyc_status || "not_submitted";
+  const kycLabel =
+    kycStatus === "approved"
+      ? t("home.kycApproved")
+      : kycStatus === "pending"
+        ? t("home.kycPending")
+        : kycStatus === "rejected"
+          ? t("home.kycRejected")
+          : t("home.kycNotSubmitted");
 
   return (
     <UserShell title="MySewa" hideHeader>
-      <div className="relative min-w-0 max-w-full overflow-x-clip bg-[#F3F5F8] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 max-w-full flex-col overflow-x-clip bg-[#F3F5F8] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
         {/* Header band */}
-        <section className="relative overflow-hidden bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_28%,#0C5F8A_55%,#0A8A6A_82%,#10B981_100%)] px-4 pb-[72px] pt-[max(12px,env(safe-area-inset-top))]">
+        <section className="relative shrink-0 overflow-hidden bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_28%,#0C5F8A_55%,#0A8A6A_82%,#10B981_100%)] px-4 pb-[72px] pt-[max(12px,env(safe-area-inset-top))]">
           <MountainBackdrop className="pointer-events-none absolute inset-x-0 bottom-0 h-[58%] w-full opacity-90" />
 
           <div className="relative z-10 flex items-start justify-between">
@@ -235,12 +246,12 @@ function WalletHome() {
         </section>
 
         {/* Content overlapping header */}
-        <div className="relative z-20 -mt-10 space-y-4 px-4 pb-6">
+        <div className="relative z-20 -mt-10 flex min-h-0 flex-1 flex-col space-y-4 px-4 pb-4">
           {/* Wallet card → credit / debit history */}
           <Link
             to="/app/wallet-history"
             aria-label={t("home.openWalletHistory")}
-            className="relative block overflow-hidden rounded-[22px] bg-[linear-gradient(145deg,#062A5C_0%,#0B3B7A_38%,#0B5588_68%,#0A6E78_100%)] px-5 pb-5 pt-4 shadow-[0_14px_36px_-10px_rgba(6,42,92,0.55)] transition-transform active:scale-[0.99]"
+            className="relative block shrink-0 overflow-hidden rounded-[22px] bg-[linear-gradient(145deg,#062A5C_0%,#0B3B7A_38%,#0B5588_68%,#0A6E78_100%)] px-5 pb-5 pt-4 shadow-[0_14px_36px_-10px_rgba(6,42,92,0.55)] transition-transform active:scale-[0.99]"
           >
             <div
               className="pointer-events-none absolute inset-0 opacity-50"
@@ -313,7 +324,7 @@ function WalletHome() {
           </Link>
 
           {/* Quick actions */}
-          <section className="grid grid-cols-3 gap-2.5">
+          <section className="grid shrink-0 grid-cols-3 gap-2.5">
             {ACTIONS.map((a) => {
               const blocked =
                 accountPending &&
@@ -369,7 +380,7 @@ function WalletHome() {
           </section>
 
           {/* Recent transactions */}
-          <section>
+          <section className="shrink-0">
             <div className="mb-2.5 flex items-center justify-between px-0.5">
               <h2 className="text-[16px] font-bold text-[#0B2B4A]">{t("home.recentTx")}</h2>
               <Link
@@ -392,79 +403,142 @@ function WalletHome() {
             ) : (
               <ul className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)]">
                 {activity.map((item, idx) => {
-                  const viewable = canViewStatement(item.status);
                   const rowClass = cn(
-                    "flex w-full items-center gap-3 px-3.5 py-3.5 text-left transition-colors",
+                    "flex w-full items-center gap-3 px-3.5 py-3.5 text-left transition-colors active:bg-[#F7F9FC]",
                     idx > 0 && "border-t border-[#EEF1F5]",
-                    viewable && "active:bg-[#F7F9FC]",
                   );
-                  const rowBody = (
-                    <>
-                      <span
-                        className={cn(
-                          "flex size-10 shrink-0 items-center justify-center rounded-full",
-                          item.credit
-                            ? "bg-[#22C55E]/15 text-[#16A34A]"
-                            : "bg-[#2563EB]/12 text-[#2563EB]",
-                        )}
+
+                  return (
+                    <li key={item.id}>
+                      <Link
+                        to="/app/history/$activityId"
+                        params={{ activityId: item.id }}
+                        className={rowClass}
+                        aria-label={t("history.openStatement")}
                       >
-                        {item.credit ? (
-                          <ArrowDownToLine className="size-[18px]" strokeWidth={2.25} />
-                        ) : (
-                          <Redo2 className="size-[18px]" strokeWidth={2.25} />
-                        )}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[14px] font-semibold text-[#0B2B4A]">
-                          {item.title}
+                        <span
+                          className={cn(
+                            "flex size-10 shrink-0 items-center justify-center rounded-full",
+                            item.credit
+                              ? "bg-[#22C55E]/15 text-[#16A34A]"
+                              : "bg-[#2563EB]/12 text-[#2563EB]",
+                          )}
+                        >
+                          {item.credit ? (
+                            <ArrowDownToLine className="size-[18px]" strokeWidth={2.25} />
+                          ) : (
+                            <Redo2 className="size-[18px]" strokeWidth={2.25} />
+                          )}
                         </span>
-                        <span className="mt-0.5 block truncate text-[11px] text-[#8A94A6]">
-                          {formatTxStamp(item.created_at)}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[14px] font-semibold text-[#0B2B4A]">
+                            {item.title}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[11px] text-[#8A94A6]">
+                            {formatTxStamp(item.created_at)}
+                          </span>
                         </span>
-                      </span>
-                      <span
-                        className={cn(
-                          "tabular shrink-0 text-right text-[13px] font-bold",
-                          item.credit ? "text-[#16A34A]" : "text-[#0B2B4A]",
-                        )}
-                      >
-                        {item.credit ? "+" : "−"} {formatRu(item.amount)}
-                      </span>
-                      {viewable ? (
+                        <span
+                          className={cn(
+                            "tabular shrink-0 text-right text-[13px] font-bold",
+                            item.credit ? "text-[#16A34A]" : "text-[#0B2B4A]",
+                          )}
+                        >
+                          {item.credit ? "+" : "−"} {formatRu(item.amount)}
+                        </span>
                         <span
                           className="ml-1 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[#C0C7D1]"
                           aria-hidden
                         >
                           <ChevronRight className="size-4" />
                         </span>
-                      ) : (
-                        <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-[#E5EAF0] bg-[#F8FAFC] px-2 py-1 text-[10px] font-semibold text-[#7F8A99]">
-                          <Lock className="size-3" />
-                          {t("history.viewLocked")}
-                        </span>
-                      )}
-                    </>
-                  );
-
-                  return (
-                    <li key={item.id}>
-                      {viewable ? (
-                        <Link
-                          to="/app/history/$activityId"
-                          params={{ activityId: item.id }}
-                          className={rowClass}
-                          aria-label={t("history.openStatement")}
-                        >
-                          {rowBody}
-                        </Link>
-                      ) : (
-                        <div className={rowClass}>{rowBody}</div>
-                      )}
+                      </Link>
                     </li>
                   );
                 })}
               </ul>
             )}
+          </section>
+
+          {/* Profile summary — fills the former empty lower region */}
+          <section className="pt-1">
+            <div className="mb-2.5 flex items-center justify-between px-0.5">
+              <h2 className="text-[16px] font-bold text-[#0B2B4A]">{t("home.profileSection")}</h2>
+              <Link
+                to="/app/profile"
+                className="inline-flex items-center gap-0.5 rounded-full bg-[#DCEBFA] px-3 py-1 text-[11px] font-semibold text-[#3B7FC4]"
+              >
+                {t("home.viewProfile")}
+                <ChevronRight className="size-3.5 stroke-[2.5px]" />
+              </Link>
+            </div>
+            <Link
+              to="/app/profile"
+              className="block overflow-hidden rounded-2xl bg-white shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)] transition-colors active:bg-[#F7F9FC]"
+            >
+              <div className="flex items-center gap-3 border-b border-[#EEF1F5] px-3.5 py-3.5">
+                <Avatar className="size-12 ring-2 ring-[#E8EEF5]">
+                  {user?.avatar_url ? (
+                    <AvatarImage src={user.avatar_url} alt={displayName} />
+                  ) : null}
+                  <AvatarFallback className="bg-[#E8F0FE] text-sm font-semibold text-[#1D4ED8]">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] font-bold text-[#0B2B4A]">{displayName}</p>
+                  {(user?.business_name || "").trim() ? (
+                    <p className="mt-0.5 truncate text-[12px] text-[#8A94A6]">
+                      {user!.business_name}
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 truncate text-[12px] text-[#8A94A6]">
+                      {legalName !== displayName ? legalName : t("home.profileCaption")}
+                    </p>
+                  )}
+                </div>
+                <ChevronRight className="size-4 shrink-0 text-[#C0C7D1]" />
+              </div>
+              <dl className="divide-y divide-[#EEF1F5]">
+                <div className="flex items-center gap-3 px-3.5 py-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+                    <Phone className="size-4" strokeWidth={2} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <dt className="text-[11px] font-medium text-[#8A94A6]">
+                      {t("profile.phoneNumber")}
+                    </dt>
+                    <dd className="truncate text-[14px] font-semibold text-[#0B2B4A]">
+                      {user ? formatPhone(user.phone) : "—"}
+                    </dd>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 px-3.5 py-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+                    <Mail className="size-4" strokeWidth={2} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <dt className="text-[11px] font-medium text-[#8A94A6]">{t("profile.email")}</dt>
+                    <dd className="truncate text-[14px] font-semibold text-[#0B2B4A]">
+                      {(user?.email || "").trim() || t("profile.emailEmpty")}
+                    </dd>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 px-3.5 py-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#ECFDF5] text-[#15803D]">
+                    <ShieldCheck className="size-4" strokeWidth={2} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <dt className="text-[11px] font-medium text-[#8A94A6]">{t("profile.kyc")}</dt>
+                    <dd className="truncate text-[14px] font-semibold text-[#0B2B4A]">{kycLabel}</dd>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#F1F5F9] px-2 py-1 text-[10px] font-semibold text-[#64748B]">
+                    <UserRound className="size-3" />
+                    {t("home.openProfile")}
+                  </span>
+                </div>
+              </dl>
+            </Link>
           </section>
         </div>
       </div>

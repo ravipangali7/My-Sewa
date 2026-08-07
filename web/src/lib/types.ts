@@ -43,6 +43,8 @@ export interface KycSubmission {
   phone: string;
   first_name: string;
   last_name: string;
+  /** AD ISO date `YYYY-MM-DD` from the account holder profile. */
+  date_of_birth?: string | null;
   status: KycSubmissionStatus;
   status_display: string;
   citizenship_number: string;

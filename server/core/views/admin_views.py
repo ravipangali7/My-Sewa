@@ -17,6 +17,7 @@ from django.utils.dateparse import parse_date
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
@@ -60,8 +61,9 @@ from ..serializers import (
     SettingsSerializer,
     UserFeeConfigSerializer,
     KYCSubmissionSerializer,
+    AdminKYCUpdateSerializer,
 )
-from ..services.kyc import mark_submission_reviewed
+from ..services.kyc import mark_submission_reviewed, update_pending_kyc_submission
 from ..services.himalpay import (
     HimalPayAPI,
     HimalPayError,
@@ -72,6 +74,22 @@ from ..services.app_config import get_app_config
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
 
 User = get_user_model()
+
+
+def _validation_error_message(exc):
+    """Flatten DRF ValidationError.detail into a single string for API clients."""
+    detail = getattr(exc, 'detail', None) or str(exc)
+    if isinstance(detail, dict):
+        parts = []
+        for key, value in detail.items():
+            if isinstance(value, (list, tuple)):
+                parts.append(f'{key}: {", ".join(str(v) for v in value)}')
+            else:
+                parts.append(f'{key}: {value}')
+        return '; '.join(parts) if parts else 'Validation failed'
+    if isinstance(detail, (list, tuple)):
+        return '; '.join(str(v) for v in detail)
+    return str(detail)
 
 
 def _parse_date_range(request):
@@ -2208,10 +2226,10 @@ def admin_list_kyc(request):
     })
 
 
-@api_view(['GET'])
+@api_view(['GET', 'PATCH', 'PUT'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_get_kyc(request, kyc_id):
-    """KYC submission detail including document previews."""
+    """KYC submission detail, or staff correction of pending identity fields."""
     try:
         submission = (
             KYCSubmission.objects.select_related('user', 'reviewed_by')
@@ -2220,7 +2238,48 @@ def admin_get_kyc(request, kyc_id):
         )
     except KYCSubmission.DoesNotExist:
         return Response({'error': 'KYC submission not found'}, status=status.HTTP_404_NOT_FOUND)
-    return Response(KYCSubmissionSerializer(submission, context={'request': request}).data)
+
+    if request.method == 'GET':
+        return Response(KYCSubmissionSerializer(submission, context={'request': request}).data)
+
+    serializer = AdminKYCUpdateSerializer(data=request.data, partial=True)
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Invalid KYC update', 'errors': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    data = serializer.validated_data
+    if not data:
+        return Response(
+            {'error': 'No KYC fields provided to update'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        with transaction.atomic():
+            kwargs = {'actor': request.user}
+            if 'citizenship_number' in data:
+                kwargs['citizenship_number'] = data['citizenship_number']
+            if 'first_name' in data:
+                kwargs['first_name'] = data['first_name']
+            if 'last_name' in data:
+                kwargs['last_name'] = data['last_name']
+            if 'date_of_birth' in data:
+                kwargs['date_of_birth'] = data['date_of_birth']
+            update_pending_kyc_submission(submission, **kwargs)
+    except ValidationError as exc:
+        return Response(
+            {'error': _validation_error_message(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    submission.refresh_from_db()
+    submission.user.refresh_from_db()
+    return Response({
+        'message': 'KYC details updated',
+        'data': KYCSubmissionSerializer(submission, context={'request': request}).data,
+    })
 
 
 @api_view(['POST'])
@@ -2242,11 +2301,17 @@ def admin_approve_kyc(request, kyc_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    with transaction.atomic():
-        mark_submission_reviewed(
-            submission,
-            status=KYCSubmission.STATUS_APPROVED,
-            reviewer=request.user,
+    try:
+        with transaction.atomic():
+            mark_submission_reviewed(
+                submission,
+                status=KYCSubmission.STATUS_APPROVED,
+                reviewer=request.user,
+            )
+    except ValidationError as exc:
+        return Response(
+            {'error': _validation_error_message(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
     submission.refresh_from_db()
@@ -2288,12 +2353,18 @@ def admin_reject_kyc(request, kyc_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    with transaction.atomic():
-        mark_submission_reviewed(
-            submission,
-            status=KYCSubmission.STATUS_REJECTED,
-            reviewer=request.user,
-            rejection_reason=reason,
+    try:
+        with transaction.atomic():
+            mark_submission_reviewed(
+                submission,
+                status=KYCSubmission.STATUS_REJECTED,
+                reviewer=request.user,
+                rejection_reason=reason,
+            )
+    except ValidationError as exc:
+        return Response(
+            {'error': _validation_error_message(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
     submission.refresh_from_db()

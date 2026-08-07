@@ -178,6 +178,8 @@ function KycPage() {
       setFiles({});
       setPreviews({});
       queryClient.invalidateQueries({ queryKey: ["kyc"] });
+      // Keep profile kyc_status in sync (Pending after submit / resubmit).
+      queryClient.invalidateQueries({ queryKey: ["auth", "profile"] });
     },
     onError: (err) => {
       toast.error(
@@ -237,7 +239,7 @@ function KycPage() {
 
           {locked ? <KycDocumentsLockedNotice /> : null}
 
-          {submission?.rejection_reason ? (
+          {status === "rejected" && submission?.rejection_reason ? (
             <div className="rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2.5">
               <p className="text-[12px] font-medium text-destructive">{t("kyc.rejectionReason")}</p>
               <p className="mt-0.5 text-[13px] text-destructive/90">{submission.rejection_reason}</p>

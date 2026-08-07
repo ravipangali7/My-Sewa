@@ -85,6 +85,9 @@ def submit_kyc(request):
     """
     Create a new KYC submission (or resubmit after rejection).
 
+    New and re-uploaded submissions always start as Pending — never auto-verified.
+    Only staff Approve / Reject (with reason) changes that status.
+
     Multipart fields:
     - citizenship_number (required)
     - optional document batch: file(s) + document_type(s) + side(s)

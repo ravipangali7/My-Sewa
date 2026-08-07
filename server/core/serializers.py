@@ -170,6 +170,10 @@ class AdminUserSerializer(serializers.ModelSerializer):
             'date_joined', 'last_login',
             'wallet_id', 'wallet_balance',
         )
+        read_only_fields = (
+            'id', 'kyc_status', 'citizenship_number',
+            'date_joined', 'last_login', 'avatar_url', 'wallet_id', 'wallet_balance',
+        )
 
     def get_avatar_url(self, obj):
         if not obj.avatar:
@@ -1640,17 +1644,42 @@ class KYCSubmissionSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(source='user.id', read_only=True)
     first_name = serializers.CharField(source='user.first_name', read_only=True)
     last_name = serializers.CharField(source='user.last_name', read_only=True)
+    date_of_birth = serializers.DateField(
+        source='user.date_of_birth', read_only=True, allow_null=True,
+    )
 
     class Meta:
         model = KYCSubmission
         fields = (
-            'id', 'user_id', 'phone', 'first_name', 'last_name',
+            'id', 'user_id', 'phone', 'first_name', 'last_name', 'date_of_birth',
             'status', 'status_display', 'citizenship_number',
             'rejection_reason', 'reviewed_by', 'reviewed_by_phone',
             'reviewed_at', 'submitted_at', 'documents',
             'created_at', 'updated_at',
         )
         read_only_fields = fields
+
+
+class AdminKYCUpdateSerializer(serializers.Serializer):
+    """Staff corrections on a pending KYC before approve/reject."""
+    citizenship_number = serializers.CharField(
+        max_length=50, required=False, allow_blank=False,
+    )
+    first_name = serializers.CharField(
+        max_length=30, required=False, allow_blank=True,
+    )
+    last_name = serializers.CharField(
+        max_length=30, required=False, allow_blank=True,
+    )
+    date_of_birth = serializers.DateField(
+        required=False, allow_null=True,
+    )
+
+    def validate_citizenship_number(self, value):
+        number = (value or '').strip()
+        if len(number) < 3:
+            raise serializers.ValidationError('Citizenship number is required.')
+        return number
 
 
 class KYCSubmitSerializer(serializers.Serializer):

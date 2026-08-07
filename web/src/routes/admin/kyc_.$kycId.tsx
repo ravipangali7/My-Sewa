@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { ExternalLink, ImageIcon } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiClient, ApiError } from "@/lib/api";
@@ -65,6 +66,10 @@ function KycDetailPage() {
   const queryClient = useQueryClient();
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [citizenshipNumber, setCitizenshipNumber] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
 
   const kycQuery = useQuery({
     queryKey: ["admin", "kyc", id],
@@ -73,14 +78,49 @@ function KycDetailPage() {
     refetchOnMount: "always",
   });
 
+  useEffect(() => {
+    const s = kycQuery.data;
+    if (!s) return;
+    setCitizenshipNumber(s.citizenship_number || "");
+    setFirstName(s.first_name || "");
+    setLastName(s.last_name || "");
+    setDateOfBirth(s.date_of_birth || "");
+  }, [kycQuery.data]);
+
   const invalidateKycQueries = () => {
     queryClient.invalidateQueries({ queryKey: ["admin", "kyc"] });
     queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
     queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
   };
 
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      apiClient.adminUpdateKyc(id, {
+        citizenship_number: citizenshipNumber.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        date_of_birth: dateOfBirth.trim() || null,
+      }),
+    onSuccess: (res) => {
+      toast.success(res.message || `KYC #${id} details saved`);
+      invalidateKycQueries();
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Save failed");
+    },
+  });
+
   const approveMutation = useMutation({
-    mutationFn: () => apiClient.adminApproveKyc(id),
+    mutationFn: async () => {
+      // Persist any pending corrections first so approve uses the fixed data.
+      await apiClient.adminUpdateKyc(id, {
+        citizenship_number: citizenshipNumber.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        date_of_birth: dateOfBirth.trim() || null,
+      });
+      return apiClient.adminApproveKyc(id);
+    },
     onSuccess: () => {
       toast.success(`KYC #${id} approved — user verified`);
       invalidateKycQueries();
@@ -105,7 +145,9 @@ function KycDetailPage() {
   });
 
   const s = kycQuery.data;
-  const actionPending = approveMutation.isPending || rejectMutation.isPending;
+  const canEdit = s?.status === "pending";
+  const actionPending =
+    saveMutation.isPending || approveMutation.isPending || rejectMutation.isPending;
   const accountName = s ? displayName(s) : "";
 
   const submitReject = () => {
@@ -115,6 +157,14 @@ function KycDetailPage() {
       return;
     }
     rejectMutation.mutate(reason);
+  };
+
+  const saveEdits = () => {
+    if (!citizenshipNumber.trim() || citizenshipNumber.trim().length < 3) {
+      toast.error("Citizenship number is required");
+      return;
+    }
+    saveMutation.mutate();
   };
 
   return (
@@ -129,9 +179,17 @@ function KycDetailPage() {
       }
       actions={
         s?.status === "pending" ? (
-          <div className="flex shrink-0 items-center gap-2 [&>*]:shrink-0">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 [&>*]:shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={actionPending}
+              onClick={saveEdits}
+            >
+              {saveMutation.isPending ? "Saving…" : "Save changes"}
+            </Button>
             <Button size="sm" disabled={actionPending} onClick={() => approveMutation.mutate()}>
-              Approve
+              {approveMutation.isPending ? "Approving…" : "Save & approve"}
             </Button>
             <Button
               size="sm"
@@ -180,18 +238,72 @@ function KycDetailPage() {
                 <StatusChip status={s.status} />
               </div>
 
-              <div className="mt-6 min-w-0 rounded-xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 text-center sm:px-5 sm:text-left">
-                <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  Citizenship number
-                </p>
-                <p className="mt-2 break-all text-2xl font-black tracking-tight text-brand-dark sm:text-3xl md:text-4xl">
-                  {s.citizenship_number || "—"}
-                </p>
-                <p className="mt-1.5 break-words text-sm text-muted-foreground">
-                  {s.status_display} · {s.documents?.length ?? 0} document
-                  {(s.documents?.length ?? 0) === 1 ? "" : "s"}
-                </p>
-              </div>
+              {canEdit ? (
+                <div className="mt-6 space-y-4 rounded-xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 sm:px-5">
+                  <div>
+                    <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                      Correct missing or incorrect details
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Edit the fields below, then save or save &amp; approve without asking the
+                      user to resubmit.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor="kyc-citizenship">Citizenship number</Label>
+                      <Input
+                        id="kyc-citizenship"
+                        value={citizenshipNumber}
+                        onChange={(e) => setCitizenshipNumber(e.target.value)}
+                        className="h-11 font-semibold tracking-tight"
+                        disabled={actionPending}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="kyc-first-name">First name</Label>
+                      <Input
+                        id="kyc-first-name"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        disabled={actionPending}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="kyc-last-name">Last name</Label>
+                      <Input
+                        id="kyc-last-name"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        disabled={actionPending}
+                      />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor="kyc-dob">Date of birth (AD)</Label>
+                      <Input
+                        id="kyc-dob"
+                        type="date"
+                        value={dateOfBirth}
+                        onChange={(e) => setDateOfBirth(e.target.value)}
+                        disabled={actionPending}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-6 min-w-0 rounded-xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 text-center sm:px-5 sm:text-left">
+                  <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                    Citizenship number
+                  </p>
+                  <p className="mt-2 break-all text-2xl font-black tracking-tight text-brand-dark sm:text-3xl md:text-4xl">
+                    {s.citizenship_number || "—"}
+                  </p>
+                  <p className="mt-1.5 break-words text-sm text-muted-foreground">
+                    {s.status_display} · {s.documents?.length ?? 0} document
+                    {(s.documents?.length ?? 0) === 1 ? "" : "s"}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-0 md:grid-cols-2">
@@ -202,6 +314,9 @@ function KycDetailPage() {
                 <dl>
                   <StatementRow label="Name">{accountName}</StatementRow>
                   <StatementRow label="Phone">{s.phone}</StatementRow>
+                  <StatementRow label="Date of birth">
+                    {s.date_of_birth || "—"}
+                  </StatementRow>
                   <StatementRow label="User ID">
                     <Link
                       to="/admin/users/$userId"
@@ -313,8 +428,9 @@ function KycDetailPage() {
             </section>
 
             <footer className="border-t border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground sm:px-6 md:px-8">
-              Approval marks the user as KYC verified and locks identity profile fields. Rejection
-              stores a reason and lets the user resubmit.
+              {canEdit
+                ? "Correct citizenship or name fields if needed, then Save & approve. Approval verifies the user and locks identity fields. Rejection requires a reason and lets the user re-upload."
+                : "Submissions stay Pending until you Approve or Reject. Approval verifies the user and locks identity fields. Rejection requires a reason and lets the user re-upload (back to Pending)."}
             </footer>
           </article>
         </div>
