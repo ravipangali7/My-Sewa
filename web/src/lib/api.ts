@@ -385,10 +385,12 @@ export const apiClient = {
     }),
 
   requestChangePhoneOtp: (body: { new_phone: string; current_password: string }) =>
-    api<{ message: string; email_hint?: string; debug_otp?: string }>(
-      "/api/auth/request-change-phone-otp/",
-      { method: "POST", body },
-    ),
+    api<{
+      message: string;
+      email_hint?: string;
+      debug_otp?: string;
+      expires_in?: number;
+    }>("/api/auth/request-change-phone-otp/", { method: "POST", body }),
 
   requestEmailChange: (body: { new_email: string; current_password: string }) =>
     api<{ message: string; email_hint?: string; debug_otp?: string }>(

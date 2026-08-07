@@ -429,15 +429,17 @@ def request_change_phone_otp(request):
 
     new_phone = serializer.validated_data['new_phone']
     otp = f'{secrets.randbelow(1_000_000):06d}'
+    otp_timeout = int(getattr(dj_settings, 'PHONE_CHANGE_OTP_TIMEOUT', 120))
     cache.set(
         f'phone_change_otp:{user.pk}',
-        {'otp': otp, 'new_phone': new_phone},
-        timeout=60 * 15,
+        {'otp': str(otp), 'new_phone': new_phone},
+        timeout=otp_timeout,
     )
 
     sent = send_phone_change_otp(email, otp, new_phone)
     if not sent:
         logger.error('Failed to send phone change OTP for user_id=%s', user.pk)
+        cache.delete(f'phone_change_otp:{user.pk}')
         return Response({
             'message': 'Unable to send verification code. Please try again later.',
             'errors': {'email': ['Unable to send verification code. Please try again later.']},
@@ -457,6 +459,7 @@ def request_change_phone_otp(request):
             'Enter the code to finish changing your phone number.'
         ),
         'email_hint': email_hint,
+        'expires_in': otp_timeout,
     }
     if getattr(dj_settings, 'DEBUG', False):
         payload['debug_otp'] = otp
@@ -489,11 +492,11 @@ def change_phone(request):
     cached = cache.get(f'phone_change_otp:{user.pk}')
     if not cached or not isinstance(cached, dict):
         return Response({
-            'message': 'Verification code expired or not requested. Please request a new code.',
-            'errors': {'otp': ['Verification code expired or not requested.']},
+            'message': 'OTP expired. Please request a new code.',
+            'errors': {'otp': ['OTP expired']},
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    if cached.get('otp') != serializer.validated_data['otp']:
+    if str(cached.get('otp') or '') != str(serializer.validated_data['otp']):
         return Response({
             'message': 'Invalid verification code',
             'errors': {'otp': ['Invalid verification code']},

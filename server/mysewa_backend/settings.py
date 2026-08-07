@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from urllib.parse import urlparse
 import os
+import tempfile
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -172,6 +173,18 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+# Shared file cache so OTP / rate-limit keys work across multiple workers.
+# LocMemCache is per-process and makes OTPs appear expired immediately under gunicorn.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': os.path.join(tempfile.gettempdir(), 'mysewa_django_cache'),
+    }
+}
+
+# Phone-change email OTP lifetime (seconds). Keep frontend countdown in sync.
+PHONE_CHANGE_OTP_TIMEOUT = int(os.environ.get('PHONE_CHANGE_OTP_TIMEOUT', '120'))
 
 
 # Password validation

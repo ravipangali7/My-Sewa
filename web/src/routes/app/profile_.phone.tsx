@@ -9,6 +9,10 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import {
+  PHONE_CHANGE_OTP_SECONDS,
+  useOtpCountdown,
+} from "@/hooks/use-otp-countdown";
 
 export const Route = createFileRoute("/app/profile_/phone")({
   head: () => ({
@@ -35,6 +39,10 @@ function ChangePhonePage() {
   const [emailHint, setEmailHint] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [otpExpiresAt, setOtpExpiresAt] = useState<number | null>(null);
+  const { expired: otpExpired, formatted: otpCountdown } = useOtpCountdown(
+    otpSent ? otpExpiresAt : null,
+  );
 
   const requestOtp = async () => {
     setSendingOtp(true);
@@ -43,9 +51,11 @@ function ChangePhonePage() {
         new_phone: newPhone.trim(),
         current_password: phonePassword,
       });
+      const expiresIn = res.expires_in ?? PHONE_CHANGE_OTP_SECONDS;
       setOtpSent(true);
       setEmailHint(res.email_hint || "");
       setOtp("");
+      setOtpExpiresAt(Date.now() + expiresIn * 1000);
       toast.success(res.message);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("profile.updateFailed"));
@@ -62,6 +72,10 @@ function ChangePhonePage() {
           e.preventDefault();
           if (!otpSent) {
             await requestOtp();
+            return;
+          }
+          if (otpExpired) {
+            toast.error(t("profile.otpExpired"));
             return;
           }
           setSaving(true);
@@ -98,6 +112,7 @@ function ChangePhonePage() {
               setNewPhone(e.target.value);
               setOtpSent(false);
               setOtp("");
+              setOtpExpiresAt(null);
             }}
             inputMode="tel"
             autoComplete="tel"
@@ -119,7 +134,21 @@ function ChangePhonePage() {
 
         {otpSent ? (
           <div className="space-y-1.5">
-            <Label htmlFor="phone_otp">{t("profile.otpCode")}</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="phone_otp">{t("profile.otpCode")}</Label>
+              <span
+                className={
+                  otpExpired
+                    ? "text-[12px] font-semibold text-destructive"
+                    : "text-[12px] font-medium tabular-nums text-muted-foreground"
+                }
+                aria-live="polite"
+              >
+                {otpExpired
+                  ? t("profile.otpExpired")
+                  : t("profile.otpExpiresIn", { time: otpCountdown })}
+              </span>
+            </div>
             <Input
               id="phone_otp"
               value={otp}
@@ -129,6 +158,7 @@ function ChangePhonePage() {
               placeholder="000000"
               maxLength={6}
               required
+              disabled={otpExpired}
             />
             <p className="text-[12px] text-muted-foreground">
               {emailHint
@@ -146,7 +176,11 @@ function ChangePhonePage() {
           </div>
         ) : null}
 
-        <Button type="submit" className="w-full" disabled={saving || sendingOtp}>
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={saving || sendingOtp || (otpSent && otpExpired)}
+        >
           {otpSent
             ? saving
               ? t("common.updating")

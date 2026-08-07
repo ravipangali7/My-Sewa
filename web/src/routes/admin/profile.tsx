@@ -30,6 +30,10 @@ import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { toAdIsoDate } from "@/lib/nepali-date";
+import {
+  PHONE_CHANGE_OTP_SECONDS,
+  useOtpCountdown,
+} from "@/hooks/use-otp-countdown";
 
 export const Route = createFileRoute("/admin/profile")({
   head: () => ({
@@ -67,6 +71,11 @@ function AdminProfilePage() {
   const [phoneOtpSent, setPhoneOtpSent] = useState(false);
   const [phoneEmailHint, setPhoneEmailHint] = useState("");
   const [sendingPhoneOtp, setSendingPhoneOtp] = useState(false);
+  const [phoneOtpExpiresAt, setPhoneOtpExpiresAt] = useState<number | null>(null);
+  const {
+    expired: phoneOtpExpired,
+    formatted: phoneOtpCountdown,
+  } = useOtpCountdown(phoneOtpSent ? phoneOtpExpiresAt : null);
 
   const [emailOpen, setEmailOpen] = useState(false);
   const [newEmail, setNewEmail] = useState("");
@@ -305,6 +314,7 @@ function AdminProfilePage() {
             setPhoneOtpSent(false);
             setPhoneOtp("");
             setPhoneEmailHint("");
+            setPhoneOtpExpiresAt(null);
           }
         }}
       >
@@ -323,10 +333,16 @@ function AdminProfilePage() {
                     new_phone: newPhone.trim(),
                     current_password: phonePassword,
                   });
+                  const expiresIn = res.expires_in ?? PHONE_CHANGE_OTP_SECONDS;
                   setPhoneOtpSent(true);
                   setPhoneEmailHint(res.email_hint || "");
                   setPhoneOtp("");
+                  setPhoneOtpExpiresAt(Date.now() + expiresIn * 1000);
                   toast.success(res.message);
+                  return;
+                }
+                if (phoneOtpExpired) {
+                  toast.error("OTP expired");
                   return;
                 }
                 await apiClient.changePhone({
@@ -339,6 +355,7 @@ function AdminProfilePage() {
                 setPhoneOpen(false);
                 setPhoneOtpSent(false);
                 setPhoneOtp("");
+                setPhoneOtpExpiresAt(null);
               } catch (err) {
                 toast.error(err instanceof ApiError ? err.message : "Update failed");
               } finally {
@@ -355,6 +372,7 @@ function AdminProfilePage() {
                   setNewPhone(e.target.value);
                   setPhoneOtpSent(false);
                   setPhoneOtp("");
+                  setPhoneOtpExpiresAt(null);
                 }}
                 required
                 disabled={phoneOtpSent}
@@ -372,7 +390,21 @@ function AdminProfilePage() {
             </div>
             {phoneOtpSent ? (
               <div className="space-y-1.5">
-                <Label htmlFor="phone_otp">Verification code</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="phone_otp">Verification code</Label>
+                  <span
+                    className={
+                      phoneOtpExpired
+                        ? "text-xs font-semibold text-destructive"
+                        : "text-xs font-medium tabular-nums text-muted-foreground"
+                    }
+                    aria-live="polite"
+                  >
+                    {phoneOtpExpired
+                      ? "OTP expired"
+                      : `Expires in ${phoneOtpCountdown}`}
+                  </span>
+                </div>
                 <Input
                   id="phone_otp"
                   value={phoneOtp}
@@ -381,6 +413,7 @@ function AdminProfilePage() {
                   autoComplete="off"
                   maxLength={6}
                   required
+                  disabled={phoneOtpExpired}
                 />
                 {phoneEmailHint ? (
                   <p className="text-xs text-muted-foreground">Code sent to {phoneEmailHint}</p>
@@ -388,7 +421,7 @@ function AdminProfilePage() {
               </div>
             ) : null}
             <DialogFooter>
-              <Button type="submit" disabled={sendingPhoneOtp}>
+              <Button type="submit" disabled={sendingPhoneOtp || (phoneOtpSent && phoneOtpExpired)}>
                 {phoneOtpSent
                   ? "Update phone"
                   : sendingPhoneOtp

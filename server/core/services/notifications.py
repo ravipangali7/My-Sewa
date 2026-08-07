@@ -391,7 +391,7 @@ def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
     text = (
         f'Your {site_name} phone change verification code is: {otp}\n\n'
         f'You requested to change your phone number to {new_phone}.\n'
-        'This code expires in 15 minutes.\n'
+        'This code expires in 2 minutes.\n'
         'If you did not request this change, secure your account immediately.'
     )
     html = render_transaction_email(
@@ -400,10 +400,10 @@ def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
         amount_label='Verification code',
         amount_display=otp,
         status='success',
-        status_label='Valid 15 minutes',
+        status_label='Valid 2 minutes',
         rows=[
             ('New phone', new_phone),
-            ('Expires', '15 minutes'),
+            ('Expires', '2 minutes'),
             ('Security tip', 'Never share this code with anyone.'),
         ],
         footer_note=(
