@@ -163,7 +163,7 @@ function HistoryList({
                 <span className="ml-[4.5rem] mr-7 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
                   <span className="min-w-0 truncate">
                     {t("walletHistory.beforeBalance")}:{" "}
-                    <span className="tabular font-medium text-[#0B2B4A]/
+                    <span className="tabular font-medium text-[#0B2B4A]">
                       {formatRu(item.balance_before)}
                     </span>
                   </span>
