@@ -18,6 +18,8 @@ export type ActivityKind =
   | "transfer"
   | "internet"
   | "data_pack"
+  | "water"
+  | "community_electricity"
   | "wallet_adjustment";
 export type WalletAdjustmentType = "credit" | "debit";
 
@@ -71,6 +73,10 @@ export interface UserProfile {
   email: string | null;
   first_name: string;
   last_name: string;
+  /** Friendly display / profile nickname. */
+  nickname?: string;
+  /** Business or shop name. */
+  business_name?: string;
   /** AD ISO date `YYYY-MM-DD`, or null for legacy users who have not set it yet. */
   date_of_birth: string | null;
   /** Citizenship / national ID from KYC (read-only after verification). */
@@ -128,6 +134,8 @@ export interface PaymentConfig {
   remittances_enabled: boolean;
   internet_bills_enabled: boolean;
   data_packs_enabled: boolean;
+  water_bills_enabled: boolean;
+  community_electricity_enabled: boolean;
   min_deposit: number;
   max_deposit: number;
   deposit_instructions: string;
@@ -176,6 +184,20 @@ export interface IntegrationsConfig {
   himalpay_base_url: string;
 }
 
+export interface SmtpConfig {
+  enabled: boolean;
+  host: string;
+  port: number;
+  /** tls | ssl | none */
+  encryption: "tls" | "ssl" | "none";
+  username: string;
+  password: string;
+  from_name: string;
+  from_email: string;
+  /** Present on admin GET when a password is stored */
+  password_set?: boolean;
+}
+
 export interface RemittanceAgentConfig {
   payout_location_name: string;
   payout_agent_state: string;
@@ -197,6 +219,7 @@ export interface AppConfig {
   notifications: NotificationsConfig;
   security: SecurityConfig;
   integrations?: IntegrationsConfig;
+  smtp?: SmtpConfig;
   remittance?: RemittanceAgentConfig;
 }
 
@@ -455,6 +478,98 @@ export interface DataPackTransaction {
   provider_response?: Record<string, unknown> | null;
 }
 
+export interface WaterBillTransaction {
+  id: number;
+  user: string;
+  user_id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  connection_no: string;
+  customer_code: string;
+  counter: string;
+  customer_name: string;
+  session_id: string;
+  payment_type: string;
+  amount: string;
+  pay_service: string;
+  status: TxnStatus;
+  status_display: string;
+  merchant_txn_id: string;
+  service_hub_txn_id: string | null;
+  charge: string;
+  cashback: string;
+  total_debited: string;
+  balance_before: string | null;
+  balance_after: string | null;
+  reference_id: string | null;
+  created_at: string;
+  updated_at: string;
+  provider_response?: Record<string, unknown> | null;
+}
+
+export interface CommunityElectricityTransaction {
+  id: number;
+  user: string;
+  user_id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  platform_id: string;
+  platform_name: string;
+  service_slug: string;
+  counter_code: string;
+  customer_ref: string;
+  consumer_id: string;
+  customer_name: string;
+  month: number | null;
+  session_id: string;
+  amount: string;
+  pay_service: string;
+  status: TxnStatus;
+  status_display: string;
+  merchant_txn_id: string;
+  service_hub_txn_id: string | null;
+  charge: string;
+  cashback: string;
+  total_debited: string;
+  balance_before: string | null;
+  balance_after: string | null;
+  reference_id: string | null;
+  created_at: string;
+  updated_at: string;
+  provider_response?: Record<string, unknown> | null;
+}
+
+export interface UtilityInquiry {
+  session_id: string | number | null;
+  raw?: unknown;
+  connection_no?: string;
+  customer_code?: string;
+  counter?: string;
+  customer_ref?: string;
+  customer_name?: string | null;
+  payable_amount?: string | null;
+  platform_id?: string;
+  [key: string]: unknown;
+}
+
+export interface CommunityProviderOption {
+  id: string;
+  name: string;
+  steps: number;
+  customer_field: string;
+  customer_label: string;
+  placeholder: string;
+  inquiry_fields: string[];
+  default_service_slug?: string | null;
+  has_counters?: boolean;
+  has_slugs?: boolean;
+  color?: string;
+  pay_service?: string;
+  logo_image_url?: string | null;
+}
+
 export interface DataPackOption {
   id: string;
   name: string;
@@ -491,6 +606,8 @@ export interface WalletTransactions {
   bank_transfers: BankTransferTransaction[];
   internet_bills?: InternetBillTransaction[];
   data_packs?: DataPackTransaction[];
+  water_bills?: WaterBillTransaction[];
+  community_electricity?: CommunityElectricityTransaction[];
   wallet_adjustments?: WalletAdjustment[];
   summary?: AmountSummary;
 }

@@ -23,6 +23,7 @@ import {
   Wallet,
   X,
   Coins,
+  ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
@@ -109,6 +110,87 @@ function SettlementRow({
         {value}
       </span>
     </div>
+  );
+}
+
+function WalletBalanceCard({
+  before,
+  after,
+  credit,
+  labels,
+}: {
+  before: string;
+  after: string;
+  credit: boolean;
+  labels: {
+    title: string;
+    before: string;
+    after: string;
+    delta: string;
+  };
+}) {
+  const parseAmount = (raw: string) => {
+    const n = Number(String(raw).replace(/[^\d.-]/g, ""));
+    return Number.isFinite(n) ? n : null;
+  };
+  const beforeN = parseAmount(before);
+  const afterN = parseAmount(after);
+  const delta =
+    beforeN != null && afterN != null ? afterN - beforeN : null;
+  const deltaDisplay =
+    delta == null
+      ? null
+      : `${delta >= 0 ? "+" : "−"}Rs. ${Math.abs(delta).toLocaleString("en-NP", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`;
+
+  return (
+    <section className="overflow-hidden rounded-[20px] border border-border/50 bg-gradient-to-br from-white via-white to-brand-soft/40 shadow-[0_8px_28px_-18px_rgba(2,8,23,0.28)]">
+      <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
+            <Wallet className="size-4" />
+          </span>
+          <p className="text-[12px] font-bold tracking-[0.1em] text-brand uppercase">
+            {labels.title}
+          </p>
+        </div>
+        {deltaDisplay ? (
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2.5 py-1 text-[12px] font-bold tabular-nums",
+              credit || (delta != null && delta >= 0)
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-rose-50 text-rose-700",
+            )}
+          >
+            {labels.delta}: {deltaDisplay}
+          </span>
+        ) : null}
+      </div>
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 pb-4 pt-1">
+        <div className="min-w-0 rounded-2xl border border-border/50 bg-white/90 px-3 py-3">
+          <p className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+            {labels.before}
+          </p>
+          <p className="mt-1 break-all text-[15px] font-bold tabular-nums text-foreground sm:text-[17px]">
+            {before}
+          </p>
+        </div>
+        <span className="inline-flex size-9 items-center justify-center rounded-full bg-brand text-white shadow-sm">
+          <ArrowRight className="size-4" />
+        </span>
+        <div className="min-w-0 rounded-2xl border border-brand/20 bg-brand-soft/60 px-3 py-3">
+          <p className="text-[10px] font-semibold tracking-[0.08em] text-brand-dark/70 uppercase">
+            {labels.after}
+          </p>
+          <p className="mt-1 break-all text-[15px] font-black tabular-nums text-brand-dark sm:text-[17px]">
+            {after}
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -370,7 +452,18 @@ function HistoryStatementPage() {
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2.5">
                 <div className="flex size-11 shrink-0 items-center justify-center rounded-full border border-brand/15 bg-white p-1.5 shadow-sm">
-                  <img src={logoUrl} alt="MySewa" className="size-full object-contain" />
+                  <img
+                    src={logoUrl || "/logo.png"}
+                    alt="MySewa"
+                    className="size-full object-contain"
+                    decoding="sync"
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      if (!el.src.includes("/logo.png")) {
+                        el.src = "/logo.png";
+                      }
+                    }}
+                  />
                 </div>
                 <div className="min-w-0">
                   <p className="text-[22px] leading-none font-black tracking-tight text-brand-dark">
@@ -479,20 +572,6 @@ function HistoryStatementPage() {
                   value={cashbackNpr}
                   icon={<BadgeCheck className="size-4" />}
                 />
-                {balanceBeforeNpr ? (
-                  <SettlementRow
-                    label={t("history.balanceBefore")}
-                    value={balanceBeforeNpr}
-                    icon={<Wallet className="size-4" />}
-                  />
-                ) : null}
-                {balanceAfterNpr ? (
-                  <SettlementRow
-                    label={t("history.balanceAfter")}
-                    value={balanceAfterNpr}
-                    icon={<Wallet className="size-4" />}
-                  />
-                ) : null}
               </div>
               <div className="mx-3 mb-3 rounded-xl bg-brand-soft/80 px-3.5 py-3">
                 <div className="flex items-center justify-between gap-3">
@@ -511,6 +590,20 @@ function HistoryStatementPage() {
                 <span className="min-w-0 break-words">{t("history.secureEncrypted")}</span>
               </div>
             </section>
+
+            {balanceBeforeNpr && balanceAfterNpr ? (
+              <WalletBalanceCard
+                before={balanceBeforeNpr}
+                after={balanceAfterNpr}
+                credit={statement.item.credit}
+                labels={{
+                  title: t("history.walletBalanceCard"),
+                  before: t("history.balanceBefore"),
+                  after: t("history.balanceAfter"),
+                  delta: t("history.balanceDelta"),
+                }}
+              />
+            ) : null}
 
             {/* Transaction details */}
             <section className="overflow-hidden rounded-[20px] border border-border/50 bg-white shadow-[0_8px_28px_-18px_rgba(2,8,23,0.28)]">

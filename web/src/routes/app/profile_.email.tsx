@@ -10,26 +10,26 @@ import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
-export const Route = createFileRoute("/app/profile_/phone")({
+export const Route = createFileRoute("/app/profile_/email")({
   head: () => ({
     meta: [
-      { title: "Change Phone — MySewa" },
+      { title: "Change Email — MySewa" },
       {
         name: "description",
-        content: "Update the phone number linked to your MySewa account with email OTP verification.",
+        content: "Request a MySewa email change and verify ownership with an OTP.",
       },
-      { property: "og:title", content: "Change Phone — MySewa" },
+      { property: "og:title", content: "Change Email — MySewa" },
     ],
   }),
-  component: ChangePhonePage,
+  component: ChangeEmailPage,
 });
 
-function ChangePhonePage() {
+function ChangeEmailPage() {
   const t = useT();
   const navigate = useNavigate();
   const { user, refreshProfile } = useAuth();
-  const [newPhone, setNewPhone] = useState("");
-  const [phonePassword, setPhonePassword] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [emailHint, setEmailHint] = useState("");
@@ -39,9 +39,9 @@ function ChangePhonePage() {
   const requestOtp = async () => {
     setSendingOtp(true);
     try {
-      const res = await apiClient.requestChangePhoneOtp({
-        new_phone: newPhone.trim(),
-        current_password: phonePassword,
+      const res = await apiClient.requestEmailChange({
+        new_email: newEmail.trim(),
+        current_password: password,
       });
       setOtpSent(true);
       setEmailHint(res.email_hint || "");
@@ -55,7 +55,7 @@ function ChangePhonePage() {
   };
 
   return (
-    <UserShell title={t("profile.changePhone")} back="/app/profile">
+    <UserShell title={t("profile.changeEmail")} back="/app/profile">
       <form
         className="inset-group min-w-0 max-w-full space-y-4 overflow-x-clip p-4"
         onSubmit={async (e) => {
@@ -66,13 +66,9 @@ function ChangePhonePage() {
           }
           setSaving(true);
           try {
-            await apiClient.changePhone({
-              new_phone: newPhone.trim(),
-              current_password: phonePassword,
-              otp: otp.trim(),
-            });
+            await apiClient.confirmEmailChange({ otp: otp.trim() });
             await refreshProfile();
-            toast.success(t("profile.phoneUpdated"));
+            toast.success(t("profile.emailUpdated"));
             navigate({ to: "/app/profile" });
           } catch (err) {
             toast.error(err instanceof ApiError ? err.message : t("profile.updateFailed"));
@@ -81,36 +77,37 @@ function ChangePhonePage() {
           }
         }}
       >
-        {user?.phone ? (
-          <div className="rounded-xl bg-muted/70 px-3.5 py-3">
-            <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t("profile.currentPhone")}
-            </p>
-            <p className="mt-0.5 text-[15px] font-medium">{user.phone}</p>
-          </div>
-        ) : null}
+        <div className="rounded-xl bg-muted/70 px-3.5 py-3">
+          <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t("profile.currentEmail")}
+          </p>
+          <p className="mt-0.5 break-all text-[15px] font-medium">
+            {(user?.email || "").trim() || t("profile.emailEmpty")}
+          </p>
+        </div>
+
         <div className="space-y-1.5">
-          <Label htmlFor="new_phone">{t("profile.newPhone")}</Label>
+          <Label htmlFor="new_email">{t("profile.newEmail")}</Label>
           <Input
-            id="new_phone"
-            value={newPhone}
+            id="new_email"
+            type="email"
+            value={newEmail}
             onChange={(e) => {
-              setNewPhone(e.target.value);
+              setNewEmail(e.target.value);
               setOtpSent(false);
               setOtp("");
             }}
-            inputMode="tel"
-            autoComplete="tel"
+            autoComplete="email"
             required
             disabled={otpSent}
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="phone_password">{t("profile.currentPassword")}</Label>
+          <Label htmlFor="email_password">{t("profile.currentPassword")}</Label>
           <PasswordInput
-            id="phone_password"
-            value={phonePassword}
-            onChange={(e) => setPhonePassword(e.target.value)}
+            id="email_password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
             required
             disabled={otpSent}
@@ -119,9 +116,9 @@ function ChangePhonePage() {
 
         {otpSent ? (
           <div className="space-y-1.5">
-            <Label htmlFor="phone_otp">{t("profile.otpCode")}</Label>
+            <Label htmlFor="email_otp">{t("profile.otpCode")}</Label>
             <Input
-              id="phone_otp"
+              id="email_otp"
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               inputMode="numeric"
@@ -150,7 +147,7 @@ function ChangePhonePage() {
           {otpSent
             ? saving
               ? t("common.updating")
-              : t("profile.updatePhone")
+              : t("profile.confirmEmailChange")
             : sendingOtp
               ? t("profile.sendingOtp")
               : t("profile.sendOtp")}

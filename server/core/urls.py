@@ -8,6 +8,8 @@ from .views import (
     bank_transfer_views,
     remittance_views,
     internet_views,
+    water_views,
+    community_electricity_views,
     data_pack_views,
     admin_views,
     kyc_views,
@@ -20,11 +22,36 @@ urlpatterns = [
     path('api/auth/logout/', auth_views.logout, name='logout'),
     path('api/auth/profile/', auth_views.profile, name='profile'),
     path('api/auth/change-password/', auth_views.change_password, name='change_password'),
+    path(
+        'api/auth/request-change-phone-otp/',
+        auth_views.request_change_phone_otp,
+        name='request_change_phone_otp',
+    ),
     path('api/auth/change-phone/', auth_views.change_phone, name='change_phone'),
+    path(
+        'api/auth/request-email-change/',
+        auth_views.request_email_change,
+        name='request_email_change',
+    ),
+    path(
+        'api/auth/confirm-email-change/',
+        auth_views.confirm_email_change,
+        name='confirm_email_change',
+    ),
     path('api/auth/forgot-password/', auth_views.forgot_password, name='forgot_password'),
     path('api/auth/reset-password/', auth_views.reset_password, name='reset_password'),
     path('api/auth/set-transaction-pin/', auth_views.set_transaction_pin, name='set_transaction_pin'),
     path('api/auth/change-transaction-pin/', auth_views.change_transaction_pin, name='change_transaction_pin'),
+    path(
+        'api/auth/request-transaction-pin-reset-otp/',
+        auth_views.request_transaction_pin_reset_otp,
+        name='request_transaction_pin_reset_otp',
+    ),
+    path(
+        'api/auth/reset-transaction-pin/',
+        auth_views.reset_transaction_pin,
+        name='reset_transaction_pin',
+    ),
     path('api/auth/has-transaction-pin/', auth_views.has_transaction_pin, name='has_transaction_pin'),
     path('api/auth/verify-transaction-pin/', auth_views.verify_transaction_pin, name='verify_transaction_pin'),
     path('api/auth/device-token/', auth_views.device_token, name='device_token'),
@@ -75,6 +102,45 @@ urlpatterns = [
     path('api/internet/history/', internet_views.internet_bill_history, name='internet_history'),
     path('api/internet/status/', internet_views.internet_bill_status, name='internet_status'),
 
+    # KUKL water bill payment (Khane Pani)
+    path('api/water/counters/', water_views.list_counters, name='water_counters'),
+    path('api/water/inquiry/', water_views.inquiry_bill, name='water_inquiry'),
+    path('api/water/pay/', water_views.pay_bill, name='water_pay'),
+    path('api/water/history/', water_views.water_bill_history, name='water_history'),
+    path('api/water/status/', water_views.water_bill_status, name='water_status'),
+
+    # Community electricity (Himchuli, Watermark, Dreamer, Softlab, BPC)
+    path(
+        'api/community-electricity/providers/',
+        community_electricity_views.list_providers,
+        name='community_electricity_providers',
+    ),
+    path(
+        'api/community-electricity/counters/',
+        community_electricity_views.list_counters,
+        name='community_electricity_counters',
+    ),
+    path(
+        'api/community-electricity/inquiry/',
+        community_electricity_views.inquiry_bill,
+        name='community_electricity_inquiry',
+    ),
+    path(
+        'api/community-electricity/pay/',
+        community_electricity_views.pay_bill,
+        name='community_electricity_pay',
+    ),
+    path(
+        'api/community-electricity/history/',
+        community_electricity_views.community_electricity_history,
+        name='community_electricity_history',
+    ),
+    path(
+        'api/community-electricity/status/',
+        community_electricity_views.community_electricity_status,
+        name='community_electricity_status',
+    ),
+
     # Data pack top-up (NTC / NCELL)
     path('api/data-pack/inquiry/', data_pack_views.inquiry_packages, name='data_pack_inquiry'),
     path('api/data-pack/pay/', data_pack_views.pay_data_pack, name='data_pack_pay'),
@@ -108,11 +174,18 @@ urlpatterns = [
     path('api/admin/internet-bills/', admin_views.admin_list_internet_bills, name='admin_list_internet_bills'),
     path('api/admin/internet-bills/<int:bill_id>/', admin_views.admin_get_internet_bill, name='admin_get_internet_bill'),
     path('api/admin/internet-bills/<int:bill_id>/status/', admin_views.admin_update_internet_bill_status, name='admin_update_internet_bill_status'),
+    path('api/admin/water-bills/', admin_views.admin_list_water_bills, name='admin_list_water_bills'),
+    path('api/admin/water-bills/<int:bill_id>/', admin_views.admin_get_water_bill, name='admin_get_water_bill'),
+    path('api/admin/water-bills/<int:bill_id>/status/', admin_views.admin_update_water_bill_status, name='admin_update_water_bill_status'),
+    path('api/admin/community-electricity/', admin_views.admin_list_community_electricity, name='admin_list_community_electricity'),
+    path('api/admin/community-electricity/<int:bill_id>/', admin_views.admin_get_community_electricity, name='admin_get_community_electricity'),
+    path('api/admin/community-electricity/<int:bill_id>/status/', admin_views.admin_update_community_electricity_status, name='admin_update_community_electricity_status'),
     path('api/admin/transfers/', admin_views.admin_list_transfers, name='admin_list_transfers'),
     path('api/admin/transfers/<int:transfer_id>/status/', admin_views.admin_update_transfer_status, name='admin_update_transfer_status'),
     path('api/admin/remittances/', admin_views.admin_list_remittances, name='admin_list_remittances'),
     path('api/admin/remittances/<int:remittance_id>/', admin_views.admin_get_remittance, name='admin_get_remittance'),
     path('api/admin/remittances/<int:remittance_id>/status/', admin_views.admin_update_remittance_status, name='admin_update_remittance_status'),
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
+    path('api/admin/settings/test-email/', admin_views.admin_test_smtp_email, name='admin_test_smtp_email'),
     path('api/admin/himalpay/status/', admin_views.admin_himalpay_status, name='admin_himalpay_status'),
 ]

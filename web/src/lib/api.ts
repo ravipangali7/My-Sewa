@@ -283,8 +283,33 @@ export const apiClient = {
       body,
     }),
 
+  requestTransactionPinResetOtp: () =>
+    api<{
+      message: string;
+      email_hint?: string;
+      otp_available: boolean;
+      debug_otp?: string;
+    }>("/api/auth/request-transaction-pin-reset-otp/", {
+      method: "POST",
+      body: {},
+    }),
+
+  resetTransactionPin: (body: {
+    current_password?: string;
+    otp?: string;
+    transaction_pin: string;
+    confirm_pin: string;
+  }) =>
+    api<{ message: string; has_pin: boolean; otp_available?: boolean }>(
+      "/api/auth/reset-transaction-pin/",
+      {
+        method: "POST",
+        body,
+      },
+    ),
+
   hasTransactionPin: () =>
-    api<{ has_pin: boolean }>("/api/auth/has-transaction-pin/"),
+    api<{ has_pin: boolean; otp_available?: boolean }>("/api/auth/has-transaction-pin/"),
 
   verifyTransactionPin: (transaction_pin: string) =>
     api<{ valid: boolean; message: string }>("/api/auth/verify-transaction-pin/", {
@@ -349,11 +374,33 @@ export const apiClient = {
       body,
     }),
 
-  changePhone: (body: { new_phone: string; current_password: string }) =>
+  changePhone: (body: {
+    new_phone: string;
+    current_password: string;
+    otp: string;
+  }) =>
     api<{ message: string; user: import("./types").UserProfile }>("/api/auth/change-phone/", {
       method: "POST",
       body,
     }),
+
+  requestChangePhoneOtp: (body: { new_phone: string; current_password: string }) =>
+    api<{ message: string; email_hint?: string; debug_otp?: string }>(
+      "/api/auth/request-change-phone-otp/",
+      { method: "POST", body },
+    ),
+
+  requestEmailChange: (body: { new_email: string; current_password: string }) =>
+    api<{ message: string; email_hint?: string; debug_otp?: string }>(
+      "/api/auth/request-email-change/",
+      { method: "POST", body },
+    ),
+
+  confirmEmailChange: (body: { otp: string }) =>
+    api<{ message: string; user: import("./types").UserProfile }>(
+      "/api/auth/confirm-email-change/",
+      { method: "POST", body },
+    ),
 
   walletBalance: () => api<import("./types").Wallet>("/api/wallet/balance/"),
 
@@ -581,6 +628,125 @@ export const apiClient = {
       data: Record<string, unknown>;
       local_bill: import("./types").InternetBillTransaction | null;
     }>("/api/internet/status/", {
+      method: "POST",
+      body: { merchant_transaction_id },
+    }),
+
+  waterCounters: () =>
+    api<{ message: string; data: unknown }>("/api/water/counters/"),
+
+  waterInquiry: (body: {
+    connection_no: string;
+    customer_code: string;
+    counter: string;
+  }) =>
+    api<{ message: string; data: import("./types").UtilityInquiry }>(
+      "/api/water/inquiry/",
+      { method: "POST", body },
+    ),
+
+  waterPay: (body: {
+    connection_no: string;
+    customer_code: string;
+    counter: string;
+    amount: number;
+    session_id?: string;
+    payment_type?: string;
+    customer_name?: string;
+    pay_data?: Record<string, unknown>;
+    transaction_pin: string;
+  }) =>
+    api<{
+      message: string;
+      pending_message?: string;
+      data: import("./types").WaterBillTransaction;
+    }>("/api/water/pay/", { method: "POST", body }),
+
+  waterHistory: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").WaterBillTransaction>>(
+      `/api/water/history/${buildAdminListQuery(filters)}`,
+    ),
+
+  waterStatus: (merchant_transaction_id: string) =>
+    api<{
+      status: import("./types").TxnStatus;
+      message?: string | null;
+      data: Record<string, unknown>;
+      local_bill: import("./types").WaterBillTransaction | null;
+    }>("/api/water/status/", {
+      method: "POST",
+      body: { merchant_transaction_id },
+    }),
+
+  communityElectricityProviders: () =>
+    api<{ providers: import("./types").CommunityProviderOption[] }>(
+      "/api/community-electricity/providers/",
+    ),
+
+  communityElectricityCounters: (body: {
+    platform_id: string;
+    customer_code?: string;
+    service_slug?: string;
+    customer_ref?: string;
+  }) =>
+    api<{
+      message: string;
+      platform_id: string;
+      data: unknown;
+    }>("/api/community-electricity/counters/", { method: "POST", body }),
+
+  communityElectricityInquiry: (body: {
+    platform_id: string;
+    customer_ref?: string;
+    customer_number?: string;
+    customer_code?: string;
+    customer_no?: string;
+    consumer_no?: string;
+    consumer_id?: string;
+    service_slug?: string;
+    counter_code?: string;
+    month?: number | null;
+  }) =>
+    api<{ message: string; data: import("./types").UtilityInquiry }>(
+      "/api/community-electricity/inquiry/",
+      { method: "POST", body },
+    ),
+
+  communityElectricityPay: (body: {
+    platform_id: string;
+    amount: number;
+    session_id?: string;
+    customer_ref?: string;
+    customer_number?: string;
+    customer_code?: string;
+    customer_no?: string;
+    consumer_no?: string;
+    consumer_id?: string;
+    service_slug?: string;
+    counter_code?: string;
+    month?: number | null;
+    customer_name?: string;
+    pay_data?: Record<string, unknown>;
+    transaction_pin: string;
+  }) =>
+    api<{
+      message: string;
+      pending_message?: string;
+      data: import("./types").CommunityElectricityTransaction;
+    }>("/api/community-electricity/pay/", { method: "POST", body }),
+
+  communityElectricityHistory: (filters?: AdminListFilters) =>
+    api<
+      import("./types").AdminListResponse<import("./types").CommunityElectricityTransaction>
+    >(`/api/community-electricity/history/${buildAdminListQuery(filters)}`),
+
+  communityElectricityStatus: (merchant_transaction_id: string) =>
+    api<{
+      status: import("./types").TxnStatus;
+      message?: string | null;
+      data: Record<string, unknown>;
+      local_bill: import("./types").CommunityElectricityTransaction | null;
+    }>("/api/community-electricity/status/", {
       method: "POST",
       body: { merchant_transaction_id },
     }),
@@ -825,4 +991,19 @@ export const apiClient = {
       error_type?: string | null;
       services_count: number;
     }>("/api/admin/himalpay/status/"),
+
+  adminTestSmtpEmail: (payload: {
+    to_email: string;
+    host?: string;
+    port?: number;
+    encryption?: string;
+    username?: string;
+    password?: string;
+    from_name?: string;
+    from_email?: string;
+  }) =>
+    api<{ ok: boolean; message: string; to_email?: string }>("/api/admin/settings/test-email/", {
+      method: "POST",
+      body: payload,
+    }),
 };

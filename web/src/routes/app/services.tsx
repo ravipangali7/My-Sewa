@@ -1,6 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Send, Smartphone, ChevronRight, ArrowDownToLine, Wifi, Signal } from "lucide-react";
+import {
+  Download,
+  Send,
+  Smartphone,
+  ChevronRight,
+  ArrowDownToLine,
+  Wifi,
+  Signal,
+  Droplets,
+  Zap,
+} from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -85,6 +95,24 @@ function Services() {
         : t("services.internetDesc"),
       icon: Wifi,
       enabled: payment?.internet_bills_enabled !== false && !accountPending,
+    },
+    {
+      to: "/app/water" as const,
+      title: t("services.water"),
+      desc: accountPending
+        ? t("services.unavailablePending")
+        : t("services.waterDesc"),
+      icon: Droplets,
+      enabled: payment?.water_bills_enabled !== false && !accountPending,
+    },
+    {
+      to: "/app/community-electricity" as const,
+      title: t("services.communityElectricity"),
+      desc: accountPending
+        ? t("services.unavailablePending")
+        : t("services.communityElectricityDesc"),
+      icon: Zap,
+      enabled: payment?.community_electricity_enabled !== false && !accountPending,
     },
     {
       to: "/app/transfer" as const,

@@ -77,7 +77,18 @@ def _agent_defaults() -> dict:
     }
 
 
-def _apply_load_fields(txn: RemittanceTransaction, himalpay: HimalPayAPI, response: dict):
+def _apply_load_fields(
+    txn: RemittanceTransaction,
+    himalpay: HimalPayAPI,
+    response: dict,
+    *,
+    persist: bool = True,
+):
+    """Apply fee/credit/provider metadata from a HimalPay response.
+
+    When persist=True (default), save immediately so a later
+    apply_inbound_status_change + refresh_from_db cannot wipe these fields.
+    """
     charge_paisa = response.get('charge', response.get('applied_charge', 0)) or 0
     cashback_paisa = response.get('cashback', response.get('applied_cashback', 0)) or 0
     credited_paisa = response.get('total_credited', response.get('amount', 0)) or 0
@@ -87,6 +98,18 @@ def _apply_load_fields(txn: RemittanceTransaction, himalpay: HimalPayAPI, respon
     txn.provider_txn_id = himalpay.extract_transaction_id(response) or None
     txn.reference_id = himalpay.extract_reference_id(response) or txn.ref_no
     txn.provider_response = response
+    if persist and txn.pk:
+        txn.save(
+            update_fields=[
+                'charge',
+                'cashback',
+                'total_credited',
+                'provider_txn_id',
+                'reference_id',
+                'provider_response',
+                'updated_at',
+            ]
+        )
 
 
 def _provider_message(himalpay: HimalPayAPI, response, fallback: str = '') -> str:

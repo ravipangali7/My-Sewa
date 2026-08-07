@@ -13,6 +13,8 @@ import {
   Redo2,
   Wifi,
   Signal,
+  Droplets,
+  Zap,
   Lock,
   CirclePlus,
 } from "lucide-react";
@@ -72,6 +74,18 @@ const ACTIONS = [
     labelKey: "home.internet" as const satisfies MessageKey,
     icon: Wifi,
     iconBg: "bg-[#0EA5E9]",
+  },
+  {
+    to: "/app/water",
+    labelKey: "home.water" as const satisfies MessageKey,
+    icon: Droplets,
+    iconBg: "bg-[#06B6D4]",
+  },
+  {
+    to: "/app/community-electricity",
+    labelKey: "home.communityElectricity" as const satisfies MessageKey,
+    icon: Zap,
+    iconBg: "bg-[#F97316]",
   },
   {
     to: "/app/remittance",
@@ -307,6 +321,8 @@ function WalletHome() {
                   a.to === "/app/topup" ||
                   a.to === "/app/data-topup" ||
                   a.to === "/app/internet" ||
+                  a.to === "/app/water" ||
+                  a.to === "/app/community-electricity" ||
                   a.to === "/app/remittance");
               if (blocked) {
                 return (

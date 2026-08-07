@@ -15,10 +15,14 @@ from ..serializers import (
     UserProfileUpdateSerializer,
     ChangePasswordSerializer,
     ChangePhoneSerializer,
+    RequestChangePhoneOtpSerializer,
+    RequestEmailChangeSerializer,
+    ConfirmEmailChangeSerializer,
     ForgotPasswordSerializer,
     ResetPasswordSerializer,
     SetTransactionPinSerializer,
     ChangeTransactionPinSerializer,
+    ResetTransactionPinSerializer,
     VerifyTransactionPinSerializer,
     DeviceTokenSerializer,
 )
@@ -378,8 +382,91 @@ def change_password(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def request_change_phone_otp(request):
+    """
+    Verify password + new phone, then email an OTP to the current registered email.
+    """
+    import secrets
+    from django.conf import settings as dj_settings
+    from django.core.cache import cache
+
+    from ..models import SecurityAuditLog
+    from ..services.notifications import mask_email, send_phone_change_otp
+    from ..services.security import log_security_event
+
+    serializer = RequestChangePhoneOtpSerializer(
+        data=request.data, context={'request': request},
+    )
+    if not serializer.is_valid():
+        formatted = format_validation_errors(serializer.errors)
+        return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
+
+    user = request.user
+    if not user.check_password(serializer.validated_data['current_password']):
+        return Response({
+            'message': 'Current password is incorrect',
+            'errors': {'current_password': ['Current password is incorrect']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    email = (user.email or '').strip()
+    if not email:
+        return Response({
+            'message': (
+                'No email is registered for this account. '
+                'Add and verify an email before changing your phone number.'
+            ),
+            'errors': {
+                'email': [
+                    'No registered email on this account. Update your email first.',
+                ],
+            },
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    new_phone = serializer.validated_data['new_phone']
+    otp = f'{secrets.randbelow(1_000_000):06d}'
+    cache.set(
+        f'phone_change_otp:{user.pk}',
+        {'otp': otp, 'new_phone': new_phone},
+        timeout=60 * 15,
+    )
+
+    sent = send_phone_change_otp(email, otp, new_phone)
+    if not sent:
+        logger.error('Failed to send phone change OTP for user_id=%s', user.pk)
+        return Response({
+            'message': 'Unable to send verification code. Please try again later.',
+            'errors': {'email': ['Unable to send verification code. Please try again later.']},
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    email_hint = mask_email(email)
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_PHONE_CHANGE_OTP_SENT,
+        request=request,
+        details={'email_hint': email_hint, 'new_phone': new_phone},
+    )
+
+    payload = {
+        'message': (
+            f'A verification code has been sent to {email_hint}. '
+            'Enter the code to finish changing your phone number.'
+        ),
+        'email_hint': email_hint,
+    }
+    if getattr(dj_settings, 'DEBUG', False):
+        payload['debug_otp'] = otp
+    return Response(payload, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def change_phone(request):
-    """Change the authenticated user's phone number (requires current password)"""
+    """Change the authenticated user's phone number (password + email OTP)."""
+    from django.core.cache import cache
+
+    from ..models import SecurityAuditLog
+    from ..services.security import log_security_event
+
     serializer = ChangePhoneSerializer(
         data=request.data, context={'request': request}
     )
@@ -394,12 +481,165 @@ def change_phone(request):
             'errors': {'current_password': ['Current password is incorrect']},
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    user.phone = serializer.validated_data['new_phone']
+    cached = cache.get(f'phone_change_otp:{user.pk}')
+    if not cached or not isinstance(cached, dict):
+        return Response({
+            'message': 'Verification code expired or not requested. Please request a new code.',
+            'errors': {'otp': ['Verification code expired or not requested.']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    if cached.get('otp') != serializer.validated_data['otp']:
+        return Response({
+            'message': 'Invalid verification code',
+            'errors': {'otp': ['Invalid verification code']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    new_phone = serializer.validated_data['new_phone']
+    if cached.get('new_phone') != new_phone:
+        return Response({
+            'message': 'Phone number does not match the verification request. Start again.',
+            'errors': {'new_phone': ['Phone number does not match the verification request.']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    old_phone = user.phone
+    user.phone = new_phone
     user.save()  # username synced to phone in model.save()
+    cache.delete(f'phone_change_otp:{user.pk}')
+
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_PHONE_CHANGED,
+        request=request,
+        details={'old_phone': old_phone, 'new_phone': new_phone},
+    )
 
     profile_serializer = UserProfileSerializer(user, context={'request': request})
     return Response({
         'message': 'Phone number updated successfully',
+        'user': profile_serializer.data,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def request_email_change(request):
+    """Send an OTP to the new email address to start an email change request."""
+    import secrets
+    from django.conf import settings as dj_settings
+    from django.core.cache import cache
+
+    from ..models import SecurityAuditLog
+    from ..services.notifications import mask_email, send_email_change_otp
+    from ..services.security import log_security_event
+
+    serializer = RequestEmailChangeSerializer(
+        data=request.data, context={'request': request},
+    )
+    if not serializer.is_valid():
+        formatted = format_validation_errors(serializer.errors)
+        return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
+
+    user = request.user
+    if not user.check_password(serializer.validated_data['current_password']):
+        return Response({
+            'message': 'Current password is incorrect',
+            'errors': {'current_password': ['Current password is incorrect']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    new_email = serializer.validated_data['new_email']
+    otp = f'{secrets.randbelow(1_000_000):06d}'
+    cache.set(
+        f'email_change:{user.pk}',
+        {'otp': otp, 'new_email': new_email},
+        timeout=60 * 15,
+    )
+
+    sent = send_email_change_otp(new_email, otp)
+    if not sent:
+        logger.error('Failed to send email change OTP for user_id=%s', user.pk)
+        return Response({
+            'message': 'Unable to send verification code. Please try again later.',
+            'errors': {'new_email': ['Unable to send verification code. Please try again later.']},
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    email_hint = mask_email(new_email)
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_EMAIL_CHANGE_OTP_SENT,
+        request=request,
+        details={'email_hint': email_hint},
+    )
+
+    payload = {
+        'message': (
+            f'A verification code has been sent to {email_hint}. '
+            'Enter the code to confirm your new email address.'
+        ),
+        'email_hint': email_hint,
+    }
+    if getattr(dj_settings, 'DEBUG', False):
+        payload['debug_otp'] = otp
+    return Response(payload, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def confirm_email_change(request):
+    """Confirm pending email change with the OTP sent to the new address."""
+    from django.core.cache import cache
+
+    from ..models import SecurityAuditLog
+    from ..services.security import log_security_event
+
+    serializer = ConfirmEmailChangeSerializer(data=request.data)
+    if not serializer.is_valid():
+        formatted = format_validation_errors(serializer.errors)
+        return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
+
+    user = request.user
+    cached = cache.get(f'email_change:{user.pk}')
+    if not cached or not isinstance(cached, dict):
+        return Response({
+            'message': 'Verification code expired or not requested. Please request a new code.',
+            'errors': {'otp': ['Verification code expired or not requested.']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    if cached.get('otp') != serializer.validated_data['otp']:
+        return Response({
+            'message': 'Invalid verification code',
+            'errors': {'otp': ['Invalid verification code']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    new_email = (cached.get('new_email') or '').strip().lower()
+    if not new_email:
+        cache.delete(f'email_change:{user.pk}')
+        return Response({
+            'message': 'Email change request is invalid. Please start again.',
+            'errors': {'otp': ['Email change request is invalid.']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    if User.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():
+        cache.delete(f'email_change:{user.pk}')
+        return Response({
+            'message': 'This email address is already registered.',
+            'errors': {'new_email': ['This email address is already registered.']},
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    old_email = user.email
+    user.email = new_email
+    user.save(update_fields=['email'])
+    cache.delete(f'email_change:{user.pk}')
+
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_EMAIL_CHANGED,
+        request=request,
+        details={'old_email': old_email, 'new_email': new_email},
+    )
+
+    profile_serializer = UserProfileSerializer(user, context={'request': request})
+    return Response({
+        'message': 'Email address updated successfully',
         'user': profile_serializer.data,
     }, status=status.HTTP_200_OK)
 
@@ -574,11 +814,17 @@ def reset_password(request):
     }, status=status.HTTP_200_OK)
 
 
+def _pin_reset_otp_available(user) -> bool:
+    return bool((getattr(user, 'email', None) or '').strip())
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def set_transaction_pin(request):
     """Set transaction PIN for authenticated users who do not yet have one."""
     from django.contrib.auth.hashers import make_password
+    from ..models import SecurityAuditLog
+    from ..services.security import log_security_event
 
     user = request.user
     if user.transaction_pin:
@@ -594,6 +840,12 @@ def set_transaction_pin(request):
 
     user.transaction_pin = make_password(serializer.validated_data['transaction_pin'])
     user.save(update_fields=['transaction_pin'])
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_TRANSACTION_PIN_SET,
+        request=request,
+    )
+    logger.info('Transaction PIN set for user_id=%s', user.pk)
 
     return Response({
         'message': 'Transaction PIN set successfully',
@@ -606,7 +858,9 @@ def set_transaction_pin(request):
 def change_transaction_pin(request):
     """Change transaction PIN after verifying the current PIN."""
     from django.contrib.auth.hashers import make_password
+    from ..models import SecurityAuditLog
     from ..services.pin import verify_transaction_pin
+    from ..services.security import log_security_event
 
     user = request.user
     if not user.transaction_pin:
@@ -629,10 +883,213 @@ def change_transaction_pin(request):
 
     user.transaction_pin = make_password(serializer.validated_data['transaction_pin'])
     user.save(update_fields=['transaction_pin'])
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_TRANSACTION_PIN_CHANGED,
+        request=request,
+        details={'method': 'current_pin'},
+    )
+    logger.info('Transaction PIN changed for user_id=%s', user.pk)
 
     return Response({
         'message': 'Transaction PIN changed successfully',
         'has_pin': True,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def request_transaction_pin_reset_otp(request):
+    """
+    Email a one-time code so the authenticated user can reset their
+    transaction PIN without knowing the current PIN.
+    Available only when the account has a registered email.
+    """
+    import secrets
+    from django.conf import settings as dj_settings
+    from django.core.cache import cache
+
+    from ..models import SecurityAuditLog
+    from ..services.notifications import mask_email, send_transaction_pin_reset_otp
+    from ..services.security import log_security_event
+
+    user = request.user
+    if not user.transaction_pin:
+        return Response({
+            'message': 'Transaction PIN is not set. Please set a PIN first.',
+            'errors': {'transaction_pin': ['Transaction PIN is not set.']},
+            'code': 'pin_not_set',
+            'otp_available': False,
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    email = (user.email or '').strip()
+    if not email:
+        return Response({
+            'message': (
+                'Email OTP is not available for this account. '
+                'Reset your PIN using your account password instead.'
+            ),
+            'errors': {
+                'email': [
+                    'No registered email on this account. Use your account password to reset the PIN.'
+                ],
+            },
+            'otp_available': False,
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    otp = f'{secrets.randbelow(1_000_000):06d}'
+    cache.set(f'pin_reset_otp:{user.pk}', otp, timeout=60 * 15)
+
+    sent = send_transaction_pin_reset_otp(email, otp)
+    if not sent:
+        logger.error('Failed to send transaction PIN reset OTP for user_id=%s', user.pk)
+        return Response({
+            'message': 'Unable to send verification code. Please try again later.',
+            'errors': {'email': ['Unable to send verification code. Please try again later.']},
+            'otp_available': True,
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    email_hint = mask_email(email)
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_TRANSACTION_PIN_RESET_OTP_SENT,
+        request=request,
+        details={'email_hint': email_hint},
+    )
+    logger.info(
+        'Transaction PIN reset OTP emailed to %s for user_id=%s',
+        email_hint,
+        user.pk,
+    )
+
+    payload = {
+        'message': (
+            f'A verification code has been sent to {email_hint}. '
+            'Enter the code with your new transaction PIN.'
+        ),
+        'email_hint': email_hint,
+        'otp_available': True,
+    }
+    if getattr(dj_settings, 'DEBUG', False):
+        payload['debug_otp'] = otp
+
+    return Response(payload, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def reset_transaction_pin(request):
+    """
+    Reset transaction PIN after verifying account password, or email OTP
+    when the account has a registered email (OTP enabled).
+    """
+    from django.contrib.auth.hashers import make_password
+    from django.core.cache import cache
+
+    from ..models import SecurityAuditLog
+    from ..services.security import log_security_event
+
+    user = request.user
+    if not user.transaction_pin:
+        return Response({
+            'message': 'Transaction PIN is not set. Please set a PIN first.',
+            'errors': {'transaction_pin': ['Transaction PIN is not set.']},
+            'code': 'pin_not_set',
+            'otp_available': _pin_reset_otp_available(user),
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    serializer = ResetTransactionPinSerializer(data=request.data)
+    if not serializer.is_valid():
+        formatted = format_validation_errors(serializer.errors)
+        formatted['otp_available'] = _pin_reset_otp_available(user)
+        return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
+
+    password = serializer.validated_data['current_password']
+    otp = serializer.validated_data['otp']
+    method = None
+
+    if password:
+        if not user.check_password(password):
+            logger.warning(
+                'Failed transaction PIN reset (bad password) for user_id=%s',
+                user.pk,
+            )
+            return Response({
+                'message': 'Account password is incorrect',
+                'errors': {'current_password': ['Account password is incorrect']},
+                'otp_available': _pin_reset_otp_available(user),
+            }, status=status.HTTP_400_BAD_REQUEST)
+        method = 'password'
+    else:
+        if not _pin_reset_otp_available(user):
+            return Response({
+                'message': (
+                    'Email OTP is not available for this account. '
+                    'Reset your PIN using your account password instead.'
+                ),
+                'errors': {
+                    'otp': [
+                        'Email OTP is not enabled for this account. Use your account password.'
+                    ],
+                },
+                'otp_available': False,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        cached = cache.get(f'pin_reset_otp:{user.pk}')
+        if not cached:
+            return Response({
+                'message': (
+                    'Verification code has expired or was not requested. '
+                    'Please request a new code.'
+                ),
+                'errors': {
+                    'otp': [
+                        'Verification code has expired or was not requested. '
+                        'Please request a new code.'
+                    ],
+                },
+                'otp_available': True,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if str(cached) != otp:
+            logger.warning(
+                'Failed transaction PIN reset (bad OTP) for user_id=%s',
+                user.pk,
+            )
+            return Response({
+                'message': (
+                    'Incorrect verification code. '
+                    'Please check the code sent to your email and try again.'
+                ),
+                'errors': {
+                    'otp': [
+                        'Incorrect verification code. '
+                        'Please check the code sent to your email and try again.'
+                    ],
+                },
+                'otp_available': True,
+            }, status=status.HTTP_400_BAD_REQUEST)
+        method = 'otp'
+        cache.delete(f'pin_reset_otp:{user.pk}')
+
+    user.transaction_pin = make_password(serializer.validated_data['transaction_pin'])
+    user.save(update_fields=['transaction_pin'])
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_TRANSACTION_PIN_RESET,
+        request=request,
+        details={'method': method},
+    )
+    logger.info(
+        'Transaction PIN reset for user_id=%s via %s',
+        user.pk,
+        method,
+    )
+
+    return Response({
+        'message': 'Transaction PIN reset successfully',
+        'has_pin': True,
+        'otp_available': _pin_reset_otp_available(user),
     }, status=status.HTTP_200_OK)
 
 
@@ -642,6 +1099,7 @@ def has_transaction_pin(request):
     """Return whether the authenticated user has a transaction PIN set."""
     return Response({
         'has_pin': bool(request.user.transaction_pin),
+        'otp_available': _pin_reset_otp_available(request.user),
     }, status=status.HTTP_200_OK)
 
 

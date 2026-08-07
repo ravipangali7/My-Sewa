@@ -17,6 +17,8 @@ from .models import (
     BankTransferTransaction,
     RemittanceTransaction,
     InternetBillTransaction,
+    WaterBillTransaction,
+    CommunityElectricityTransaction,
     DataPackTransaction,
     DeviceToken,
     UserFeeConfig,
@@ -120,7 +122,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = (
-            'id', 'phone', 'email', 'first_name', 'last_name', 'date_of_birth',
+            'id', 'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name',
+            'date_of_birth',
             'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
             'kyc_status', 'citizenship_number', 'kyc_verified', 'profile_locked',
@@ -374,10 +377,11 @@ class WalletAdjustmentWriteSerializer(serializers.Serializer):
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
-    """User profile update serializer (email, name, DOB, avatar).
+    """User profile update serializer (name, nickname, business, DOB, avatar).
 
     After KYC verification, first_name / last_name / date_of_birth /
     citizenship_number cannot be changed (Task 16).
+    Nickname and business_name remain editable. Email is changed via OTP flow.
     """
     # Accepted so clients get a clear lock error if they try to change it.
     citizenship_number = serializers.CharField(
@@ -387,13 +391,14 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = (
-            'email', 'first_name', 'last_name', 'date_of_birth',
-            'citizenship_number', 'avatar',
+            'first_name', 'last_name', 'nickname', 'business_name',
+            'date_of_birth', 'citizenship_number', 'avatar',
         )
         extra_kwargs = {
-            'email': {'required': False, 'allow_blank': True},
             'first_name': {'required': False, 'allow_blank': True},
             'last_name': {'required': False, 'allow_blank': True},
+            'nickname': {'required': False, 'allow_blank': True},
+            'business_name': {'required': False, 'allow_blank': True},
             # Required when missing on the account; otherwise optional to change.
             'date_of_birth': {'required': False, 'allow_null': False},
             'avatar': {'required': False},
@@ -430,7 +435,7 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
 
         if instance is not None and not instance.date_of_birth:
             # Require DOB when completing identity fields; allow avatar-only patches.
-            identity_keys = {'email', 'first_name', 'last_name', 'date_of_birth'}
+            identity_keys = {'first_name', 'last_name', 'date_of_birth'}
             if identity_keys.intersection(attrs) and attrs.get('date_of_birth') is None:
                 raise serializers.ValidationError({
                     'date_of_birth': 'Date of birth is required.',
@@ -518,6 +523,50 @@ class VerifyTransactionPinSerializer(serializers.Serializer):
         return validate_transaction_pin_value(value)
 
 
+class ResetTransactionPinSerializer(serializers.Serializer):
+    """
+    Reset transaction PIN after verifying account password or email OTP.
+    Provide exactly one of ``current_password`` or ``otp``.
+    """
+    current_password = serializers.CharField(
+        required=False, write_only=True, allow_blank=True, default='',
+    )
+    otp = serializers.CharField(
+        required=False, write_only=True, allow_blank=True, default='', max_length=10,
+    )
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    confirm_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate_confirm_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate(self, attrs):
+        if attrs['transaction_pin'] != attrs['confirm_pin']:
+            raise serializers.ValidationError(
+                {'confirm_pin': 'PIN fields did not match.'}
+            )
+        password = (attrs.get('current_password') or '').strip()
+        otp = (attrs.get('otp') or '').strip()
+        attrs['current_password'] = password
+        attrs['otp'] = otp
+        if password and otp:
+            raise serializers.ValidationError(
+                {'otp': 'Use either account password or OTP, not both.'}
+            )
+        if not password and not otp:
+            raise serializers.ValidationError(
+                {
+                    'current_password': [
+                        'Enter your account password, or request an email OTP to reset your PIN.'
+                    ],
+                }
+            )
+        return attrs
+
+
 class ForgotPasswordSerializer(serializers.Serializer):
     phone = serializers.CharField(required=True, max_length=50)
 
@@ -558,7 +607,31 @@ class ResetPasswordSerializer(serializers.Serializer):
 
 
 class ChangePhoneSerializer(serializers.Serializer):
-    """Change phone number serializer — requires current password"""
+    """Change phone number — requires current password and email OTP."""
+    new_phone = serializers.CharField(required=True, max_length=50)
+    current_password = serializers.CharField(required=True, write_only=True)
+    otp = serializers.CharField(required=True, max_length=6, min_length=6)
+
+    def validate_new_phone(self, value):
+        phone = value.strip()
+        if not phone:
+            raise serializers.ValidationError('Phone number is required.')
+        user = self.context['request'].user
+        if phone == user.phone:
+            raise serializers.ValidationError('This is already your current phone number.')
+        if User.objects.filter(phone=phone).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError('This phone number is already registered.')
+        return phone
+
+    def validate_otp(self, value):
+        otp = (value or '').strip()
+        if not otp.isdigit() or len(otp) != 6:
+            raise serializers.ValidationError('Enter the 6-digit verification code.')
+        return otp
+
+
+class RequestChangePhoneOtpSerializer(serializers.Serializer):
+    """Start phone change: verify password and queue OTP to registered email."""
     new_phone = serializers.CharField(required=True, max_length=50)
     current_password = serializers.CharField(required=True, write_only=True)
 
@@ -572,6 +645,35 @@ class ChangePhoneSerializer(serializers.Serializer):
         if User.objects.filter(phone=phone).exclude(pk=user.pk).exists():
             raise serializers.ValidationError('This phone number is already registered.')
         return phone
+
+
+class RequestEmailChangeSerializer(serializers.Serializer):
+    """Request OTP to verify ownership of a new email address."""
+    new_email = serializers.EmailField(required=True)
+    current_password = serializers.CharField(required=True, write_only=True)
+
+    def validate_new_email(self, value):
+        email = (value or '').strip().lower()
+        if not email:
+            raise serializers.ValidationError('Email address is required.')
+        user = self.context['request'].user
+        current = (user.email or '').strip().lower()
+        if email == current:
+            raise serializers.ValidationError('This is already your current email address.')
+        if User.objects.filter(email__iexact=email).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError('This email address is already registered.')
+        return email
+
+
+class ConfirmEmailChangeSerializer(serializers.Serializer):
+    """Confirm email change with the OTP sent to the new address."""
+    otp = serializers.CharField(required=True, max_length=6, min_length=6)
+
+    def validate_otp(self, value):
+        otp = (value or '').strip()
+        if not otp.isdigit() or len(otp) != 6:
+            raise serializers.ValidationError('Enter the 6-digit verification code.')
+        return otp
 
 
 class WalletSerializer(serializers.ModelSerializer):
@@ -692,7 +794,15 @@ class SettingsSerializer(serializers.ModelSerializer):
         return self._absolute_media_url(obj.logo)
 
     def get_config(self, obj):
-        return obj.get_config()
+        config = obj.get_config()
+        # Mask SMTP password for admin responses (never send the raw secret)
+        try:
+            from .services.smtp import smtp_config_for_admin
+            config = dict(config)
+            config['smtp'] = smtp_config_for_admin(config)
+        except Exception:
+            pass
+        return config
 
 
 class TopupTransactionSerializer(serializers.ModelSerializer):
@@ -1138,6 +1248,238 @@ class InternetBillPaySerializer(serializers.Serializer):
         if value <= 0:
             raise serializers.ValidationError('Amount must be greater than zero.')
         return value
+
+
+class WaterBillTransactionSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = WaterBillTransaction
+        fields = (
+            'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
+            'connection_no', 'customer_code', 'counter', 'customer_name',
+            'session_id', 'payment_type', 'amount', 'pay_service',
+            'status', 'status_display', 'merchant_txn_id',
+            'service_hub_txn_id', 'charge', 'cashback', 'total_debited',
+            'balance_before', 'balance_after',
+            'reference_id', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+
+class AdminWaterBillSerializer(WaterBillTransactionSerializer):
+    """Staff water bill detail — includes raw provider response for support."""
+
+    class Meta(WaterBillTransactionSerializer.Meta):
+        fields = WaterBillTransactionSerializer.Meta.fields + ('provider_response',)
+
+
+class WaterBillInquirySerializer(serializers.Serializer):
+    connection_no = serializers.CharField(max_length=50)
+    customer_code = serializers.CharField(max_length=50)
+    counter = serializers.CharField(max_length=100)
+
+    def validate_connection_no(self, value):
+        cleaned = str(value or '').strip()
+        if not cleaned:
+            raise serializers.ValidationError('Connection number is required.')
+        return cleaned
+
+    def validate_customer_code(self, value):
+        cleaned = str(value or '').strip()
+        if not cleaned:
+            raise serializers.ValidationError('Customer code is required.')
+        return cleaned
+
+    def validate_counter(self, value):
+        cleaned = (value or '').strip()
+        if not cleaned:
+            raise serializers.ValidationError('Counter is required.')
+        return cleaned
+
+
+class WaterBillPaySerializer(serializers.Serializer):
+    connection_no = serializers.CharField(max_length=50)
+    customer_code = serializers.CharField(max_length=50)
+    counter = serializers.CharField(max_length=100)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    session_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    payment_type = serializers.CharField(max_length=50, required=False, allow_blank=True, default='Bill Payment')
+    customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    pay_data = serializers.JSONField(required=False)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Amount must be greater than zero.')
+        return value
+
+
+class CommunityElectricityTransactionSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = CommunityElectricityTransaction
+        fields = (
+            'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
+            'platform_id', 'platform_name', 'service_slug', 'counter_code',
+            'customer_ref', 'consumer_id', 'customer_name', 'month',
+            'session_id', 'amount', 'pay_service',
+            'status', 'status_display', 'merchant_txn_id',
+            'service_hub_txn_id', 'charge', 'cashback', 'total_debited',
+            'balance_before', 'balance_after',
+            'reference_id', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+
+class AdminCommunityElectricitySerializer(CommunityElectricityTransactionSerializer):
+    """Staff community electricity detail — includes raw provider response."""
+
+    class Meta(CommunityElectricityTransactionSerializer.Meta):
+        fields = CommunityElectricityTransactionSerializer.Meta.fields + ('provider_response',)
+
+
+class CommunityElectricityCountersSerializer(serializers.Serializer):
+    platform_id = serializers.CharField(max_length=50)
+    customer_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    customer_ref = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    service_slug = serializers.CharField(max_length=150, required=False, allow_blank=True)
+
+    def validate_platform_id(self, value):
+        cleaned = (value or '').strip().lower()
+        if cleaned not in ('bpc', 'watermark'):
+            raise serializers.ValidationError(
+                'Counters/slugs are only available for bpc and watermark.'
+            )
+        return cleaned
+
+
+class CommunityElectricityInquirySerializer(serializers.Serializer):
+    platform_id = serializers.CharField(max_length=50)
+    customer_ref = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    customer_number = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    customer_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    customer_no = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    consumer_no = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    consumer_id = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    service_slug = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    counter_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    month = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate_platform_id(self, value):
+        cleaned = (value or '').strip().lower()
+        if cleaned not in ('himchuli', 'watermark', 'dreamer', 'softlab', 'bpc'):
+            raise serializers.ValidationError('Unsupported platform.')
+        return cleaned
+
+    def validate(self, attrs):
+        platform_id = attrs.get('platform_id')
+        # Normalize platform-specific customer keys into customer_ref when needed.
+        if platform_id == 'himchuli':
+            attrs['customer_ref'] = (
+                attrs.get('customer_number') or attrs.get('customer_ref') or ''
+            ).strip()
+            if not attrs['customer_ref']:
+                raise serializers.ValidationError({'customer_number': 'Customer number is required.'})
+            if not (attrs.get('service_slug') or '').strip():
+                attrs['service_slug'] = 'himchuli'
+        elif platform_id in ('watermark', 'softlab'):
+            attrs['customer_ref'] = (
+                attrs.get('customer_code') or attrs.get('customer_ref') or ''
+            ).strip()
+            if not attrs['customer_ref']:
+                raise serializers.ValidationError({'customer_code': 'Customer code is required.'})
+            if not (attrs.get('service_slug') or '').strip():
+                raise serializers.ValidationError({'service_slug': 'Service slug is required.'})
+            if platform_id == 'softlab' and attrs.get('month') is None:
+                attrs['month'] = 0
+        elif platform_id == 'dreamer':
+            attrs['customer_ref'] = (
+                attrs.get('customer_no') or attrs.get('customer_ref') or ''
+            ).strip()
+            if not attrs['customer_ref']:
+                raise serializers.ValidationError({'customer_no': 'Customer number is required.'})
+            if not (attrs.get('service_slug') or '').strip():
+                raise serializers.ValidationError({'service_slug': 'Service slug is required.'})
+        elif platform_id == 'bpc':
+            attrs['customer_ref'] = (
+                attrs.get('consumer_no') or attrs.get('customer_ref') or ''
+            ).strip()
+            if not attrs['customer_ref']:
+                raise serializers.ValidationError({'consumer_no': 'Consumer number is required.'})
+            if not str(attrs.get('consumer_id') or '').strip():
+                raise serializers.ValidationError({'consumer_id': 'Consumer ID is required.'})
+            if not (attrs.get('counter_code') or '').strip():
+                raise serializers.ValidationError({'counter_code': 'Counter code is required.'})
+        return attrs
+
+
+class CommunityElectricityPaySerializer(serializers.Serializer):
+    platform_id = serializers.CharField(max_length=50)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    session_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    customer_ref = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    customer_number = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    customer_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    customer_no = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    consumer_no = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    consumer_id = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    service_slug = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    counter_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    month = serializers.IntegerField(required=False, allow_null=True)
+    customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    pay_data = serializers.JSONField(required=False)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate_platform_id(self, value):
+        cleaned = (value or '').strip().lower()
+        if cleaned not in ('himchuli', 'watermark', 'dreamer', 'softlab', 'bpc'):
+            raise serializers.ValidationError('Unsupported platform.')
+        return cleaned
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Amount must be greater than zero.')
+        return value
+
+    def validate(self, attrs):
+        platform_id = attrs.get('platform_id')
+        if platform_id == 'himchuli':
+            attrs['customer_ref'] = (
+                attrs.get('customer_number') or attrs.get('customer_ref') or ''
+            ).strip()
+        elif platform_id in ('watermark', 'softlab'):
+            attrs['customer_ref'] = (
+                attrs.get('customer_code') or attrs.get('customer_ref') or ''
+            ).strip()
+        elif platform_id == 'dreamer':
+            attrs['customer_ref'] = (
+                attrs.get('customer_no') or attrs.get('customer_ref') or ''
+            ).strip()
+        elif platform_id == 'bpc':
+            attrs['customer_ref'] = (
+                attrs.get('consumer_no') or attrs.get('customer_ref') or ''
+            ).strip()
+        if not attrs.get('customer_ref'):
+            raise serializers.ValidationError({'customer_ref': 'Customer reference is required.'})
+        return attrs
 
 
 class DataPackTransactionSerializer(serializers.ModelSerializer):

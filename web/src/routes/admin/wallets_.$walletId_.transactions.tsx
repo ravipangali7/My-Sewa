@@ -58,6 +58,8 @@ const TYPE_TABS: { value: TypeTab; label: string }[] = [
   { value: "transfer", label: "Transfers" },
   { value: "internet", label: "Internet" },
   { value: "data_pack", label: "Data packs" },
+  { value: "water", label: "Water" },
+  { value: "community_electricity", label: "Community electricity" },
   { value: "wallet_adjustment", label: "Manual loads / adjustments" },
 ];
 
@@ -68,6 +70,8 @@ const TYPE_LABELS: Record<ActivityKind, string> = {
   transfer: "Transfer",
   internet: "Internet",
   data_pack: "Data pack",
+  water: "Water",
+  community_electricity: "Community electricity",
   wallet_adjustment: "Manual load / adjust",
 };
 
@@ -118,6 +122,8 @@ function WalletTransactionsPage() {
       transfer: 0,
       internet: 0,
       data_pack: 0,
+      water: 0,
+      community_electricity: 0,
       wallet_adjustment: 0,
     };
     for (const item of all) {

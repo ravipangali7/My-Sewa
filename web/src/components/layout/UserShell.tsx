@@ -118,7 +118,9 @@ export function UserShell({
   }
 
   const displayName =
-    [user.first_name, user.last_name].filter(Boolean).join(" ") || user.phone;
+    (user.nickname || "").trim() ||
+    [user.first_name, user.last_name].filter(Boolean).join(" ") ||
+    user.phone;
 
   return (
     // Mobile: document scroll only. Do NOT use overflow-x-hidden here —

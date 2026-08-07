@@ -52,6 +52,18 @@ class CustomUser(AbstractUser):
     email = models.EmailField(blank=True, null=True)
     first_name = models.CharField(max_length=30, blank=True)
     last_name = models.CharField(max_length=30, blank=True)
+    nickname = models.CharField(
+        max_length=60,
+        blank=True,
+        default='',
+        help_text="Display / profile nickname (editable after KYC).",
+    )
+    business_name = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+        help_text="Business or shop name shown on the profile.",
+    )
     avatar = models.ImageField(
         upload_to='avatars/',
         null=True,
@@ -226,6 +238,8 @@ def default_app_config():
             'remittances_enabled': True,
             'internet_bills_enabled': True,
             'data_packs_enabled': True,
+            'water_bills_enabled': True,
+            'community_electricity_enabled': True,
             'min_deposit': 100,
             'max_deposit': 100000,
             'deposit_instructions': '',
@@ -246,11 +260,11 @@ def default_app_config():
         },
         'notifications': {
             'email_on_deposit': True,
-            'email_on_topup': False,
+            'email_on_topup': True,
             'sms_on_deposit_approved': True,
             'email_on_wallet_credit': True,
-            'email_on_wallet_debit': False,
-            'email_on_transfer': False,
+            'email_on_wallet_debit': True,
+            'email_on_transfer': True,
             'email_on_wallet_adjustment': True,
             'admin_alert_email': '',
             'notify_low_balance': False,
@@ -267,6 +281,16 @@ def default_app_config():
         'integrations': {
             'himalpay_api_key': '',
             'himalpay_base_url': 'https://api.himalpay.com.np/api/v1',
+        },
+        'smtp': {
+            'enabled': False,
+            'host': '',
+            'port': 587,
+            'encryption': 'tls',  # tls | ssl | none
+            'username': '',
+            'password': '',
+            'from_name': 'MySewa',
+            'from_email': '',
         },
         # Agent / branch defaults sent with SAMSARA_PAY (not collected from the user)
         'remittance': {
@@ -607,6 +631,104 @@ class InternetBillTransaction(models.Model):
         ordering = ['-created_at']
 
 
+class WaterBillTransaction(models.Model):
+    """KUKL (Khane Pani) water bill payment via HimalPay."""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='water_bills',
+    )
+    connection_no = models.CharField(max_length=50)
+    customer_code = models.CharField(max_length=50)
+    counter = models.CharField(max_length=100)
+    customer_name = models.CharField(max_length=200, blank=True, default='')
+    session_id = models.CharField(max_length=100, blank=True, default='')
+    payment_type = models.CharField(max_length=50, blank=True, default='Bill Payment')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
+    pay_service = models.CharField(max_length=80, default='KUKL_PAY')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    merchant_txn_id = models.CharField(max_length=100, unique=True)
+    service_hub_txn_id = models.CharField(max_length=100, blank=True, null=True)
+    reference_id = models.CharField(max_length=100, blank=True, null=True)
+    charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    inquiry_response = models.JSONField(default=dict, blank=True)
+    pay_payload = models.JSONField(default=dict, blank=True)
+    provider_response = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return (
+            f"{self.user.phone} - KUKL - {self.connection_no}/{self.customer_code} "
+            f"- Rs. {self.amount}"
+        )
+
+    class Meta:
+        verbose_name = "Water Bill Transaction"
+        verbose_name_plural = "Water Bill Transactions"
+        ordering = ['-created_at']
+
+
+class CommunityElectricityTransaction(models.Model):
+    """Community electricity bill payment via HimalPay (Himchuli, Watermark, Dreamer, Softlab, BPC)."""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='community_electricity_bills',
+    )
+    platform_id = models.CharField(max_length=50)
+    platform_name = models.CharField(max_length=100)
+    service_slug = models.CharField(max_length=150, blank=True, default='')
+    counter_code = models.CharField(max_length=100, blank=True, default='')
+    customer_ref = models.CharField(
+        max_length=100,
+        help_text='customer_number / customer_code / customer_no / consumer_no',
+    )
+    consumer_id = models.CharField(max_length=50, blank=True, default='')
+    customer_name = models.CharField(max_length=200, blank=True, default='')
+    month = models.IntegerField(null=True, blank=True)
+    session_id = models.CharField(max_length=100, blank=True, default='')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
+    pay_service = models.CharField(max_length=80)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    merchant_txn_id = models.CharField(max_length=100, unique=True)
+    service_hub_txn_id = models.CharField(max_length=100, blank=True, null=True)
+    reference_id = models.CharField(max_length=100, blank=True, null=True)
+    charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    inquiry_response = models.JSONField(default=dict, blank=True)
+    pay_payload = models.JSONField(default=dict, blank=True)
+    provider_response = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return (
+            f"{self.user.phone} - {self.platform_name} - {self.customer_ref} "
+            f"- Rs. {self.amount}"
+        )
+
+    class Meta:
+        verbose_name = "Community Electricity Transaction"
+        verbose_name_plural = "Community Electricity Transactions"
+        ordering = ['-created_at']
+
+
 class DataPackTransaction(models.Model):
     """Mobile data pack top-up (NTC / NCELL) via HimalPay."""
     STATUS_CHOICES = [
@@ -854,4 +976,46 @@ class KYCAuditLog(models.Model):
     class Meta:
         verbose_name = 'KYC Audit Log'
         verbose_name_plural = 'KYC Audit Logs'
+        ordering = ['-created_at']
+
+
+class SecurityAuditLog(models.Model):
+    """Durable audit trail for sensitive account security actions."""
+
+    ACTION_TRANSACTION_PIN_SET = 'transaction_pin_set'
+    ACTION_TRANSACTION_PIN_CHANGED = 'transaction_pin_changed'
+    ACTION_TRANSACTION_PIN_RESET = 'transaction_pin_reset'
+    ACTION_TRANSACTION_PIN_RESET_OTP_SENT = 'transaction_pin_reset_otp_sent'
+    ACTION_PHONE_CHANGE_OTP_SENT = 'phone_change_otp_sent'
+    ACTION_PHONE_CHANGED = 'phone_changed'
+    ACTION_EMAIL_CHANGE_OTP_SENT = 'email_change_otp_sent'
+    ACTION_EMAIL_CHANGED = 'email_changed'
+    ACTION_CHOICES = [
+        (ACTION_TRANSACTION_PIN_SET, 'Transaction PIN Set'),
+        (ACTION_TRANSACTION_PIN_CHANGED, 'Transaction PIN Changed'),
+        (ACTION_TRANSACTION_PIN_RESET, 'Transaction PIN Reset'),
+        (ACTION_TRANSACTION_PIN_RESET_OTP_SENT, 'Transaction PIN Reset OTP Sent'),
+        (ACTION_PHONE_CHANGE_OTP_SENT, 'Phone Change OTP Sent'),
+        (ACTION_PHONE_CHANGED, 'Phone Changed'),
+        (ACTION_EMAIL_CHANGE_OTP_SENT, 'Email Change OTP Sent'),
+        (ACTION_EMAIL_CHANGED, 'Email Changed'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='security_audit_logs',
+    )
+    action = models.CharField(max_length=40, choices=ACTION_CHOICES, db_index=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True, default='')
+    details = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return f'{self.user.phone} — {self.action} @ {self.created_at}'
+
+    class Meta:
+        verbose_name = 'Security Audit Log'
+        verbose_name_plural = 'Security Audit Logs'
         ordering = ['-created_at']

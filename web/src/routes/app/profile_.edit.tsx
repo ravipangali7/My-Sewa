@@ -20,7 +20,7 @@ export const Route = createFileRoute("/app/profile_/edit")({
       { title: "Edit Profile — MySewa" },
       {
         name: "description",
-        content: "Update your MySewa name, email, and date of birth.",
+        content: "Update your MySewa nickname, business name, and personal details.",
       },
       { property: "og:title", content: "Edit Profile — MySewa" },
     ],
@@ -34,7 +34,8 @@ function EditProfilePage() {
   const { user, refreshProfile } = useAuth();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
+  const [nickname, setNickname] = useState("");
+  const [businessName, setBusinessName] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -42,7 +43,8 @@ function EditProfilePage() {
     if (!user) return;
     setFirstName(user.first_name || "");
     setLastName(user.last_name || "");
-    setEmail(user.email || "");
+    setNickname(user.nickname || "");
+    setBusinessName(user.business_name || "");
     setDateOfBirth(toAdIsoDate(user.date_of_birth));
   }, [user]);
 
@@ -61,7 +63,7 @@ function EditProfilePage() {
   return (
     <UserShell title={t("profile.editProfile")} back="/app/profile">
       <form
-        className="inset-group space-y-4 p-4"
+        className="inset-group min-w-0 max-w-full space-y-4 overflow-x-clip p-4"
         onSubmit={async (e) => {
           e.preventDefault();
           if (!identityLocked && !dateOfBirth) {
@@ -71,8 +73,8 @@ function EditProfilePage() {
           setSaving(true);
           try {
             const fd = new FormData();
-            // Email (and avatar elsewhere) remain editable after KYC.
-            fd.append("email", email);
+            fd.append("nickname", nickname.trim());
+            fd.append("business_name", businessName.trim());
             if (!identityLocked) {
               fd.append("first_name", firstName);
               fd.append("last_name", lastName);
@@ -90,6 +92,31 @@ function EditProfilePage() {
         }}
       >
         {identityLocked ? <IdentityLockedBanner /> : null}
+
+        <div className="space-y-1.5">
+          <Label htmlFor="nickname">{t("profile.nickname")}</Label>
+          <Input
+            id="nickname"
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            autoComplete="nickname"
+            placeholder={t("profile.nicknamePlaceholder")}
+            maxLength={60}
+          />
+          <p className="text-[12px] text-muted-foreground">{t("profile.nicknameHint")}</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="business_name">{t("profile.businessName")}</Label>
+          <Input
+            id="business_name"
+            value={businessName}
+            onChange={(e) => setBusinessName(e.target.value)}
+            autoComplete="organization"
+            placeholder={t("profile.businessNamePlaceholder")}
+            maxLength={120}
+          />
+        </div>
 
         <div className="space-y-1.5">
           <Label htmlFor="first_name">{t("profile.firstName")}</Label>
@@ -128,17 +155,6 @@ function EditProfilePage() {
             />
           </div>
         ) : null}
-
-        <div className="space-y-1.5">
-          <Label htmlFor="email">{t("profile.email")}</Label>
-          <Input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-          />
-        </div>
 
         {identityLocked ? (
           <div className="space-y-1.5">

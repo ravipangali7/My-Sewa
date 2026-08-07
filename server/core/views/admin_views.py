@@ -30,6 +30,8 @@ from ..models import (
     BankTransferTransaction,
     RemittanceTransaction,
     InternetBillTransaction,
+    WaterBillTransaction,
+    CommunityElectricityTransaction,
     DataPackTransaction,
     UserFeeConfig,
     KYCSubmission,
@@ -49,6 +51,10 @@ from ..serializers import (
     AdminRemittanceSerializer,
     InternetBillTransactionSerializer,
     AdminInternetBillSerializer,
+    WaterBillTransactionSerializer,
+    AdminWaterBillSerializer,
+    CommunityElectricityTransactionSerializer,
+    AdminCommunityElectricitySerializer,
     DataPackTransactionSerializer,
     AdminDataPackSerializer,
     SettingsSerializer,
@@ -1598,6 +1604,208 @@ def admin_update_internet_bill_status(request, bill_id):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
+def admin_list_water_bills(request):
+    qs = WaterBillTransaction.objects.select_related('user').order_by('-created_at')
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+    status_filter = request.query_params.get('status')
+    if status_filter in ('pending', 'success', 'failed'):
+        qs = qs.filter(status=status_filter)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(connection_no__icontains=q)
+            | Q(customer_code__icontains=q)
+            | Q(counter__icontains=q)
+            | Q(customer_name__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | Q(session_id__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-water-bills.csv',
+            [
+                'id', 'phone', 'connection_no', 'customer_code', 'counter',
+                'customer_name', 'amount', 'charge', 'cashback', 'total_debited',
+                'merchant_txn_id', 'service_hub_txn_id', 'status', 'created_at',
+            ],
+            [
+                [
+                    t.id, t.user.phone, t.connection_no, t.customer_code, t.counter,
+                    t.customer_name, t.amount, t.charge, t.cashback,
+                    t.total_debited, t.merchant_txn_id, t.service_hub_txn_id or '',
+                    t.status, t.created_at.isoformat() if t.created_at else '',
+                ]
+                for t in qs
+            ],
+        )
+
+    return Response({
+        'items': WaterBillTransactionSerializer(qs, many=True).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status='success').count(),
+            'pending': qs.filter(status='pending').count(),
+            'failed': qs.filter(status='failed').count(),
+        },
+        'summary': _amount_summary(qs, direction='debit'),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_get_water_bill(request, bill_id):
+    try:
+        bill = WaterBillTransaction.objects.select_related('user').get(pk=bill_id)
+    except WaterBillTransaction.DoesNotExist:
+        return Response({'error': 'Water bill not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(AdminWaterBillSerializer(bill).data)
+
+
+@api_view(['POST', 'PATCH'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_update_water_bill_status(request, bill_id):
+    """Change water bill status from the admin list (pending / success / failed)."""
+    try:
+        bill = WaterBillTransaction.objects.select_related('user').get(pk=bill_id)
+    except WaterBillTransaction.DoesNotExist:
+        return Response({'error': 'Water bill not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    new_status = (request.data.get('status') or '').strip().lower()
+    old_status = bill.status
+    ok, err = apply_outbound_status_change(bill, new_status)
+    if not ok:
+        return Response({'error': err}, status=status.HTTP_400_BAD_REQUEST)
+
+    bill.refresh_from_db()
+    if old_status != 'success' and bill.status == 'success':
+        from ..services.notifications import notify_low_balance_if_needed
+        from ..models import Wallet
+        try:
+            wallet = Wallet.objects.select_related('user').get(user=bill.user)
+            notify_low_balance_if_needed(wallet)
+        except Wallet.DoesNotExist:
+            pass
+
+    return Response({
+        'message': f'Water bill status updated to {bill.status}',
+        'data': AdminWaterBillSerializer(bill).data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_list_community_electricity(request):
+    qs = CommunityElectricityTransaction.objects.select_related('user').order_by('-created_at')
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+    status_filter = request.query_params.get('status')
+    platform_filter = (request.query_params.get('platform_id') or '').strip().lower()
+    if status_filter in ('pending', 'success', 'failed'):
+        qs = qs.filter(status=status_filter)
+    if platform_filter:
+        qs = qs.filter(platform_id=platform_filter)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(platform_id__icontains=q)
+            | Q(platform_name__icontains=q)
+            | Q(customer_ref__icontains=q)
+            | Q(service_slug__icontains=q)
+            | Q(counter_code__icontains=q)
+            | Q(customer_name__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | Q(session_id__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-community-electricity.csv',
+            [
+                'id', 'phone', 'platform_id', 'platform_name', 'customer_ref',
+                'service_slug', 'counter_code', 'amount', 'charge', 'cashback',
+                'total_debited', 'merchant_txn_id', 'service_hub_txn_id',
+                'status', 'created_at',
+            ],
+            [
+                [
+                    t.id, t.user.phone, t.platform_id, t.platform_name, t.customer_ref,
+                    t.service_slug, t.counter_code, t.amount, t.charge, t.cashback,
+                    t.total_debited, t.merchant_txn_id, t.service_hub_txn_id or '',
+                    t.status, t.created_at.isoformat() if t.created_at else '',
+                ]
+                for t in qs
+            ],
+        )
+
+    return Response({
+        'items': CommunityElectricityTransactionSerializer(qs, many=True).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status='success').count(),
+            'pending': qs.filter(status='pending').count(),
+            'failed': qs.filter(status='failed').count(),
+        },
+        'summary': _amount_summary(qs, direction='debit'),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_get_community_electricity(request, bill_id):
+    try:
+        bill = CommunityElectricityTransaction.objects.select_related('user').get(pk=bill_id)
+    except CommunityElectricityTransaction.DoesNotExist:
+        return Response(
+            {'error': 'Community electricity bill not found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    return Response(AdminCommunityElectricitySerializer(bill).data)
+
+
+@api_view(['POST', 'PATCH'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_update_community_electricity_status(request, bill_id):
+    """Change community electricity status from the admin list."""
+    try:
+        bill = CommunityElectricityTransaction.objects.select_related('user').get(pk=bill_id)
+    except CommunityElectricityTransaction.DoesNotExist:
+        return Response(
+            {'error': 'Community electricity bill not found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    new_status = (request.data.get('status') or '').strip().lower()
+    old_status = bill.status
+    ok, err = apply_outbound_status_change(bill, new_status)
+    if not ok:
+        return Response({'error': err}, status=status.HTTP_400_BAD_REQUEST)
+
+    bill.refresh_from_db()
+    if old_status != 'success' and bill.status == 'success':
+        from ..services.notifications import notify_low_balance_if_needed
+        from ..models import Wallet
+        try:
+            wallet = Wallet.objects.select_related('user').get(user=bill.user)
+            notify_low_balance_if_needed(wallet)
+        except Wallet.DoesNotExist:
+            pass
+
+    return Response({
+        'message': f'Community electricity status updated to {bill.status}',
+        'data': AdminCommunityElectricitySerializer(bill).data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
 def admin_list_remittances(request):
     qs = RemittanceTransaction.objects.select_related('user').order_by('-created_at')
     q = (request.query_params.get('q') or '').strip()
@@ -1745,7 +1953,14 @@ def admin_settings(request):
             current = merge_app_config(settings_obj.config)
             for section, values in incoming.items():
                 if isinstance(values, dict):
-                    current[section] = {**(current.get(section) or {}), **values}
+                    if section == 'smtp':
+                        from ..services.smtp import preserve_smtp_password_on_merge
+                        current[section] = preserve_smtp_password_on_merge(
+                            current.get(section) or {},
+                            values,
+                        )
+                    else:
+                        current[section] = {**(current.get(section) or {}), **values}
                 else:
                     current[section] = values
             settings_obj.config = current
@@ -1755,6 +1970,108 @@ def admin_settings(request):
         'message': 'Settings updated successfully',
         'data': SettingsSerializer(settings_obj, context={'request': request}).data,
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_test_smtp_email(request):
+    """
+    Send a test email using saved SMTP settings, optionally overridden by
+    fields in the request body (so admins can verify before saving).
+    """
+    from ..services.smtp import (
+        merge_smtp_override,
+        send_smtp_email,
+        format_from_address,
+    )
+    from ..services.notifications import render_transaction_email, _site_name
+
+    to_email = (
+        (request.data.get('to_email') or request.data.get('email') or '').strip()
+        or (getattr(request.user, 'email', None) or '').strip()
+    )
+    if not to_email:
+        return Response(
+            {
+                'ok': False,
+                'message': 'Provide a destination email address (to_email).',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    smtp = merge_smtp_override(request.data if isinstance(request.data, dict) else None)
+    host = (smtp.get('host') or '').strip()
+    if not host:
+        return Response(
+            {
+                'ok': False,
+                'message': 'SMTP host is required. Enter host and credentials, then try again.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not (smtp.get('from_email') or '').strip():
+        return Response(
+            {
+                'ok': False,
+                'message': 'Sender email is required.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    site_name = _site_name()
+    subject = f'[{site_name}] SMTP test email'
+    text = (
+        f'This is a test email from {site_name}.\n\n'
+        f'If you received this message, your SMTP configuration is working.\n'
+        f'From: {format_from_address(smtp)}\n'
+        f'Host: {host}:{smtp.get("port")}\n'
+        f'Encryption: {smtp.get("encryption")}\n'
+    )
+    html = render_transaction_email(
+        title='SMTP configuration test',
+        subtitle=f'{site_name} email delivery is working.',
+        amount_label='Status',
+        amount_display='Connected',
+        status='success',
+        status_label='Success',
+        rows=[
+            ('Test type', 'SMTP connection'),
+            ('SMTP host', f'{host}:{smtp.get("port")}'),
+            ('Encryption', str(smtp.get('encryption') or 'tls').upper()),
+            ('From', format_from_address(smtp)),
+            ('Recipient', to_email),
+        ],
+        footer_note=(
+            'This message was sent from Admin → Settings → Email / SMTP. '
+            'Save your settings if you have not already.'
+        ),
+    )
+
+    try:
+        send_smtp_email(
+            subject,
+            text,
+            [to_email],
+            html_body=html,
+            smtp=smtp,
+            fail_silently=False,
+        )
+    except Exception as exc:
+        return Response(
+            {
+                'ok': False,
+                'message': f'Failed to send test email: {exc}',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response(
+        {
+            'ok': True,
+            'message': f'Test email sent to {to_email}.',
+            'to_email': to_email,
+        }
+    )
 
 
 @api_view(['GET'])

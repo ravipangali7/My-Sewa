@@ -8,10 +8,12 @@ import {
   CreditCard,
   ArrowLeftRight,
   ImageIcon,
+  Mail,
   QrCode,
   Save,
   Shield,
   ArrowDownToLine,
+  Send,
 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { useErrorPopup } from "@/components/ErrorPopup";
@@ -34,7 +36,7 @@ export const Route = createFileRoute("/admin/settings")({
       {
         name: "description",
         content:
-          "Manage MySewa global configuration: general info, branding, payments, transaction rules, notifications, security, and deposit account details.",
+          "Manage MySewa global configuration: general info, branding, payments, transaction rules, SMTP email, notifications, security, and deposit account details.",
       },
       { property: "og:title", content: "App Settings — MySewa Admin" },
       {
@@ -63,6 +65,8 @@ const DEFAULT_CONFIG: AppConfig = {
     remittances_enabled: true,
     internet_bills_enabled: true,
     data_packs_enabled: true,
+    water_bills_enabled: true,
+    community_electricity_enabled: true,
     min_deposit: 100,
     max_deposit: 100000,
     deposit_instructions: "",
@@ -83,11 +87,11 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   notifications: {
     email_on_deposit: true,
-    email_on_topup: false,
+    email_on_topup: true,
     sms_on_deposit_approved: true,
     email_on_wallet_credit: true,
-    email_on_wallet_debit: false,
-    email_on_transfer: false,
+    email_on_wallet_debit: true,
+    email_on_transfer: true,
     email_on_wallet_adjustment: true,
     admin_alert_email: "",
     notify_low_balance: false,
@@ -104,6 +108,16 @@ const DEFAULT_CONFIG: AppConfig = {
   integrations: {
     himalpay_api_key: "",
     himalpay_base_url: "https://api.himalpay.com.np/api/v1",
+  },
+  smtp: {
+    enabled: false,
+    host: "",
+    port: 587,
+    encryption: "tls",
+    username: "",
+    password: "",
+    from_name: "MySewa",
+    from_email: "",
   },
   remittance: {
     payout_location_name: "MySewa",
@@ -133,6 +147,7 @@ const SECTIONS = [
   { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
   { id: "remittance", label: "Remittance agent", icon: ArrowDownToLine },
   { id: "deposit", label: "Deposit account", icon: QrCode },
+  { id: "smtp", label: "Email / SMTP", icon: Mail },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "security", label: "Security", icon: Shield },
 ] as const;
@@ -165,6 +180,8 @@ function SettingsPage() {
   const [qrPreview, setQrPreview] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [smtpTestEmail, setSmtpTestEmail] = useState("");
+  const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
 
   useEffect(() => {
     if (!settingsQuery.data) return;
@@ -179,11 +196,18 @@ function SettingsPage() {
         ...DEFAULT_CONFIG.integrations!,
         ...(remote?.integrations ?? {}),
       },
+      smtp: {
+        ...DEFAULT_CONFIG.smtp!,
+        ...(remote?.smtp ?? {}),
+        encryption: (remote?.smtp?.encryption as "tls" | "ssl" | "none") || "tls",
+        port: Number(remote?.smtp?.port ?? DEFAULT_CONFIG.smtp!.port) || 587,
+      },
       remittance: {
         ...DEFAULT_CONFIG.remittance!,
         ...(remote?.remittance ?? {}),
       },
     });
+    setSmtpPasswordTouched(false);
     const b = settingsQuery.data.bank_details ?? {};
     setBank({
       bank_name: b.bank_name || "",
@@ -191,6 +215,12 @@ function SettingsPage() {
       account_number: b.account_number || "",
       branch: b.branch || "",
     });
+    setSmtpTestEmail((prev) =>
+      prev ||
+      remote?.notifications?.admin_alert_email ||
+      remote?.smtp?.from_email ||
+      "",
+    );
   }, [settingsQuery.data]);
 
   useEffect(() => {
@@ -252,8 +282,65 @@ function SettingsPage() {
     },
   });
 
+  const testSmtpMutation = useMutation({
+    mutationFn: () => {
+      const smtp = config.smtp ?? DEFAULT_CONFIG.smtp!;
+      const password =
+        smtpPasswordTouched && smtp.password && smtp.password !== "••••••••"
+          ? smtp.password
+          : undefined;
+      return apiClient.adminTestSmtpEmail({
+        to_email: smtpTestEmail.trim(),
+        host: smtp.host,
+        port: Number(smtp.port) || 587,
+        encryption: smtp.encryption,
+        username: smtp.username,
+        ...(password ? { password } : {}),
+        from_name: smtp.from_name,
+        from_email: smtp.from_email,
+      });
+    },
+    onSuccess: (data) => {
+      if (data.ok) {
+        toast.success(data.message || "Test email sent");
+      } else {
+        errorPopup.showMessage(data.message || "Test email failed", {
+          title: "SMTP test",
+        });
+      }
+    },
+    onError: (err) => {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : "Could not send test email";
+      errorPopup.showError(err, {
+        title: "SMTP test failed",
+        fallback: message,
+      });
+    },
+  });
+
   const saveConfigSection = <K extends keyof AppConfig>(section: K, values: AppConfig[K]) => {
     saveMutation.mutate({ config: { [section]: values } });
+  };
+
+  const saveSmtp = () => {
+    const smtp = config.smtp ?? DEFAULT_CONFIG.smtp!;
+    const payload: AppConfig["smtp"] = {
+      enabled: smtp.enabled,
+      host: smtp.host,
+      port: Number(smtp.port) || 587,
+      encryption: smtp.encryption,
+      username: smtp.username,
+      password: "",
+      from_name: smtp.from_name,
+      from_email: smtp.from_email,
+    };
+    if (smtpPasswordTouched && smtp.password && smtp.password !== "••••••••") {
+      payload.password = smtp.password;
+    }
+    saveConfigSection("smtp", payload);
   };
 
   const saveGeneral = () => {
@@ -586,6 +673,28 @@ function SettingsPage() {
                     setConfig((c) => ({
                       ...c,
                       payment: { ...c.payment, data_packs_enabled: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="Water bill payments (KUKL)"
+                  description="Allow Khane Pani / KUKL water bill inquiry and payment"
+                  checked={config.payment.water_bills_enabled !== false}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      payment: { ...c.payment, water_bills_enabled: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="Community electricity"
+                  description="Allow Himchuli, Watermark, Dreamer, Softlab and BPC payments"
+                  checked={config.payment.community_electricity_enabled !== false}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      payment: { ...c.payment, community_electricity_enabled: v },
                     }))
                   }
                 />
@@ -1079,6 +1188,181 @@ function SettingsPage() {
                       Cancel selection
                     </Button>
                   ) : null}
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="smtp">
+            <div className="space-y-4">
+              <SettingsPanel
+                title="SMTP email settings"
+                description="Configure outbound email for OTPs, receipts, and admin alerts. Test before saving to verify delivery."
+                onSave={saveSmtp}
+                saving={saving}
+              >
+                <div className="space-y-3">
+                  <ToggleRow
+                    label="Enable SMTP"
+                    description="Use these credentials instead of server environment defaults when sending mail"
+                    checked={Boolean(config.smtp?.enabled)}
+                    onCheckedChange={(v) =>
+                      setConfig((c) => ({
+                        ...c,
+                        smtp: { ...(c.smtp ?? DEFAULT_CONFIG.smtp!), enabled: v },
+                      }))
+                    }
+                  />
+                </div>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <Field
+                    id="smtp_host"
+                    label="SMTP host"
+                    value={config.smtp?.host ?? ""}
+                    onChange={(v) =>
+                      setConfig((c) => ({
+                        ...c,
+                        smtp: { ...(c.smtp ?? DEFAULT_CONFIG.smtp!), host: v },
+                      }))
+                    }
+                  />
+                  <NumberField
+                    id="smtp_port"
+                    label="Port"
+                    value={Number(config.smtp?.port ?? 587)}
+                    onChange={(v) =>
+                      setConfig((c) => ({
+                        ...c,
+                        smtp: { ...(c.smtp ?? DEFAULT_CONFIG.smtp!), port: v },
+                      }))
+                    }
+                  />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="smtp_encryption">Encryption</Label>
+                    <select
+                      id="smtp_encryption"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={config.smtp?.encryption ?? "tls"}
+                      onChange={(e) => {
+                        const encryption = e.target.value as "tls" | "ssl" | "none";
+                        const port =
+                          encryption === "ssl"
+                            ? 465
+                            : encryption === "tls"
+                              ? 587
+                              : config.smtp?.port ?? 25;
+                        setConfig((c) => ({
+                          ...c,
+                          smtp: {
+                            ...(c.smtp ?? DEFAULT_CONFIG.smtp!),
+                            encryption,
+                            port,
+                          },
+                        }));
+                      }}
+                    >
+                      <option value="tls">TLS (STARTTLS, port 587)</option>
+                      <option value="ssl">SSL (port 465)</option>
+                      <option value="none">None</option>
+                    </select>
+                  </div>
+                  <Field
+                    id="smtp_from_name"
+                    label="Sender name"
+                    value={config.smtp?.from_name ?? ""}
+                    onChange={(v) =>
+                      setConfig((c) => ({
+                        ...c,
+                        smtp: { ...(c.smtp ?? DEFAULT_CONFIG.smtp!), from_name: v },
+                      }))
+                    }
+                  />
+                  <Field
+                    id="smtp_from_email"
+                    label="Sender email"
+                    type="email"
+                    value={config.smtp?.from_email ?? ""}
+                    onChange={(v) =>
+                      setConfig((c) => ({
+                        ...c,
+                        smtp: { ...(c.smtp ?? DEFAULT_CONFIG.smtp!), from_email: v },
+                      }))
+                    }
+                  />
+                  <Field
+                    id="smtp_username"
+                    label="Username"
+                    value={config.smtp?.username ?? ""}
+                    onChange={(v) =>
+                      setConfig((c) => ({
+                        ...c,
+                        smtp: { ...(c.smtp ?? DEFAULT_CONFIG.smtp!), username: v },
+                      }))
+                    }
+                  />
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="smtp_password">Password</Label>
+                    <PasswordInput
+                      id="smtp_password"
+                      value={
+                        smtpPasswordTouched
+                          ? config.smtp?.password ?? ""
+                          : config.smtp?.password_set
+                            ? "••••••••"
+                            : config.smtp?.password ?? ""
+                      }
+                      onChange={(e) => {
+                        setSmtpPasswordTouched(true);
+                        setConfig((c) => ({
+                          ...c,
+                          smtp: {
+                            ...(c.smtp ?? DEFAULT_CONFIG.smtp!),
+                            password: e.target.value,
+                          },
+                        }));
+                      }}
+                      placeholder={
+                        config.smtp?.password_set
+                          ? "Leave unchanged to keep current password"
+                          : "SMTP password / app password"
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Password is stored securely in settings and never shown after save. Leave
+                      blank when saving to keep the existing password.
+                    </p>
+                  </div>
+                </div>
+              </SettingsPanel>
+
+              <div className="rounded-xl border border-border bg-surface p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold">Send test email</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Verify the SMTP configuration above before saving. Uses the form values
+                      currently shown (saved password is reused if you have not changed it).
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="gap-1.5"
+                    disabled={testSmtpMutation.isPending || !smtpTestEmail.trim()}
+                    onClick={() => testSmtpMutation.mutate()}
+                  >
+                    <Send className="size-3.5" />
+                    {testSmtpMutation.isPending ? "Sending…" : "Send test email"}
+                  </Button>
+                </div>
+                <div className="mt-4 max-w-md">
+                  <Field
+                    id="smtp_test_email"
+                    label="Test recipient"
+                    type="email"
+                    value={smtpTestEmail}
+                    onChange={setSmtpTestEmail}
+                  />
                 </div>
               </div>
             </div>

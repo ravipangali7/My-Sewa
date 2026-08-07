@@ -42,9 +42,12 @@ function toneColor(tone: Tone): string {
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
+    // data: URLs must not set crossOrigin — it can block decoding in some browsers.
+    if (!src.startsWith("data:") && !src.startsWith("blob:")) {
+      img.crossOrigin = "anonymous";
+    }
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Failed to load logo for PDF"));
+    img.onerror = () => reject(new Error("Failed to load image for PDF"));
     img.src = src;
   });
 }
@@ -389,6 +392,10 @@ function inlineComputedStyles(source: Element, target: Element) {
   for (let i = 0; i < computed.length; i++) {
     const prop = computed.item(i);
     if (!prop) continue;
+    // Skip huge / non-serializable computed values that bloat the SVG.
+    if (prop.startsWith("animation") || prop.startsWith("transition") || prop === "cursor") {
+      continue;
+    }
     css += `${prop}:${computed.getPropertyValue(prop)};`;
   }
   (target as HTMLElement).style.cssText = css;
@@ -402,6 +409,114 @@ function inlineComputedStyles(source: Element, target: Element) {
   }
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Failed to encode image"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Convert an already-decoded <img> (or URL) into an embedded data URL. */
+async function imageElementToDataUrl(img: HTMLImageElement): Promise<string> {
+  const src = img.currentSrc || img.src;
+  if (!src) throw new Error("Image has no source");
+  if (src.startsWith("data:")) return src;
+
+  // Prefer drawing the in-memory bitmap (works for same-origin assets like /logo.png).
+  if (img.complete && img.naturalWidth > 0) {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas unavailable");
+      ctx.drawImage(img, 0, 0);
+      return canvas.toDataURL("image/png");
+    } catch {
+      // Canvas may be tainted for cross-origin logos — fall through to fetch.
+    }
+  }
+
+  const absolute = new URL(src, window.location.href).href;
+  const response = await fetch(absolute, { credentials: "include", mode: "cors" });
+  if (!response.ok) throw new Error(`Failed to fetch image (${response.status})`);
+  return blobToDataUrl(await response.blob());
+}
+
+async function waitForImages(element: HTMLElement): Promise<void> {
+  const images = Array.from(element.querySelectorAll("img"));
+  await Promise.all(
+    images.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) {
+            resolve();
+            return;
+          }
+          const done = () => resolve();
+          img.addEventListener("load", done, { once: true });
+          img.addEventListener("error", done, { once: true });
+        }),
+    ),
+  );
+}
+
+/**
+ * SVG foreignObject cannot load external images from a data: SVG URL.
+ * Embed every <img> as a data URL so the logo (and any other assets) survive export.
+ */
+async function embedImagesAsDataUrls(source: HTMLElement, clone: HTMLElement): Promise<void> {
+  const sourceImgs = Array.from(source.querySelectorAll("img"));
+  const cloneImgs = Array.from(clone.querySelectorAll("img"));
+
+  await Promise.all(
+    sourceImgs.map(async (srcImg, index) => {
+      const cloneImg = cloneImgs[index];
+      if (!cloneImg) return;
+      try {
+        const dataUrl = await imageElementToDataUrl(srcImg);
+        cloneImg.setAttribute("src", dataUrl);
+        cloneImg.removeAttribute("srcset");
+        cloneImg.removeAttribute("loading");
+      } catch {
+        // Keep original src; capture may still omit the image, but text/layout remain.
+      }
+    }),
+  );
+
+  // Last resort: ensure the MySewa brand mark is always embedded from the official asset.
+  const brandImgs = cloneImgs.filter(
+    (img) => img.getAttribute("alt") === "MySewa" && !(img.getAttribute("src") || "").startsWith("data:"),
+  );
+  if (brandImgs.length) {
+    try {
+      const response = await fetch(new URL("/logo.png", window.location.href).href, {
+        credentials: "same-origin",
+      });
+      if (response.ok) {
+        const dataUrl = await blobToDataUrl(await response.blob());
+        for (const img of brandImgs) {
+          img.setAttribute("src", dataUrl);
+          img.removeAttribute("srcset");
+        }
+      }
+    } catch {
+      // Ignore — receipt still exports without logo rather than failing entirely.
+    }
+  }
+}
+
+/** Ensure inline SVG icons (e.g. Lucide) serialize with a proper SVG namespace. */
+function ensureSvgNamespaces(root: HTMLElement) {
+  root.querySelectorAll("svg").forEach((svg) => {
+    if (!svg.getAttribute("xmlns")) {
+      svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    }
+  });
+}
+
 /**
  * Capture a DOM node as JPEG via SVG foreignObject (no external deps).
  * Used for on-screen receipt → PDF export.
@@ -410,26 +525,33 @@ async function captureElementAsJpeg(
   element: HTMLElement,
 ): Promise<{ jpeg: Uint8Array; width: number; height: number }> {
   await document.fonts?.ready.catch(() => undefined);
+  await waitForImages(element);
 
   const rect = element.getBoundingClientRect();
   const width = Math.max(1, Math.ceil(rect.width));
   const height = Math.max(1, Math.ceil(rect.height));
-  const pixelRatio = 2;
+  // 3× for crisp share/download output on retina displays.
+  const pixelRatio = Math.max(2, Math.min(3, window.devicePixelRatio || 2));
 
   const clone = element.cloneNode(true) as HTMLElement;
   inlineComputedStyles(element, clone);
+  await embedImagesAsDataUrls(element, clone);
+  ensureSvgNamespaces(clone);
   clone.style.margin = "0";
   clone.style.transform = "none";
+  clone.style.width = `${width}px`;
+  clone.style.maxWidth = `${width}px`;
+  clone.style.boxSizing = "border-box";
   clone.style.backgroundColor =
     clone.style.backgroundColor ||
     window.getComputedStyle(element).backgroundColor ||
-    "#ffffff";
+    "#F5F7FA";
 
   const serializer = new XMLSerializer();
   const xhtml = serializer.serializeToString(clone);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-    <foreignObject width="100%" height="100%">
-      <div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;background:#ffffff;">${xhtml}</div>
+    <foreignObject width="100%" height="100%" x="0" y="0">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;background:#F5F7FA;">${xhtml}</div>
     </foreignObject>
   </svg>`;
 
@@ -441,12 +563,12 @@ async function captureElementAsJpeg(
   canvas.height = Math.round(height * pixelRatio);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas unavailable");
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#F5F7FA";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.scale(pixelRatio, pixelRatio);
   ctx.drawImage(img, 0, 0, width, height);
 
-  const jpeg = await canvasToJpegBytes(canvas, 0.95);
+  const jpeg = await canvasToJpegBytes(canvas, 0.96);
   return { jpeg, width: canvas.width, height: canvas.height };
 }
 
@@ -508,7 +630,19 @@ async function buildStatementPdfBytes({
       watermarkSize,
     );
   } catch {
-    // Continue without watermark if logo cannot be loaded.
+    try {
+      if (logoUrl !== "/logo.png") {
+        await drawCircularWatermark(
+          ctx,
+          "/logo.png",
+          PAGE_W / 2,
+          watermarkCy,
+          watermarkSize,
+        );
+      }
+    } catch {
+      // Continue without watermark if logo cannot be loaded.
+    }
   }
 
   const valueMaxW = contentW * 0.55;

@@ -7,6 +7,7 @@ import {
   KeyRound,
   Lock,
   LogOut,
+  Mail,
   Phone,
   ShieldCheck,
   UserRound,
@@ -67,11 +68,18 @@ function Profile() {
     );
   }
 
-  const displayName =
+  const legalName =
     [user.first_name, user.last_name].filter(Boolean).join(" ") || t("profile.fallbackName");
+  const displayName = (user.nickname || "").trim() || legalName;
+  const initialsSource = (user.nickname || "").trim() || legalName;
   const initials =
-    `${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase() ||
-    user.phone.slice(0, 2);
+    initialsSource
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase() || user.phone.slice(0, 2);
   const accountActive = isAccountActive(user);
   const identityLocked = isIdentityLocked(user);
   const citizenship = (user.citizenship_number || "").trim();
@@ -186,6 +194,24 @@ function Profile() {
 
             <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
               <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+                <Mail className="size-[18px]" strokeWidth={2} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-medium text-[#8A94A6]">{t("profile.email")}</p>
+                <p className="truncate text-[16px] font-semibold text-[#0F172A]">
+                  {(user.email || "").trim() || t("profile.emailEmpty")}
+                </p>
+              </div>
+              <Link
+                to="/app/profile/email"
+                className="shrink-0 px-1 text-[15px] font-semibold text-[#2563EB]"
+              >
+                {t("profile.change")}
+              </Link>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
                 <Cake className="size-[18px]" strokeWidth={2} />
               </span>
               <div className="min-w-0 flex-1">
@@ -231,7 +257,16 @@ function Profile() {
                     </div>
                     <p className="text-[13px] text-[#64748B]">{t("profile.identityLockedBody")}</p>
                     <dl className="space-y-2 border-t border-[#F1F5F9] pt-2.5 text-[14px]">
-                      <IdentityFact label={t("profile.fullName")} value={displayName} />
+                      <IdentityFact label={t("profile.fullName")} value={legalName} />
+                      {(user.nickname || "").trim() ? (
+                        <IdentityFact label={t("profile.nickname")} value={user.nickname!} />
+                      ) : null}
+                      {(user.business_name || "").trim() ? (
+                        <IdentityFact
+                          label={t("profile.businessName")}
+                          value={user.business_name!}
+                        />
+                      ) : null}
                       <IdentityFact
                         label={t("profile.dateOfBirth")}
                         value={<DateOfBirthDisplay value={user.date_of_birth} />}

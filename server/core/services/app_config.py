@@ -69,6 +69,8 @@ def payment_disabled_response(feature: str) -> Response:
         'remittances': 'Remittance payouts are currently disabled.',
         'internet_bills': 'Internet bill payments are currently disabled.',
         'data_packs': 'Data pack top-ups are currently disabled.',
+        'water_bills': 'Water bill payments are currently disabled.',
+        'community_electricity': 'Community electricity payments are currently disabled.',
     }
     return Response(
         {
@@ -217,6 +219,8 @@ def require_feature_enabled(feature: str) -> Optional[Response]:
         'remittances': 'remittances_enabled',
         'internet_bills': 'internet_bills_enabled',
         'data_packs': 'data_packs_enabled',
+        'water_bills': 'water_bills_enabled',
+        'community_electricity': 'community_electricity_enabled',
     }.get(feature)
     if key and not payment.get(key, True):
         return payment_disabled_response(feature)
@@ -323,5 +327,5 @@ def public_config(config: Optional[Dict] = None) -> Dict[str, Any]:
                 'session_timeout_minutes', 60
             ),
         },
-        # Never expose HimalPay secrets on the public endpoint
+        # Never expose HimalPay / SMTP secrets on the public endpoint
     }

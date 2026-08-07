@@ -7,6 +7,8 @@ import type {
   BankTransferTransaction,
   InternetBillTransaction,
   DataPackTransaction,
+  WaterBillTransaction,
+  CommunityElectricityTransaction,
   WalletAdjustment,
   WalletTransactions,
 } from "./types";
@@ -24,6 +26,8 @@ const DEBIT_KINDS = new Set<ActivityKind>([
   "transfer",
   "internet",
   "data_pack",
+  "water",
+  "community_electricity",
   "wallet_adjustment",
 ]);
 
@@ -109,6 +113,26 @@ export function buildActivity(
       credit: false,
       status: dp.status,
       created_at: dp.created_at,
+    })),
+    ...(tx.water_bills ?? []).map((bill: WaterBillTransaction) => ({
+      id: `water-${bill.id}`,
+      kind: "water" as const,
+      title: t("activity.waterBill"),
+      subtitle: `${bill.connection_no} · ${bill.customer_code}`,
+      amount: bill.total_debited !== "0.00" ? bill.total_debited : bill.amount,
+      credit: false,
+      status: bill.status,
+      created_at: bill.created_at,
+    })),
+    ...(tx.community_electricity ?? []).map((bill: CommunityElectricityTransaction) => ({
+      id: `ce-${bill.id}`,
+      kind: "community_electricity" as const,
+      title: t("activity.communityElectricity", { provider: bill.platform_name }),
+      subtitle: bill.customer_ref,
+      amount: bill.total_debited !== "0.00" ? bill.total_debited : bill.amount,
+      credit: false,
+      status: bill.status,
+      created_at: bill.created_at,
     })),
     ...adjustments.map((a: WalletAdjustment) => {
       const isCredit = a.adjustment_type === "credit";
@@ -437,6 +461,119 @@ export function buildActivityStatement(
       reference,
       headlineAmount: formatNPR(
         dp.total_debited !== "0.00" ? dp.total_debited : dp.amount,
+      ),
+      amountCaption: t("history.totalDebited"),
+      footer: t("history.footer"),
+      details,
+    };
+  }
+
+  if (item.kind === "water") {
+    const bill = (tx.water_bills ?? []).find((x) => `water-${x.id}` === id);
+    if (!bill) return undefined;
+    const reference =
+      bill.merchant_txn_id ||
+      bill.reference_id ||
+      bill.service_hub_txn_id ||
+      `#${bill.id}`;
+    const details: StatementRow[] = [];
+    pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("history.dateTime"), formatDateTime(bill.created_at));
+    pushDetail(details, t("history.channel"), t("history.channelOnline"));
+    pushDetail(details, t("history.serviceName"), t("activity.waterBill"));
+    pushDetail(details, t("common.status"), translateStatus(bill.status, t));
+    pushDetail(details, t("water.connectionNo"), bill.connection_no, { mono: true });
+    pushDetail(details, t("water.customerCode"), bill.customer_code, { mono: true });
+    pushDetail(details, t("water.counter"), bill.counter);
+    pushDetail(details, t("water.customerName"), bill.customer_name || "—");
+    pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
+    pushDetail(details, t("common.charge"), formatNPR(bill.charge));
+    pushDetail(details, t("common.cashback"), formatNPR(bill.cashback));
+    pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
+    pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
+    pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.providerTxn"), bill.service_hub_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.reference"), bill.reference_id, {
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
+    return {
+      item,
+      reference,
+      headlineAmount: formatNPR(
+        bill.total_debited !== "0.00" ? bill.total_debited : bill.amount,
+      ),
+      amountCaption: t("history.totalDebited"),
+      footer: t("history.footer"),
+      details,
+    };
+  }
+
+  if (item.kind === "community_electricity") {
+    const bill = (tx.community_electricity ?? []).find((x) => `ce-${x.id}` === id);
+    if (!bill) return undefined;
+    const reference =
+      bill.merchant_txn_id ||
+      bill.reference_id ||
+      bill.service_hub_txn_id ||
+      `#${bill.id}`;
+    const details: StatementRow[] = [];
+    pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("history.dateTime"), formatDateTime(bill.created_at));
+    pushDetail(details, t("history.channel"), t("history.channelOnline"));
+    pushDetail(
+      details,
+      t("history.serviceName"),
+      t("activity.communityElectricity", { provider: bill.platform_name }),
+    );
+    pushDetail(details, t("common.status"), translateStatus(bill.status, t));
+    pushDetail(details, t("communityElectricity.provider"), bill.platform_name);
+    pushDetail(details, t("communityElectricity.customerRef"), bill.customer_ref, {
+      mono: true,
+    });
+    pushDetail(details, t("communityElectricity.customerName"), bill.customer_name || "—");
+    if (bill.service_slug) {
+      pushDetail(details, t("communityElectricity.serviceSlug"), bill.service_slug);
+    }
+    if (bill.counter_code) {
+      pushDetail(details, t("communityElectricity.counter"), bill.counter_code);
+    }
+    if (bill.consumer_id) {
+      pushDetail(details, t("communityElectricity.consumerId"), bill.consumer_id, {
+        mono: true,
+      });
+    }
+    if (bill.month != null) {
+      pushDetail(details, t("communityElectricity.month"), String(bill.month));
+    }
+    pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
+    pushDetail(details, t("common.charge"), formatNPR(bill.charge));
+    pushDetail(details, t("common.cashback"), formatNPR(bill.cashback));
+    pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
+    pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
+    pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.providerTxn"), bill.service_hub_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.reference"), bill.reference_id, {
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
+    return {
+      item,
+      reference,
+      headlineAmount: formatNPR(
+        bill.total_debited !== "0.00" ? bill.total_debited : bill.amount,
       ),
       amountCaption: t("history.totalDebited"),
       footer: t("history.footer"),

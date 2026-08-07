@@ -59,11 +59,22 @@ function AdminProfilePage() {
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
 
   const [newPhone, setNewPhone] = useState("");
   const [phonePassword, setPhonePassword] = useState("");
+  const [phoneOtp, setPhoneOtp] = useState("");
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneEmailHint, setPhoneEmailHint] = useState("");
+  const [sendingPhoneOtp, setSendingPhoneOtp] = useState(false);
+
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [emailPassword, setEmailPassword] = useState("");
+  const [emailOtp, setEmailOtp] = useState("");
+  const [emailOtpSent, setEmailOtpSent] = useState(false);
+  const [emailHint, setEmailHint] = useState("");
+  const [sendingEmailOtp, setSendingEmailOtp] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -176,22 +187,34 @@ function AdminProfilePage() {
         <section className="min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
           <ActionRow
             label="Edit profile"
-            description="Name, email and date of birth"
+            description="Name and date of birth"
             onClick={() => {
               setFirstName(user.first_name || "");
               setLastName(user.last_name || "");
-              setEmail(user.email || "");
               setDateOfBirth(toAdIsoDate(user.date_of_birth));
               setEditOpen(true);
             }}
           />
           <ActionRow
             label="Change phone"
-            description="Requires current password"
+            description="Requires password and email OTP"
             onClick={() => {
               setNewPhone("");
               setPhonePassword("");
+              setPhoneOtp("");
+              setPhoneOtpSent(false);
               setPhoneOpen(true);
+            }}
+          />
+          <ActionRow
+            label="Change email"
+            description="OTP sent to the new email address"
+            onClick={() => {
+              setNewEmail("");
+              setEmailPassword("");
+              setEmailOtp("");
+              setEmailOtpSent(false);
+              setEmailOpen(true);
             }}
           />
           <ActionRow
@@ -233,7 +256,6 @@ function AdminProfilePage() {
                 const fd = new FormData();
                 fd.append("first_name", firstName);
                 fd.append("last_name", lastName);
-                fd.append("email", email);
                 fd.append("date_of_birth", dateOfBirth);
                 await apiClient.updateProfile(fd);
                 await refreshProfile();
@@ -260,15 +282,9 @@ function AdminProfilePage() {
                 onChange={(e) => setLastName(e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
+            <p className="text-xs text-muted-foreground">
+              To change email, use Change email from the profile card (OTP required).
+            </p>
             <DateOfBirthField
               value={dateOfBirth}
               onChange={setDateOfBirth}
@@ -281,7 +297,17 @@ function AdminProfilePage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={phoneOpen} onOpenChange={setPhoneOpen}>
+      <Dialog
+        open={phoneOpen}
+        onOpenChange={(open) => {
+          setPhoneOpen(open);
+          if (!open) {
+            setPhoneOtpSent(false);
+            setPhoneOtp("");
+            setPhoneEmailHint("");
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Change phone</DialogTitle>
@@ -291,15 +317,32 @@ function AdminProfilePage() {
             onSubmit={async (e) => {
               e.preventDefault();
               try {
+                if (!phoneOtpSent) {
+                  setSendingPhoneOtp(true);
+                  const res = await apiClient.requestChangePhoneOtp({
+                    new_phone: newPhone.trim(),
+                    current_password: phonePassword,
+                  });
+                  setPhoneOtpSent(true);
+                  setPhoneEmailHint(res.email_hint || "");
+                  if (res.debug_otp) setPhoneOtp(res.debug_otp);
+                  toast.success(res.message);
+                  return;
+                }
                 await apiClient.changePhone({
                   new_phone: newPhone.trim(),
                   current_password: phonePassword,
+                  otp: phoneOtp.trim(),
                 });
                 await refreshProfile();
                 toast.success("Phone updated");
                 setPhoneOpen(false);
+                setPhoneOtpSent(false);
+                setPhoneOtp("");
               } catch (err) {
                 toast.error(err instanceof ApiError ? err.message : "Update failed");
+              } finally {
+                setSendingPhoneOtp(false);
               }
             }}
           >
@@ -308,8 +351,13 @@ function AdminProfilePage() {
               <Input
                 id="new_phone"
                 value={newPhone}
-                onChange={(e) => setNewPhone(e.target.value)}
+                onChange={(e) => {
+                  setNewPhone(e.target.value);
+                  setPhoneOtpSent(false);
+                  setPhoneOtp("");
+                }}
                 required
+                disabled={phoneOtpSent}
               />
             </div>
             <div className="space-y-1.5">
@@ -319,10 +367,132 @@ function AdminProfilePage() {
                 value={phonePassword}
                 onChange={(e) => setPhonePassword(e.target.value)}
                 required
+                disabled={phoneOtpSent}
               />
             </div>
+            {phoneOtpSent ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="phone_otp">Verification code</Label>
+                <Input
+                  id="phone_otp"
+                  value={phoneOtp}
+                  onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  inputMode="numeric"
+                  maxLength={6}
+                  required
+                />
+                {phoneEmailHint ? (
+                  <p className="text-xs text-muted-foreground">Code sent to {phoneEmailHint}</p>
+                ) : null}
+              </div>
+            ) : null}
             <DialogFooter>
-              <Button type="submit">Update phone</Button>
+              <Button type="submit" disabled={sendingPhoneOtp}>
+                {phoneOtpSent
+                  ? "Update phone"
+                  : sendingPhoneOtp
+                    ? "Sending…"
+                    : "Send verification code"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={emailOpen}
+        onOpenChange={(open) => {
+          setEmailOpen(open);
+          if (!open) {
+            setEmailOtpSent(false);
+            setEmailOtp("");
+            setEmailHint("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change email</DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                if (!emailOtpSent) {
+                  setSendingEmailOtp(true);
+                  const res = await apiClient.requestEmailChange({
+                    new_email: newEmail.trim(),
+                    current_password: emailPassword,
+                  });
+                  setEmailOtpSent(true);
+                  setEmailHint(res.email_hint || "");
+                  if (res.debug_otp) setEmailOtp(res.debug_otp);
+                  toast.success(res.message);
+                  return;
+                }
+                await apiClient.confirmEmailChange({ otp: emailOtp.trim() });
+                await refreshProfile();
+                toast.success("Email updated");
+                setEmailOpen(false);
+                setEmailOtpSent(false);
+                setEmailOtp("");
+              } catch (err) {
+                toast.error(err instanceof ApiError ? err.message : "Update failed");
+              } finally {
+                setSendingEmailOtp(false);
+              }
+            }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="new_email">New email</Label>
+              <Input
+                id="new_email"
+                type="email"
+                value={newEmail}
+                onChange={(e) => {
+                  setNewEmail(e.target.value);
+                  setEmailOtpSent(false);
+                  setEmailOtp("");
+                }}
+                required
+                disabled={emailOtpSent}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="email_password">Current password</Label>
+              <PasswordInput
+                id="email_password"
+                value={emailPassword}
+                onChange={(e) => setEmailPassword(e.target.value)}
+                required
+                disabled={emailOtpSent}
+              />
+            </div>
+            {emailOtpSent ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="email_otp">Verification code</Label>
+                <Input
+                  id="email_otp"
+                  value={emailOtp}
+                  onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  inputMode="numeric"
+                  maxLength={6}
+                  required
+                />
+                {emailHint ? (
+                  <p className="text-xs text-muted-foreground">Code sent to {emailHint}</p>
+                ) : null}
+              </div>
+            ) : null}
+            <DialogFooter>
+              <Button type="submit" disabled={sendingEmailOtp}>
+                {emailOtpSent
+                  ? "Confirm email"
+                  : sendingEmailOtp
+                    ? "Sending…"
+                    : "Send verification code"}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

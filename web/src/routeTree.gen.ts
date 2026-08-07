@@ -26,6 +26,7 @@ import { Route as AdminTransfersRouteImport } from './routes/admin/transfers'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
 import { Route as AdminWalletsRouteImport } from './routes/admin/wallets'
 import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as AppCommunityElectricityRouteImport } from './routes/app/community-electricity'
 import { Route as AppDataTopupRouteImport } from './routes/app/data-topup'
 import { Route as AppHistoryRouteImport } from './routes/app/history'
 import { Route as AppInternetRouteImport } from './routes/app/internet'
@@ -37,6 +38,7 @@ import { Route as AppServicesRouteImport } from './routes/app/services'
 import { Route as AppTopupRouteImport } from './routes/app/topup'
 import { Route as AppTransferRouteImport } from './routes/app/transfer'
 import { Route as AppWalletHistoryRouteImport } from './routes/app/wallet-history'
+import { Route as AppWaterRouteImport } from './routes/app/water'
 import { Route as AdminDataTopupsDataTopupIdRouteImport } from './routes/admin/data-topups_.$dataTopupId'
 import { Route as AdminDepositsDepositIdRouteImport } from './routes/admin/deposits_.$depositId'
 import { Route as AdminInternetInternetIdRouteImport } from './routes/admin/internet_.$internetId'
@@ -48,6 +50,7 @@ import { Route as AdminWalletsWalletIdRouteImport } from './routes/admin/wallets
 import { Route as AppHistoryActivityIdRouteImport } from './routes/app/history_.$activityId'
 import { Route as AppNotificationsNotificationIdRouteImport } from './routes/app/notifications_.$notificationId'
 import { Route as AppProfileEditRouteImport } from './routes/app/profile_.edit'
+import { Route as AppProfileEmailRouteImport } from './routes/app/profile_.email'
 import { Route as AppProfileKycRouteImport } from './routes/app/profile_.kyc'
 import { Route as AppProfilePasswordRouteImport } from './routes/app/profile_.password'
 import { Route as AppProfilePhoneRouteImport } from './routes/app/profile_.phone'
@@ -142,6 +145,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/app/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppCommunityElectricityRoute = AppCommunityElectricityRouteImport.update({
+  id: '/app/community-electricity',
+  path: '/app/community-electricity',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppDataTopupRoute = AppDataTopupRouteImport.update({
   id: '/app/data-topup',
   path: '/app/data-topup',
@@ -195,6 +203,11 @@ const AppTransferRoute = AppTransferRouteImport.update({
 const AppWalletHistoryRoute = AppWalletHistoryRouteImport.update({
   id: '/app/wallet-history',
   path: '/app/wallet-history',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppWaterRoute = AppWaterRouteImport.update({
+  id: '/app/water',
+  path: '/app/water',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminDataTopupsDataTopupIdRoute =
@@ -252,6 +265,11 @@ const AppNotificationsNotificationIdRoute =
 const AppProfileEditRoute = AppProfileEditRouteImport.update({
   id: '/app/profile_/edit',
   path: '/app/profile/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppProfileEmailRoute = AppProfileEmailRouteImport.update({
+  id: '/app/profile_/email',
+  path: '/app/profile/email',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppProfileKycRoute = AppProfileKycRouteImport.update({
@@ -313,6 +331,7 @@ export interface FileRoutesByFullPath {
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
+  '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
@@ -324,6 +343,7 @@ export interface FileRoutesByFullPath {
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
   '/app/wallet-history': typeof AppWalletHistoryRoute
+  '/app/water': typeof AppWaterRoute
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
   '/admin/data-topups/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
@@ -337,6 +357,7 @@ export interface FileRoutesByFullPath {
   '/app/history/$activityId': typeof AppHistoryActivityIdRoute
   '/app/notifications/$notificationId': typeof AppNotificationsNotificationIdRoute
   '/app/profile/edit': typeof AppProfileEditRoute
+  '/app/profile/email': typeof AppProfileEmailRoute
   '/app/profile/kyc': typeof AppProfileKycRoute
   '/app/profile/password': typeof AppProfilePasswordRoute
   '/app/profile/phone': typeof AppProfilePhoneRoute
@@ -362,6 +383,7 @@ export interface FileRoutesByTo {
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
+  '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
@@ -373,6 +395,7 @@ export interface FileRoutesByTo {
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
   '/app/wallet-history': typeof AppWalletHistoryRoute
+  '/app/water': typeof AppWaterRoute
   '/admin': typeof AdminIndexRoute
   '/app': typeof AppIndexRoute
   '/admin/data-topups/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
@@ -386,6 +409,7 @@ export interface FileRoutesByTo {
   '/app/history/$activityId': typeof AppHistoryActivityIdRoute
   '/app/notifications/$notificationId': typeof AppNotificationsNotificationIdRoute
   '/app/profile/edit': typeof AppProfileEditRoute
+  '/app/profile/email': typeof AppProfileEmailRoute
   '/app/profile/kyc': typeof AppProfileKycRoute
   '/app/profile/password': typeof AppProfilePasswordRoute
   '/app/profile/phone': typeof AppProfilePhoneRoute
@@ -412,6 +436,7 @@ export interface FileRoutesById {
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
+  '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
@@ -423,6 +448,7 @@ export interface FileRoutesById {
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
   '/app/wallet-history': typeof AppWalletHistoryRoute
+  '/app/water': typeof AppWaterRoute
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
   '/admin/data-topups_/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
@@ -436,6 +462,7 @@ export interface FileRoutesById {
   '/app/history_/$activityId': typeof AppHistoryActivityIdRoute
   '/app/notifications_/$notificationId': typeof AppNotificationsNotificationIdRoute
   '/app/profile_/edit': typeof AppProfileEditRoute
+  '/app/profile_/email': typeof AppProfileEmailRoute
   '/app/profile_/kyc': typeof AppProfileKycRoute
   '/app/profile_/password': typeof AppProfilePasswordRoute
   '/app/profile_/phone': typeof AppProfilePhoneRoute
@@ -463,6 +490,7 @@ export interface FileRouteTypes {
     | '/admin/transfers'
     | '/admin/users'
     | '/admin/wallets'
+    | '/app/community-electricity'
     | '/app/data-topup'
     | '/app/history'
     | '/app/internet'
@@ -474,6 +502,7 @@ export interface FileRouteTypes {
     | '/app/topup'
     | '/app/transfer'
     | '/app/wallet-history'
+    | '/app/water'
     | '/admin/'
     | '/app/'
     | '/admin/data-topups/$dataTopupId'
@@ -487,6 +516,7 @@ export interface FileRouteTypes {
     | '/app/history/$activityId'
     | '/app/notifications/$notificationId'
     | '/app/profile/edit'
+    | '/app/profile/email'
     | '/app/profile/kyc'
     | '/app/profile/password'
     | '/app/profile/phone'
@@ -512,6 +542,7 @@ export interface FileRouteTypes {
     | '/admin/transfers'
     | '/admin/users'
     | '/admin/wallets'
+    | '/app/community-electricity'
     | '/app/data-topup'
     | '/app/history'
     | '/app/internet'
@@ -523,6 +554,7 @@ export interface FileRouteTypes {
     | '/app/topup'
     | '/app/transfer'
     | '/app/wallet-history'
+    | '/app/water'
     | '/admin'
     | '/app'
     | '/admin/data-topups/$dataTopupId'
@@ -536,6 +568,7 @@ export interface FileRouteTypes {
     | '/app/history/$activityId'
     | '/app/notifications/$notificationId'
     | '/app/profile/edit'
+    | '/app/profile/email'
     | '/app/profile/kyc'
     | '/app/profile/password'
     | '/app/profile/phone'
@@ -561,6 +594,7 @@ export interface FileRouteTypes {
     | '/admin/transfers'
     | '/admin/users'
     | '/admin/wallets'
+    | '/app/community-electricity'
     | '/app/data-topup'
     | '/app/history'
     | '/app/internet'
@@ -572,6 +606,7 @@ export interface FileRouteTypes {
     | '/app/topup'
     | '/app/transfer'
     | '/app/wallet-history'
+    | '/app/water'
     | '/admin/'
     | '/app/'
     | '/admin/data-topups_/$dataTopupId'
@@ -585,6 +620,7 @@ export interface FileRouteTypes {
     | '/app/history_/$activityId'
     | '/app/notifications_/$notificationId'
     | '/app/profile_/edit'
+    | '/app/profile_/email'
     | '/app/profile_/kyc'
     | '/app/profile_/password'
     | '/app/profile_/phone'
@@ -611,6 +647,7 @@ export interface RootRouteChildren {
   AdminTransfersRoute: typeof AdminTransfersRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminWalletsRoute: typeof AdminWalletsRoute
+  AppCommunityElectricityRoute: typeof AppCommunityElectricityRoute
   AppDataTopupRoute: typeof AppDataTopupRoute
   AppHistoryRoute: typeof AppHistoryRoute
   AppInternetRoute: typeof AppInternetRoute
@@ -622,6 +659,7 @@ export interface RootRouteChildren {
   AppTopupRoute: typeof AppTopupRoute
   AppTransferRoute: typeof AppTransferRoute
   AppWalletHistoryRoute: typeof AppWalletHistoryRoute
+  AppWaterRoute: typeof AppWaterRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AppIndexRoute: typeof AppIndexRoute
   AdminDataTopupsDataTopupIdRoute: typeof AdminDataTopupsDataTopupIdRoute
@@ -635,6 +673,7 @@ export interface RootRouteChildren {
   AppHistoryActivityIdRoute: typeof AppHistoryActivityIdRoute
   AppNotificationsNotificationIdRoute: typeof AppNotificationsNotificationIdRoute
   AppProfileEditRoute: typeof AppProfileEditRoute
+  AppProfileEmailRoute: typeof AppProfileEmailRoute
   AppProfileKycRoute: typeof AppProfileKycRoute
   AppProfilePasswordRoute: typeof AppProfilePasswordRoute
   AppProfilePhoneRoute: typeof AppProfilePhoneRoute
@@ -766,6 +805,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/community-electricity': {
+      id: '/app/community-electricity'
+      path: '/app/community-electricity'
+      fullPath: '/app/community-electricity'
+      preLoaderRoute: typeof AppCommunityElectricityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/data-topup': {
       id: '/app/data-topup'
       path: '/app/data-topup'
@@ -841,6 +887,13 @@ declare module '@tanstack/react-router' {
       path: '/app/wallet-history'
       fullPath: '/app/wallet-history'
       preLoaderRoute: typeof AppWalletHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/water': {
+      id: '/app/water'
+      path: '/app/water'
+      fullPath: '/app/water'
+      preLoaderRoute: typeof AppWaterRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/data-topups_/$dataTopupId': {
@@ -920,6 +973,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProfileEditRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/profile_/email': {
+      id: '/app/profile_/email'
+      path: '/app/profile/email'
+      fullPath: '/app/profile/email'
+      preLoaderRoute: typeof AppProfileEmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/profile_/kyc': {
       id: '/app/profile_/kyc'
       path: '/app/profile/kyc'
@@ -995,6 +1055,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminTransfersRoute: AdminTransfersRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminWalletsRoute: AdminWalletsRoute,
+  AppCommunityElectricityRoute: AppCommunityElectricityRoute,
   AppDataTopupRoute: AppDataTopupRoute,
   AppHistoryRoute: AppHistoryRoute,
   AppInternetRoute: AppInternetRoute,
@@ -1006,6 +1067,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppTopupRoute: AppTopupRoute,
   AppTransferRoute: AppTransferRoute,
   AppWalletHistoryRoute: AppWalletHistoryRoute,
+  AppWaterRoute: AppWaterRoute,
   AdminIndexRoute: AdminIndexRoute,
   AppIndexRoute: AppIndexRoute,
   AdminDataTopupsDataTopupIdRoute: AdminDataTopupsDataTopupIdRoute,
@@ -1019,6 +1081,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppHistoryActivityIdRoute: AppHistoryActivityIdRoute,
   AppNotificationsNotificationIdRoute: AppNotificationsNotificationIdRoute,
   AppProfileEditRoute: AppProfileEditRoute,
+  AppProfileEmailRoute: AppProfileEmailRoute,
   AppProfileKycRoute: AppProfileKycRoute,
   AppProfilePasswordRoute: AppProfilePasswordRoute,
   AppProfilePhoneRoute: AppProfilePhoneRoute,
@@ -1031,13 +1094,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

@@ -44,6 +44,20 @@ export function markAllNotificationsRead(ids: string[]) {
   localStorage.setItem(READ_KEY, JSON.stringify([...existing]));
 }
 
+function pushBalanceDetail(
+  rows: Array<{ label: string; value: string }>,
+  t: TranslateFn,
+  before: string | null | undefined,
+  after: string | null | undefined,
+) {
+  if (before != null && before !== "") {
+    rows.push({ label: t("history.balanceBefore"), value: formatNPR(before) });
+  }
+  if (after != null && after !== "") {
+    rows.push({ label: t("history.balanceAfter"), value: formatNPR(after) });
+  }
+}
+
 function detailRows(
   item: ActivityItem,
   tx: WalletTransactions,
@@ -52,7 +66,7 @@ function detailRows(
   if (item.kind === "deposit") {
     const d = tx.deposits.find((x) => `dep-${x.id}` === item.id);
     if (!d) return [];
-    return [
+    const rows = [
       { label: t("common.type"), value: t("notif.typeDeposit") },
       { label: t("common.amount"), value: formatNPR(d.amount) },
       { label: t("common.status"), value: translateStatus(d.status, t) },
@@ -60,13 +74,15 @@ function detailRows(
       ...(d.rejection_reason
         ? [{ label: t("notif.rejectionReason"), value: d.rejection_reason }]
         : []),
-      { label: t("common.date"), value: formatDateTime(d.created_at) },
     ];
+    pushBalanceDetail(rows, t, d.balance_before, d.balance_after);
+    rows.push({ label: t("common.date"), value: formatDateTime(d.created_at) });
+    return rows;
   }
   if (item.kind === "remittance") {
     const r = (tx.remittances ?? []).find((x) => `rem-${x.id}` === item.id);
     if (!r) return [];
-    return [
+    const rows = [
       { label: t("common.type"), value: t("notif.typeRemittance") },
       { label: t("remittance.refNo"), value: r.ref_no },
       { label: t("remittance.sender"), value: r.sender_name || "—" },
@@ -77,8 +93,10 @@ function detailRows(
       },
       { label: t("common.status"), value: translateStatus(r.status, t) },
       { label: t("common.txnId"), value: r.merchant_txn_id },
-      { label: t("common.date"), value: formatDateTime(r.created_at) },
     ];
+    pushBalanceDetail(rows, t, r.balance_before, r.balance_after);
+    rows.push({ label: t("common.date"), value: formatDateTime(r.created_at) });
+    return rows;
   }
   if (item.kind === "topup") {
     const top = tx.topups.find((x) => `top-${x.id}` === item.id);
@@ -100,12 +118,18 @@ function detailRows(
     const adj = (tx.wallet_adjustments ?? []).find((x) => `adj-${x.id}` === item.id);
     if (!adj) return [];
     return [
-      { label: t("common.type"), value: t("notif.typeWalletAdjustment") },
+      {
+        label: t("common.type"),
+        value:
+          adj.adjustment_type === "credit"
+            ? t("notif.typeManualLoad")
+            : t("notif.typeWalletDebit"),
+      },
       {
         label: t("history.adjustmentType"),
         value:
           adj.adjustment_type === "credit"
-            ? t("activity.walletCredit")
+            ? t("notif.manualLoadAddFund")
             : t("activity.walletDebit"),
       },
       { label: t("common.amount"), value: formatNPR(adj.display_amount || adj.amount) },
@@ -146,12 +170,13 @@ function detailRows(
 function notificationCopy(
   item: ActivityItem,
   t: TranslateFn,
+  tx?: WalletTransactions,
 ): { title: string; body: string } {
   if (item.kind === "deposit") {
     if (item.status === "approved") {
       return {
-        title: t("notif.remittanceCredited"),
-        body: t("notif.remittanceCreditedBody", {
+        title: t("notif.depositCredited"),
+        body: t("notif.depositCreditedBody", {
           amount: formatNPR(item.amount),
         }),
       };
@@ -205,9 +230,23 @@ function notificationCopy(
     };
   }
   if (item.kind === "wallet_adjustment") {
+    const adj = tx?.wallet_adjustments?.find((x) => `adj-${x.id}` === item.id);
+    const isCredit = adj?.adjustment_type === "credit" || item.credit;
     return {
-      title: item.title,
-      body: t("notif.transferBody", {
+      title: isCredit ? t("notif.manualLoadAddFund") : t("notif.walletDebitTitle"),
+      body: t("notif.walletAdjustmentBody", {
+        amount: formatNPR(item.amount),
+        note: item.subtitle || "—",
+      }),
+    };
+  }
+  if (item.kind === "water" || item.kind === "community_electricity" || item.kind === "internet" || item.kind === "data_pack") {
+    return {
+      title:
+        item.status === "failed"
+          ? t("notif.utilityFailed", { title: item.title })
+          : t("notif.utilityUpdate", { title: item.title }),
+      body: t("notif.utilityBody", {
         subtitle: item.subtitle,
         amount: formatNPR(item.amount),
       }),
@@ -231,7 +270,7 @@ export function buildNotifications(
 ): AppNotification[] {
   const read = readIds();
   return buildActivity(tx, t).map((item) => {
-    const copy = notificationCopy(item, t);
+    const copy = notificationCopy(item, t, tx);
     return {
       id: item.id,
       title: copy.title,

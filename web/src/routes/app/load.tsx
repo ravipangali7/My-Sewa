@@ -126,11 +126,16 @@ function LoadWallet() {
       return apiClient.createDeposit(fd);
     },
     onSuccess: (res) => {
-      toast.success(t("load.submitted"), { description: t("load.pendingApproval") });
+      const approved = res.data?.status === "approved";
+      toast.success(t("load.submitted"), {
+        description: approved ? t("load.autoApproved") : t("load.pendingApproval"),
+      });
       resetForm();
       setLastReceiptId(activityIdForKind("deposit", res.data.id));
       queryClient.invalidateQueries({ queryKey: ["deposits"] });
+      queryClient.invalidateQueries({ queryKey: ["wallet"] });
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });
     },
     onError: (err) => {
       toast.error(

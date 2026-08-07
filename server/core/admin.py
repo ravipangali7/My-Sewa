@@ -10,11 +10,14 @@ from .models import (
     TopupTransaction,
     BankTransferTransaction,
     RemittanceTransaction,
+    WaterBillTransaction,
+    CommunityElectricityTransaction,
     UserFeeConfig,
     DeviceToken,
     KYCSubmission,
     KYCDocument,
     KYCAuditLog,
+    SecurityAuditLog,
 )
 
 User = get_user_model()
@@ -26,7 +29,7 @@ class CustomUserAdminForm(forms.ModelForm):
     class Meta:
         model = User
         fields = (
-            'phone', 'email', 'first_name', 'last_name', 'avatar',
+            'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
             'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
             'is_active', 'is_staff',
         )
@@ -50,14 +53,17 @@ class CustomUserAdminForm(forms.ModelForm):
 class CustomUserAdmin(admin.ModelAdmin):
     form = CustomUserAdminForm
     list_display = (
-        'phone', 'email', 'first_name', 'last_name',
+        'phone', 'email', 'first_name', 'last_name', 'nickname',
         'account_status', 'kyc_status', 'is_active', 'date_joined',
     )
     list_filter = ('account_status', 'kyc_status', 'is_active', 'is_staff', 'date_joined')
-    search_fields = ('phone', 'email', 'first_name', 'last_name', 'citizenship_number')
+    search_fields = (
+        'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name',
+        'citizenship_number',
+    )
     readonly_fields = ('date_joined', 'last_login')
     fields = (
-        'phone', 'email', 'first_name', 'last_name', 'avatar',
+        'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
         'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
         'is_active', 'is_staff',
         'date_joined', 'last_login',
@@ -219,6 +225,43 @@ class RemittanceTransactionAdmin(admin.ModelAdmin):
         return False
 
 
+@admin.register(WaterBillTransaction)
+class WaterBillTransactionAdmin(admin.ModelAdmin):
+    list_display = (
+        'user', 'connection_no', 'customer_code', 'counter', 'amount',
+        'status', 'total_debited', 'merchant_txn_id', 'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    search_fields = (
+        'user__phone', 'connection_no', 'customer_code', 'counter',
+        'merchant_txn_id', 'service_hub_txn_id', 'reference_id', 'session_id',
+    )
+    readonly_fields = [f.name for f in WaterBillTransaction._meta.fields]
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(CommunityElectricityTransaction)
+class CommunityElectricityTransactionAdmin(admin.ModelAdmin):
+    list_display = (
+        'user', 'platform_name', 'customer_ref', 'service_slug', 'amount',
+        'status', 'total_debited', 'merchant_txn_id', 'created_at',
+    )
+    list_filter = ('status', 'platform_id', 'created_at')
+    search_fields = (
+        'user__phone', 'platform_id', 'platform_name', 'customer_ref',
+        'service_slug', 'counter_code', 'merchant_txn_id',
+        'service_hub_txn_id', 'reference_id', 'session_id',
+    )
+    readonly_fields = [f.name for f in CommunityElectricityTransaction._meta.fields]
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+
 @admin.register(UserFeeConfig)
 class UserFeeConfigAdmin(admin.ModelAdmin):
     list_display = (
@@ -315,6 +358,23 @@ class KYCAuditLogAdmin(admin.ModelAdmin):
     readonly_fields = (
         'user', 'submission', 'action', 'actor',
         'old_status', 'new_status', 'details', 'created_at',
+    )
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(SecurityAuditLog)
+class SecurityAuditLogAdmin(admin.ModelAdmin):
+    list_display = ('user', 'action', 'ip_address', 'created_at')
+    list_filter = ('action', 'created_at')
+    search_fields = ('user__phone', 'ip_address')
+    readonly_fields = (
+        'user', 'action', 'ip_address', 'user_agent', 'details', 'created_at',
     )
     ordering = ('-created_at',)
 
