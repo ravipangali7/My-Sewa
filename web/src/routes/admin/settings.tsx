@@ -110,14 +110,18 @@ const DEFAULT_CONFIG: AppConfig = {
     himalpay_base_url: "https://api.himalpay.com.np/api/v1",
   },
   smtp: {
-    enabled: false,
-    host: "",
+    enabled: true,
+    host: "smtp.gmail.com",
     port: 587,
     encryption: "tls",
-    username: "",
+    smtp_email: "jhalakravi7@gmail.com",
+    smtp_password: "",
+    smtp_email_from: "jhalakravi7@gmail.com",
+    smtp_name: "ATOZ Store",
+    username: "jhalakravi7@gmail.com",
     password: "",
-    from_name: "MySewa",
-    from_email: "",
+    from_email: "jhalakravi7@gmail.com",
+    from_name: "ATOZ Store",
   },
   remittance: {
     payout_location_name: "MySewa",
@@ -201,6 +205,19 @@ function SettingsPage() {
         ...(remote?.smtp ?? {}),
         encryption: (remote?.smtp?.encryption as "tls" | "ssl" | "none") || "tls",
         port: Number(remote?.smtp?.port ?? DEFAULT_CONFIG.smtp!.port) || 587,
+        smtp_email:
+          remote?.smtp?.smtp_email ||
+          remote?.smtp?.username ||
+          DEFAULT_CONFIG.smtp!.smtp_email,
+        smtp_password: remote?.smtp?.smtp_password || remote?.smtp?.password || "",
+        smtp_email_from:
+          remote?.smtp?.smtp_email_from ||
+          remote?.smtp?.from_email ||
+          DEFAULT_CONFIG.smtp!.smtp_email_from,
+        smtp_name:
+          remote?.smtp?.smtp_name ||
+          remote?.smtp?.from_name ||
+          DEFAULT_CONFIG.smtp!.smtp_name,
       },
       remittance: {
         ...DEFAULT_CONFIG.remittance!,
@@ -218,6 +235,7 @@ function SettingsPage() {
     setSmtpTestEmail((prev) =>
       prev ||
       remote?.notifications?.admin_alert_email ||
+      remote?.smtp?.smtp_email_from ||
       remote?.smtp?.from_email ||
       "",
     );
@@ -286,19 +304,28 @@ function SettingsPage() {
     mutationFn: () => {
       const smtp = config.smtp ?? DEFAULT_CONFIG.smtp!;
       const password =
-        smtpPasswordTouched && smtp.password && smtp.password !== "••••••••"
-          ? smtp.password
+        smtpPasswordTouched &&
+        smtp.smtp_password &&
+        smtp.smtp_password !== "••••••••"
+          ? smtp.smtp_password
           : undefined;
-      return apiClient.adminTestSmtpEmail({
+      const payload: Parameters<typeof apiClient.adminTestSmtpEmail>[0] = {
         to_email: smtpTestEmail.trim(),
         host: smtp.host,
         port: Number(smtp.port) || 587,
         encryption: smtp.encryption,
-        username: smtp.username,
-        ...(password ? { password } : {}),
-        from_name: smtp.from_name,
-        from_email: smtp.from_email,
-      });
+        smtp_email: smtp.smtp_email,
+        smtp_email_from: smtp.smtp_email_from,
+        smtp_name: smtp.smtp_name,
+        username: smtp.smtp_email,
+        from_name: smtp.smtp_name,
+        from_email: smtp.smtp_email_from,
+      };
+      if (password) {
+        payload.smtp_password = password;
+        payload.password = password;
+      }
+      return apiClient.adminTestSmtpEmail(payload);
     },
     onSuccess: (data) => {
       if (data.ok) {
@@ -332,13 +359,22 @@ function SettingsPage() {
       host: smtp.host,
       port: Number(smtp.port) || 587,
       encryption: smtp.encryption,
-      username: smtp.username,
+      smtp_email: smtp.smtp_email,
+      smtp_password: "",
+      smtp_email_from: smtp.smtp_email_from,
+      smtp_name: smtp.smtp_name,
+      username: smtp.smtp_email,
       password: "",
-      from_name: smtp.from_name,
-      from_email: smtp.from_email,
+      from_email: smtp.smtp_email_from,
+      from_name: smtp.smtp_name,
     };
-    if (smtpPasswordTouched && smtp.password && smtp.password !== "••••••••") {
-      payload.password = smtp.password;
+    if (
+      smtpPasswordTouched &&
+      smtp.smtp_password &&
+      smtp.smtp_password !== "••••••••"
+    ) {
+      payload.smtp_password = smtp.smtp_password;
+      payload.password = smtp.smtp_password;
     }
     saveConfigSection("smtp", payload);
   };
@@ -1267,49 +1303,62 @@ function SettingsPage() {
                     </select>
                   </div>
                   <Field
-                    id="smtp_from_name"
-                    label="Sender name"
-                    value={config.smtp?.from_name ?? ""}
+                    id="smtp_name"
+                    label="smtp_name (sender name)"
+                    value={config.smtp?.smtp_name ?? config.smtp?.from_name ?? ""}
                     onChange={(v) =>
                       setConfig((c) => ({
                         ...c,
-                        smtp: { ...(c.smtp ?? DEFAULT_CONFIG.smtp!), from_name: v },
+                        smtp: {
+                          ...(c.smtp ?? DEFAULT_CONFIG.smtp!),
+                          smtp_name: v,
+                          from_name: v,
+                        },
                       }))
                     }
                   />
                   <Field
-                    id="smtp_from_email"
-                    label="Sender email"
+                    id="smtp_email_from"
+                    label="smtp_email_from (from address)"
                     type="email"
-                    value={config.smtp?.from_email ?? ""}
+                    value={config.smtp?.smtp_email_from ?? config.smtp?.from_email ?? ""}
                     onChange={(v) =>
                       setConfig((c) => ({
                         ...c,
-                        smtp: { ...(c.smtp ?? DEFAULT_CONFIG.smtp!), from_email: v },
+                        smtp: {
+                          ...(c.smtp ?? DEFAULT_CONFIG.smtp!),
+                          smtp_email_from: v,
+                          from_email: v,
+                        },
                       }))
                     }
                   />
                   <Field
-                    id="smtp_username"
-                    label="Username"
-                    value={config.smtp?.username ?? ""}
+                    id="smtp_email"
+                    label="smtp_email (username)"
+                    type="email"
+                    value={config.smtp?.smtp_email ?? config.smtp?.username ?? ""}
                     onChange={(v) =>
                       setConfig((c) => ({
                         ...c,
-                        smtp: { ...(c.smtp ?? DEFAULT_CONFIG.smtp!), username: v },
+                        smtp: {
+                          ...(c.smtp ?? DEFAULT_CONFIG.smtp!),
+                          smtp_email: v,
+                          username: v,
+                        },
                       }))
                     }
                   />
                   <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="smtp_password">Password</Label>
+                    <Label htmlFor="smtp_password">smtp_password</Label>
                     <PasswordInput
                       id="smtp_password"
                       value={
                         smtpPasswordTouched
-                          ? config.smtp?.password ?? ""
+                          ? config.smtp?.smtp_password ?? ""
                           : config.smtp?.password_set
                             ? "••••••••"
-                            : config.smtp?.password ?? ""
+                            : config.smtp?.smtp_password ?? ""
                       }
                       onChange={(e) => {
                         setSmtpPasswordTouched(true);
@@ -1317,6 +1366,7 @@ function SettingsPage() {
                           ...c,
                           smtp: {
                             ...(c.smtp ?? DEFAULT_CONFIG.smtp!),
+                            smtp_password: e.target.value,
                             password: e.target.value,
                           },
                         }));
@@ -1324,12 +1374,12 @@ function SettingsPage() {
                       placeholder={
                         config.smtp?.password_set
                           ? "Leave unchanged to keep current password"
-                          : "SMTP password / app password"
+                          : "Gmail app password"
                       }
                     />
                     <p className="text-xs text-muted-foreground">
-                      Password is stored securely in settings and never shown after save. Leave
-                      blank when saving to keep the existing password.
+                      Stored in Settings.config.smtp. Leave blank when saving to keep the
+                      existing password. Fallback Gmail credentials are used until you override.
                     </p>
                   </div>
                 </div>
@@ -1338,10 +1388,9 @@ function SettingsPage() {
               <div className="rounded-xl border border-border bg-surface p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-base font-semibold">Send test email</h2>
+                    <h2 className="text-base font-semibold">Test Mail</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Verify the SMTP configuration above before saving. Uses the form values
-                      currently shown (saved password is reused if you have not changed it).
+                      Send a small test message with the form values above (works before save).
                     </p>
                   </div>
                   <Button
@@ -1352,7 +1401,7 @@ function SettingsPage() {
                     onClick={() => testSmtpMutation.mutate()}
                   >
                     <Send className="size-3.5" />
-                    {testSmtpMutation.isPending ? "Sending…" : "Send test email"}
+                    {testSmtpMutation.isPending ? "Sending…" : "Test Mail"}
                   </Button>
                 </div>
                 <div className="mt-4 max-w-md">

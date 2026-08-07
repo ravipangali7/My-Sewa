@@ -255,16 +255,32 @@ HIMALPAY_TIMEOUT = int(os.environ.get('HIMALPAY_TIMEOUT', '60'))
 # SERVICE_HUB_PRIVATE_KEY = '-----BEGIN RSA PRIVATE KEY----- MIIEpAIBAAKCAQEAm34KWA8Q1ntnsQlW1QrwJ++JAzav0vX3OzE/rxFQT2M9+VHYtDiaD8j669RoGLsJqZJOXtfcjeDnGLww48m2yvMx7+30xDtDz2wYKY3jfYXp1Og6pY5sYv4Vtn+jNYBxZdj5cZOeENWnahdIoqNS6tbzgrisOFA09oEfCf7wGSAhDc8QhWzGH94ZaLRtMWykxPH/zXdm7KYrYhjHYD9bQq6aP4STgpc4ekk1m0/qHPyVoTaT8YLiXmlKnGbyRew3d2+exyYdN6AU/5P/bsJ3ZyG3tE1m6gWjPnFhzolAzFylUS54JKpueC+838eQrdKLnN5mr+pAXUPNBHjLvgUhpQIDAQABAoIBADXrYR7kKoyVwoFLocbCwkC2+aYZoqLfFFp8W38T2+uLmIQKc8EbF6F9qjV5NJfO1CzvRSnyZNL2OG0FZVa4LiD2cEypEYWyn3MgIsjWIRr4AvwHg77BQqiZP2JHpIr6/Ve6A9X0wI1J6YIKjO+I/0ncPBkKfP4SIiuQ3viSZSPwy89kSbZl3K5hH4BxboZcZ99if7963tUsdlz+gwkbOGViif9lbDXcdcbgkOKkpBmMxP6+qz2r2b2a9Gm1zAHdFHBE6rmbeN1XIArmLlR+HlAiWoBB0ccFNkdCcN0HJs4QIPy9O2QpGb71TKUYO7bLj4BUC1hhaBgJTP+gS+WYVIkCgYEAwHYbTqDM53SgnMMvXZmLCI+8ZCO0qhaR3dmc2wYMRIotiIQwoMemxV6upscGL74OwGmEd2PZeYT8rPPw+gUUddn4c5jnefQGfllkt37YigHtEMEUw6Ev53C/1HNe+xLHfi/CfKjpiCxX9Ez2XfA/U/loE2VUo/AYq8VSCgtlRyMCgYEAztN+ZUpCP6HTPYB+YZ/p670Ogcy93igSPEJivDYsIgBFmVYK+vYje4TJ/BUh7tbdcq4XPtyRyHJ1LUCH7cIryXwycXdOCt3ystsDZxZpRrLPvIa3eii9+R9xs+6kOaK0dOoQn+5sAqjxzyuOQTFWrYkQIuTJ6ywn5YLcGZuv5JcCgYAgg9OZNRFpCQsZcOBPr+ENUTtCr8WV9rouANW/KwZnjfCjX7HXd+N09MoM4xLoffOADlOS2AulvBH0JkJP+wu53VlcLjjtIYz3S6L4XTW4Gxsx+WzIoDK3pxTBj7w8LrAFYYw6A09w8gzp+RamSDBqv3gVzsi96ZJBctSpXcN+gQKBgQCNLYKGo4TLKKwnvBEIlH65QqinY1lrTpD7/xikfpnrb6ISg9Ak9GTOCJtTbh1midZJVJpbd3YvjCl+BSGD4tm+w/8uwpBMDKqA+cy9zmd4MdBpUM/nG+5pIdScTNZe3Tgu4iMM+FNUEXxVvNZym7od5IRWPTOzSsXE/Wk+Na5/6wKBgQCPY7rX28WdJcBwdCpjgxIQ0NgqnpuHZ4QCCv8FTXCheYZzrawP8cwMQcXj4ZvhvH+8PQTMF275f+GD4phE3WzscKMoCZ0kSQdWnDpQ9KGTo6EwBRP6wFEJE7Wvu/wRZOUTV1lEY0Mb48uS4elErF/RWF873MYZsZpPOJlMaJAHAQ==----- END RSA PRIVATE KEY-----'
 
 # Email (notifications). Override via env in production.
+# Built-in Gmail fallbacks keep OTP / receipts working out of the box.
 EMAIL_BACKEND = os.environ.get(
     'EMAIL_BACKEND',
-    'django.core.mail.backends.console.EmailBackend',
+    'django.core.mail.backends.smtp.EmailBackend',
 )
-EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'jhalakravi7@gmail.com')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'ibidizfnxgtdpywm')
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'MySewa <noreply@mysewa.local>')
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'false').lower() in ('1', 'true', 'yes')
+EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'ATOZ Store')
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DEFAULT_FROM_EMAIL',
+    f'{EMAIL_FROM_NAME} <{EMAIL_HOST_USER}>',
+)
+
+# Explicit SMTP_* aliases (same values) for clarity / docs
+SMTP_HOST = EMAIL_HOST
+SMTP_PORT = EMAIL_PORT
+SMTP_USE_TLS = EMAIL_USE_TLS
+SMTP_USE_SSL = EMAIL_USE_SSL
+SMTP_USERNAME = EMAIL_HOST_USER
+SMTP_PASSWORD = EMAIL_HOST_PASSWORD
+SMTP_FROM_EMAIL = EMAIL_HOST_USER
+SMTP_FROM_NAME = EMAIL_FROM_NAME
 
 # FCM / Firebase push (optional — without these, pushes are logged as no-ops)
 FCM_SERVER_KEY = os.environ.get('FCM_SERVER_KEY', '').strip()

@@ -144,9 +144,117 @@ class DepositAdmin(admin.ModelAdmin):
 
 @admin.register(Settings)
 class SettingsAdmin(admin.ModelAdmin):
-    list_display = ('id', 'created_at', 'updated_at')
-    readonly_fields = ('created_at', 'updated_at')
-    fields = ('logo', 'qr_code', 'bank_details', 'config', 'created_at', 'updated_at')
+    list_display = ('id', 'smtp_email_display', 'smtp_from_display', 'created_at', 'updated_at')
+    readonly_fields = ('created_at', 'updated_at', 'smtp_preview')
+    fieldsets = (
+        ('Branding', {'fields': ('logo', 'qr_code')}),
+        ('Bank / deposit', {'fields': ('bank_details',)}),
+        (
+            'SMTP email (smtp_email, smtp_password, smtp_email_from, smtp_name)',
+            {
+                'fields': (
+                    'smtp_enabled',
+                    'smtp_host',
+                    'smtp_port',
+                    'smtp_encryption',
+                    'smtp_email',
+                    'smtp_password',
+                    'smtp_email_from',
+                    'smtp_name',
+                    'smtp_preview',
+                ),
+                'description': (
+                    'Dynamic SMTP credentials used for OTP, welcome, deposit, top-up, '
+                    'transfer, remittance, and bill payment emails. Leave password blank '
+                    'to keep the current value. Use Admin → Settings → Email / SMTP for Test Mail.'
+                ),
+            },
+        ),
+        ('Full config JSON', {'fields': ('config',), 'classes': ('collapse',)}),
+        ('Meta', {'fields': ('created_at', 'updated_at')}),
+    )
+
+    def get_form(self, request, obj=None, **kwargs):
+        base = super().get_form(request, obj, **kwargs)
+
+        class SettingsAdminForm(base):
+            smtp_enabled = forms.BooleanField(required=False, label='Enable SMTP')
+            smtp_host = forms.CharField(required=False, label='SMTP host', max_length=255)
+            smtp_port = forms.IntegerField(required=False, label='SMTP port', min_value=1)
+            smtp_encryption = forms.ChoiceField(
+                required=False,
+                label='Encryption',
+                choices=(('tls', 'TLS'), ('ssl', 'SSL'), ('none', 'None')),
+            )
+            smtp_email = forms.EmailField(required=False, label='smtp_email (username)')
+            smtp_password = forms.CharField(
+                required=False,
+                label='smtp_password',
+                widget=forms.PasswordInput(render_value=True),
+                help_text='Leave blank to keep the existing password.',
+            )
+            smtp_email_from = forms.EmailField(required=False, label='smtp_email_from')
+            smtp_name = forms.CharField(required=False, label='smtp_name', max_length=120)
+
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                from .services.smtp import normalize_smtp_dict, PASSWORD_MASK
+                raw = {}
+                if getattr(self.instance, 'pk', None):
+                    raw = (self.instance.get_config().get('smtp') or {})
+                cfg = normalize_smtp_dict(raw)
+                self.fields['smtp_enabled'].initial = cfg.get('enabled', True)
+                self.fields['smtp_host'].initial = cfg.get('host', '')
+                self.fields['smtp_port'].initial = cfg.get('port', 587)
+                self.fields['smtp_encryption'].initial = cfg.get('encryption', 'tls')
+                self.fields['smtp_email'].initial = cfg.get('smtp_email', '')
+                self.fields['smtp_password'].initial = PASSWORD_MASK if cfg.get('smtp_password') else ''
+                self.fields['smtp_email_from'].initial = cfg.get('smtp_email_from', '')
+                self.fields['smtp_name'].initial = cfg.get('smtp_name', '')
+
+            def save(self, commit=True):
+                from .services.smtp import preserve_smtp_password_on_merge, PASSWORD_MASK
+                instance = super().save(commit=False)
+                config = dict(instance.get_config())
+                current_smtp = dict(config.get('smtp') or {})
+                incoming = {
+                    'enabled': self.cleaned_data.get('smtp_enabled', True),
+                    'host': self.cleaned_data.get('smtp_host') or '',
+                    'port': self.cleaned_data.get('smtp_port') or 587,
+                    'encryption': self.cleaned_data.get('smtp_encryption') or 'tls',
+                    'smtp_email': self.cleaned_data.get('smtp_email') or '',
+                    'smtp_password': self.cleaned_data.get('smtp_password') or '',
+                    'smtp_email_from': self.cleaned_data.get('smtp_email_from') or '',
+                    'smtp_name': self.cleaned_data.get('smtp_name') or '',
+                }
+                if incoming['smtp_password'] in ('', PASSWORD_MASK):
+                    incoming['smtp_password'] = ''
+                config['smtp'] = preserve_smtp_password_on_merge(current_smtp, incoming)
+                instance.config = config
+                if commit:
+                    instance.save()
+                return instance
+
+        return SettingsAdminForm
+
+    @admin.display(description='smtp_email')
+    def smtp_email_display(self, obj):
+        from .services.smtp import normalize_smtp_dict
+        return normalize_smtp_dict(obj.get_config().get('smtp')).get('smtp_email') or '—'
+
+    @admin.display(description='From')
+    def smtp_from_display(self, obj):
+        from .services.smtp import normalize_smtp_dict, format_from_address
+        return format_from_address(normalize_smtp_dict(obj.get_config().get('smtp')))
+
+    @admin.display(description='Resolved SMTP')
+    def smtp_preview(self, obj):
+        from .services.smtp import get_smtp_config, format_from_address
+        cfg = get_smtp_config()
+        return (
+            f"{cfg.get('host')}:{cfg.get('port')} / {cfg.get('encryption')} — "
+            f"{format_from_address(cfg)}"
+        )
 
     def has_add_permission(self, request):
         # Only allow one instance
@@ -160,7 +268,6 @@ class SettingsAdmin(admin.ModelAdmin):
         # Ensure singleton exists
         Settings.load()
         return qs
-
 
 @admin.register(TopupTransaction)
 class TopupTransactionAdmin(admin.ModelAdmin):

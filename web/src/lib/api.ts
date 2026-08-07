@@ -997,6 +997,10 @@ export const apiClient = {
     host?: string;
     port?: number;
     encryption?: string;
+    smtp_email?: string;
+    smtp_password?: string;
+    smtp_email_from?: string;
+    smtp_name?: string;
     username?: string;
     password?: string;
     from_name?: string;

@@ -109,12 +109,14 @@ export function ListPageToolbar({
           </Button>
         ) : null}
       </div>
-      <div className="flex flex-wrap gap-2">
-        <NumberPill label={statsLabels.total} value={stats?.total} />
-        <NumberPill label={statsLabels.success} value={stats?.success} />
-        <NumberPill label={statsLabels.pending} value={stats?.pending} />
-        <NumberPill label={statsLabels.failed} value={stats?.failed} />
-      </div>
+      {stats ? (
+        <div className="flex flex-wrap gap-2">
+          <NumberPill label={statsLabels.total} value={stats.total} />
+          <NumberPill label={statsLabels.success} value={stats.success} />
+          <NumberPill label={statsLabels.pending} value={stats.pending} />
+          <NumberPill label={statsLabels.failed} value={stats.failed} />
+        </div>
+      ) : null}
     </div>
   );
 }

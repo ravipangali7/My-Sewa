@@ -684,6 +684,8 @@ export const messages = {
     "remittance.creditedBody": "{amount} added to your wallet",
     "remittance.history": "Recent remittances",
     "remittance.empty": "No remittances received yet.",
+    "remittance.searchTitle": "Search remittances",
+    "remittance.searchPlaceholder": "Search ref no, sender, amount…",
 
     "profile.title": "Profile",
     "profile.loading": "Loading profile…",
@@ -1597,6 +1599,8 @@ export const messages = {
     "remittance.creditedBody": "वालेटमा {amount} थपियो",
     "remittance.history": "हालका रेमिटेन्सहरू",
     "remittance.empty": "अहिले कुनै रेमिटेन्स प्राप्त भएको छैन।",
+    "remittance.searchTitle": "रेमिटेन्स खोज्नुहोस्",
+    "remittance.searchPlaceholder": "सन्दर्भ नम्बर, पठाउने, रकम खोज्नुहोस्…",
 
     "profile.title": "प्रोफाइल",
     "profile.loading": "प्रोफाइल लोड हुँदै…",

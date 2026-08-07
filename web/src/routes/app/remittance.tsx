@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
@@ -30,6 +31,7 @@ import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
+import { cn } from "@/lib/utils";
 import type { RemittanceLookup } from "@/lib/types";
 
 export const Route = createFileRoute("/app/remittance")({
@@ -130,6 +132,7 @@ function ReceiveRemittance() {
     logoUrl,
   );
   const { filters, setFilters, debounced } = useListFilters();
+  const [searchOpen, setSearchOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
@@ -154,7 +157,6 @@ function ReceiveRemittance() {
     refetchInterval: LIVE_REFETCH_MS,
   });
   const remittanceItems = historyQuery.data?.items ?? [];
-  const remittanceStats = historyQuery.data?.stats;
 
   const setField = <K extends keyof KycForm>(key: K, value: KycForm[K]) => {
     setKyc((prev) => ({ ...prev, [key]: value }));
@@ -278,7 +280,26 @@ function ReceiveRemittance() {
   }, [step, t]);
 
   return (
-    <UserShell title={t("remittance.title")} back="/app">
+    <UserShell
+      title={t("remittance.title")}
+      back="/app"
+      headerTrailing={
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
+            "hover:bg-white/25",
+            "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+          )}
+          onClick={() => setSearchOpen(true)}
+          aria-label={t("remittance.searchTitle")}
+        >
+          <Search className="size-4" />
+        </Button>
+      }
+    >
       <div className="min-w-0 max-w-full space-y-5 overflow-x-clip">
         {accountPending ? <AccountPendingBanner /> : null}
         {!remittancesEnabled && !accountPending ? (
@@ -629,30 +650,7 @@ function ReceiveRemittance() {
               />
             </div>
           ) : null}
-          <ListPageToolbar
-            stats={remittanceStats}
-            filters={filters}
-            onFiltersChange={setFilters}
-            onExport={async () => {
-              setExporting(true);
-              try {
-                await downloadCsvExport("/api/remittance/history/", debounced, "remittances.csv");
-              } finally {
-                setExporting(false);
-              }
-            }}
-            exporting={exporting}
-            searchPlaceholder="Search"
-            exportLabel={t("list.exportCsv")}
-            statsLabels={{
-              total: t("list.statsTotal"),
-              success: t("list.statsSuccess"),
-              pending: t("list.statsPending"),
-              failed: t("list.statsFailed"),
-            }}
-            statusOptions={[...TXN_STATUS_OPTIONS]}
-          />
-          <h2 className="mb-2 mt-4 px-1 text-[17px] font-semibold">{t("remittance.history")}</h2>
+          <h2 className="mb-2 px-1 text-[17px] font-semibold">{t("remittance.history")}</h2>
           {historyQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
@@ -711,6 +709,40 @@ function ReceiveRemittance() {
           receiveMutation.mutate(pin);
         }}
       />
+
+      <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
+        <SheetContent
+          side="bottom"
+          className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5"
+        >
+          <SheetHeader className="mb-4 text-left">
+            <SheetTitle>{t("remittance.searchTitle")}</SheetTitle>
+          </SheetHeader>
+          <ListPageToolbar
+            filters={filters}
+            onFiltersChange={setFilters}
+            onExport={async () => {
+              setExporting(true);
+              try {
+                await downloadCsvExport("/api/remittance/history/", debounced, "remittances.csv");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            exporting={exporting}
+            searchPlaceholder={t("remittance.searchPlaceholder")}
+            exportLabel={t("list.exportCsv")}
+            statusOptions={[...TXN_STATUS_OPTIONS]}
+          />
+          <Button
+            type="button"
+            className="mt-4 h-11 w-full rounded-xl"
+            onClick={() => setSearchOpen(false)}
+          >
+            {t("history.applyFilters")}
+          </Button>
+        </SheetContent>
+      </Sheet>
     </UserShell>
   );
 }

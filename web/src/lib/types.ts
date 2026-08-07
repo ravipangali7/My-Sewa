@@ -190,10 +190,18 @@ export interface SmtpConfig {
   port: number;
   /** tls | ssl | none */
   encryption: "tls" | "ssl" | "none";
-  username: string;
-  password: string;
-  from_name: string;
-  from_email: string;
+  /** Login email / username for the SMTP server */
+  smtp_email: string;
+  smtp_password: string;
+  /** Envelope From address */
+  smtp_email_from: string;
+  /** Envelope From display name */
+  smtp_name: string;
+  /** Legacy aliases (kept in sync with smtp_* fields) */
+  username?: string;
+  password?: string;
+  from_email?: string;
+  from_name?: string;
   /** Present on admin GET when a password is stored */
   password_set?: boolean;
 }

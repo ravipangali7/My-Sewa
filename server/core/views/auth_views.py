@@ -100,6 +100,11 @@ def register(request):
     if serializer.is_valid():
         user = serializer.save()
         token, created = Token.objects.get_or_create(user=user)
+        try:
+            from ..services.notifications import notify_welcome_signup
+            notify_welcome_signup(user)
+        except Exception:
+            logger.exception('Welcome email failed for user %s', getattr(user, 'pk', None))
         return Response({
             'message': 'User registered successfully',
             'token': token.key,

@@ -438,6 +438,71 @@ def send_email_change_otp(new_email: str, otp: str) -> bool:
     return _send_email(subject, text, [new_email], html_message=html, fail_silently=False)
 
 
+def notify_welcome_signup(user) -> None:
+    """Thank-you / welcome email after successful registration (when email is set)."""
+    if not _user_email(user):
+        return
+    site_name = _site_name()
+    first = (getattr(user, 'first_name', None) or '').strip() or 'there'
+    phone = getattr(user, 'phone', '') or '-'
+    rows: List[Row] = [
+        ('Account phone', phone),
+        ('Email', user.email),
+        ('Status', str(getattr(user, 'account_status', 'pending') or 'pending').title()),
+        ('Date', _format_when(getattr(user, 'date_joined', None))),
+    ]
+    _send_txn_email(
+        recipients=[user.email],
+        subject=f'[{site_name}] Welcome — thank you for signing up',
+        text_intro=(
+            f'Thank you for signing up with {site_name}!\n\n'
+            'Your account has been created successfully. '
+            'You can sign in with your phone number and start using digital wallet services.'
+        ),
+        title='Thank you for signing up',
+        subtitle=f'Welcome to {site_name}. Your account is ready.',
+        amount_label='Welcome',
+        amount_display=site_name,
+        status='success',
+        status_label='Registered',
+        rows=rows,
+        greeting=f'Hi {first},',
+        footer_note=(
+            'If your account is pending approval, you can sign in but transactions '
+            'stay disabled until a Super Admin activates your account.'
+        ),
+    )
+
+
+def notify_account_approved(user) -> None:
+    """Email when Super Admin activates / approves a customer account."""
+    if not _user_email(user):
+        return
+    site_name = _site_name()
+    first = (getattr(user, 'first_name', None) or '').strip() or 'there'
+    _send_txn_email(
+        recipients=[user.email],
+        subject=f'[{site_name}] Your account is active',
+        text_intro=(
+            f'Good news! Your {site_name} account has been approved. '
+            'You can now use deposits, transfers, top-ups, and bill payments.'
+        ),
+        title='Account activated',
+        subtitle='Your MySewa account is approved and ready for transactions.',
+        amount_label='Status',
+        amount_display='Active',
+        status='success',
+        status_label='Approved',
+        rows=[
+            ('Phone', getattr(user, 'phone', '-') or '-'),
+            ('Email', user.email),
+            ('Status', 'Approved'),
+            ('Date', _format_when()),
+        ],
+        greeting=f'Hi {first},',
+    )
+
+
 def _send_sms(phone: str, message: str) -> bool:
     """
     Placeholder SMS sender. Logs the message so the toggle is observable.

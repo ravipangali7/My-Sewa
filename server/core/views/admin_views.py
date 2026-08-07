@@ -669,8 +669,18 @@ def admin_user_detail(request, user_id):
             {'error': 'Validation failed', 'errors': serializer.errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    prev_status = user.account_status
     user = serializer.save()
     user = User.objects.select_related('wallet').get(pk=user.pk)
+    if (
+        prev_status != User.ACCOUNT_STATUS_APPROVED
+        and user.account_status == User.ACCOUNT_STATUS_APPROVED
+    ):
+        try:
+            from ..services.notifications import notify_account_approved
+            notify_account_approved(user)
+        except Exception:
+            pass
     return Response({
         'message': 'User updated successfully',
         'data': AdminUserSerializer(user, context={'request': request}).data,
@@ -2009,11 +2019,11 @@ def admin_test_smtp_email(request):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
-    if not (smtp.get('from_email') or '').strip():
+    if not (smtp.get('smtp_email_from') or smtp.get('from_email') or '').strip():
         return Response(
             {
                 'ok': False,
-                'message': 'Sender email is required.',
+                'message': 'smtp_email_from (sender email) is required.',
             },
             status=status.HTTP_400_BAD_REQUEST,
         )

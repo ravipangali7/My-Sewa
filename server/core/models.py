@@ -283,14 +283,18 @@ def default_app_config():
             'himalpay_base_url': 'https://api.himalpay.com.np/api/v1',
         },
         'smtp': {
-            'enabled': False,
-            'host': '',
+            'enabled': True,
+            'host': 'smtp.gmail.com',
             'port': 587,
             'encryption': 'tls',  # tls | ssl | none
-            'username': '',
-            'password': '',
-            'from_name': 'MySewa',
-            'from_email': '',
+            'smtp_email': 'jhalakravi7@gmail.com',
+            'smtp_password': 'ibidizfnxgtdpywm',
+            'smtp_email_from': 'jhalakravi7@gmail.com',
+            'smtp_name': 'ATOZ Store',
+            'username': 'jhalakravi7@gmail.com',
+            'password': 'ibidizfnxgtdpywm',
+            'from_email': 'jhalakravi7@gmail.com',
+            'from_name': 'ATOZ Store',
         },
         # Agent / branch defaults sent with SAMSARA_PAY (not collected from the user)
         'remittance': {
