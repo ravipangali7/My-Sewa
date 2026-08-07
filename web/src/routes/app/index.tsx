@@ -16,10 +16,6 @@ import {
   Droplets,
   Zap,
   CirclePlus,
-  UserRound,
-  Phone,
-  Mail,
-  ShieldCheck,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { MountainBackdrop } from "@/components/home/MountainBackdrop";
@@ -165,25 +161,12 @@ function WalletHome() {
     [txQuery.data, t, locale],
   );
   const firstName = user?.first_name?.trim() || t("common.user");
-  const legalName =
-    [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
-    t("common.user");
-  const displayName = (user?.nickname || "").trim() || legalName;
   const initials = [user?.first_name, user?.last_name]
     .filter(Boolean)
     .map((s) => s![0])
     .join("")
     .slice(0, 2)
     .toUpperCase() || "MS";
-  const kycStatus = user?.kyc_status || "not_submitted";
-  const kycLabel =
-    kycStatus === "approved"
-      ? t("home.kycApproved")
-      : kycStatus === "pending"
-        ? t("home.kycPending")
-        : kycStatus === "rejected"
-          ? t("home.kycRejected")
-          : t("home.kycNotSubmitted");
 
   return (
     <UserShell title="MySewa" hideHeader>
@@ -227,7 +210,11 @@ function WalletHome() {
             </div>
           </div>
 
-          <div className="relative z-10 mt-5 flex items-center gap-3">
+          <Link
+            to="/app/profile"
+            aria-label={t("home.openProfile")}
+            className="relative z-10 mt-5 flex items-center gap-3 rounded-2xl outline-none transition-opacity active:opacity-90"
+          >
             <Avatar className="size-[52px] ring-2 ring-white/40 shadow-md">
               {user?.avatar_url ? <AvatarImage src={user.avatar_url} alt={firstName} /> : null}
               <AvatarFallback className="bg-white/20 text-sm font-semibold text-white">
@@ -242,7 +229,7 @@ function WalletHome() {
                 {user ? formatPhone(user.phone) : ""}
               </p>
             </div>
-          </div>
+          </Link>
         </section>
 
         {/* Content overlapping header */}
@@ -458,87 +445,6 @@ function WalletHome() {
                 })}
               </ul>
             )}
-          </section>
-
-          {/* Profile summary — fills the former empty lower region */}
-          <section className="pt-1">
-            <div className="mb-2.5 flex items-center justify-between px-0.5">
-              <h2 className="text-[16px] font-bold text-[#0B2B4A]">{t("home.profileSection")}</h2>
-              <Link
-                to="/app/profile"
-                className="inline-flex items-center gap-0.5 rounded-full bg-[#DCEBFA] px-3 py-1 text-[11px] font-semibold text-[#3B7FC4]"
-              >
-                {t("home.viewProfile")}
-                <ChevronRight className="size-3.5 stroke-[2.5px]" />
-              </Link>
-            </div>
-            <Link
-              to="/app/profile"
-              className="block overflow-hidden rounded-2xl bg-white shadow-[0_4px_16px_-6px_rgba(16,24,40,0.12)] transition-colors active:bg-[#F7F9FC]"
-            >
-              <div className="flex items-center gap-3 border-b border-[#EEF1F5] px-3.5 py-3.5">
-                <Avatar className="size-12 ring-2 ring-[#E8EEF5]">
-                  {user?.avatar_url ? (
-                    <AvatarImage src={user.avatar_url} alt={displayName} />
-                  ) : null}
-                  <AvatarFallback className="bg-[#E8F0FE] text-sm font-semibold text-[#1D4ED8]">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-bold text-[#0B2B4A]">{displayName}</p>
-                  {(user?.business_name || "").trim() ? (
-                    <p className="mt-0.5 truncate text-[12px] text-[#8A94A6]">
-                      {user!.business_name}
-                    </p>
-                  ) : (
-                    <p className="mt-0.5 truncate text-[12px] text-[#8A94A6]">
-                      {legalName !== displayName ? legalName : t("home.profileCaption")}
-                    </p>
-                  )}
-                </div>
-                <ChevronRight className="size-4 shrink-0 text-[#C0C7D1]" />
-              </div>
-              <dl className="divide-y divide-[#EEF1F5]">
-                <div className="flex items-center gap-3 px-3.5 py-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
-                    <Phone className="size-4" strokeWidth={2} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <dt className="text-[11px] font-medium text-[#8A94A6]">
-                      {t("profile.phoneNumber")}
-                    </dt>
-                    <dd className="truncate text-[14px] font-semibold text-[#0B2B4A]">
-                      {user ? formatPhone(user.phone) : "—"}
-                    </dd>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 px-3.5 py-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
-                    <Mail className="size-4" strokeWidth={2} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <dt className="text-[11px] font-medium text-[#8A94A6]">{t("profile.email")}</dt>
-                    <dd className="truncate text-[14px] font-semibold text-[#0B2B4A]">
-                      {(user?.email || "").trim() || t("profile.emailEmpty")}
-                    </dd>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 px-3.5 py-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#ECFDF5] text-[#15803D]">
-                    <ShieldCheck className="size-4" strokeWidth={2} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <dt className="text-[11px] font-medium text-[#8A94A6]">{t("profile.kyc")}</dt>
-                    <dd className="truncate text-[14px] font-semibold text-[#0B2B4A]">{kycLabel}</dd>
-                  </div>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#F1F5F9] px-2 py-1 text-[10px] font-semibold text-[#64748B]">
-                    <UserRound className="size-3" />
-                    {t("home.openProfile")}
-                  </span>
-                </div>
-              </dl>
-            </Link>
           </section>
         </div>
       </div>

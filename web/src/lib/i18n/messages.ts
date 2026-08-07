@@ -128,6 +128,8 @@ export const messages = {
     "walletHistory.count": "{count} transactions",
     "walletHistory.beforeBalance": "Before",
     "walletHistory.afterBalance": "After",
+    "walletHistory.balanceBeforeLabel": "Balance before",
+    "walletHistory.remainingBalance": "Remaining balance",
 
     "activity.remittanceReceived": "Remittance Received",
     "activity.walletLoad": "Wallet load",
@@ -1058,6 +1060,8 @@ export const messages = {
     "walletHistory.count": "{count} कारोबार",
     "walletHistory.beforeBalance": "अघि",
     "walletHistory.afterBalance": "पछि",
+    "walletHistory.balanceBeforeLabel": "अघिको ब्यालेन्स",
+    "walletHistory.remainingBalance": "बाँकी ब्यालेन्स",
 
     "activity.remittanceReceived": "रेमिटेन्स प्राप्त",
     "activity.walletLoad": "वालेट लोड",

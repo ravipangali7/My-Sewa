@@ -160,16 +160,20 @@ function HistoryList({
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
               </span>
               {showBalances ? (
-                <span className="ml-[4.5rem] mr-7 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-                  <span className="min-w-0 truncate">
-                    {t("walletHistory.beforeBalance")}:{" "}
-                    <span className="tabular font-medium text-[#0B2B4A]">
+                <span className="ml-8 mr-1 grid grid-cols-2 gap-2 sm:ml-[4.5rem] sm:mr-7">
+                  <span className="min-w-0 rounded-xl bg-[#F3F6FA] px-2.5 py-2">
+                    <span className="block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                      {t("walletHistory.balanceBeforeLabel")}
+                    </span>
+                    <span className="mt-0.5 block truncate tabular text-[12px] font-bold text-[#0B2B4A]">
                       {formatRu(item.balance_before)}
                     </span>
                   </span>
-                  <span className="min-w-0 truncate text-right">
-                    {t("walletHistory.afterBalance")}:{" "}
-                    <span className="tabular font-medium text-[#0B2B4A]">
+                  <span className="min-w-0 rounded-xl bg-emerald-50 px-2.5 py-2">
+                    <span className="block text-[10px] font-semibold tracking-wide text-emerald-700/80 uppercase">
+                      {t("walletHistory.remainingBalance")}
+                    </span>
+                    <span className="mt-0.5 block truncate tabular text-[12px] font-bold text-[#0B2B4A]">
                       {formatRu(item.balance_after)}
                     </span>
                   </span>
@@ -194,31 +198,69 @@ function WalletHistoryPage() {
     refetchInterval: LIVE_REFETCH_MS,
   });
 
-  const { credits, debits } = useMemo(() => {
+  const { credits, debits, latestWithBalances } = useMemo(() => {
     const all = txQuery.data ? buildActivity(txQuery.data, t) : [];
+    const withBalances = all.find(
+      (item) => hasBalance(item.balance_before) && hasBalance(item.balance_after),
+    );
     return {
       credits: filterWalletCredits(all),
       debits: filterWalletDebits(all),
+      latestWithBalances: withBalances ?? null,
     };
   }, [txQuery.data, t, locale]);
 
   const activeCount = tab === "credit" ? credits.length : debits.length;
+  const remainingBalance = wallet?.balance ?? latestWithBalances?.balance_after ?? null;
+  const beforeBalance = latestWithBalances?.balance_before ?? null;
+  const showDualBalances = hasBalance(beforeBalance) && hasBalance(remainingBalance);
 
   return (
     <UserShell title={t("walletHistory.title")} back="/app">
       <div className="min-w-0 space-y-4">
         <section className="relative overflow-hidden rounded-[20px] bg-[linear-gradient(145deg,#062A5C_0%,#0B3B7A_38%,#0B5588_68%,#0A6E78_100%)] px-5 py-4 shadow-[0_10px_28px_-10px_rgba(6,42,92,0.45)]">
-          <div className="relative z-10 flex items-end justify-between gap-3">
-            <div className="min-w-0">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-40"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle at 18% 78%, rgba(125,211,252,0.45) 0 1.2px, transparent 1.8px), radial-gradient(circle at 72% 72%, rgba(165,243,252,0.35) 0 1px, transparent 1.6px)",
+              backgroundSize: "26px 26px, 34px 34px",
+            }}
+          />
+          <div className="relative z-10 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <p className="text-[12px] font-medium text-white/75">{t("home.wallet")}</p>
-              <p className="mt-1 tabular text-[28px] leading-none font-bold tracking-tight text-white">
-                {wallet ? formatRu(wallet.balance) : "रु. —"}
-              </p>
-              <p className="mt-2 text-[11px] font-medium text-white/70">
+              {showDualBalances ? (
+                <div className="mt-3 grid grid-cols-2 gap-2.5">
+                  <div className="min-w-0 rounded-2xl bg-white/10 px-3 py-2.5 ring-1 ring-white/15">
+                    <p className="text-[10px] font-semibold tracking-wide text-white/70 uppercase">
+                      {t("walletHistory.balanceBeforeLabel")}
+                    </p>
+                    <p className="mt-1 break-all tabular text-[17px] leading-tight font-bold tracking-tight text-white">
+                      {formatRu(beforeBalance)}
+                    </p>
+                  </div>
+                  <div className="min-w-0 rounded-2xl bg-emerald-400/15 px-3 py-2.5 ring-1 ring-emerald-300/35">
+                    <p className="text-[10px] font-semibold tracking-wide text-emerald-200 uppercase">
+                      {t("walletHistory.remainingBalance")}
+                    </p>
+                    <p className="mt-1 break-all tabular text-[17px] leading-tight font-bold tracking-tight text-white">
+                      {formatRu(remainingBalance)}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-1 tabular text-[28px] leading-none font-bold tracking-tight text-white">
+                  {remainingBalance != null ? formatRu(remainingBalance) : "रु. —"}
+                </p>
+              )}
+              <p className="mt-2.5 text-[11px] font-medium text-white/70">
                 {t("walletHistory.count", { count: activeCount })}
               </p>
             </div>
-            <WalletIllustration className="mb-[-2px] h-[72px] w-[90px] shrink-0 opacity-95" />
+            {!showDualBalances ? (
+              <WalletIllustration className="mb-[-2px] h-[72px] w-[90px] shrink-0 opacity-95" />
+            ) : null}
           </div>
         </section>
 

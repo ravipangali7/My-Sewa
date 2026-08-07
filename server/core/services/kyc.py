@@ -244,7 +244,7 @@ def mark_submission_reviewed(submission, *, status, reviewer, rejection_reason='
     return submission
 
 
-def update_pending_kyc_submission(
+def update_kyc_submission(
     submission,
     *,
     actor,
@@ -254,13 +254,19 @@ def update_pending_kyc_submission(
     date_of_birth=None,
 ):
     """
-    Super Admin / staff correction of a pending KYC before approve/reject.
-    Updates citizenship on the submission and identity fields on the user
-    so approval can proceed without forcing the user to resubmit.
+    Super Admin / staff correction of submitted KYC identity details.
+
+    Works for pending, approved, and rejected submissions. Updates citizenship
+    on the submission and identity fields on the user (bypassing the end-user
+    profile lock) so admins can fix mistakes without a full resubmit.
     """
-    if submission.status != KYCSubmission.STATUS_PENDING:
+    if submission.status not in (
+        KYCSubmission.STATUS_PENDING,
+        KYCSubmission.STATUS_APPROVED,
+        KYCSubmission.STATUS_REJECTED,
+    ):
         raise ValidationError(
-            f'Only pending KYC submissions can be edited (currently {submission.status}).'
+            f'KYC submission cannot be edited (currently {submission.status}).'
         )
 
     user = submission.user

@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -177,7 +177,17 @@ function KycPage() {
 
   const kycActions = (s: KycSubmission) =>
     s.status === "pending" ? (
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={(e) => {
+            e.stopPropagation();
+            openKyc(s.id);
+          }}
+        >
+          Edit
+        </Button>
         <Button
           size="sm"
           disabled={actionPending}
@@ -201,14 +211,16 @@ function KycPage() {
         </Button>
       </div>
     ) : (
-      <Link
-        to="/admin/kyc/$kycId"
-        params={{ kycId: String(s.id) }}
-        className="text-sm text-brand hover:underline"
-        onClick={(e) => e.stopPropagation()}
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={(e) => {
+          e.stopPropagation();
+          openKyc(s.id);
+        }}
       >
-        View details
-      </Link>
+        Edit details
+      </Button>
     );
 
   const filterLabel = filters.status ?? "all";

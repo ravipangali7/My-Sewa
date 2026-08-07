@@ -145,7 +145,8 @@ function KycDetailPage() {
   });
 
   const s = kycQuery.data;
-  const canEdit = s?.status === "pending";
+  const canEdit = !!s;
+  const isPending = s?.status === "pending";
   const actionPending =
     saveMutation.isPending || approveMutation.isPending || rejectMutation.isPending;
   const accountName = s ? displayName(s) : "";
@@ -178,7 +179,7 @@ function KycDetailPage() {
             : "Not found"
       }
       actions={
-        s?.status === "pending" ? (
+        s ? (
           <div className="flex shrink-0 flex-wrap items-center gap-2 [&>*]:shrink-0">
             <Button
               size="sm"
@@ -188,20 +189,24 @@ function KycDetailPage() {
             >
               {saveMutation.isPending ? "Saving…" : "Save changes"}
             </Button>
-            <Button size="sm" disabled={actionPending} onClick={() => approveMutation.mutate()}>
-              {approveMutation.isPending ? "Approving…" : "Save & approve"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={actionPending}
-              onClick={() => {
-                setRejectionReason("");
-                setRejectOpen(true);
-              }}
-            >
-              Reject
-            </Button>
+            {isPending ? (
+              <>
+                <Button size="sm" disabled={actionPending} onClick={() => approveMutation.mutate()}>
+                  {approveMutation.isPending ? "Approving…" : "Save & approve"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={actionPending}
+                  onClick={() => {
+                    setRejectionReason("");
+                    setRejectOpen(true);
+                  }}
+                >
+                  Reject
+                </Button>
+              </>
+            ) : null}
           </div>
         ) : undefined
       }
@@ -245,8 +250,9 @@ function KycDetailPage() {
                       Correct missing or incorrect details
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Edit the fields below, then save or save &amp; approve without asking the
-                      user to resubmit.
+                      {isPending
+                        ? "Edit the fields below, then save or save & approve without asking the user to resubmit."
+                        : "Super Admin can update these fields and save. Changes apply to the user profile immediately."}
                     </p>
                   </div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -290,20 +296,7 @@ function KycDetailPage() {
                     </div>
                   </div>
                 </div>
-              ) : (
-                <div className="mt-6 min-w-0 rounded-xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 text-center sm:px-5 sm:text-left">
-                  <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                    Citizenship number
-                  </p>
-                  <p className="mt-2 break-all text-2xl font-black tracking-tight text-brand-dark sm:text-3xl md:text-4xl">
-                    {s.citizenship_number || "—"}
-                  </p>
-                  <p className="mt-1.5 break-words text-sm text-muted-foreground">
-                    {s.status_display} · {s.documents?.length ?? 0} document
-                    {(s.documents?.length ?? 0) === 1 ? "" : "s"}
-                  </p>
-                </div>
-              )}
+              ) : null}
             </div>
 
             <div className="grid grid-cols-1 gap-0 md:grid-cols-2">
@@ -428,9 +421,9 @@ function KycDetailPage() {
             </section>
 
             <footer className="border-t border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground sm:px-6 md:px-8">
-              {canEdit
+              {isPending
                 ? "Correct citizenship or name fields if needed, then Save & approve. Approval verifies the user and locks identity fields. Rejection requires a reason and lets the user re-upload."
-                : "Submissions stay Pending until you Approve or Reject. Approval verifies the user and locks identity fields. Rejection requires a reason and lets the user re-upload (back to Pending)."}
+                : "You can edit and save identity details on this submission. Approved users remain verified; identity fields stay locked for the end user."}
             </footer>
           </article>
         </div>

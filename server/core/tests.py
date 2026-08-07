@@ -655,3 +655,40 @@ class KycManualReviewWorkflowTests(TestCase):
         self.assertEqual(self.user.kyc_status, User.KYC_STATUS_APPROVED)
         self.assertTrue(self.user.is_kyc_verified)
         self.assertEqual(self.user.citizenship_number, '11-22-33-44556')
+
+    def test_admin_can_edit_approved_kyc_details(self):
+        submit = self._submit_kyc('99-88-77-66554')
+        kyc_id = submit.data['data']['submission']['id']
+
+        self.client.force_authenticate(user=self.staff)
+        approved = self.client.post(
+            reverse('admin_approve_kyc', kwargs={'kyc_id': kyc_id}),
+            {},
+            format='json',
+        )
+        self.assertEqual(approved.status_code, status.HTTP_200_OK)
+
+        updated = self.client.patch(
+            reverse('admin_get_kyc', kwargs={'kyc_id': kyc_id}),
+            {
+                'citizenship_number': '55-44-33-22110',
+                'first_name': 'Fixed',
+                'last_name': 'Identity',
+                'date_of_birth': '1988-12-01',
+            },
+            format='json',
+        )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        self.assertEqual(updated.data['data']['citizenship_number'], '55-44-33-22110')
+        self.assertEqual(updated.data['data']['first_name'], 'Fixed')
+        self.assertEqual(updated.data['data']['last_name'], 'Identity')
+        self.assertEqual(str(updated.data['data']['date_of_birth']), '1988-12-01')
+        self.assertEqual(updated.data['data']['status'], 'approved')
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.citizenship_number, '55-44-33-22110')
+        self.assertEqual(self.user.first_name, 'Fixed')
+        self.assertEqual(self.user.last_name, 'Identity')
+        self.assertEqual(self.user.date_of_birth, date(1988, 12, 1))
+        self.assertEqual(self.user.kyc_status, User.KYC_STATUS_APPROVED)
+        self.assertTrue(self.user.is_kyc_verified)

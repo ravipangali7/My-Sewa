@@ -63,7 +63,7 @@ from ..serializers import (
     KYCSubmissionSerializer,
     AdminKYCUpdateSerializer,
 )
-from ..services.kyc import mark_submission_reviewed, update_pending_kyc_submission
+from ..services.kyc import mark_submission_reviewed, update_kyc_submission
 from ..services.himalpay import (
     HimalPayAPI,
     HimalPayError,
@@ -2229,7 +2229,7 @@ def admin_list_kyc(request):
 @api_view(['GET', 'PATCH', 'PUT'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_get_kyc(request, kyc_id):
-    """KYC submission detail, or staff correction of pending identity fields."""
+    """KYC submission detail, or staff correction of submitted identity fields."""
     try:
         submission = (
             KYCSubmission.objects.select_related('user', 'reviewed_by')
@@ -2267,7 +2267,7 @@ def admin_get_kyc(request, kyc_id):
                 kwargs['last_name'] = data['last_name']
             if 'date_of_birth' in data:
                 kwargs['date_of_birth'] = data['date_of_birth']
-            update_pending_kyc_submission(submission, **kwargs)
+            update_kyc_submission(submission, **kwargs)
     except ValidationError as exc:
         return Response(
             {'error': _validation_error_message(exc)},

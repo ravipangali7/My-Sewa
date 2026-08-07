@@ -1661,7 +1661,7 @@ class KYCSubmissionSerializer(serializers.ModelSerializer):
 
 
 class AdminKYCUpdateSerializer(serializers.Serializer):
-    """Staff corrections on a pending KYC before approve/reject."""
+    """Staff / Super Admin corrections on submitted KYC identity fields."""
     citizenship_number = serializers.CharField(
         max_length=50, required=False, allow_blank=False,
     )
