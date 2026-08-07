@@ -410,32 +410,34 @@ def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
     return _send_email(subject, text, [email], html_message=html, fail_silently=False)
 
 
-def send_email_change_otp(new_email: str, otp: str) -> bool:
-    """Send OTP to the new email address to confirm ownership."""
+def send_email_change_otp(email: str, otp: str, new_email: str) -> bool:
+    """Send OTP to the current registered email before changing email."""
     site_name = _site_name()
     subject = f'{site_name} Email Change OTP'
     text = (
         f'Your {site_name} email change verification code is: {otp}\n\n'
-        'Enter this code in the MySewa app to confirm your new email address.\n'
+        f'You requested to change your email address to {new_email}.\n'
+        'Enter this code in the MySewa app to confirm the change.\n'
         'This code expires in 15 minutes.\n'
-        'If you did not request this change, you can ignore this email.'
+        'If you did not request this change, secure your account immediately.'
     )
     html = render_transaction_email(
-        title='Confirm your new email',
-        subtitle='Use this one-time code to finish changing your MySewa email.',
+        title='Email change verification',
+        subtitle=f'Confirm changing your email address to {new_email}.',
         amount_label='Verification code',
         amount_display=otp,
         status='success',
         status_label='Valid 15 minutes',
         rows=[
+            ('New email', new_email),
             ('Expires', '15 minutes'),
             ('Security tip', 'Never share this code with anyone.'),
         ],
         footer_note=(
-            'If you did not request this change, you can ignore this email.'
+            'If you did not request this change, secure your account immediately.'
         ),
     )
-    return _send_email(subject, text, [new_email], html_message=html, fail_silently=False)
+    return _send_email(subject, text, [email], html_message=html, fail_silently=False)
 
 
 def notify_welcome_signup(user) -> None:

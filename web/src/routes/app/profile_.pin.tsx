@@ -133,10 +133,8 @@ function TransactionPinPage() {
       const res = await apiClient.requestTransactionPinResetOtp();
       setOtpSent(true);
       setEmailHint(res.email_hint || user?.email || null);
+      setOtp("");
       toast.success(t("pin.otpSent"));
-      if (res.debug_otp) {
-        setOtp(res.debug_otp);
-      }
     } catch (err) {
       const message = err instanceof ApiError ? err.message : t("profile.updateFailed");
       setFormError(message);
@@ -310,7 +308,7 @@ function TransactionPinPage() {
                     <Input
                       id="pin_reset_otp"
                       inputMode="numeric"
-                      autoComplete="one-time-code"
+                      autoComplete="off"
                       value={otp}
                       onChange={(e) => {
                         setOtp(digitsOnly(e.target.value, 6));

@@ -197,7 +197,7 @@ function AdminProfilePage() {
           />
           <ActionRow
             label="Change phone"
-            description="Requires password and email OTP"
+            description="Requires password and OTP to registered email"
             onClick={() => {
               setNewPhone("");
               setPhonePassword("");
@@ -208,7 +208,7 @@ function AdminProfilePage() {
           />
           <ActionRow
             label="Change email"
-            description="OTP sent to the new email address"
+            description="OTP sent to your registered email"
             onClick={() => {
               setNewEmail("");
               setEmailPassword("");
@@ -325,7 +325,7 @@ function AdminProfilePage() {
                   });
                   setPhoneOtpSent(true);
                   setPhoneEmailHint(res.email_hint || "");
-                  if (res.debug_otp) setPhoneOtp(res.debug_otp);
+                  setPhoneOtp("");
                   toast.success(res.message);
                   return;
                 }
@@ -378,6 +378,7 @@ function AdminProfilePage() {
                   value={phoneOtp}
                   onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   inputMode="numeric"
+                  autoComplete="off"
                   maxLength={6}
                   required
                 />
@@ -427,7 +428,7 @@ function AdminProfilePage() {
                   });
                   setEmailOtpSent(true);
                   setEmailHint(res.email_hint || "");
-                  if (res.debug_otp) setEmailOtp(res.debug_otp);
+                  setEmailOtp("");
                   toast.success(res.message);
                   return;
                 }
@@ -477,6 +478,7 @@ function AdminProfilePage() {
                   value={emailOtp}
                   onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   inputMode="numeric"
+                  autoComplete="off"
                   maxLength={6}
                   required
                 />

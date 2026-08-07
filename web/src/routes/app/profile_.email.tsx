@@ -16,7 +16,7 @@ export const Route = createFileRoute("/app/profile_/email")({
       { title: "Change Email — MySewa" },
       {
         name: "description",
-        content: "Request a MySewa email change and verify ownership with an OTP.",
+        content: "Update your MySewa email with OTP verification sent to your registered address.",
       },
       { property: "og:title", content: "Change Email — MySewa" },
     ],
@@ -45,7 +45,7 @@ function ChangeEmailPage() {
       });
       setOtpSent(true);
       setEmailHint(res.email_hint || "");
-      if (res.debug_otp) setOtp(res.debug_otp);
+      setOtp("");
       toast.success(res.message);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("profile.updateFailed"));
@@ -122,7 +122,7 @@ function ChangeEmailPage() {
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               inputMode="numeric"
-              autoComplete="one-time-code"
+              autoComplete="off"
               placeholder="000000"
               maxLength={6}
               required

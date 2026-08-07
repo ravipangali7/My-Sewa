@@ -528,7 +528,7 @@ def change_phone(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def request_email_change(request):
-    """Send an OTP to the new email address to start an email change request."""
+    """Send an OTP to the current registered email to start an email change request."""
     import secrets
     from django.conf import settings as dj_settings
     from django.core.cache import cache
@@ -551,6 +551,20 @@ def request_email_change(request):
             'errors': {'current_password': ['Current password is incorrect']},
         }, status=status.HTTP_400_BAD_REQUEST)
 
+    email = (user.email or '').strip()
+    if not email:
+        return Response({
+            'message': (
+                'No email is registered for this account. '
+                'Contact support to add an email before changing it.'
+            ),
+            'errors': {
+                'email': [
+                    'No registered email on this account.',
+                ],
+            },
+        }, status=status.HTTP_400_BAD_REQUEST)
+
     new_email = serializer.validated_data['new_email']
     otp = f'{secrets.randbelow(1_000_000):06d}'
     cache.set(
@@ -559,20 +573,20 @@ def request_email_change(request):
         timeout=60 * 15,
     )
 
-    sent = send_email_change_otp(new_email, otp)
+    sent = send_email_change_otp(email, otp, new_email)
     if not sent:
         logger.error('Failed to send email change OTP for user_id=%s', user.pk)
         return Response({
             'message': 'Unable to send verification code. Please try again later.',
-            'errors': {'new_email': ['Unable to send verification code. Please try again later.']},
+            'errors': {'email': ['Unable to send verification code. Please try again later.']},
         }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    email_hint = mask_email(new_email)
+    email_hint = mask_email(email)
     log_security_event(
         user=user,
         action=SecurityAuditLog.ACTION_EMAIL_CHANGE_OTP_SENT,
         request=request,
-        details={'email_hint': email_hint},
+        details={'email_hint': email_hint, 'new_email': new_email},
     )
 
     payload = {
@@ -590,7 +604,7 @@ def request_email_change(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def confirm_email_change(request):
-    """Confirm pending email change with the OTP sent to the new address."""
+    """Confirm pending email change with the OTP sent to the registered email."""
     from django.core.cache import cache
 
     from ..models import SecurityAuditLog

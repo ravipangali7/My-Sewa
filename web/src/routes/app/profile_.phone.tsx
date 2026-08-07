@@ -45,7 +45,7 @@ function ChangePhonePage() {
       });
       setOtpSent(true);
       setEmailHint(res.email_hint || "");
-      if (res.debug_otp) setOtp(res.debug_otp);
+      setOtp("");
       toast.success(res.message);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("profile.updateFailed"));
@@ -125,7 +125,7 @@ function ChangePhonePage() {
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               inputMode="numeric"
-              autoComplete="one-time-code"
+              autoComplete="off"
               placeholder="000000"
               maxLength={6}
               required

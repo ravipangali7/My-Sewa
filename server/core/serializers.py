@@ -648,7 +648,7 @@ class RequestChangePhoneOtpSerializer(serializers.Serializer):
 
 
 class RequestEmailChangeSerializer(serializers.Serializer):
-    """Request OTP to verify ownership of a new email address."""
+    """Request OTP to the registered email before changing email address."""
     new_email = serializers.EmailField(required=True)
     current_password = serializers.CharField(required=True, write_only=True)
 
@@ -666,7 +666,7 @@ class RequestEmailChangeSerializer(serializers.Serializer):
 
 
 class ConfirmEmailChangeSerializer(serializers.Serializer):
-    """Confirm email change with the OTP sent to the new address."""
+    """Confirm email change with the OTP sent to the registered email."""
     otp = serializers.CharField(required=True, max_length=6, min_length=6)
 
     def validate_otp(self, value):

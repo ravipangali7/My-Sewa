@@ -207,6 +207,7 @@ function ForgotPasswordPage() {
                 <Input
                   id="otp"
                   inputMode="numeric"
+                  autoComplete="off"
                   value={otp}
                   onChange={(e) => setOtp(e.target.value)}
                   className="h-12 rounded-xl tracking-widest"
