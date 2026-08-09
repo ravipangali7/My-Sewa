@@ -2201,25 +2201,35 @@ def admin_himalpay_status(request):
     Diagnose HimalPay connectivity for admins.
 
     Returns the outbound public IP that must be on the HimalPay IP Allowlist,
-    and probes the reseller services endpoint.
+    probes reseller services, and checks whether balance is readable via API key.
     """
+    from ..services.himalpay import is_route_not_found_error
+
     outbound_ip = get_outbound_public_ip(force=True)
     himalpay = HimalPayAPI()
     result = {
         'outbound_ip': outbound_ip,
         'base_url': himalpay.base_url,
         'api_key_configured': bool(himalpay.api_key),
+        'portal_login_configured': bool(himalpay._has_portal_login()),
         'bypass_api': bool(himalpay.bypass_api),
         'ok': False,
         'message': '',
         'error_code': None,
         'error_type': None,
         'services_count': 0,
+        'balance_ok': False,
+        'balance_source': None,
+        'balance_total_rupees': None,
+        'balance_message': '',
     }
 
     if himalpay.bypass_api:
         result['ok'] = True
+        result['balance_ok'] = True
+        result['balance_source'] = 'bypass'
         result['message'] = 'HimalPay bypass mode is enabled (no live API calls).'
+        result['balance_message'] = 'Bypass mode returns a fake balance.'
         return Response(result)
 
     if not himalpay.api_key:
@@ -2227,6 +2237,7 @@ def admin_himalpay_status(request):
             'HimalPay API key is not configured. '
             'Set it under Super Admin → Settings → HimalPay reseller.'
         )
+        result['balance_message'] = result['message']
         return Response(result)
 
     try:
@@ -2235,9 +2246,8 @@ def admin_himalpay_status(request):
         result['ok'] = True
         result['services_count'] = count
         result['message'] = (
-            f'Connected to HimalPay. {count} reseller service(s) available.'
+            f'Connected to HimalPay with API key. {count} reseller service(s) available.'
         )
-        return Response(result)
     except HimalPayError as exc:
         message = exc.message
         if getattr(exc, 'is_ip_blocked', False):
@@ -2245,10 +2255,43 @@ def admin_himalpay_status(request):
         result['message'] = message
         result['error_code'] = exc.error_code
         result['error_type'] = exc.error_type
-        return Response(result)
     except Exception as exc:
         result['message'] = f'HimalPay check failed: {exc}'
-        return Response(result)
+
+    # Separate probe: can we read float with this API key / fallbacks?
+    original_timeout = getattr(himalpay, 'timeout', 60)
+    himalpay.timeout = min(int(original_timeout or 60), 20)
+    try:
+        balance = himalpay.get_reseller_balance()
+        if isinstance(balance, dict) and HimalPayAPI._balance_payload_has_amounts(balance):
+            result['balance_ok'] = True
+            result['balance_source'] = balance.get('source') or 'reseller-balance'
+            result['balance_total_rupees'] = balance.get('total_balance_in_rupees')
+            result['balance_message'] = (
+                f"Balance readable via {result['balance_source']}: "
+                f"Rs. {result['balance_total_rupees']}"
+            )
+        else:
+            result['balance_message'] = 'HimalPay returned an empty balance payload.'
+    except HimalPayError as exc:
+        message = str(exc.message if hasattr(exc, 'message') else exc)
+        if is_route_not_found_error(message, exc.status_code, exc.error_type):
+            result['balance_message'] = (
+                'API key is set, but LIVE HimalPay returned 404 for '
+                '/wallet/reseller-balance (UAT-only route). '
+                'Ask HimalPay to enable it on LIVE, or configure portal login.'
+            )
+        else:
+            result['balance_message'] = message
+        if result.get('error_code') is None:
+            result['error_code'] = exc.error_code
+            result['error_type'] = exc.error_type
+    except Exception as exc:
+        result['balance_message'] = f'Balance check failed: {exc}'
+    finally:
+        himalpay.timeout = original_timeout
+
+    return Response(result)
 
 
 @api_view(['GET'])
@@ -2884,6 +2927,8 @@ def admin_statement_balance(request):
     # Allow a few sequential HimalPay probes (reseller → portal → statement).
     original_timeout = getattr(himalpay, 'timeout', 60)
     himalpay.timeout = min(int(original_timeout or 60), 25)
+    api_key_configured = bool(himalpay.api_key)
+    portal_configured = bool(himalpay._has_portal_login())
     try:
         data = himalpay.get_reseller_balance()
     except HimalPayError as exc:
@@ -2896,18 +2941,33 @@ def admin_statement_balance(request):
                     'error': message,
                     'data': None,
                     'unavailable': True,
+                    'api_key_configured': api_key_configured,
+                    'portal_login_configured': portal_configured,
+                    'hint': (
+                        'LIVE HimalPay returned 404 for /wallet/reseller-balance '
+                        'even with your API key. That route is available on UAT '
+                        'per himalpay.md; ask HimalPay to enable it on LIVE, or '
+                        'add portal login under Settings → HimalPay.'
+                    ),
                 }
             )
         return Response(
             {
                 'error': message,
                 'data': None,
+                'api_key_configured': api_key_configured,
+                'portal_login_configured': portal_configured,
             },
             status=status.HTTP_502_BAD_GATEWAY,
         )
     except Exception as exc:
         return Response(
-            {'error': f'Could not load HimalPay balance: {exc}', 'data': None},
+            {
+                'error': f'Could not load HimalPay balance: {exc}',
+                'data': None,
+                'api_key_configured': api_key_configured,
+                'portal_login_configured': portal_configured,
+            },
             status=status.HTTP_502_BAD_GATEWAY,
         )
     finally:
@@ -2919,6 +2979,8 @@ def admin_statement_balance(request):
                 'error': 'HimalPay returned an empty balance payload.',
                 'data': None,
                 'unavailable': True,
+                'api_key_configured': api_key_configured,
+                'portal_login_configured': portal_configured,
             }
         )
 
@@ -2926,6 +2988,8 @@ def admin_statement_balance(request):
         {
             'data': data,
             'source': data.get('source') or 'reseller-balance',
+            'api_key_configured': api_key_configured,
+            'portal_login_configured': portal_configured,
         }
     )
 

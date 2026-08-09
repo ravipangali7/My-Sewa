@@ -1445,9 +1445,11 @@ function SettingsPage() {
                     <div>
                       <p className="text-sm font-medium">Portal login (LIVE statement / balance)</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        LIVE HimalPay does not expose reseller statement/balance routes yet.
-                        Optional: add the HimalPay app login for this reseller account so MySewa
-                        can read float + ledger via /users/me/wallet and /users/statement.
+                        LIVE HimalPay often does not expose reseller statement/balance routes yet
+                        (API key calls to /wallet/reseller-balance return 404). Optional: add the
+                        HimalPay app login for this reseller account so MySewa can read float +
+                        ledger via /users/me/wallet and /users/statement until HimalPay enables
+                        those reseller routes on LIVE.
                       </p>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -1540,6 +1542,18 @@ function SettingsPage() {
                         )}
                       >
                         {himalpayStatusQuery.data.message}
+                      </p>
+                    ) : null}
+                    {himalpayStatusQuery.data?.balance_message ? (
+                      <p
+                        className={cn(
+                          "mt-2 text-sm",
+                          himalpayStatusQuery.data.balance_ok
+                            ? "text-success"
+                            : "text-warning-foreground",
+                        )}
+                      >
+                        Balance: {himalpayStatusQuery.data.balance_message}
                       </p>
                     ) : null}
                     <Button

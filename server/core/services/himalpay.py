@@ -94,11 +94,11 @@ def is_route_not_found_error(
 
 
 RESELLER_LEDGER_UNAVAILABLE_MSG = (
-    'HimalPay LIVE does not expose reseller statement/balance yet '
-    '(/statement/reseller-statement, /wallet/reseller-balance — UAT only). '
-    'Add HimalPay portal login under Admin → Settings → HimalPay to use '
-    '/users/statement and /users/me/wallet on LIVE, or ask HimalPay to deploy '
-    'the reseller ledger endpoints.'
+    'Your HimalPay API key is configured, but LIVE HimalPay does not expose '
+    'GET /wallet/reseller-balance or GET /statement/reseller-statement yet '
+    '(those routes are documented on UAT; LIVE currently returns 404). '
+    'Ask HimalPay to enable reseller balance on LIVE, or add portal login under '
+    'Admin → Settings → HimalPay so MySewa can read /users/me/wallet.'
 )
 
 

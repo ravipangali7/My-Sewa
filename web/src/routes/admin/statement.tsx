@@ -433,11 +433,22 @@ function StatementPage() {
 
       {balanceUnavailable ? (
         <div className="mt-4 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-foreground">
-          HimalPay balance unavailable on LIVE API. Add portal login under{" "}
-          <span className="font-medium">Admin → Settings → HimalPay</span>.
+          <p className="font-medium">HimalPay balance could not be loaded with your API key</p>
+          <p className="mt-1 text-muted-foreground">
+            {balanceQuery.data?.hint ||
+              (balanceQuery.data?.api_key_configured !== false
+                ? "LIVE HimalPay does not expose GET /wallet/reseller-balance yet (documented in himalpay.md for UAT). MySewa already uses your Super Admin API key for this call."
+                : "Configure the HimalPay API key under Admin → Settings → HimalPay.")}
+          </p>
+          <p className="mt-2 text-muted-foreground">
+            Next steps: ask HimalPay to enable <span className="font-medium">/wallet/reseller-balance</span>{" "}
+            on LIVE, or add portal login under{" "}
+            <span className="font-medium">Admin → Settings → HimalPay</span> so MySewa can read{" "}
+            <span className="font-medium">/users/me/wallet</span>.
+          </p>
           {balanceQuery.data?.error ||
           (balanceQuery.error instanceof ApiError ? balanceQuery.error.message : null) ? (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-2 text-xs text-muted-foreground break-words">
               {balanceQuery.data?.error ||
                 (balanceQuery.error instanceof ApiError
                   ? balanceQuery.error.message

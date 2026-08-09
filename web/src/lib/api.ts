@@ -1044,12 +1044,17 @@ export const apiClient = {
       outbound_ip: string | null;
       base_url: string;
       api_key_configured: boolean;
+      portal_login_configured?: boolean;
       bypass_api: boolean;
       ok: boolean;
       message: string;
       error_code?: number | null;
       error_type?: string | null;
       services_count: number;
+      balance_ok?: boolean;
+      balance_source?: string | null;
+      balance_total_rupees?: number | null;
+      balance_message?: string;
     }>("/api/admin/himalpay/status/"),
 
   adminStatement: (filters?: {
@@ -1094,6 +1099,9 @@ export const apiClient = {
       error?: string;
       unavailable?: boolean;
       source?: string;
+      api_key_configured?: boolean;
+      portal_login_configured?: boolean;
+      hint?: string;
     }>("/api/admin/statement/balance/"),
 
   adminStatementLedger: (filters?: {
