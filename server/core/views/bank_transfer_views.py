@@ -29,6 +29,7 @@ from ..serializers import (
     TransactionStatusSerializer,
 )
 from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_response
+from ..services.nepali_banks import LEGACY_BANK_CODE_MAP, fallback_banks
 from ..services.app_config import (
     get_app_config,
     resolve_transfer_fees,
@@ -45,6 +46,28 @@ logger = logging.getLogger(__name__)
 
 ACCOUNT_DETAILS_MISMATCH = 'Account details do not match.'
 
+_BANK_CODE_KEYS = (
+    'bank_code',
+    'code',
+    'BankCode',
+    'bankCode',
+    'swift_code',
+    'SwiftCode',
+    'swiftCode',
+    'destination_bank',
+    'bic',
+    'BIC',
+)
+_BANK_NAME_KEYS = (
+    'bank_name',
+    'name',
+    'BankName',
+    'bankName',
+    'bank',
+    'title',
+    'label',
+)
+
 
 def _get_or_create_wallet(user):
     try:
@@ -53,75 +76,101 @@ def _get_or_create_wallet(user):
         return Wallet.objects.create(user=user, balance=Decimal('0.00'))
 
 
-def _normalize_banks(raw) -> list:
-    """Extract a flat bank list from various HimalPay response shapes."""
-    if isinstance(raw, list):
-        items = raw
-    elif isinstance(raw, dict):
-        items = (
-            raw.get('banks')
-            or raw.get('data')
-            or raw.get('Data')
-            or raw.get('result')
-            or []
-        )
-        if isinstance(items, dict):
-            items = items.get('banks') or items.get('list') or []
-    else:
-        items = []
-
-    banks = []
-    for item in items:
-        if not isinstance(item, dict):
+def _bank_item_from_mapping(item: dict) -> dict | None:
+    code = ''
+    for key in _BANK_CODE_KEYS:
+        value = item.get(key)
+        if value is None:
             continue
-        code = (
-            item.get('bank_code')
-            or item.get('code')
-            or item.get('BankCode')
-            or item.get('swift_code')
-            or ''
-        )
-        name = (
-            item.get('bank_name')
-            or item.get('name')
-            or item.get('BankName')
-            or code
-        )
-        if code:
-            banks.append({
-                'bank_code': str(code).strip().upper(),
-                'bank_name': str(name),
-                'raw': item,
-            })
-    return banks
+        text = str(value).strip()
+        if text:
+            code = text.upper()
+            break
+    if not code:
+        return None
+    name = ''
+    for key in _BANK_NAME_KEYS:
+        value = item.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            name = text
+            break
+    return {
+        'bank_code': code,
+        'bank_name': name or code,
+        'raw': item,
+    }
 
 
-# Legacy short tickers → HimalPay SWIFT codes (used when list lookup fails)
-_LEGACY_BANK_CODE_MAP = {
-    'NABIL': 'NARBNPKA',
-    'NIBL': 'NIBLNPKA',
-    'SCB': 'SCBLNPKA',
-    'HBL': 'HIMANPKA',
-    'EBL': 'EVBLNPKA',
-    'NMB': 'NMBBNPKA',
-    'PCBL': 'PCBLNPKA',
-    'SANIMA': 'SNMANPKA',
-    'SBI': 'NSBINPKA',
-    'MBL': 'MBLNNPKA',
-    'KBL': 'KMBLNPKA',
-    'LBL': 'LXBLNPKA',
-    'CBL': 'CIVLNPKA',
-    'CTZN': 'CTZNNPKA',
-    'NICA': 'NICENPKA',
-    'GBIME': 'GLBBNPKA',
-    'PRVU': 'PRVUNPKA',
-    'ADBL': 'ADBLNPKA',
-    'RBB': 'RBBENPKA',
-    'NBL': 'NEBLNPKA',
-    'SBL': 'SIDDNPKA',
-    'BOK': 'BOKLNPKA',
-    'CCBL': 'CCBNNPKA',
-}
+def _walk_bank_candidates(node, depth: int = 0):
+    """Yield dict nodes that look like bank rows from nested HimalPay payloads."""
+    if depth > 8 or node is None:
+        return
+    if isinstance(node, list):
+        for item in node:
+            yield from _walk_bank_candidates(item, depth + 1)
+        return
+    if not isinstance(node, dict):
+        return
+
+    if any(key in node for key in _BANK_CODE_KEYS):
+        yield node
+
+    for key in (
+        'banks',
+        'Banks',
+        'bank_list',
+        'bankList',
+        'list',
+        'items',
+        'data',
+        'Data',
+        'result',
+        'Result',
+        'payload',
+        'response',
+    ):
+        nested = node.get(key)
+        if nested is None or nested is node:
+            continue
+        yield from _walk_bank_candidates(nested, depth + 1)
+
+
+def _normalize_banks(raw) -> list:
+    """
+    Extract a flat bank list from various HimalPay BANK_TRANSFER_LIST shapes.
+
+    HimalPay docs only guarantee a list of banks with codes from Step 1; live
+    payloads may nest under data / banks / result.
+    """
+    by_code = {}
+    for item in _walk_bank_candidates(raw):
+        parsed = _bank_item_from_mapping(item)
+        if not parsed:
+            continue
+        # Prefer entries that include a human-readable name when duplicates appear.
+        existing = by_code.get(parsed['bank_code'])
+        if existing and existing.get('bank_name') not in ('', existing.get('bank_code')):
+            if parsed['bank_name'] in ('', parsed['bank_code']):
+                continue
+        by_code[parsed['bank_code']] = parsed
+    return sorted(
+        by_code.values(),
+        key=lambda row: str(row.get('bank_name') or row.get('bank_code') or '').casefold(),
+    )
+
+
+def _fallback_bank_rows() -> list:
+    return [
+        {
+            'bank_code': row['bank_code'],
+            'bank_name': row['bank_name'],
+            'raw': row,
+        }
+        for row in fallback_banks()
+    ]
 
 
 def _resolve_destination_bank(himalpay: HimalPayAPI, code: str, bank_name: str = '') -> str:
@@ -141,6 +190,9 @@ def _resolve_destination_bank(himalpay: HimalPayAPI, code: str, bank_name: str =
         banks = _normalize_banks(himalpay.list_banks())
     except Exception as exc:
         logger.warning('Could not load bank list for code resolve: %s', exc)
+
+    if not banks:
+        banks = _fallback_bank_rows()
 
     if banks:
         for b in banks:
@@ -176,7 +228,7 @@ def _resolve_destination_bank(himalpay: HimalPayAPI, code: str, bank_name: str =
                 )
                 return name_hits[0]['bank_code']
 
-    mapped = _LEGACY_BANK_CODE_MAP.get(code_u)
+    mapped = LEGACY_BANK_CODE_MAP.get(code_u)
     if mapped:
         logger.info('Resolved bank code %s → %s via legacy map', code_u, mapped)
         return mapped
@@ -187,7 +239,13 @@ def _resolve_destination_bank(himalpay: HimalPayAPI, code: str, bank_name: str =
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_banks(request):
-    """List banks available for HimalPay bank transfer."""
+    """
+    List banks available for HimalPay bank transfer.
+
+    Prefer live HimalPay ``BANK_TRANSFER_LIST`` (himalpay.md Step 1). When that
+    call fails or returns no banks, serve the local fallback catalog so every
+    common Nepal commercial bank (including Nabil / Everest) remains selectable.
+    """
     blocked = require_feature_enabled('transfers')
     if blocked:
         return blocked
@@ -196,26 +254,56 @@ def list_banks(request):
     try:
         raw = himalpay.list_banks()
         banks = _normalize_banks(raw)
+        source = 'himalpay'
+        if not banks:
+            logger.warning('HimalPay BANK_TRANSFER_LIST returned no banks; using fallback catalog')
+            banks = _fallback_bank_rows()
+            source = 'fallback'
         return Response(
             with_himapay_response(
-                {'data': {'banks': banks}, 'banks': banks, 'raw': raw},
+                {
+                    'data': {'banks': banks, 'source': source},
+                    'banks': banks,
+                    'source': source,
+                    'raw': raw,
+                },
                 raw,
             ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
+        banks = _fallback_bank_rows()
+        logger.warning(
+            'HimalPay BANK_TRANSFER_LIST failed (%s); returning %s fallback banks',
+            exc.provider_message or exc.message,
+            len(banks),
+        )
         return Response(
             with_himapay_response(
-                {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
+                {
+                    'data': {'banks': banks, 'source': 'fallback'},
+                    'banks': banks,
+                    'source': 'fallback',
+                    'warning': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                },
                 exc.response_data,
             ),
-            status=status.HTTP_400_BAD_REQUEST,
+            status=status.HTTP_200_OK,
         )
     except Exception as exc:
         logger.error('list_banks failed: %s\n%s', exc, traceback.format_exc())
+        banks = _fallback_bank_rows()
         return Response(
-            {'error': 'Failed to fetch bank list', 'message': str(exc)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            {
+                'data': {'banks': banks, 'source': 'fallback'},
+                'banks': banks,
+                'source': 'fallback',
+                'warning': 'Failed to fetch live bank list; using fallback catalog',
+                'message': str(exc),
+            },
+            status=status.HTTP_200_OK,
         )
 
 

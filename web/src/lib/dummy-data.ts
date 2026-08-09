@@ -102,12 +102,29 @@ export interface BankTransferTransaction {
 export const OPERATORS: Record<1 | 2, string> = { 1: "NTC", 2: "NCELL" };
 
 export const BANKS = [
-  { code: "LXBLNPKA", name: "Laxmi Sunrise Bank" },
-  { code: "NBBLNPKA", name: "Nabil Bank" },
+  { code: "ADBLNPKA", name: "Agricultural Development Bank" },
+  { code: "BOKLNPKA", name: "Bank of Kathmandu" },
+  { code: "CCBNNPKA", name: "Century Commercial Bank" },
+  { code: "CTZNNPKA", name: "Citizens Bank International" },
+  { code: "CIVLNPKA", name: "Civil Bank" },
+  { code: "EVBLNPKA", name: "Everest Bank" },
   { code: "GLBBNPKA", name: "Global IME Bank" },
-  { code: "SBINPKA", name: "Nepal SBI Bank" },
+  { code: "HIMANPKA", name: "Himalayan Bank" },
+  { code: "KMBLNPKA", name: "Kumari Bank" },
+  { code: "LXBLNPKA", name: "Laxmi Sunrise Bank" },
+  { code: "MBLNNPKA", name: "Machhapuchchhre Bank" },
+  { code: "NARBNPKA", name: "Nabil Bank" },
+  { code: "NEBLNPKA", name: "Nepal Bank Limited" },
+  { code: "NIBLNPKA", name: "Nepal Investment Mega Bank" },
+  { code: "NSBINPKA", name: "Nepal SBI Bank" },
+  { code: "NICENPKA", name: "NIC Asia Bank" },
+  { code: "NMBBNPKA", name: "NMB Bank" },
   { code: "PRVUNPKA", name: "Prabhu Bank" },
-  { code: "SANINPKA", name: "Sanima Bank" },
+  { code: "PCBLNPKA", name: "Prime Commercial Bank" },
+  { code: "RBBENPKA", name: "Rastriya Banijya Bank" },
+  { code: "SNMANPKA", name: "Sanima Bank" },
+  { code: "SIDDNPKA", name: "Siddhartha Bank" },
+  { code: "SCBLNPKA", name: "Standard Chartered Bank Nepal" },
 ];
 
 export const users: CustomUser[] = [

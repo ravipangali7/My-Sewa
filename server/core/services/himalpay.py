@@ -1810,16 +1810,12 @@ class HimalPayAPI:
 
     def _bypass_detail(self, wallet_service_name: str, data: Dict) -> Any:
         if wallet_service_name == self.SERVICE_BANK_TRANSFER_LIST:
+            # Mirror himalpay.md Step 1: return the full supported catalog in bypass.
+            from .nepali_banks import fallback_banks
+
             return {
-                'banks': [
-                    {'bank_code': 'LXBLNPKA', 'bank_name': 'Laxmi Sunrise Bank'},
-                    {'bank_code': 'NARBNPKA', 'bank_name': 'Nabil Bank'},
-                    {'bank_code': 'SCBLNPKA', 'bank_name': 'Standard Chartered Bank'},
-                    {'bank_code': 'NICENPKA', 'bank_name': 'NIC Asia Bank'},
-                    {'bank_code': 'HIMANPKA', 'bank_name': 'Himalayan Bank'},
-                    {'bank_code': 'CTZNNPKA', 'bank_name': 'Citizens Bank International'},
-                ],
-                'message': 'Bypass bank list',
+                'banks': fallback_banks(),
+                'message': 'Bypass bank list (full HimalPay fallback catalog)',
             }
 
         if wallet_service_name == self.SERVICE_BANK_TRANSFER_VERIFICATION:
@@ -1836,9 +1832,11 @@ class HimalPayAPI:
             mock_registry = {
                 ('LXBLNPKA', '1845008000023'): 'Kishor Adhikari',
                 ('NARBNPKA', '0123456789012'): 'Test Account Holder',
+                ('EVBLNPKA', '0010012345678901'): 'Everest Demo Holder',
                 ('SCBLNPKA', '00101102012345'): 'Bypass Demo User',
                 ('LXBLNPKA', '9800000000'): 'Kishor Adhikari',
                 ('NARBNPKA', '9811111111'): 'Test Account Holder',
+                ('EVBLNPKA', '9822222222'): 'Everest Demo Holder',
             }
             normalized_number = self.normalize_account_number(account_number)
             registered_name = None
