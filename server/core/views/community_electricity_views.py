@@ -21,7 +21,7 @@ from ..serializers import (
     CommunityElectricityCountersSerializer,
     TransactionStatusSerializer,
 )
-from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_response
 from ..services.utility_catalog import (
     get_community_platform,
     list_community_platforms_public,
@@ -82,18 +82,24 @@ def list_providers(request):
 
     himalpay = HimalPayAPI()
     reseller_services = None
+    himalpay_raw = None
     try:
         services = himalpay.list_services()
+        himalpay_raw = services
         if isinstance(services, list):
             reseller_services = services
     except HimalPayError as exc:
+        himalpay_raw = exc.response_data
         logger.warning(
             'Could not fetch HimalPay services for community electricity list: %s',
             exc.message,
         )
 
     return Response(
-        {'providers': list_community_platforms_public(reseller_services)},
+        with_himapay_response(
+            {'providers': list_community_platforms_public(reseller_services)},
+            himalpay_raw,
+        ),
         status=status.HTTP_200_OK,
     )
 
@@ -151,29 +157,38 @@ def list_counters(request):
         vendor_message = detect_inquiry_vendor_failure(raw)
         if vendor_message:
             return Response(
-                {
-                    'error': 'Failed to fetch counters',
-                    'message': vendor_message,
-                    'data': raw,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Failed to fetch counters',
+                        'message': vendor_message,
+                        'data': raw,
+                    },
+                    raw,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(
-            {
-                'message': f'{platform["name"]} counters retrieved.',
-                'platform_id': platform['id'],
-                'data': raw,
-            },
+            with_himapay_response(
+                {
+                    'message': f'{platform["name"]} counters retrieved.',
+                    'platform_id': platform['id'],
+                    'data': raw,
+                },
+                raw,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {
-                'error': 'Failed to fetch counters',
-                'message': exc.message,
-                'error_code': exc.error_code,
-                'error_type': exc.error_type,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Failed to fetch counters',
+                    'message': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
 
@@ -224,38 +239,50 @@ def inquiry_bill(request):
         }
         if vendor_message:
             return Response(
-                {
-                    'error': 'Bill inquiry failed',
-                    'message': vendor_message,
-                    'data': normalize_utility_inquiry(raw, extra),
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Bill inquiry failed',
+                        'message': vendor_message,
+                        'data': normalize_utility_inquiry(raw, extra),
+                    },
+                    raw,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         normalized = normalize_utility_inquiry(raw, extra)
         if not normalized.get('session_id'):
             return Response(
-                {
-                    'error': 'No bill found for this customer.',
-                    'message': (
-                        'No payable bill or session was returned for this account. '
-                        'Please verify the details and try again.'
-                    ),
-                    'data': normalized,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'No bill found for this customer.',
+                        'message': (
+                            'No payable bill or session was returned for this account. '
+                            'Please verify the details and try again.'
+                        ),
+                        'data': normalized,
+                    },
+                    raw,
+                ),
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(
-            {'message': 'Bill details retrieved from provider.', 'data': normalized},
+            with_himapay_response(
+                {'message': 'Bill details retrieved from provider.', 'data': normalized},
+                raw,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {
-                'error': 'Bill inquiry failed',
-                'message': exc.message,
-                'error_code': exc.error_code,
-                'error_type': exc.error_type,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Bill inquiry failed',
+                    'message': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
 
@@ -317,12 +344,15 @@ def pay_bill(request):
     except HimalPayError as exc:
         if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
             return Response(
-                {
-                    'error': 'Community electricity payment failed',
-                    'message': exc.message,
-                    'error_code': exc.error_code,
-                    'error_type': exc.error_type,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Community electricity payment failed',
+                        'message': exc.message,
+                        'error_code': exc.error_code,
+                        'error_type': exc.error_type,
+                    },
+                    exc.response_data,
+                ),
                 status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
             )
         charge = Decimal('0.00')
@@ -380,12 +410,15 @@ def pay_bill(request):
             bill_txn.save()
             failure = himalpay.extract_failure_details(response)
             return Response(
-                {
-                    'error': 'Community electricity payment failed',
-                    'message': failure['message'],
-                    'wallet_debited': False,
-                    'data': CommunityElectricityTransactionSerializer(bill_txn).data,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Community electricity payment failed',
+                        'message': failure['message'],
+                        'wallet_debited': False,
+                        'data': CommunityElectricityTransactionSerializer(bill_txn).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -400,7 +433,10 @@ def pay_bill(request):
                     bill_txn.status = 'failed'
                     bill_txn.save()
                     return Response(
-                        {'error': 'Insufficient balance after fee calculation'},
+                        with_himapay_response(
+                            {'error': 'Insufficient balance after fee calculation'},
+                            response,
+                        ),
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 debit_wallet_for_txn(wallet, bill_txn, debit)
@@ -415,24 +451,30 @@ def pay_bill(request):
             )
             notify_low_balance_if_needed(wallet)
             return Response(
-                {
-                    'message': f'{platform["name"]} bill paid successfully',
-                    'data': CommunityElectricityTransactionSerializer(bill_txn).data,
-                },
+                with_himapay_response(
+                    {
+                        'message': f'{platform["name"]} bill paid successfully',
+                        'data': CommunityElectricityTransactionSerializer(bill_txn).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_200_OK,
             )
 
         bill_txn.status = 'pending'
         bill_txn.save()
         return Response(
-            {
-                'message': 'Payment is being processed',
-                'pending_message': response.get(
-                    'message',
-                    'Your payment is being processed and awaits verification.',
-                ),
-                'data': CommunityElectricityTransactionSerializer(bill_txn).data,
-            },
+            with_himapay_response(
+                {
+                    'message': 'Payment is being processed',
+                    'pending_message': response.get(
+                        'message',
+                        'Your payment is being processed and awaits verification.',
+                    ),
+                    'data': CommunityElectricityTransactionSerializer(bill_txn).data,
+                },
+                response,
+            ),
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -441,11 +483,14 @@ def pay_bill(request):
         bill_txn.provider_response = exc.response_data
         bill_txn.save()
         return Response(
-            {
-                'error': 'Community electricity payment failed',
-                'message': exc.message,
-                'data': CommunityElectricityTransactionSerializer(bill_txn).data,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Community electricity payment failed',
+                    'message': exc.message,
+                    'data': CommunityElectricityTransactionSerializer(bill_txn).data,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
     except Exception as exc:
@@ -527,22 +572,28 @@ def community_electricity_status(request):
                             bill.save()
 
         return Response(
-            {
-                'status': normalized,
-                'message': (
-                    himalpay.extract_failure_details(result)['message']
-                    if normalized == 'failed'
-                    else None
-                ),
-                'data': result,
-                'local_bill': (
-                    CommunityElectricityTransactionSerializer(bill).data if bill else None
-                ),
-            },
+            with_himapay_response(
+                {
+                    'status': normalized,
+                    'message': (
+                        himalpay.extract_failure_details(result)['message']
+                        if normalized == 'failed'
+                        else None
+                    ),
+                    'data': result,
+                    'local_bill': (
+                        CommunityElectricityTransactionSerializer(bill).data if bill else None
+                    ),
+                },
+                result,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {'error': exc.message, 'error_code': exc.error_code},
+            with_himapay_response(
+                {'error': exc.message, 'error_code': exc.error_code},
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST,
         )

@@ -1960,10 +1960,22 @@ def admin_settings(request):
     if request.method == 'GET':
         return Response(SettingsSerializer(settings_obj, context={'request': request}).data)
 
-    from ..services.payment_accounts import normalize_bank_details
+    from ..services.payment_accounts import (
+        ACCOUNT_QR_CLEAR_PREFIX,
+        ACCOUNT_QR_UPLOAD_PREFIX,
+        apply_account_qr_uploads,
+        normalize_bank_details,
+        preserve_account_qr_codes,
+        prune_removed_account_qrs,
+    )
 
     bank_keys = ('bank_name', 'account_name', 'account_number', 'branch')
-    bank = dict(settings_obj.bank_details or {}) if isinstance(settings_obj.bank_details, dict) else {}
+    previous_bank = (
+        dict(settings_obj.bank_details or {})
+        if isinstance(settings_obj.bank_details, dict)
+        else {}
+    )
+    bank = dict(previous_bank)
     updated_bank = False
     for k in bank_keys:
         if k in request.data and request.data.get(k) is not None:
@@ -2002,7 +2014,17 @@ def admin_settings(request):
         parsed_bank = _parse_json_field(request.data.get('bank_details'))
         if parsed_bank is not None:
             bank = parsed_bank if isinstance(parsed_bank, dict) else bank
+            bank = preserve_account_qr_codes(previous_bank, bank)
             updated_bank = True
+
+    account_qr_touched = any(
+        str(k).startswith(ACCOUNT_QR_UPLOAD_PREFIX) for k in request.FILES.keys()
+    ) or any(
+        str(k).startswith(ACCOUNT_QR_CLEAR_PREFIX) for k in request.data.keys()
+    )
+    if account_qr_touched:
+        bank = apply_account_qr_uploads(bank, request.FILES, request.data)
+        updated_bank = True
 
     if updated_bank:
         # Flat bank_* fields from older clients merge into first bank account
@@ -2026,7 +2048,9 @@ def admin_settings(request):
                         primary[k] = str(request.data.get(k))
                 primary['label'] = primary.get('label') or primary.get('bank_name') or 'Bank account'
             bank['accounts'] = accounts
-        settings_obj.bank_details = normalize_bank_details(bank)
+        normalized_bank = normalize_bank_details(bank)
+        prune_removed_account_qrs(previous_bank, normalized_bank)
+        settings_obj.bank_details = normalized_bank
 
     if 'config' in request.data:
         incoming = _parse_json_field(request.data.get('config'))

@@ -28,7 +28,7 @@ from ..serializers import (
     CalculateChargeSerializer,
     TransactionStatusSerializer,
 )
-from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_response
 from ..services.app_config import (
     get_app_config,
     resolve_transfer_fees,
@@ -197,12 +197,18 @@ def list_banks(request):
         raw = himalpay.list_banks()
         banks = _normalize_banks(raw)
         return Response(
-            {'data': {'banks': banks}, 'banks': banks, 'raw': raw},
+            with_himapay_response(
+                {'data': {'banks': banks}, 'banks': banks, 'raw': raw},
+                raw,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
+            with_himapay_response(
+                {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST,
         )
     except Exception as exc:
@@ -255,14 +261,17 @@ def verify_account(request):
         )
         if not himalpay.is_verification_success(result):
             return Response(
-                {
-                    'error': ACCOUNT_DETAILS_MISMATCH,
-                    'message': ACCOUNT_DETAILS_MISMATCH,
-                    'verified': False,
-                    'mismatch': True,
-                    'merchant_txn_id': merchant_txn_id,
-                    'provider': result,
-                },
+                with_himapay_response(
+                    {
+                        'error': ACCOUNT_DETAILS_MISMATCH,
+                        'message': ACCOUNT_DETAILS_MISMATCH,
+                        'verified': False,
+                        'mismatch': True,
+                        'merchant_txn_id': merchant_txn_id,
+                        'provider': result,
+                    },
+                    result,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -277,54 +286,63 @@ def verify_account(request):
         )
         if not match['matched']:
             return Response(
-                {
-                    'error': ACCOUNT_DETAILS_MISMATCH,
-                    'message': ACCOUNT_DETAILS_MISMATCH,
-                    'verified': False,
-                    'mismatch': True,
-                    'merchant_txn_id': merchant_txn_id,
-                    'data': {
+                with_himapay_response(
+                    {
+                        'error': ACCOUNT_DETAILS_MISMATCH,
+                        'message': ACCOUNT_DETAILS_MISMATCH,
                         'verified': False,
-                        'account_name': match['account_name'],
-                        'account_number': match['account_number'],
-                        'bank_code': match['bank_code'],
-                        'bank_ok': match['bank_ok'],
-                        'number_ok': match['number_ok'],
-                        'name_ok': match['name_ok'],
+                        'mismatch': True,
+                        'merchant_txn_id': merchant_txn_id,
+                        'data': {
+                            'verified': False,
+                            'account_name': match['account_name'],
+                            'account_number': match['account_number'],
+                            'bank_code': match['bank_code'],
+                            'bank_ok': match['bank_ok'],
+                            'number_ok': match['number_ok'],
+                            'name_ok': match['name_ok'],
+                        },
+                        'provider': result,
                     },
-                    'provider': result,
-                },
+                    result,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         return Response(
-            {
-                'message': 'Account verification completed',
-                'data': {
-                    'verified': True,
-                    'account_name': match['account_name'],
-                    'account_number': match['account_number'],
-                    'bank_code': match['bank_code'],
-                    'bank_name': data.get('bank_name') or '',
-                    'is_mobile': is_mobile,
-                    'merchant_txn_id': merchant_txn_id,
-                    'provider': result,
+            with_himapay_response(
+                {
+                    'message': 'Account verification completed',
+                    'data': {
+                        'verified': True,
+                        'account_name': match['account_name'],
+                        'account_number': match['account_number'],
+                        'bank_code': match['bank_code'],
+                        'bank_name': data.get('bank_name') or '',
+                        'is_mobile': is_mobile,
+                        'merchant_txn_id': merchant_txn_id,
+                        'provider': result,
+                    },
                 },
-            },
+                result,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {
-                'error': ACCOUNT_DETAILS_MISMATCH,
-                'message': ACCOUNT_DETAILS_MISMATCH,
-                'provider_message': exc.message or ACCOUNT_DETAILS_MISMATCH,
-                'error_code': exc.error_code,
-                'error_type': exc.error_type,
-                'verified': False,
-                'mismatch': True,
-                'merchant_txn_id': merchant_txn_id,
-            },
+            with_himapay_response(
+                {
+                    'error': ACCOUNT_DETAILS_MISMATCH,
+                    'message': ACCOUNT_DETAILS_MISMATCH,
+                    'provider_message': exc.message or ACCOUNT_DETAILS_MISMATCH,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                    'verified': False,
+                    'mismatch': True,
+                    'merchant_txn_id': merchant_txn_id,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -366,47 +384,56 @@ def calculate_transfer_charge(request):
             amount, provider_charge, provider_cashback, tx_cfg, user=request.user,
         )
         return Response(
-            {
-                'data': {
-                    'amount': str(amount),
-                    'amount_paisa': amount_paisa,
-                    'charge': str(fees['charge']),
-                    'cashback': str(fees['cashback']),
-                    'platform_charge': str(fees['platform_charge']),
-                    'total_debited': str(fees['total_debited']),
-                    'charge_enabled': bool(fees.get('charge_enabled', tx_cfg.get('transfer_charge_enabled', True))),
-                    'cashback_enabled': bool(fees.get('cashback_enabled', tx_cfg.get('cashback_enabled', True))),
+            with_himapay_response(
+                {
+                    'data': {
+                        'amount': str(amount),
+                        'amount_paisa': amount_paisa,
+                        'charge': str(fees['charge']),
+                        'cashback': str(fees['cashback']),
+                        'platform_charge': str(fees['platform_charge']),
+                        'total_debited': str(fees['total_debited']),
+                        'charge_enabled': bool(fees.get('charge_enabled', tx_cfg.get('transfer_charge_enabled', True))),
+                        'cashback_enabled': bool(fees.get('cashback_enabled', tx_cfg.get('cashback_enabled', True))),
+                    },
+                    'raw': result,
                 },
-                'raw': result,
-            },
+                result,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
             return Response(
-                {
-                    'error': exc.message,
-                    'error_code': exc.error_code,
-                    'error_type': exc.error_type,
-                },
+                with_himapay_response(
+                    {
+                        'error': exc.message,
+                        'error_code': exc.error_code,
+                        'error_type': exc.error_type,
+                    },
+                    exc.response_data,
+                ),
                 status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
             )
         # Still honour admin fees when provider preview fails (keep UI usable)
         fees = resolve_transfer_fees(amount, 0, 0, tx_cfg, user=request.user)
         return Response(
-            {
-                'data': {
-                    'amount': str(amount),
-                    'amount_paisa': amount_paisa,
-                    'charge': str(fees['charge']),
-                    'cashback': str(fees['cashback']),
-                    'platform_charge': str(fees['platform_charge']),
-                    'total_debited': str(fees['total_debited']),
-                    'charge_enabled': bool(fees.get('charge_enabled', tx_cfg.get('transfer_charge_enabled', True))),
-                    'cashback_enabled': bool(fees.get('cashback_enabled', tx_cfg.get('cashback_enabled', True))),
+            with_himapay_response(
+                {
+                    'data': {
+                        'amount': str(amount),
+                        'amount_paisa': amount_paisa,
+                        'charge': str(fees['charge']),
+                        'cashback': str(fees['cashback']),
+                        'platform_charge': str(fees['platform_charge']),
+                        'total_debited': str(fees['total_debited']),
+                        'charge_enabled': bool(fees.get('charge_enabled', tx_cfg.get('transfer_charge_enabled', True))),
+                        'cashback_enabled': bool(fees.get('cashback_enabled', tx_cfg.get('cashback_enabled', True))),
+                    },
+                    'warning': exc.message,
                 },
-                'warning': exc.message,
-            },
+                exc.response_data,
+            ),
             status=status.HTTP_200_OK,
         )
 
@@ -500,12 +527,15 @@ def create_bank_transfer(request):
     except HimalPayError as exc:
         if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
             return Response(
-                {
-                    'error': 'Bank transfer failed',
-                    'message': exc.message,
-                    'error_code': exc.error_code,
-                    'error_type': exc.error_type,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Bank transfer failed',
+                        'message': exc.message,
+                        'error_code': exc.error_code,
+                        'error_type': exc.error_type,
+                    },
+                    exc.response_data,
+                ),
                 status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
             )
         logger.warning('Bank transfer charge calc failed: %s', exc.message)
@@ -589,15 +619,18 @@ def create_bank_transfer(request):
             transfer.provider_response = verify_result if isinstance(verify_result, dict) else {}
             transfer.save()
             return Response(
-                {
-                    'error': ACCOUNT_DETAILS_MISMATCH,
-                    'message': ACCOUNT_DETAILS_MISMATCH,
-                    'verified': False,
-                    'mismatch': True,
-                    'wallet_debited': False,
-                    'data': BankTransferTransactionSerializer(transfer).data,
-                    'provider': verify_result,
-                },
+                with_himapay_response(
+                    {
+                        'error': ACCOUNT_DETAILS_MISMATCH,
+                        'message': ACCOUNT_DETAILS_MISMATCH,
+                        'verified': False,
+                        'mismatch': True,
+                        'wallet_debited': False,
+                        'data': BankTransferTransactionSerializer(transfer).data,
+                        'provider': verify_result,
+                    },
+                    verify_result,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -613,15 +646,18 @@ def create_bank_transfer(request):
             transfer.provider_response = verify_result if isinstance(verify_result, dict) else {}
             transfer.save()
             return Response(
-                {
-                    'error': ACCOUNT_DETAILS_MISMATCH,
-                    'message': ACCOUNT_DETAILS_MISMATCH,
-                    'verified': False,
-                    'mismatch': True,
-                    'wallet_debited': False,
-                    'data': BankTransferTransactionSerializer(transfer).data,
-                    'provider': verify_result,
-                },
+                with_himapay_response(
+                    {
+                        'error': ACCOUNT_DETAILS_MISMATCH,
+                        'message': ACCOUNT_DETAILS_MISMATCH,
+                        'verified': False,
+                        'mismatch': True,
+                        'wallet_debited': False,
+                        'data': BankTransferTransactionSerializer(transfer).data,
+                        'provider': verify_result,
+                    },
+                    verify_result,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -664,18 +700,20 @@ def create_bank_transfer(request):
             transfer.save()
             failure = himalpay.extract_failure_details(response)
             return Response(
-                {
-                    'error': 'Bank transfer failed',
-                    'message': failure['message'],
-                    'provider_message': failure['provider_message'],
-                    'error_code': failure['error_code'],
-                    'error_type': failure['error_type'],
-                    'wallet_debited': False,
-                    'amount': str(amount),
-                    'amount_paisa': amount_paisa,
-                    'data': BankTransferTransactionSerializer(transfer).data,
-                    'himalpay_response': response,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Bank transfer failed',
+                        'message': failure['message'],
+                        'provider_message': failure['provider_message'],
+                        'error_code': failure['error_code'],
+                        'error_type': failure['error_type'],
+                        'wallet_debited': False,
+                        'amount': str(amount),
+                        'amount_paisa': amount_paisa,
+                        'data': BankTransferTransactionSerializer(transfer).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -689,7 +727,10 @@ def create_bank_transfer(request):
                     transfer.status = 'failed'
                     transfer.save()
                     return Response(
-                        {'error': 'Insufficient balance after fee calculation'},
+                        with_himapay_response(
+                            {'error': 'Insufficient balance after fee calculation'},
+                            response,
+                        ),
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 debit_wallet_for_txn(wallet, transfer, debit)
@@ -700,14 +741,16 @@ def create_bank_transfer(request):
             notify_low_balance_if_needed(wallet)
 
             return Response(
-                {
-                    'message': 'Bank transfer successful',
-                    'merchant_transaction_id': merchant_txn_id,
-                    'amount': str(amount),
-                    'amount_paisa': amount_paisa,
-                    'data': BankTransferTransactionSerializer(transfer).data,
-                    'himalpay_response': response,
-                },
+                with_himapay_response(
+                    {
+                        'message': 'Bank transfer successful',
+                        'merchant_transaction_id': merchant_txn_id,
+                        'amount': str(amount),
+                        'amount_paisa': amount_paisa,
+                        'data': BankTransferTransactionSerializer(transfer).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_200_OK,
             )
 
@@ -715,18 +758,20 @@ def create_bank_transfer(request):
         transfer.status = 'pending'
         transfer.save()
         return Response(
-            {
-                'message': 'Bank transfer is being processed',
-                'pending_message': response.get(
-                    'message',
-                    'Your transfer is being processed. Check status with the merchant transaction ID.',
-                ),
-                'merchant_transaction_id': merchant_txn_id,
-                'amount': str(amount),
-                'amount_paisa': amount_paisa,
-                'data': BankTransferTransactionSerializer(transfer).data,
-                'himalpay_response': response,
-            },
+            with_himapay_response(
+                {
+                    'message': 'Bank transfer is being processed',
+                    'pending_message': response.get(
+                        'message',
+                        'Your transfer is being processed. Check status with the merchant transaction ID.',
+                    ),
+                    'merchant_transaction_id': merchant_txn_id,
+                    'amount': str(amount),
+                    'amount_paisa': amount_paisa,
+                    'data': BankTransferTransactionSerializer(transfer).data,
+                },
+                response,
+            ),
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -748,17 +793,20 @@ def create_bank_transfer(request):
             }
         )
         return Response(
-            {
-                'error': 'Bank transfer failed',
-                'message': failure['message'] or exc.message,
-                'provider_message': failure['provider_message'] or exc.message,
-                'error_code': failure['error_code'] if failure['error_code'] is not None else exc.error_code,
-                'error_type': failure['error_type'] or exc.error_type,
-                'wallet_debited': False,
-                'amount': str(amount),
-                'amount_paisa': amount_paisa,
-                'data': BankTransferTransactionSerializer(transfer).data,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Bank transfer failed',
+                    'message': failure['message'] or exc.message,
+                    'provider_message': failure['provider_message'] or exc.message,
+                    'error_code': failure['error_code'] if failure['error_code'] is not None else exc.error_code,
+                    'error_type': failure['error_type'] or exc.error_type,
+                    'wallet_debited': False,
+                    'amount': str(amount),
+                    'amount_paisa': amount_paisa,
+                    'data': BankTransferTransactionSerializer(transfer).data,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
 
@@ -847,21 +895,27 @@ def bank_transfer_status(request):
                             transfer.save()
 
         return Response(
-            {
-                'status': normalized,
-                'himalpay_status': result.get('status'),
-                'message': (
-                    himalpay.extract_failure_details(result)['message']
-                    if normalized == 'failed'
-                    else None
-                ),
-                'data': result,
-                'local_transfer': BankTransferTransactionSerializer(transfer).data if transfer else None,
-            },
+            with_himapay_response(
+                {
+                    'status': normalized,
+                    'himalpay_status': result.get('status'),
+                    'message': (
+                        himalpay.extract_failure_details(result)['message']
+                        if normalized == 'failed'
+                        else None
+                    ),
+                    'data': result,
+                    'local_transfer': BankTransferTransactionSerializer(transfer).data if transfer else None,
+                },
+                result,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
+            with_himapay_response(
+                {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST,
         )

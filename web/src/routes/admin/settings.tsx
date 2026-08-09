@@ -29,6 +29,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import {
+  accountQrClearKey,
+  accountQrUploadKey,
   emptyPaymentAccount,
   methodLabel,
   normalizePaymentAccounts,
@@ -208,6 +210,8 @@ function SettingsPage() {
 
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
+  const [accountQrFiles, setAccountQrFiles] = useState<Record<string, File | null>>({});
+  const [accountQrPreviews, setAccountQrPreviews] = useState<Record<string, string | null>>({});
   const [qrTab, setQrTab] = useState<"bank" | "khalti" | "esewa">("bank");
   const [qrFiles, setQrFiles] = useState<
     Partial<Record<"bank" | "khalti" | "esewa", File | null>>
@@ -289,6 +293,24 @@ function SettingsPage() {
   }, [qrFiles]);
 
   useEffect(() => {
+    const urls: Record<string, string | null> = {};
+    const revoke: string[] = [];
+    for (const [id, file] of Object.entries(accountQrFiles)) {
+      if (file) {
+        const url = URL.createObjectURL(file);
+        urls[id] = url;
+        revoke.push(url);
+      } else {
+        urls[id] = null;
+      }
+    }
+    setAccountQrPreviews(urls);
+    return () => {
+      for (const url of revoke) URL.revokeObjectURL(url);
+    };
+  }, [accountQrFiles]);
+
+  useEffect(() => {
     if (!logoFile) {
       setLogoPreview(null);
       return;
@@ -309,6 +331,7 @@ function SettingsPage() {
     onSuccess: () => {
       toast.success("Settings saved — changes apply across the system");
       setQrFiles({});
+      setAccountQrFiles({});
       setLogoFile(null);
       invalidate();
     },
@@ -437,21 +460,49 @@ function SettingsPage() {
 
   const removeAccount = (id: string) => {
     setAccounts((list) => list.filter((a) => a.id !== id));
+    setAccountQrFiles((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   /**
    * Save one deposit method independently: replace that method's accounts on the server
    * while keeping every other method as last saved (not the in-progress form values).
+   * Also uploads any selected per-account QR images for this method.
    */
   const saveMethodAccounts = (method: PaymentMethod) => {
     const serverAccounts = normalizePaymentAccounts(settingsQuery.data?.bank_details);
+    const methodAccounts = accounts.filter((a) => a.method === method);
     const merged = [
       ...serverAccounts.filter((a) => a.method !== method),
-      ...accounts.filter((a) => a.method === method),
+      ...methodAccounts,
     ];
     const fd = new FormData();
     fd.append("bank_details", JSON.stringify(paymentAccountsToBankDetails(merged)));
+    for (const acc of methodAccounts) {
+      const file = accountQrFiles[acc.id];
+      if (file) {
+        fd.append(accountQrUploadKey(acc.id), file);
+      }
+    }
     saveMutation.mutate(fd);
+  };
+
+  const clearAccountQr = (accountId: string) => {
+    const fd = new FormData();
+    fd.append(accountQrClearKey(accountId), "true");
+    saveMutation.mutate(fd, {
+      onSuccess: () => {
+        setAccounts((list) =>
+          list.map((a) =>
+            a.id === accountId ? { ...a, qr_code: "", qr_code_url: null } : a,
+          ),
+        );
+      },
+    });
   };
 
   const saveHimalpay = () => {
@@ -1078,8 +1129,9 @@ function SettingsPage() {
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Each deposit type has its own fields and Save action. Saving bank, Khalti, or
-                eSewa only updates that type — the others stay as last saved. HimalPay and deposit
-                QR codes also save separately. {updatedAt}
+                eSewa only updates that type — the others stay as last saved. Each account can
+                have its own QR code (saved with that type). HimalPay and method-level deposit
+                QR defaults also save separately. {updatedAt}
               </p>
 
               {DEPOSIT_METHODS.map(({ method, title, description, addLabel }) => {
@@ -1206,6 +1258,112 @@ function SettingsPage() {
                                 </div>
                               ) : null}
                             </div>
+
+                            {(() => {
+                              const file = accountQrFiles[acc.id] ?? null;
+                              const preview = accountQrPreviews[acc.id] ?? null;
+                              const savedUrl = acc.qr_code_url || null;
+                              const displaySrc = preview || savedUrl;
+                              return (
+                                <div className="mt-4 rounded-xl border border-dashed border-border bg-surface/60 p-4">
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-sm font-medium">Account QR code</p>
+                                      <p className="mt-0.5 text-xs text-muted-foreground">
+                                        Shown with this account on Load Wallet. Saved when you
+                                        save {methodLabel(method)} accounts.
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
+                                    <div className="flex aspect-square w-full max-w-40 items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
+                                      {displaySrc ? (
+                                        <img
+                                          src={displaySrc}
+                                          alt={`${acc.label || methodLabel(method)} QR`}
+                                          className="size-full object-contain p-2"
+                                        />
+                                      ) : (
+                                        <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
+                                          <QrCode className="size-10" />
+                                          <span className="text-[11px]">No QR</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 flex-1 space-y-2">
+                                      {file ? (
+                                        <p className="truncate text-xs font-medium text-brand">
+                                          New file: {file.name}
+                                        </p>
+                                      ) : (
+                                        <p className="truncate text-xs text-muted-foreground">
+                                          {acc.qr_code || "No QR on file"}
+                                        </p>
+                                      )}
+                                      <label className="block">
+                                        <input
+                                          type="file"
+                                          accept="image/png,image/jpeg,image/webp,image/gif"
+                                          className="sr-only"
+                                          onChange={(e) => {
+                                            const next = e.target.files?.[0] ?? null;
+                                            setAccountQrFiles((prev) => ({
+                                              ...prev,
+                                              [acc.id]: next,
+                                            }));
+                                          }}
+                                        />
+                                        <Button
+                                          variant="secondary"
+                                          className="w-full sm:w-auto"
+                                          type="button"
+                                          onClick={(e) => {
+                                            const input = (
+                                              e.currentTarget.parentElement as HTMLLabelElement
+                                            ).querySelector("input");
+                                            input?.click();
+                                          }}
+                                        >
+                                          {file ? "Choose a different image" : "Upload QR image"}
+                                        </Button>
+                                      </label>
+                                      <div className="flex flex-wrap gap-2">
+                                        {savedUrl && !file ? (
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="rounded-xl"
+                                            disabled={saving}
+                                            onClick={() => clearAccountQr(acc.id)}
+                                          >
+                                            Remove QR
+                                          </Button>
+                                        ) : null}
+                                        {file ? (
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="rounded-xl"
+                                            disabled={saving}
+                                            onClick={() =>
+                                              setAccountQrFiles((prev) => {
+                                                const next = { ...prev };
+                                                delete next[acc.id];
+                                                return next;
+                                              })
+                                            }
+                                          >
+                                            Cancel selection
+                                          </Button>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         ))
                       )}
@@ -1401,10 +1559,10 @@ function SettingsPage() {
 
               <div className="rounded-xl border border-border bg-surface p-5">
                 <div className="mb-4">
-                  <h2 className="text-base font-semibold">Deposit QR codes</h2>
+                  <h2 className="text-base font-semibold">Method default QR codes</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Upload separate QR images for bank, Khalti, and eSewa. Each saves
-                    independently from payment accounts.
+                    Optional fallbacks for bank, Khalti, and eSewa when an individual account has
+                    no QR of its own. Prefer uploading a QR on each account above.
                   </p>
                 </div>
 

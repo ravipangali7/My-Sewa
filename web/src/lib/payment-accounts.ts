@@ -22,6 +22,8 @@ export function emptyPaymentAccount(method: PaymentMethod = "bank"): PaymentAcco
     account_number: "",
     branch: "",
     enabled: true,
+    qr_code: "",
+    qr_code_url: null,
   };
 }
 
@@ -45,6 +47,8 @@ export function normalizePaymentAccounts(details?: BankDetails | null): PaymentA
         account_number: a.account_number || "",
         branch: method === "bank" ? a.branch || "" : "",
         enabled: a.enabled !== false,
+        qr_code: a.qr_code || "",
+        qr_code_url: a.qr_code_url || null,
       };
     });
 
@@ -61,6 +65,8 @@ export function normalizePaymentAccounts(details?: BankDetails | null): PaymentA
         account_number: details.account_number || "",
         branch: details.branch || "",
         enabled: true,
+        qr_code: "",
+        qr_code_url: null,
       },
     ];
   }
@@ -72,18 +78,24 @@ export function enabledPaymentAccounts(details?: BankDetails | null): PaymentAcc
 }
 
 export function paymentAccountsToBankDetails(accounts: PaymentAccount[]): BankDetails {
-  const cleaned = accounts.map((a) => ({
-    id: a.id || newPaymentAccountId(),
-    method: a.method,
-    label:
-      (a.label || "").trim() ||
-      (a.method === "khalti" ? "Khalti" : a.method === "esewa" ? "eSewa" : a.bank_name || "Bank account"),
-    bank_name: a.method === "bank" ? a.bank_name || "" : "",
-    account_name: a.account_name || "",
-    account_number: a.account_number || "",
-    branch: a.method === "bank" ? a.branch || "" : "",
-    enabled: a.enabled !== false,
-  }));
+  const cleaned = accounts.map((a) => {
+    const base: PaymentAccount = {
+      id: a.id || newPaymentAccountId(),
+      method: a.method,
+      label:
+        (a.label || "").trim() ||
+        (a.method === "khalti" ? "Khalti" : a.method === "esewa" ? "eSewa" : a.bank_name || "Bank account"),
+      bank_name: a.method === "bank" ? a.bank_name || "" : "",
+      account_name: a.account_name || "",
+      account_number: a.account_number || "",
+      branch: a.method === "bank" ? a.branch || "" : "",
+      enabled: a.enabled !== false,
+    };
+    if (a.qr_code) {
+      base.qr_code = a.qr_code;
+    }
+    return base;
+  });
   const primary =
     cleaned.find((a) => a.enabled && a.method === "bank") ||
     cleaned.find((a) => a.enabled) ||
@@ -101,4 +113,12 @@ export function methodLabel(method: PaymentMethod): string {
   if (method === "khalti") return "Khalti";
   if (method === "esewa") return "eSewa";
   return "Bank";
+}
+
+export function accountQrUploadKey(accountId: string): string {
+  return `account_qr_${accountId}`;
+}
+
+export function accountQrClearKey(accountId: string): string {
+  return `clear_account_qr_${accountId}`;
 }

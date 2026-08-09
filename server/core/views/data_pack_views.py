@@ -19,7 +19,7 @@ from ..serializers import (
     DataPackPaySerializer,
     TransactionStatusSerializer,
 )
-from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_response
 from ..services.himalpay_parse import parse_data_pack_inquiry
 from ..services.app_config import (
     get_app_config,
@@ -108,30 +108,39 @@ def inquiry_packages(request):
         packages = _normalize_packages(raw, operator)
         if not packages:
             return Response(
-                {
-                    'error': 'No data packages available.',
-                    'message': 'No data packages are currently available from the operator.',
-                },
+                with_himapay_response(
+                    {
+                        'error': 'No data packages available.',
+                        'message': 'No data packages are currently available from the operator.',
+                    },
+                    raw,
+                ),
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(
-            {
-                'message': 'Live packages retrieved from operator.',
-                'data': {
-                    'operator': operator,
-                    'mobile_number': mobile,
-                    'packages': packages,
+            with_himapay_response(
+                {
+                    'message': 'Live packages retrieved from operator.',
+                    'data': {
+                        'operator': operator,
+                        'mobile_number': mobile,
+                        'packages': packages,
+                    },
                 },
-            },
+                raw,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {
-                'error': 'Package inquiry failed',
-                'message': exc.message,
-                'error_code': exc.error_code,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Package inquiry failed',
+                    'message': exc.message,
+                    'error_code': exc.error_code,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
 
@@ -195,7 +204,10 @@ def pay_data_pack(request):
     except HimalPayError as exc:
         if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
             return Response(
-                {'error': 'Data pack purchase failed', 'message': exc.message},
+                with_himapay_response(
+                    {'error': 'Data pack purchase failed', 'message': exc.message},
+                    exc.response_data,
+                ),
                 status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
             )
         charge = platform_fee
@@ -244,12 +256,15 @@ def pay_data_pack(request):
             data_txn.save()
             failure = himalpay.extract_failure_details(response)
             return Response(
-                {
-                    'error': 'Data pack purchase failed',
-                    'message': failure['message'],
-                    'wallet_debited': False,
-                    'data': DataPackTransactionSerializer(data_txn).data,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Data pack purchase failed',
+                        'message': failure['message'],
+                        'wallet_debited': False,
+                        'data': DataPackTransactionSerializer(data_txn).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -264,7 +279,10 @@ def pay_data_pack(request):
                     data_txn.status = 'failed'
                     data_txn.save()
                     return Response(
-                        {'error': 'Insufficient balance after fee calculation'},
+                        with_himapay_response(
+                            {'error': 'Insufficient balance after fee calculation'},
+                            response,
+                        ),
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 debit_wallet_for_txn(wallet, data_txn, debit)
@@ -279,21 +297,27 @@ def pay_data_pack(request):
             )
             notify_low_balance_if_needed(wallet)
             return Response(
-                {
-                    'message': f'{operator} data pack purchased successfully',
-                    'data': DataPackTransactionSerializer(data_txn).data,
-                },
+                with_himapay_response(
+                    {
+                        'message': f'{operator} data pack purchased successfully',
+                        'data': DataPackTransactionSerializer(data_txn).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_200_OK,
             )
 
         data_txn.status = 'pending'
         data_txn.save()
         return Response(
-            {
-                'message': 'Data pack purchase is being processed',
-                'pending_message': response.get('message', 'Your purchase awaits verification.'),
-                'data': DataPackTransactionSerializer(data_txn).data,
-            },
+            with_himapay_response(
+                {
+                    'message': 'Data pack purchase is being processed',
+                    'pending_message': response.get('message', 'Your purchase awaits verification.'),
+                    'data': DataPackTransactionSerializer(data_txn).data,
+                },
+                response,
+            ),
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -302,11 +326,14 @@ def pay_data_pack(request):
         data_txn.provider_response = exc.response_data
         data_txn.save()
         return Response(
-            {
-                'error': 'Data pack purchase failed',
-                'message': exc.message,
-                'data': DataPackTransactionSerializer(data_txn).data,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Data pack purchase failed',
+                    'message': exc.message,
+                    'data': DataPackTransactionSerializer(data_txn).data,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
     except Exception as exc:
@@ -390,17 +417,26 @@ def data_pack_status(request):
                             data_txn.save()
 
         return Response(
-            {
-                'status': normalized,
-                'message': (
-                    himalpay.extract_failure_details(result)['message']
-                    if normalized == 'failed'
-                    else None
-                ),
-                'data': result,
-                'local_data_pack': DataPackTransactionSerializer(data_txn).data if data_txn else None,
-            },
+            with_himapay_response(
+                {
+                    'status': normalized,
+                    'message': (
+                        himalpay.extract_failure_details(result)['message']
+                        if normalized == 'failed'
+                        else None
+                    ),
+                    'data': result,
+                    'local_data_pack': DataPackTransactionSerializer(data_txn).data if data_txn else None,
+                },
+                result,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
-        return Response({'error': exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            with_himapay_response(
+                {'error': exc.message},
+                exc.response_data,
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )

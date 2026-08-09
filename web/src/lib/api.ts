@@ -70,6 +70,7 @@ function extractMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
   const b = body as Record<string, unknown>;
   const nested =
+    asRecord(b["himapayResponse"]) ||
     asRecord(b["himalpay_response"]) ||
     asRecord(b["provider"]) ||
     asRecord(b["data"]);

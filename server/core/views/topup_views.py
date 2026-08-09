@@ -19,7 +19,7 @@ from ..serializers import (
     CalculateChargeSerializer,
     TransactionStatusSerializer,
 )
-from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_response
 from ..services.app_config import (
     get_app_config,
     platform_topup_charge,
@@ -111,12 +111,15 @@ def _process_topup(request, product_id: int, service_label: str):
         # IP / auth failures must not be swallowed — payment would fail the same way
         if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
             return Response(
-                {
-                    'error': f'{service_label} topup failed',
-                    'message': exc.message,
-                    'error_code': exc.error_code,
-                    'error_type': exc.error_type,
-                },
+                with_himapay_response(
+                    {
+                        'error': f'{service_label} topup failed',
+                        'message': exc.message,
+                        'error_code': exc.error_code,
+                        'error_type': exc.error_type,
+                    },
+                    exc.response_data,
+                ),
                 status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
             )
         logger.warning('Charge calculation failed for %s: %s', service_label, exc.message)
@@ -167,16 +170,18 @@ def _process_topup(request, product_id: int, service_label: str):
             topup_txn.save()
             failure = himalpay.extract_failure_details(response)
             return Response(
-                {
-                    'error': f'{service_label} topup failed',
-                    'message': failure['message'],
-                    'provider_message': failure['provider_message'],
-                    'error_code': failure['error_code'],
-                    'error_type': failure['error_type'],
-                    'wallet_debited': False,
-                    'data': TopupTransactionSerializer(topup_txn).data,
-                    'himalpay_response': response,
-                },
+                with_himapay_response(
+                    {
+                        'error': f'{service_label} topup failed',
+                        'message': failure['message'],
+                        'provider_message': failure['provider_message'],
+                        'error_code': failure['error_code'],
+                        'error_type': failure['error_type'],
+                        'wallet_debited': False,
+                        'data': TopupTransactionSerializer(topup_txn).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -191,7 +196,10 @@ def _process_topup(request, product_id: int, service_label: str):
                     topup_txn.status = 'failed'
                     topup_txn.save()
                     return Response(
-                        {'error': 'Insufficient balance after fee calculation'},
+                        with_himapay_response(
+                            {'error': 'Insufficient balance after fee calculation'},
+                            response,
+                        ),
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 debit_wallet_for_txn(wallet, topup_txn, debit)
@@ -205,11 +213,13 @@ def _process_topup(request, product_id: int, service_label: str):
             notify_low_balance_if_needed(wallet)
 
             return Response(
-                {
-                    'message': f'{service_label} topup successful',
-                    'data': TopupTransactionSerializer(topup_txn).data,
-                    'himalpay_response': response,
-                },
+                with_himapay_response(
+                    {
+                        'message': f'{service_label} topup successful',
+                        'data': TopupTransactionSerializer(topup_txn).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_200_OK,
             )
 
@@ -217,15 +227,17 @@ def _process_topup(request, product_id: int, service_label: str):
         topup_txn.status = 'pending'
         topup_txn.save()
         return Response(
-            {
-                'message': f'{service_label} topup is awaiting verification',
-                'pending_message': response.get(
-                    'message',
-                    'Your payment is being processed and awaits admin verification.',
-                ),
-                'data': TopupTransactionSerializer(topup_txn).data,
-                'himalpay_response': response,
-            },
+            with_himapay_response(
+                {
+                    'message': f'{service_label} topup is awaiting verification',
+                    'pending_message': response.get(
+                        'message',
+                        'Your payment is being processed and awaits admin verification.',
+                    ),
+                    'data': TopupTransactionSerializer(topup_txn).data,
+                },
+                response,
+            ),
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -238,13 +250,16 @@ def _process_topup(request, product_id: int, service_label: str):
             service_label, exc.message, exc.error_code, exc.error_type,
         )
         return Response(
-            {
-                'error': f'{service_label} topup failed',
-                'message': exc.message,
-                'error_code': exc.error_code,
-                'error_type': exc.error_type,
-                'data': TopupTransactionSerializer(topup_txn).data,
-            },
+            with_himapay_response(
+                {
+                    'error': f'{service_label} topup failed',
+                    'message': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                    'data': TopupTransactionSerializer(topup_txn).data,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
 
@@ -304,6 +319,7 @@ def topup_services(request):
     himalpay = HimalPayAPI()
     try:
         services = himalpay.list_services()
+        raw_services = services
         if not isinstance(services, list):
             services = []
         allowed = {HimalPayAPI.SERVICE_NTC, HimalPayAPI.SERVICE_NCELL}
@@ -322,18 +338,24 @@ def topup_services(request):
                 {'id': 1, 'name': HimalPayAPI.SERVICE_NTC, 'logo_image_url': None},
                 {'id': 2, 'name': HimalPayAPI.SERVICE_NCELL, 'logo_image_url': None},
             ]
-        return Response({'services': filtered}, status=status.HTTP_200_OK)
+        return Response(
+            with_himapay_response({'services': filtered}, raw_services),
+            status=status.HTTP_200_OK,
+        )
     except HimalPayError as exc:
         return Response(
-            {
-                'error': exc.message,
-                'error_code': exc.error_code,
-                'error_type': exc.error_type,
-                'services': [
-                    {'id': 1, 'name': HimalPayAPI.SERVICE_NTC, 'logo_image_url': None},
-                    {'id': 2, 'name': HimalPayAPI.SERVICE_NCELL, 'logo_image_url': None},
-                ],
-            },
+            with_himapay_response(
+                {
+                    'error': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                    'services': [
+                        {'id': 1, 'name': HimalPayAPI.SERVICE_NTC, 'logo_image_url': None},
+                        {'id': 2, 'name': HimalPayAPI.SERVICE_NCELL, 'logo_image_url': None},
+                    ],
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_200_OK,
         )
 
@@ -373,22 +395,28 @@ def calculate_charge(request):
         cashback = himalpay.to_rupees(result.get('cashback', 0) or 0)
         total = amount + charge - cashback
         return Response(
-            {
-                'wallet_service_name': service,
-                'amount': str(amount),
-                'amount_paisa': himalpay.to_paisa(amount),
-                'provider_charge': str(provider_charge),
-                'platform_charge': str(platform_fee),
-                'charge': str(charge),
-                'cashback': str(cashback),
-                'total_debited': str(total),
-                'raw': result,
-            },
+            with_himapay_response(
+                {
+                    'wallet_service_name': service,
+                    'amount': str(amount),
+                    'amount_paisa': himalpay.to_paisa(amount),
+                    'provider_charge': str(provider_charge),
+                    'platform_charge': str(platform_fee),
+                    'charge': str(charge),
+                    'cashback': str(cashback),
+                    'total_debited': str(total),
+                    'raw': result,
+                },
+                result,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
+            with_himapay_response(
+                {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -454,21 +482,27 @@ def check_transaction_status(request):
                             topup.save()
 
         return Response(
-            {
-                'status': normalized,
-                'himalpay_status': result.get('status'),
-                'message': (
-                    himalpay.extract_failure_details(result)['message']
-                    if normalized == 'failed'
-                    else None
-                ),
-                'data': result,
-                'local_topup': TopupTransactionSerializer(topup).data if topup else None,
-            },
+            with_himapay_response(
+                {
+                    'status': normalized,
+                    'himalpay_status': result.get('status'),
+                    'message': (
+                        himalpay.extract_failure_details(result)['message']
+                        if normalized == 'failed'
+                        else None
+                    ),
+                    'data': result,
+                    'local_topup': TopupTransactionSerializer(topup).data if topup else None,
+                },
+                result,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
+            with_himapay_response(
+                {'error': exc.message, 'error_code': exc.error_code, 'error_type': exc.error_type},
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST,
         )

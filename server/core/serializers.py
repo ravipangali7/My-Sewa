@@ -813,8 +813,8 @@ class SettingsSerializer(serializers.ModelSerializer):
         return self._absolute_media_url(obj.logo)
 
     def get_bank_details(self, obj):
-        from .services.payment_accounts import normalize_bank_details
-        return normalize_bank_details(obj.bank_details)
+        from .services.payment_accounts import enrich_bank_details_qr_urls
+        return enrich_bank_details_qr_urls(obj.bank_details, self.context.get('request'))
 
     def get_config(self, obj):
         config = obj.get_config()

@@ -107,7 +107,10 @@ export function sanitizeProviderMessage(text: string, fallback = FALLBACK): stri
 function errorCodeFromBody(body: unknown): number | null {
   const b = asRecord(body);
   if (!b) return null;
-  const nested = asRecord(b["himalpay_response"]) || asRecord(b["data"]);
+  const nested =
+    asRecord(b["himapayResponse"]) ||
+    asRecord(b["himalpay_response"]) ||
+    asRecord(b["data"]);
   const raw = b["error_code"] ?? nested?.["error_code"];
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw);

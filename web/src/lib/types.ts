@@ -122,6 +122,10 @@ export interface PaymentAccount {
   account_number?: string;
   branch?: string;
   enabled?: boolean;
+  /** Relative media path for this account's QR (admin / storage). */
+  qr_code?: string;
+  /** Absolute URL for this account's QR (API-enriched). */
+  qr_code_url?: string | null;
 }
 
 export interface BankDetails {

@@ -17,7 +17,7 @@ from ..serializers import (
     RemittanceReceiveSerializer,
     TransactionStatusSerializer,
 )
-from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_response
 from ..services.app_config import (
     get_app_config,
     require_feature_enabled,
@@ -187,12 +187,15 @@ def lookup_remittance(request):
             exc.message, exc.error_code, exc.error_type,
         )
         return Response(
-            {
-                'error': 'Remittance lookup failed',
-                'message': exc.provider_message or exc.message,
-                'error_code': exc.error_code,
-                'error_type': exc.error_type,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Remittance lookup failed',
+                    'message': exc.provider_message or exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
 
@@ -208,7 +211,10 @@ def lookup_remittance(request):
             'vendor_state': vendor_state or None,
         }
         payload.update(extra)
-        return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            with_himapay_response(payload, raw),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     # HimalPay/Samsara may return outer SUCCESS with zero/missing payout_amt and
     # the real reason in vendor_state (already received / already paid / locked).
@@ -293,30 +299,33 @@ def lookup_remittance(request):
         )
 
     return Response(
-        {
-            'message': 'Remittance details retrieved',
-            'data': {
-                'ref_no': parsed.get('ref_no') or ref_no,
-                'samsara_link_id': parsed['samsara_link_id'],
-                'amount': str(parsed['payout_amt']),
-                'payout_currency': parsed.get('payout_currency') or 'NPR',
-                'sender_name': parsed.get('sender_name') or '',
-                'sender_address': parsed.get('sender_address') or '',
-                'sender_city': parsed.get('sender_city') or '',
-                'sender_country': parsed.get('sender_country') or '',
-                'sender_mobile': parsed.get('sender_mobile') or '',
-                'receiver_name': parsed.get('receiver_name') or '',
-                'receiver_phone': parsed.get('receiver_phone') or '',
-                'receiver_address': parsed.get('receiver_address') or '',
-                'receiver_city': parsed.get('receiver_city') or '',
-                'receiver_country': parsed.get('receiver_country') or '',
-                'payment_type': parsed.get('payment_type') or '',
-                'send_agent': parsed.get('send_agent') or '',
-                'txn_date': parsed.get('txn_date') or '',
-                'status': parsed.get('status') or '',
+        with_himapay_response(
+            {
+                'message': 'Remittance details retrieved',
+                'data': {
+                    'ref_no': parsed.get('ref_no') or ref_no,
+                    'samsara_link_id': parsed['samsara_link_id'],
+                    'amount': str(parsed['payout_amt']),
+                    'payout_currency': parsed.get('payout_currency') or 'NPR',
+                    'sender_name': parsed.get('sender_name') or '',
+                    'sender_address': parsed.get('sender_address') or '',
+                    'sender_city': parsed.get('sender_city') or '',
+                    'sender_country': parsed.get('sender_country') or '',
+                    'sender_mobile': parsed.get('sender_mobile') or '',
+                    'receiver_name': parsed.get('receiver_name') or '',
+                    'receiver_phone': parsed.get('receiver_phone') or '',
+                    'receiver_address': parsed.get('receiver_address') or '',
+                    'receiver_city': parsed.get('receiver_city') or '',
+                    'receiver_country': parsed.get('receiver_country') or '',
+                    'payment_type': parsed.get('payment_type') or '',
+                    'send_agent': parsed.get('send_agent') or '',
+                    'txn_date': parsed.get('txn_date') or '',
+                    'status': parsed.get('status') or '',
+                },
+                'lookup_response': parsed.get('raw') or raw,
             },
-            'lookup_response': parsed.get('raw') or raw,
-        },
+            raw,
+        ),
         status=status.HTTP_200_OK,
     )
 
@@ -457,12 +466,14 @@ def receive_remittance(request):
             txn.save()
             failure = himalpay.extract_failure_details(response)
             return Response(
-                {
-                    'error': 'Remittance payout failed',
-                    'message': failure.get('provider_message') or failure.get('message') or 'Payout failed',
-                    'data': RemittanceTransactionSerializer(txn).data,
-                    'himalpay_response': response,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Remittance payout failed',
+                        'message': failure.get('provider_message') or failure.get('message') or 'Payout failed',
+                        'data': RemittanceTransactionSerializer(txn).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -472,21 +483,26 @@ def receive_remittance(request):
                 txn.status = 'pending'
                 txn.save(update_fields=['status', 'updated_at'])
                 return Response(
-                    {
-                        'error': 'Wallet credit failed',
-                        'message': err or 'Could not credit wallet after successful payout.',
-                        'data': RemittanceTransactionSerializer(txn).data,
-                    },
+                    with_himapay_response(
+                        {
+                            'error': 'Wallet credit failed',
+                            'message': err or 'Could not credit wallet after successful payout.',
+                            'data': RemittanceTransactionSerializer(txn).data,
+                        },
+                        response,
+                    ),
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
             txn.refresh_from_db()
             notify_remittance_success(txn)
             return Response(
-                {
-                    'message': 'Remittance received and credited to wallet',
-                    'data': RemittanceTransactionSerializer(txn).data,
-                    'himalpay_response': response,
-                },
+                with_himapay_response(
+                    {
+                        'message': 'Remittance received and credited to wallet',
+                        'data': RemittanceTransactionSerializer(txn).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_200_OK,
             )
 
@@ -494,15 +510,17 @@ def receive_remittance(request):
         txn.status = 'pending'
         txn.save()
         return Response(
-            {
-                'message': 'Remittance payout is being processed',
-                'pending_message': response.get(
-                    'message',
-                    'Your remittance is being processed. Check status shortly.',
-                ),
-                'data': RemittanceTransactionSerializer(txn).data,
-                'himalpay_response': response,
-            },
+            with_himapay_response(
+                {
+                    'message': 'Remittance payout is being processed',
+                    'pending_message': response.get(
+                        'message',
+                        'Your remittance is being processed. Check status shortly.',
+                    ),
+                    'data': RemittanceTransactionSerializer(txn).data,
+                },
+                response,
+            ),
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -515,13 +533,16 @@ def receive_remittance(request):
             exc.message, exc.error_code, exc.error_type,
         )
         return Response(
-            {
-                'error': 'Remittance payout failed',
-                'message': exc.provider_message or exc.message,
-                'error_code': exc.error_code,
-                'error_type': exc.error_type,
-                'data': RemittanceTransactionSerializer(txn).data,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Remittance payout failed',
+                    'message': exc.provider_message or exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                    'data': RemittanceTransactionSerializer(txn).data,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
     except Exception as exc:
@@ -587,19 +608,24 @@ def remittance_status(request):
             txn.save()
 
         return Response(
-            {
-                'message': 'Status checked',
-                'provider_status': provider_status,
-                'data': RemittanceTransactionSerializer(txn).data,
-                'himalpay_response': response,
-            }
+            with_himapay_response(
+                {
+                    'message': 'Status checked',
+                    'provider_status': provider_status,
+                    'data': RemittanceTransactionSerializer(txn).data,
+                },
+                response,
+            )
         )
     except HimalPayError as exc:
         return Response(
-            {
-                'error': 'Status check failed',
-                'message': exc.provider_message or exc.message,
-                'data': RemittanceTransactionSerializer(txn).data,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Status check failed',
+                    'message': exc.provider_message or exc.message,
+                    'data': RemittanceTransactionSerializer(txn).data,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )

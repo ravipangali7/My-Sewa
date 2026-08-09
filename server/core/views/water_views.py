@@ -19,7 +19,7 @@ from ..serializers import (
     WaterBillPaySerializer,
     TransactionStatusSerializer,
 )
-from ..services.himalpay import HimalPayAPI, HimalPayError
+from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_response
 from ..services.utility_catalog import (
     get_kukl,
     build_kukl_inquiry_payload,
@@ -76,25 +76,34 @@ def list_counters(request):
         vendor_message = detect_inquiry_vendor_failure(raw)
         if vendor_message:
             return Response(
-                {
-                    'error': 'Failed to fetch counters',
-                    'message': vendor_message,
-                    'data': raw,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Failed to fetch counters',
+                        'message': vendor_message,
+                        'data': raw,
+                    },
+                    raw,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(
-            {'message': 'KUKL counters retrieved.', 'data': raw},
+            with_himapay_response(
+                {'message': 'KUKL counters retrieved.', 'data': raw},
+                raw,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {
-                'error': 'Failed to fetch counters',
-                'message': exc.message,
-                'error_code': exc.error_code,
-                'error_type': exc.error_type,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Failed to fetch counters',
+                    'message': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
 
@@ -126,18 +135,21 @@ def inquiry_bill(request):
         vendor_message = detect_inquiry_vendor_failure(raw)
         if vendor_message:
             return Response(
-                {
-                    'error': 'Bill inquiry failed',
-                    'message': vendor_message,
-                    'data': normalize_utility_inquiry(
-                        raw,
-                        {
-                            'connection_no': str(connection_no),
-                            'customer_code': str(customer_code),
-                            'counter': counter,
-                        },
-                    ),
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Bill inquiry failed',
+                        'message': vendor_message,
+                        'data': normalize_utility_inquiry(
+                            raw,
+                            {
+                                'connection_no': str(connection_no),
+                                'customer_code': str(customer_code),
+                                'counter': counter,
+                            },
+                        ),
+                    },
+                    raw,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         normalized = normalize_utility_inquiry(
@@ -150,28 +162,37 @@ def inquiry_bill(request):
         )
         if not normalized.get('session_id'):
             return Response(
-                {
-                    'error': 'No bill found for this connection.',
-                    'message': (
-                        'No payable bill or session was returned for this connection. '
-                        'Please verify the details and try again.'
-                    ),
-                    'data': normalized,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'No bill found for this connection.',
+                        'message': (
+                            'No payable bill or session was returned for this connection. '
+                            'Please verify the details and try again.'
+                        ),
+                        'data': normalized,
+                    },
+                    raw,
+                ),
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(
-            {'message': 'Bill details retrieved from provider.', 'data': normalized},
+            with_himapay_response(
+                {'message': 'Bill details retrieved from provider.', 'data': normalized},
+                raw,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {
-                'error': 'Bill inquiry failed',
-                'message': exc.message,
-                'error_code': exc.error_code,
-                'error_type': exc.error_type,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Bill inquiry failed',
+                    'message': exc.message,
+                    'error_code': exc.error_code,
+                    'error_type': exc.error_type,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
 
@@ -231,12 +252,15 @@ def pay_bill(request):
     except HimalPayError as exc:
         if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
             return Response(
-                {
-                    'error': 'Water bill payment failed',
-                    'message': exc.message,
-                    'error_code': exc.error_code,
-                    'error_type': exc.error_type,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Water bill payment failed',
+                        'message': exc.message,
+                        'error_code': exc.error_code,
+                        'error_type': exc.error_type,
+                    },
+                    exc.response_data,
+                ),
                 status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
             )
         charge = Decimal('0.00')
@@ -291,12 +315,15 @@ def pay_bill(request):
             bill_txn.save()
             failure = himalpay.extract_failure_details(response)
             return Response(
-                {
-                    'error': 'Water bill payment failed',
-                    'message': failure['message'],
-                    'wallet_debited': False,
-                    'data': WaterBillTransactionSerializer(bill_txn).data,
-                },
+                with_himapay_response(
+                    {
+                        'error': 'Water bill payment failed',
+                        'message': failure['message'],
+                        'wallet_debited': False,
+                        'data': WaterBillTransactionSerializer(bill_txn).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -311,7 +338,10 @@ def pay_bill(request):
                     bill_txn.status = 'failed'
                     bill_txn.save()
                     return Response(
-                        {'error': 'Insufficient balance after fee calculation'},
+                        with_himapay_response(
+                            {'error': 'Insufficient balance after fee calculation'},
+                            response,
+                        ),
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 debit_wallet_for_txn(wallet, bill_txn, debit)
@@ -326,24 +356,30 @@ def pay_bill(request):
             )
             notify_low_balance_if_needed(wallet)
             return Response(
-                {
-                    'message': 'KUKL water bill paid successfully',
-                    'data': WaterBillTransactionSerializer(bill_txn).data,
-                },
+                with_himapay_response(
+                    {
+                        'message': 'KUKL water bill paid successfully',
+                        'data': WaterBillTransactionSerializer(bill_txn).data,
+                    },
+                    response,
+                ),
                 status=status.HTTP_200_OK,
             )
 
         bill_txn.status = 'pending'
         bill_txn.save()
         return Response(
-            {
-                'message': 'Payment is being processed',
-                'pending_message': response.get(
-                    'message',
-                    'Your payment is being processed and awaits verification.',
-                ),
-                'data': WaterBillTransactionSerializer(bill_txn).data,
-            },
+            with_himapay_response(
+                {
+                    'message': 'Payment is being processed',
+                    'pending_message': response.get(
+                        'message',
+                        'Your payment is being processed and awaits verification.',
+                    ),
+                    'data': WaterBillTransactionSerializer(bill_txn).data,
+                },
+                response,
+            ),
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -352,11 +388,14 @@ def pay_bill(request):
         bill_txn.provider_response = exc.response_data
         bill_txn.save()
         return Response(
-            {
-                'error': 'Water bill payment failed',
-                'message': exc.message,
-                'data': WaterBillTransactionSerializer(bill_txn).data,
-            },
+            with_himapay_response(
+                {
+                    'error': 'Water bill payment failed',
+                    'message': exc.message,
+                    'data': WaterBillTransactionSerializer(bill_txn).data,
+                },
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
     except Exception as exc:
@@ -437,20 +476,26 @@ def water_bill_status(request):
                             bill.save()
 
         return Response(
-            {
-                'status': normalized,
-                'message': (
-                    himalpay.extract_failure_details(result)['message']
-                    if normalized == 'failed'
-                    else None
-                ),
-                'data': result,
-                'local_bill': WaterBillTransactionSerializer(bill).data if bill else None,
-            },
+            with_himapay_response(
+                {
+                    'status': normalized,
+                    'message': (
+                        himalpay.extract_failure_details(result)['message']
+                        if normalized == 'failed'
+                        else None
+                    ),
+                    'data': result,
+                    'local_bill': WaterBillTransactionSerializer(bill).data if bill else None,
+                },
+                result,
+            ),
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
         return Response(
-            {'error': exc.message, 'error_code': exc.error_code},
+            with_himapay_response(
+                {'error': exc.message, 'error_code': exc.error_code},
+                exc.response_data,
+            ),
             status=status.HTTP_400_BAD_REQUEST,
         )

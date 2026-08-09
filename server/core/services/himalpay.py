@@ -242,6 +242,23 @@ def format_himalpay_error_message(
     )
 
 
+# Public API key for surfacing the raw HimalPay payload to clients.
+HIMAPAY_RESPONSE_KEY = 'himapayResponse'
+
+
+def with_himapay_response(payload: Optional[Dict] = None, himalpay_data: Any = None) -> Dict:
+    """
+    Attach the raw HimalPay API payload under ``himapayResponse``.
+
+    Also sets legacy ``himalpay_response`` for older clients.
+    """
+    out: Dict[str, Any] = dict(payload or {})
+    if himalpay_data is not None:
+        out[HIMAPAY_RESPONSE_KEY] = himalpay_data
+        out['himalpay_response'] = himalpay_data
+    return out
+
+
 class HimalPayError(Exception):
     """Raised when HimalPay returns an error response."""
 
