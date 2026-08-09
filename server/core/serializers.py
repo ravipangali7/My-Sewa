@@ -1762,7 +1762,8 @@ class StatementReconcileRunSerializer(serializers.ModelSerializer):
             'triggered_by_user', 'triggered_by_user_phone', 'status', 'status_display',
             'hp_entries', 'matched', 'issues_open', 'issues_new',
             'himalpay_balance_paisa', 'himalpay_bonus_balance_paisa',
-            'himalpay_balance_rupees', 'error_message', 'created_at', 'finished_at',
+            'himalpay_balance_rupees', 'himalpay_statement_logs',
+            'error_message', 'created_at', 'finished_at',
         )
         read_only_fields = fields
 

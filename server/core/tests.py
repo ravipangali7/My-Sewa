@@ -1100,9 +1100,26 @@ class StatementReconcileTests(TestCase):
         )
         self.assertEqual(run.status, 'success')
         self.assertEqual(run.matched, 1)
+        self.assertEqual(len(run.himalpay_statement_logs), 1)
+        self.assertEqual(
+            run.himalpay_statement_logs[0].get('transaction_uuid'),
+            uuid,
+        )
         self.assertEqual(
             StatementDiscrepancy.objects.filter(status='open').count(),
             0,
+        )
+
+        list_resp = self.client.get(reverse('admin_statement_list'))
+        self.assertEqual(list_resp.status_code, status.HTTP_200_OK, list_resp.content)
+        self.assertEqual(len(list_resp.data.get('statement_logs') or []), 1)
+        self.assertEqual(
+            list_resp.data['statement_logs'][0].get('transaction_uuid'),
+            uuid,
+        )
+        self.assertEqual(
+            len(list_resp.data['summary']['latest_run'].get('himalpay_statement_logs') or []),
+            1,
         )
 
     def test_status_mismatch_suggests_debit_and_solve_adjusts_wallet(self):

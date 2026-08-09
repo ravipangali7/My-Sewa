@@ -513,7 +513,8 @@ class StatementReconcileRunAdmin(admin.ModelAdmin):
         'from_date', 'to_date', 'triggered_by', 'triggered_by_user', 'status',
         'hp_entries', 'matched', 'issues_open', 'issues_new',
         'himalpay_balance_paisa', 'himalpay_bonus_balance_paisa',
-        'himalpay_balance_rupees', 'error_message', 'created_at', 'finished_at',
+        'himalpay_balance_rupees', 'himalpay_statement_logs',
+        'error_message', 'created_at', 'finished_at',
     )
 
     def has_add_permission(self, request):

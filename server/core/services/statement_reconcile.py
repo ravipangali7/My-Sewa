@@ -574,6 +574,9 @@ def run_statement_reconcile(
             run.matched = matched
             run.issues_open = open_count
             run.issues_new = new_count
+            run.himalpay_statement_logs = [
+                row for row in entries if isinstance(row, dict)
+            ]
             if isinstance(balance, dict):
                 bal = balance.get('balance')
                 bonus = balance.get('bonus_balance')

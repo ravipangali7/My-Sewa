@@ -167,6 +167,7 @@ function StatementPage() {
 
   const items = listQuery.data?.items ?? [];
   const summary = listQuery.data?.summary;
+  const statementLogs = listQuery.data?.statement_logs ?? [];
   const balance = balanceQuery.data?.data;
   const balanceUnavailable = Boolean(
     balanceQuery.data?.unavailable || (balanceQuery.data?.error && !balance),
@@ -284,6 +285,52 @@ function StatementPage() {
             ? ` · ${formatDateTime(summary.latest_run.finished_at)}`
             : null}
         </p>
+      ) : null}
+
+      {statementLogs.length > 0 ? (
+        <details className="mt-4 rounded-xl border border-border bg-surface p-4">
+          <summary className="cursor-pointer text-sm font-medium">
+            HimalPay statement logs ({statementLogs.length})
+          </summary>
+          <div className="mt-3 max-h-80 overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>When</TableHead>
+                  <TableHead>Service</TableHead>
+                  <TableHead>Direction</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>UUID</TableHead>
+                  <TableHead className="text-right">Amount (paisa)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {statementLogs.map((row, idx) => {
+                  const uuid = String(row.transaction_uuid ?? row.transaction_id ?? "—");
+                  const amount = row.amount;
+                  return (
+                    <TableRow key={`${uuid}-${idx}`}>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {row.created_at ? String(row.created_at) : "—"}
+                      </TableCell>
+                      <TableCell>{String(row.wallet_service_name ?? "—")}</TableCell>
+                      <TableCell className="capitalize">
+                        {String(row.direction ?? "—")}
+                      </TableCell>
+                      <TableCell>{String(row.status ?? "—")}</TableCell>
+                      <TableCell className="font-mono text-xs">{uuid}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {typeof amount === "number" || typeof amount === "string"
+                          ? String(amount)
+                          : "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </details>
       ) : null}
 
       <div className="mt-5">

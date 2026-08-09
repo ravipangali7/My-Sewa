@@ -920,6 +920,7 @@ export interface StatementReconcileRun {
   himalpay_balance_paisa: number | null;
   himalpay_bonus_balance_paisa: number | null;
   himalpay_balance_rupees: string | null;
+  himalpay_statement_logs?: Record<string, unknown>[];
   error_message: string;
   created_at: string;
   finished_at: string | null;
@@ -967,4 +968,5 @@ export interface StatementListResponse {
   };
   items: StatementDiscrepancy[];
   count: number;
+  statement_logs?: Record<string, unknown>[];
 }

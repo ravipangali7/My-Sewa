@@ -2513,6 +2513,7 @@ def _statement_tables_missing_response():
             'summary': {'open_issues': 0, 'by_issue_type': {}, 'latest_run': None},
             'items': [],
             'count': 0,
+            'statement_logs': [],
         },
         status=status.HTTP_503_SERVICE_UNAVAILABLE,
     )
@@ -2556,17 +2557,24 @@ def admin_statement_list(request):
             ).values('issue_type').annotate(c=Count('id'))
         }
         latest_run = StatementReconcileRun.objects.order_by('-created_at').first()
+        latest_run_data = (
+            StatementReconcileRunSerializer(latest_run).data if latest_run else None
+        )
+        statement_logs = []
+        if latest_run is not None:
+            logs = latest_run.himalpay_statement_logs
+            if isinstance(logs, list):
+                statement_logs = logs
 
         return Response({
             'summary': {
                 'open_issues': open_count,
                 'by_issue_type': by_type,
-                'latest_run': (
-                    StatementReconcileRunSerializer(latest_run).data if latest_run else None
-                ),
+                'latest_run': latest_run_data,
             },
             'items': StatementDiscrepancySerializer(qs[:500], many=True).data,
             'count': qs.count(),
+            'statement_logs': statement_logs,
         })
     except (ProgrammingError, OperationalError):
         return _statement_tables_missing_response()
@@ -2628,6 +2636,11 @@ def admin_statement_run(request):
     payload = {
         'message': 'Statement reconcile completed',
         'data': StatementReconcileRunSerializer(run).data,
+        'statement_logs': (
+            run.himalpay_statement_logs
+            if isinstance(run.himalpay_statement_logs, list)
+            else []
+        ),
     }
     if run.error_message:
         payload['warning'] = run.error_message

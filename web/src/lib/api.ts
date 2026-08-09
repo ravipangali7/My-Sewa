@@ -1059,10 +1059,15 @@ export const apiClient = {
     ),
 
   adminStatementRun: (payload: { from_date: string; to_date: string }) =>
-    api<{ message: string; data: import("./types").StatementReconcileRun }>(
-      "/api/admin/statement/run/",
-      { method: "POST", body: payload },
-    ),
+    api<{
+      message: string;
+      data: import("./types").StatementReconcileRun;
+      statement_logs?: Record<string, unknown>[];
+      warning?: string;
+    }>("/api/admin/statement/run/", {
+      method: "POST",
+      body: payload,
+    }),
 
   adminStatementBalance: () =>
     api<{
