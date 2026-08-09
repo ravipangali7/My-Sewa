@@ -2881,9 +2881,9 @@ def admin_statement_balance(request):
     from ..services.himalpay import is_route_not_found_error
 
     himalpay = HimalPayAPI()
-    # Keep balance probe snappy so nginx/gunicorn do not surface a blank 502.
+    # Allow a few sequential HimalPay probes (reseller → portal → statement).
     original_timeout = getattr(himalpay, 'timeout', 60)
-    himalpay.timeout = min(int(original_timeout or 60), 20)
+    himalpay.timeout = min(int(original_timeout or 60), 25)
     try:
         data = himalpay.get_reseller_balance()
     except HimalPayError as exc:
@@ -2912,7 +2912,22 @@ def admin_statement_balance(request):
         )
     finally:
         himalpay.timeout = original_timeout
-    return Response({'data': data})
+
+    if not isinstance(data, dict) or not HimalPayAPI._balance_payload_has_amounts(data):
+        return Response(
+            {
+                'error': 'HimalPay returned an empty balance payload.',
+                'data': None,
+                'unavailable': True,
+            }
+        )
+
+    return Response(
+        {
+            'data': data,
+            'source': data.get('source') or 'reseller-balance',
+        }
+    )
 
 
 @api_view(['POST'])

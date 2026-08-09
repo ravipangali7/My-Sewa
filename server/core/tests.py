@@ -104,6 +104,25 @@ class RupeesPaisaConversionTests(SimpleTestCase):
         balance = client.get_reseller_balance()
         self.assertIn('balance', balance)
         self.assertIn('total_balance_in_rupees', balance)
+        self.assertEqual(balance.get('source'), 'bypass')
+
+    def test_normalize_reseller_balance_nested_wallet(self):
+        nested = HimalPayAPI._normalize_reseller_balance(
+            {
+                'status': 'SUCCESS',
+                'data': {
+                    'wallet': {
+                        'balance': 5000000,
+                        'bonus_balance': 100,
+                    }
+                },
+            }
+        )
+        self.assertEqual(nested['balance'], 5000000)
+        self.assertEqual(nested['balance_in_rupees'], 50000.0)
+        self.assertEqual(nested['bonus_balance_in_rupees'], 1.0)
+        self.assertEqual(nested['total_balance_in_rupees'], 50001.0)
+        self.assertTrue(HimalPayAPI._balance_payload_has_amounts(nested))
 
 
 class BankCodeResolveTests(SimpleTestCase):

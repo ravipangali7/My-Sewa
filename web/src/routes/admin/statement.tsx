@@ -197,7 +197,10 @@ function StatementPage() {
   const balanceQuery = useQuery({
     queryKey: ["admin", "statement", "balance"],
     queryFn: () => apiClient.adminStatementBalance(),
-    retry: false,
+    retry: 1,
+    refetchOnMount: "always",
+    refetchInterval: 60_000,
+    staleTime: 0,
   });
 
   const listQuery = useQuery({
@@ -209,6 +212,10 @@ function StatementPage() {
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["admin", "statement"] });
     queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
+  };
+
+  const refreshBalance = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin", "statement", "balance"] });
   };
 
   const runMutation = useMutation({
@@ -307,14 +314,30 @@ function StatementPage() {
     return formatNPR(value);
   };
 
-  const balanceHint =
-    totalRupees != null
-      ? balanceUpdatedAt
-        ? `Updated ${formatDateTime(balanceUpdatedAt)}`
-        : "Current reseller wallet (main + bonus)"
-      : balanceQuery.isLoading
-        ? "Fetching reseller balance…"
-        : "Unavailable";
+  const balanceHint = (() => {
+    if (balanceQuery.isLoading || balanceQuery.isFetching) {
+      return "Fetching live HimalPay balance…";
+    }
+    if (totalRupees == null) return "Unavailable";
+    const source =
+      (typeof balanceQuery.data?.source === "string" && balanceQuery.data.source) ||
+      (typeof balance?.source === "string" ? balance.source : "") ||
+      "";
+    const sourceLabel =
+      source === "portal-wallet"
+        ? "Live via portal wallet"
+        : source === "statement-derived"
+          ? "Live from latest HimalPay statement"
+          : source === "reseller-balance"
+            ? "Live from HimalPay reseller balance"
+            : source === "bypass"
+              ? "Bypass mode"
+              : "Live HimalPay balance";
+    if (balanceUpdatedAt) {
+      return `${sourceLabel} · Updated ${formatDateTime(balanceUpdatedAt)}`;
+    }
+    return sourceLabel;
+  })();
 
   const balanceCards: StatCardItem[] = [
     {
@@ -387,6 +410,23 @@ function StatementPage() {
       description="HimalPay ↔ MySewa ledger by user — review, reconcile, and correct wallets"
     >
       <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Live HimalPay float
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={refreshBalance}
+            disabled={balanceQuery.isFetching}
+          >
+            <RefreshCw
+              className={`mr-1.5 size-3.5 ${balanceQuery.isFetching ? "animate-spin" : ""}`}
+            />
+            {balanceQuery.isFetching ? "Refreshing…" : "Refresh balance"}
+          </Button>
+        </div>
         <StatsCards items={balanceCards} />
         <StatsCards items={ledgerCards} />
       </div>

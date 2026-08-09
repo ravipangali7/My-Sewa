@@ -652,23 +652,47 @@ class HimalPayAPI:
         return entries
 
     @staticmethod
+    def _balance_payload_has_amounts(data: Dict) -> bool:
+        if not isinstance(data, dict):
+            return False
+        return any(
+            data.get(key) is not None and data.get(key) != ''
+            for key in (
+                'balance',
+                'bonus_balance',
+                'balance_in_rupees',
+                'bonus_balance_in_rupees',
+                'total_balance_in_rupees',
+            )
+        )
+
+    @staticmethod
     def _normalize_reseller_balance(raw: Any) -> Dict:
         """
         Normalize GET /wallet/reseller-balance (and portal wallet) into the
         documented shape with both paisa and rupees fields.
         """
         data = raw
-        if isinstance(data, dict):
+        # Unwrap nested envelopes: {data: {wallet: {...}}}, {wallet: {...}}, etc.
+        for _ in range(5):
+            if not isinstance(data, dict):
+                break
+            if HimalPayAPI._balance_payload_has_amounts(data):
+                break
             nested_wallet = data.get('wallet')
             nested_data = data.get('data')
+            nested_user = data.get('user')
             if isinstance(nested_wallet, dict):
                 data = nested_wallet
-            elif isinstance(nested_data, dict) and (
-                'balance' in nested_data
-                or 'balance_in_rupees' in nested_data
-                or 'total_balance_in_rupees' in nested_data
-            ):
+                continue
+            if isinstance(nested_data, dict):
                 data = nested_data
+                continue
+            if isinstance(nested_user, dict) and isinstance(nested_user.get('wallet'), dict):
+                data = nested_user['wallet']
+                continue
+            break
+
         if not isinstance(data, dict):
             return {}
 
@@ -681,6 +705,23 @@ class HimalPayAPI:
                 return Decimal(str(value))
             except (InvalidOperation, TypeError, ValueError):
                 return None
+
+        # Alias common portal / legacy field names onto the documented keys.
+        if out.get('balance') is None:
+            for key in ('main_balance', 'main_wallet_balance', 'available_balance', 'wallet_balance'):
+                if out.get(key) is not None:
+                    out['balance'] = out.get(key)
+                    break
+        if out.get('bonus_balance') is None:
+            for key in ('bonus', 'bonus_wallet_balance'):
+                if out.get(key) is not None:
+                    out['bonus_balance'] = out.get(key)
+                    break
+        if out.get('balance_in_rupees') is None:
+            for key in ('main_balance_in_rupees', 'available_balance_in_rupees'):
+                if out.get(key) is not None:
+                    out['balance_in_rupees'] = out.get(key)
+                    break
 
         balance_paisa = _num(out.get('balance'))
         bonus_paisa = _num(out.get('bonus_balance'))
@@ -709,8 +750,112 @@ class HimalPayAPI:
 
     def _get_portal_wallet(self) -> Dict:
         """LIVE fallback: GET /users/me/wallet (Bearer portal JWT)."""
-        data = self._request_bearer('GET', '/users/me/wallet')
-        return self._normalize_reseller_balance(data)
+        errors: List[str] = []
+        for endpoint in ('/users/me/wallet', '/users/me'):
+            try:
+                data = self._request_bearer('GET', endpoint)
+            except HimalPayError as exc:
+                errors.append(f'{endpoint}: {exc.message}')
+                continue
+            normalized = self._normalize_reseller_balance(data)
+            if self._balance_payload_has_amounts(normalized):
+                return normalized
+            errors.append(f'{endpoint}: response had no balance fields')
+        raise HimalPayError(
+            '; '.join(errors) or 'Portal wallet balance unavailable.',
+            status_code=502,
+        )
+
+    def _balance_from_latest_statement(self) -> Dict:
+        """
+        Derive current float from the newest statement row's balance_after.
+        Useful when dedicated balance routes are missing but ledger works.
+        Uses a lightweight recent sample (not a full multi-page pull).
+        """
+        from datetime import date, timedelta
+
+        today = date.today()
+        windows = (
+            (today - timedelta(days=7), today),
+            (today - timedelta(days=60), today),
+        )
+        latest: Optional[Dict[str, Any]] = None
+        latest_ts = ''
+
+        for from_date, to_date in windows:
+            entries = self._fetch_statement_balance_sample(
+                from_date=from_date.isoformat(),
+                to_date=to_date.isoformat(),
+            )
+            for row in entries or []:
+                if not isinstance(row, dict):
+                    continue
+                if row.get('balance_after') is None and row.get('bonus_balance_after') is None:
+                    continue
+                ts = str(row.get('created_at') or row.get('updated_at') or '')
+                if latest is None or ts >= latest_ts:
+                    latest = row
+                    latest_ts = ts
+            if latest is not None:
+                break
+
+        if latest is None:
+            raise HimalPayError(
+                'No HimalPay statement rows with balance_after were found.',
+                status_code=404,
+                error_type='ResellerEndpointNotFound',
+            )
+
+        normalized = self._normalize_reseller_balance(
+            {
+                'balance': latest.get('balance_after'),
+                'bonus_balance': latest.get('bonus_balance_after') or 0,
+                'updated_at': latest.get('created_at') or latest.get('updated_at'),
+            }
+        )
+        if not self._balance_payload_has_amounts(normalized):
+            raise HimalPayError(
+                'Could not derive HimalPay balance from statement rows.',
+                status_code=502,
+            )
+        return normalized
+
+    def _fetch_statement_balance_sample(
+        self,
+        from_date: str,
+        to_date: str,
+    ) -> List[Dict]:
+        """Small recent statement slice for balance_after peek (avoid full pagination)."""
+        params = {'from_date': from_date, 'to_date': to_date}
+        try:
+            data = self._request('GET', '/statement/reseller-statement', params=params)
+            if isinstance(data, list):
+                return [row for row in data if isinstance(row, dict)]
+            if isinstance(data, dict):
+                entries = data.get('data', [])
+                return [row for row in entries if isinstance(row, dict)] if isinstance(entries, list) else []
+            return []
+        except HimalPayError as exc:
+            if not is_route_not_found_error(exc.message, exc.status_code, exc.error_type):
+                raise
+            if not self._has_portal_login():
+                raise
+            data = self._request_bearer(
+                'GET',
+                '/users/statement',
+                params={
+                    'page': 1,
+                    'limit': 100,
+                    'from_date': from_date,
+                    'to_date': to_date,
+                },
+            )
+            if isinstance(data, list):
+                return [row for row in data if isinstance(row, dict)]
+            if isinstance(data, dict):
+                batch = data.get('data') or []
+                return [row for row in batch if isinstance(row, dict)] if isinstance(batch, list) else []
+            return []
 
     # ------------------------------------------------------------------
     # Core endpoints
@@ -918,13 +1063,15 @@ class HimalPayAPI:
 
     def get_reseller_balance(self) -> Dict:
         """
-        Current HimalPay reseller wallet balances.
+        Current HimalPay reseller wallet balances (real-time).
 
-        Preferred: GET /wallet/reseller-balance (X-API-Key) — available on UAT.
-        LIVE fallback: GET /users/me/wallet (Bearer portal JWT) when reseller route 404s.
+        Resolution order:
+        1. GET /wallet/reseller-balance (X-API-Key) — preferred when deployed
+        2. Portal GET /users/me/wallet (or /users/me) when portal login is configured
+        3. Derive from newest statement row balance_after / bonus_balance_after
         """
         if self.bypass_api:
-            return self._normalize_reseller_balance(
+            data = self._normalize_reseller_balance(
                 {
                     'id': 1,
                     'user_id': 1,
@@ -937,24 +1084,63 @@ class HimalPayAPI:
                     'updated_at': '2026-08-09T00:00:00Z',
                 }
             )
+            data['source'] = 'bypass'
+            return data
 
+        errors: List[str] = []
+        saw_route_missing = False
+
+        # 1) Documented reseller balance route
         try:
-            data = self._request('GET', '/wallet/reseller-balance')
+            raw = self._request('GET', '/wallet/reseller-balance')
+            data = self._normalize_reseller_balance(raw)
+            if self._balance_payload_has_amounts(data):
+                data['source'] = 'reseller-balance'
+                return data
+            errors.append('GET /wallet/reseller-balance returned no balance fields')
+            logger.warning('HimalPay reseller-balance response missing amounts: %s', raw)
         except HimalPayError as exc:
-            if not is_route_not_found_error(exc.message, exc.status_code, exc.error_type):
-                raise
-            if not self._has_portal_login():
-                self._raise_ledger_unavailable(exc)
-            logger.warning(
-                'Reseller balance route missing on %s; falling back to portal /users/me/wallet',
-                self.base_url,
-            )
-            try:
-                return self._get_portal_wallet()
-            except HimalPayError as portal_exc:
-                self._raise_ledger_unavailable(portal_exc)
+            errors.append(f'reseller-balance: {exc.message}')
+            if is_route_not_found_error(exc.message, exc.status_code, exc.error_type):
+                saw_route_missing = True
+            else:
+                logger.warning('HimalPay reseller-balance failed: %s', exc.message)
 
-        return self._normalize_reseller_balance(data)
+        # 2) Portal wallet (LIVE fallback)
+        if self._has_portal_login():
+            try:
+                data = self._get_portal_wallet()
+                if self._balance_payload_has_amounts(data):
+                    data['source'] = 'portal-wallet'
+                    return data
+                errors.append('portal wallet returned no balance fields')
+            except HimalPayError as portal_exc:
+                errors.append(f'portal-wallet: {portal_exc.message}')
+                logger.warning('HimalPay portal wallet failed: %s', portal_exc.message)
+        else:
+            errors.append('portal login not configured')
+
+        # 3) Latest statement balance_after (still live HimalPay data)
+        try:
+            data = self._balance_from_latest_statement()
+            if self._balance_payload_has_amounts(data):
+                data['source'] = 'statement-derived'
+                return data
+            errors.append('statement-derived balance empty')
+        except HimalPayError as stmt_exc:
+            errors.append(f'statement: {stmt_exc.message}')
+            if is_route_not_found_error(stmt_exc.message, stmt_exc.status_code, stmt_exc.error_type):
+                saw_route_missing = True
+            logger.warning('HimalPay statement-derived balance failed: %s', stmt_exc.message)
+
+        detail = '; '.join(errors) if errors else RESELLER_LEDGER_UNAVAILABLE_MSG
+        if saw_route_missing and not self._has_portal_login():
+            self._raise_ledger_unavailable(HimalPayError(detail, status_code=404))
+        raise HimalPayError(
+            detail,
+            status_code=502,
+            error_type='ResellerBalanceUnavailable',
+        )
 
     def _bypass_reseller_statement(
         self,

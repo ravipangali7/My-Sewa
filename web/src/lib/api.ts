@@ -1093,6 +1093,7 @@ export const apiClient = {
       data: import("./types").HimalPayResellerBalance | null;
       error?: string;
       unavailable?: boolean;
+      source?: string;
     }>("/api/admin/statement/balance/"),
 
   adminStatementLedger: (filters?: {

@@ -920,6 +920,8 @@ export interface HimalPayResellerBalance {
   total_balance_in_rupees?: number | string | null;
   created_at?: string;
   updated_at?: string;
+  /** How MySewa resolved the live balance */
+  source?: string;
   [key: string]: unknown;
 }
 
