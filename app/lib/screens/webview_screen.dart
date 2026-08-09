@@ -15,7 +15,10 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../config/app_config.dart';
+import '../config/app_constant.dart';
+import '../services/app_update_service.dart';
 import '../services/session_lifecycle.dart';
+import '../widgets/update_available_dialog.dart';
 import 'no_internet_screen.dart';
 
 List<int> _decodeBase64InBackground(String value) {
@@ -277,6 +280,13 @@ class _WebViewScreenState extends State<WebViewScreen>
   Future<void> _bootstrap() async {
     // Wipe restored WebView auth storage before the site can hydrate a token.
     await SessionLifecycle.prepareFreshInstallSession();
+    if (mounted) {
+      final update = await AppUpdateService.checkForUpdate();
+      if (mounted) {
+        await promptAppUpdateIfNeeded(context, update);
+      }
+    }
+    if (!mounted) return;
     await _initWebView();
     _watchConnectivity();
   }
@@ -301,7 +311,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     _splashStartedAt ??= DateTime.now();
 
     final defaultUa = await controller.getUserAgent() ?? '';
-    await controller.setUserAgent('$defaultUa MySewaApp/1.0');
+    await controller.setUserAgent('$defaultUa MySewaApp/${AppConstant.appVersion}');
 
     await controller.addJavaScriptChannel(
       'MySewaBridge',

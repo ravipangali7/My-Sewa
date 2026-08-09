@@ -76,7 +76,7 @@ export const Route = createFileRoute("/admin/settings")({
       {
         name: "description",
         content:
-          "Manage MySewa global configuration: general info, branding, payments, transaction rules, SMTP email, notifications, security, and deposit account details.",
+          "Manage MySewa global configuration: general info, mobile APK updates, branding, payments, transaction rules, SMTP email, notifications, security, and deposit account details.",
       },
       { property: "og:title", content: "App Settings — MySewa Admin" },
       {
@@ -456,6 +456,15 @@ function SettingsPage() {
     saveConfigSection("site", config.site);
   };
 
+  const saveMobileApp = () => {
+    const fd = new FormData();
+    fd.append("app_version", appVersion.trim());
+    if (apkFile) {
+      fd.append("apk", apkFile);
+    }
+    saveMutation.mutate(fd);
+  };
+
   const updateAccount = (id: string, patch: Partial<PaymentAccount>) => {
     setAccounts((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   };
@@ -792,6 +801,111 @@ function SettingsPage() {
                 </div>
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="mobile">
+            <SettingsPanel
+              title="Android app update"
+              description="Set the version string and APK the Flutter app checks on launch. When the installed appVersion differs, users see Update Available."
+              onSave={saveMobileApp}
+              saving={saving}
+            >
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="app_version">App version</Label>
+                  <Input
+                    id="app_version"
+                    value={appVersion}
+                    onChange={(e) => setAppVersion(e.target.value)}
+                    placeholder="e.g. 1.0.1"
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Must match the Flutter <code className="rounded bg-muted px-1">appVersion</code>{" "}
+                    in <code className="rounded bg-muted px-1">app_constant.dart</code> after users
+                    install this release. Any mismatch triggers the update popup.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>APK package</Label>
+                  <div className="rounded-lg border border-dashed bg-muted/30 p-4 space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      {apkFile
+                        ? `New file selected: ${apkFile.name}`
+                        : settingsQuery.data?.apk
+                          ? `Current file: ${settingsQuery.data.apk}`
+                          : "No APK uploaded yet"}
+                    </p>
+                    {settingsQuery.data?.apk_url && !apkFile ? (
+                      <a
+                        href={settingsQuery.data.apk_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-block text-sm text-primary underline-offset-4 hover:underline"
+                      >
+                        Download current APK
+                      </a>
+                    ) : null}
+                    <label className="block">
+                      <input
+                        type="file"
+                        accept=".apk,application/vnd.android.package-archive"
+                        className="sr-only"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null;
+                          if (file && !file.name.toLowerCase().endsWith(".apk")) {
+                            toast.error("Please select a .apk file");
+                            e.target.value = "";
+                            return;
+                          }
+                          setApkFile(file);
+                        }}
+                      />
+                      <Button
+                        variant="secondary"
+                        type="button"
+                        onClick={(e) => {
+                          const input = (
+                            e.currentTarget.parentElement as HTMLLabelElement
+                          ).querySelector("input");
+                          input?.click();
+                        }}
+                      >
+                        {apkFile ? "Choose a different APK" : "Upload APK"}
+                      </Button>
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {apkFile ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => setApkFile(null)}
+                        >
+                          Clear selection
+                        </Button>
+                      ) : null}
+                      {settingsQuery.data?.apk_url && !apkFile ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="text-destructive"
+                          disabled={saving}
+                          onClick={() => {
+                            const fd = new FormData();
+                            fd.append("clear_apk", "true");
+                            saveMutation.mutate(fd);
+                          }}
+                        >
+                          <Trash2 className="size-3.5" />
+                          Remove APK
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </SettingsPanel>
           </TabsContent>
 
           <TabsContent value="payment">

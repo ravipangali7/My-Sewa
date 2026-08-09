@@ -38,6 +38,7 @@ from ..models import (
     KYCSubmission,
     StatementReconcileRun,
     StatementDiscrepancy,
+    HomePopup,
     merge_app_config,
 )
 from ..serializers import (
@@ -66,6 +67,7 @@ from ..serializers import (
     AdminKYCUpdateSerializer,
     StatementReconcileRunSerializer,
     StatementDiscrepancySerializer,
+    HomePopupSerializer,
 )
 from ..services.kyc import mark_submission_reviewed, update_kyc_submission
 from ..services.himalpay import (
@@ -3220,5 +3222,141 @@ def admin_statement_ignore(request, discrepancy_id):
     return Response({
         'message': 'Issue ignored',
         'data': StatementDiscrepancySerializer(disc).data,
+    })
+
+
+def _parse_bool(value, default=None):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _apply_home_popup_fields(popup, data, files, *, partial=False):
+    """Apply multipart/JSON fields onto a HomePopup instance. Returns error Response or None."""
+    clear_image = _parse_bool(data.get('clear_image'), False)
+
+    if 'title' in data:
+        popup.title = str(data.get('title') or '').strip()
+    elif not partial and not popup.pk:
+        popup.title = ''
+
+    if 'body' in data:
+        popup.body = str(data.get('body') or '').strip()
+    elif not partial and not popup.pk:
+        popup.body = ''
+
+    if 'max_per_24h' in data and data.get('max_per_24h') is not None:
+        try:
+            popup.max_per_24h = int(data.get('max_per_24h'))
+        except (TypeError, ValueError):
+            return Response(
+                {'max_per_24h': 'Must be a positive integer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    if 'is_active' in data and data.get('is_active') is not None:
+        popup.is_active = bool(_parse_bool(data.get('is_active'), popup.is_active))
+
+    if 'sort_order' in data and data.get('sort_order') is not None:
+        try:
+            popup.sort_order = int(data.get('sort_order'))
+        except (TypeError, ValueError):
+            return Response(
+                {'sort_order': 'Must be an integer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    if 'image' in files:
+        if popup.image:
+            popup.image.delete(save=False)
+        popup.image = files['image']
+    elif clear_image:
+        if popup.image:
+            popup.image.delete(save=False)
+        popup.image = None
+
+    title = popup.title
+    body = popup.body
+    image = popup.image
+    has_text = bool((title or '').strip() or (body or '').strip())
+    has_image = bool(image)
+    if not has_text and not has_image:
+        return Response(
+            {'detail': 'Popup must include text, an image, or both.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if popup.max_per_24h < 1:
+        return Response(
+            {'max_per_24h': 'Must be at least 1 time per 24 hours.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+@parser_classes([MultiPartParser, FormParser, JSONParser])
+def admin_popups(request):
+    if request.method == 'GET':
+        qs = HomePopup.objects.all().order_by('sort_order', '-id')
+        active = request.query_params.get('is_active')
+        if active is not None and str(active).strip() != '':
+            qs = qs.filter(is_active=_parse_bool(active, True))
+        data = HomePopupSerializer(qs, many=True, context={'request': request}).data
+        return Response({'items': data, 'count': len(data)})
+
+    popup = HomePopup(
+        title='',
+        body='',
+        max_per_24h=1,
+        is_active=True,
+        sort_order=0,
+    )
+    err = _apply_home_popup_fields(popup, request.data, request.FILES, partial=False)
+    if err is not None:
+        return err
+    if 'max_per_24h' not in request.data:
+        popup.max_per_24h = 1
+    if 'is_active' not in request.data:
+        popup.is_active = True
+    popup.save()
+    return Response(
+        {
+            'message': 'Popup created',
+            'data': HomePopupSerializer(popup, context={'request': request}).data,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+@parser_classes([MultiPartParser, FormParser, JSONParser])
+def admin_popup_detail(request, popup_id):
+    try:
+        popup = HomePopup.objects.get(pk=popup_id)
+    except HomePopup.DoesNotExist:
+        return Response({'detail': 'Popup not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response(HomePopupSerializer(popup, context={'request': request}).data)
+
+    if request.method == 'DELETE':
+        if popup.image:
+            popup.image.delete(save=False)
+        popup.delete()
+        return Response({'message': 'Popup deleted'})
+
+    err = _apply_home_popup_fields(
+        popup, request.data, request.FILES, partial=(request.method == 'PATCH'),
+    )
+    if err is not None:
+        return err
+    popup.save()
+    return Response({
+        'message': 'Popup updated',
+        'data': HomePopupSerializer(popup, context={'request': request}).data,
     })
 

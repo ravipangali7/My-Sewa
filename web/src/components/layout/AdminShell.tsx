@@ -19,6 +19,7 @@ import {
   Droplets,
   Zap,
   FileSearch,
+  MessageSquare,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -68,6 +69,7 @@ const NAV = [
   { to: "/admin/water", label: "Khanepani", icon: Droplets },
   { to: "/admin/community-electricity", label: "Community Power", icon: Zap },
   { to: "/admin/transfers", label: "Bank transfers", icon: Banknote },
+  { to: "/admin/popups", label: "Popups", icon: MessageSquare },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 

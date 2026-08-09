@@ -1068,6 +1068,36 @@ export const apiClient = {
       ...(payload instanceof FormData ? { formData: payload } : { body: payload }),
     }),
 
+  adminPopups: (filters?: { is_active?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.is_active) params.set("is_active", filters.is_active);
+    const query = params.toString();
+    return api<{ items: import("./types").HomePopup[]; count: number }>(
+      `/api/admin/popups/${query ? `?${query}` : ""}`,
+    );
+  },
+  adminGetPopup: (id: number) =>
+    api<import("./types").HomePopup>(`/api/admin/popups/${id}/`),
+  adminCreatePopup: (payload: FormData | Record<string, unknown>) =>
+    api<{ message: string; data: import("./types").HomePopup }>("/api/admin/popups/", {
+      method: "POST",
+      ...(payload instanceof FormData ? { formData: payload } : { body: payload }),
+    }),
+  adminUpdatePopup: (id: number, payload: FormData | Record<string, unknown>) =>
+    api<{ message: string; data: import("./types").HomePopup }>(`/api/admin/popups/${id}/`, {
+      method: "PATCH",
+      ...(payload instanceof FormData ? { formData: payload } : { body: payload }),
+    }),
+  adminDeletePopup: (id: number) =>
+    api<{ message: string }>(`/api/admin/popups/${id}/`, { method: "DELETE" }),
+
+  activeHomePopup: () =>
+    api<{ popup: import("./types").HomePopup | null }>("/api/popups/active/"),
+  recordHomePopupShown: (id: number) =>
+    api<{ recorded: boolean; message?: string; detail?: string }>(`/api/popups/${id}/shown/`, {
+      method: "POST",
+    }),
+
   adminHimalpayStatus: () =>
     api<{
       outbound_ip: string | null;

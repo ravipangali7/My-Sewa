@@ -1,8 +1,33 @@
-from django.db import models
+from django.db import connection, models
+from django.db.utils import OperationalError
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 import json
+
+
+def _ensure_settings_app_update_columns():
+    """Add Settings.app_version / apk if deploy skipped migrate 0029 (SQLite)."""
+    if connection.vendor != 'sqlite':
+        return
+    with connection.cursor() as cursor:
+        cursor.execute('PRAGMA table_info(core_settings)')
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'app_version' not in cols:
+            cursor.execute(
+                "ALTER TABLE core_settings ADD COLUMN app_version varchar(32) NOT NULL DEFAULT ''"
+            )
+        if 'apk' not in cols:
+            cursor.execute(
+                "ALTER TABLE core_settings ADD COLUMN apk varchar(100) NULL"
+            )
+    from django.db.migrations.recorder import MigrationRecorder
+
+    recorder = MigrationRecorder(connection)
+    if not recorder.migration_qs.filter(
+        app='core', name='0029_settings_app_version_apk'
+    ).exists():
+        recorder.record_applied('core', '0029_settings_app_version_apk')
 
 
 class CustomUserManager(BaseUserManager):
@@ -393,8 +418,16 @@ class Settings(models.Model):
 
     @classmethod
     def load(cls):
-        obj, created = cls.objects.get_or_create(pk=1)
-        return obj
+        try:
+            obj, created = cls.objects.get_or_create(pk=1)
+            return obj
+        except OperationalError as exc:
+            msg = str(exc)
+            if 'app_version' not in msg and 'core_settings.apk' not in msg:
+                raise
+            _ensure_settings_app_update_columns()
+            obj, created = cls.objects.get_or_create(pk=1)
+            return obj
 
     def get_config(self):
         return merge_app_config(self.config)
@@ -1234,4 +1267,75 @@ class StatementDiscrepancy(models.Model):
         indexes = [
             models.Index(fields=['status', 'issue_type']),
             models.Index(fields=['transaction_uuid', 'issue_type', 'status']),
+        ]
+
+
+class HomePopup(models.Model):
+    """Admin-managed home-screen popup shown to users with a per-user daily cap."""
+
+    title = models.CharField(max_length=200, blank=True, default='')
+    body = models.TextField(blank=True, default='')
+    image = models.ImageField(
+        upload_to='popups/',
+        null=True,
+        blank=True,
+        help_text='Optional image shown in the home popup',
+    )
+    max_per_24h = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        help_text='Maximum times each user may see this popup within a 24-hour window',
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    sort_order = models.IntegerField(
+        default=0,
+        help_text='Lower values are shown first when multiple popups are active',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def has_content(self):
+        return bool((self.title or '').strip() or (self.body or '').strip() or self.image)
+
+    def __str__(self):
+        label = (self.title or '').strip() or f'Popup #{self.pk}'
+        return label
+
+    class Meta:
+        verbose_name = 'Home Popup'
+        verbose_name_plural = 'Home Popups'
+        ordering = ['sort_order', '-id']
+
+
+class HomePopupImpression(models.Model):
+    """Per-user display tracking for a home popup within a rolling 24-hour window."""
+
+    popup = models.ForeignKey(
+        HomePopup, on_delete=models.CASCADE, related_name='impressions',
+    )
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='popup_impressions',
+    )
+    window_started_at = models.DateTimeField(
+        help_text='Start of the current 24-hour counting window for this user',
+    )
+    view_count = models.PositiveIntegerField(default=0)
+    last_shown_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.user.phone} — popup {self.popup_id} ({self.view_count})'
+
+    class Meta:
+        verbose_name = 'Home Popup Impression'
+        verbose_name_plural = 'Home Popup Impressions'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['popup', 'user'],
+                name='uniq_home_popup_impression_user',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['popup', 'user']),
         ]

@@ -1376,3 +1376,116 @@ class StatementReconcileTests(TestCase):
         self.assertEqual(adj.adjustment_type, 'credit')
         self.assertIn('Statement ledger correction', adj.reason)
 
+
+class HomePopupFrequencyTests(TestCase):
+    """Per-user 24-hour home popup display caps."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            phone='9800111222',
+            password='testpass123',
+            email='popup-user@example.com',
+        )
+        self.other = User.objects.create_user(
+            phone='9800111333',
+            password='testpass123',
+            email='popup-other@example.com',
+        )
+        self.staff = User.objects.create_user(
+            phone='9800111444',
+            password='testpass123',
+            email='popup-admin@example.com',
+            is_staff=True,
+        )
+        from .models import HomePopup
+
+        self.popup = HomePopup.objects.create(
+            title='Promo',
+            body='Hello',
+            max_per_24h=3,
+            is_active=True,
+            sort_order=0,
+        )
+        self.client = APIClient()
+
+    def test_admin_create_requires_content(self):
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.post(
+            reverse('admin_popups'),
+            {'title': '', 'body': '', 'max_per_24h': 2},
+            format='multipart',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_admin_create_and_list(self):
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.post(
+            reverse('admin_popups'),
+            {
+                'title': 'Welcome',
+                'body': 'New feature',
+                'max_per_24h': 2,
+                'is_active': 'true',
+                'sort_order': '1',
+            },
+            format='multipart',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        listed = self.client.get(reverse('admin_popups'))
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(listed.data['count'], 2)
+
+    def test_user_capped_after_max_views_within_window(self):
+        self.client.force_authenticate(user=self.user)
+        for _ in range(3):
+            active = self.client.get(reverse('active_home_popup'))
+            self.assertEqual(active.status_code, status.HTTP_200_OK)
+            self.assertIsNotNone(active.data['popup'])
+            shown = self.client.post(
+                reverse('record_home_popup_shown', kwargs={'popup_id': self.popup.pk}),
+            )
+            self.assertEqual(shown.status_code, status.HTTP_200_OK, shown.content)
+
+        active = self.client.get(reverse('active_home_popup'))
+        self.assertEqual(active.status_code, status.HTTP_200_OK)
+        self.assertIsNone(active.data['popup'])
+
+        blocked = self.client.post(
+            reverse('record_home_popup_shown', kwargs={'popup_id': self.popup.pk}),
+        )
+        self.assertEqual(blocked.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_counts_are_per_user(self):
+        self.client.force_authenticate(user=self.user)
+        for _ in range(3):
+            self.client.post(
+                reverse('record_home_popup_shown', kwargs={'popup_id': self.popup.pk}),
+            )
+
+        self.client.force_authenticate(user=self.other)
+        active = self.client.get(reverse('active_home_popup'))
+        self.assertIsNotNone(active.data['popup'])
+        shown = self.client.post(
+            reverse('record_home_popup_shown', kwargs={'popup_id': self.popup.pk}),
+        )
+        self.assertEqual(shown.status_code, status.HTTP_200_OK)
+
+    def test_window_resets_after_24_hours(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import HomePopupImpression
+        from .services.home_popup import get_active_popup_for_user, record_popup_shown
+
+        now = timezone.now()
+        HomePopupImpression.objects.create(
+            popup=self.popup,
+            user=self.user,
+            window_started_at=now - timedelta(hours=25),
+            view_count=3,
+            last_shown_at=now - timedelta(hours=24),
+        )
+        self.assertIsNotNone(get_active_popup_for_user(self.user, now=now))
+        self.assertTrue(record_popup_shown(self.popup, self.user, now=now))
+        state = HomePopupImpression.objects.get(popup=self.popup, user=self.user)
+        self.assertEqual(state.view_count, 1)
+

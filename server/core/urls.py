@@ -13,6 +13,7 @@ from .views import (
     data_pack_views,
     admin_views,
     kyc_views,
+    popup_views,
 )
 
 urlpatterns = [
@@ -74,6 +75,14 @@ urlpatterns = [
 
     # Settings endpoints
     path('api/settings/', settings_views.get_settings, name='get_settings'),
+
+    # Home popups (authenticated users)
+    path('api/popups/active/', popup_views.active_home_popup, name='active_home_popup'),
+    path(
+        'api/popups/<int:popup_id>/shown/',
+        popup_views.record_home_popup_shown,
+        name='record_home_popup_shown',
+    ),
 
     # Topup endpoints (HimalPay NTC / NCELL)
     path('api/topup/ntc/', topup_views.topup_ntc, name='topup_ntc'),
@@ -189,6 +198,8 @@ urlpatterns = [
     path('api/admin/remittances/<int:remittance_id>/status/', admin_views.admin_update_remittance_status, name='admin_update_remittance_status'),
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
     path('api/admin/settings/test-email/', admin_views.admin_test_smtp_email, name='admin_test_smtp_email'),
+    path('api/admin/popups/', admin_views.admin_popups, name='admin_popups'),
+    path('api/admin/popups/<int:popup_id>/', admin_views.admin_popup_detail, name='admin_popup_detail'),
     path('api/admin/himalpay/status/', admin_views.admin_himalpay_status, name='admin_himalpay_status'),
     path('api/admin/statement/', admin_views.admin_statement_list, name='admin_statement_list'),
     path('api/admin/statement/run/', admin_views.admin_statement_run, name='admin_statement_run'),

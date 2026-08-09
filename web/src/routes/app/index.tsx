@@ -21,6 +21,7 @@ import {
 import { UserShell } from "@/components/layout/UserShell";
 import { MountainBackdrop } from "@/components/home/MountainBackdrop";
 import { WalletIllustration } from "@/components/home/WalletIllustration";
+import { HomePopupDialog } from "@/components/home/HomePopupDialog";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { apiClient } from "@/lib/api";
@@ -188,6 +189,7 @@ function WalletHome() {
 
   return (
     <UserShell title="MySewa" hideHeader>
+      <HomePopupDialog />
       <div className="relative flex min-w-0 max-w-full flex-col overflow-x-clip bg-[#F3F5F8] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
         {/* Header band */}
         <section className="relative shrink-0 overflow-hidden bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_28%,#0C5F8A_55%,#0A8A6A_82%,#10B981_100%)] px-4 pb-[72px] pt-[max(12px,env(safe-area-inset-top))]">

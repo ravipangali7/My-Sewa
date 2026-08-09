@@ -27,6 +27,7 @@ from .models import (
     KYCAuditLog,
     StatementReconcileRun,
     StatementDiscrepancy,
+    HomePopup,
 )
 
 User = get_user_model()
@@ -1826,4 +1827,50 @@ class StatementDiscrepancySerializer(serializers.ModelSerializer):
             and obj.suggested_amount is not None
             and Decimal(str(obj.suggested_amount)) > 0
         )
+
+
+class HomePopupSerializer(serializers.ModelSerializer):
+    """Serializer for home-screen popups managed by staff."""
+
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HomePopup
+        fields = (
+            'id', 'title', 'body', 'image', 'image_url',
+            'max_per_24h', 'is_active', 'sort_order',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'image_url', 'created_at', 'updated_at')
+        extra_kwargs = {
+            'image': {'write_only': True, 'required': False, 'allow_null': True},
+        }
+
+    def get_image_url(self, obj):
+        if not obj.image:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.image.url)
+        return obj.image.url
+
+    def validate(self, attrs):
+        title = attrs.get('title', getattr(self.instance, 'title', '') if self.instance else '')
+        body = attrs.get('body', getattr(self.instance, 'body', '') if self.instance else '')
+        image = attrs.get('image', getattr(self.instance, 'image', None) if self.instance else None)
+        clearing_image = self.context.get('clear_image')
+        if clearing_image:
+            image = None
+        has_text = bool((title or '').strip() or (body or '').strip())
+        has_image = bool(image)
+        if not has_text and not has_image:
+            raise serializers.ValidationError(
+                'Popup must include text, an image, or both.'
+            )
+        max_per = attrs.get('max_per_24h')
+        if max_per is not None and int(max_per) < 1:
+            raise serializers.ValidationError(
+                {'max_per_24h': 'Must be at least 1 time per 24 hours.'}
+            )
+        return attrs
 

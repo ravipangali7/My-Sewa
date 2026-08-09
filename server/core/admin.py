@@ -20,6 +20,8 @@ from .models import (
     SecurityAuditLog,
     StatementReconcileRun,
     StatementDiscrepancy,
+    HomePopup,
+    HomePopupImpression,
 )
 
 User = get_user_model()
@@ -545,6 +547,32 @@ class StatementDiscrepancyAdmin(admin.ModelAdmin):
         'local_status', 'local_amount', 'txn_type', 'txn_id', 'user',
         'himalpay_snapshot', 'suggested_adjustment_type', 'suggested_amount',
         'reason', 'resolved_by', 'resolved_at', 'resolution_adjustment',
+        'created_at', 'updated_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(HomePopup)
+class HomePopupAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'title', 'max_per_24h', 'is_active', 'sort_order', 'updated_at',
+    )
+    list_filter = ('is_active',)
+    search_fields = ('title', 'body')
+    ordering = ('sort_order', '-id')
+
+
+@admin.register(HomePopupImpression)
+class HomePopupImpressionAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'popup', 'user', 'view_count', 'window_started_at', 'last_shown_at',
+    )
+    list_filter = ('popup',)
+    search_fields = ('user__phone', 'popup__title')
+    readonly_fields = (
+        'popup', 'user', 'window_started_at', 'view_count', 'last_shown_at',
         'created_at', 'updated_at',
     )
 

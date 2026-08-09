@@ -18,6 +18,7 @@ import { Route as AdminDataTopupsRouteImport } from './routes/admin/data-topups'
 import { Route as AdminDepositsRouteImport } from './routes/admin/deposits'
 import { Route as AdminInternetRouteImport } from './routes/admin/internet'
 import { Route as AdminKycRouteImport } from './routes/admin/kyc'
+import { Route as AdminPopupsRouteImport } from './routes/admin/popups'
 import { Route as AdminProfileRouteImport } from './routes/admin/profile'
 import { Route as AdminRemittancesRouteImport } from './routes/admin/remittances'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
@@ -109,6 +110,11 @@ const AdminInternetRoute = AdminInternetRouteImport.update({
 const AdminKycRoute = AdminKycRouteImport.update({
   id: '/admin/kyc',
   path: '/admin/kyc',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPopupsRoute = AdminPopupsRouteImport.update({
+  id: '/admin/popups',
+  path: '/admin/popups',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminProfileRoute = AdminProfileRouteImport.update({
@@ -356,6 +362,7 @@ export interface FileRoutesByFullPath {
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
+  '/admin/popups': typeof AdminPopupsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -413,6 +420,7 @@ export interface FileRoutesByTo {
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
+  '/admin/popups': typeof AdminPopupsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -471,6 +479,7 @@ export interface FileRoutesById {
   '/admin/deposits': typeof AdminDepositsRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
+  '/admin/popups': typeof AdminPopupsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/reports': typeof AdminReportsRoute
@@ -530,6 +539,7 @@ export interface FileRouteTypes {
     | '/admin/deposits'
     | '/admin/internet'
     | '/admin/kyc'
+    | '/admin/popups'
     | '/admin/profile'
     | '/admin/remittances'
     | '/admin/reports'
@@ -587,6 +597,7 @@ export interface FileRouteTypes {
     | '/admin/deposits'
     | '/admin/internet'
     | '/admin/kyc'
+    | '/admin/popups'
     | '/admin/profile'
     | '/admin/remittances'
     | '/admin/reports'
@@ -644,6 +655,7 @@ export interface FileRouteTypes {
     | '/admin/deposits'
     | '/admin/internet'
     | '/admin/kyc'
+    | '/admin/popups'
     | '/admin/profile'
     | '/admin/remittances'
     | '/admin/reports'
@@ -702,6 +714,7 @@ export interface RootRouteChildren {
   AdminDepositsRoute: typeof AdminDepositsRoute
   AdminInternetRoute: typeof AdminInternetRoute
   AdminKycRoute: typeof AdminKycRoute
+  AdminPopupsRoute: typeof AdminPopupsRoute
   AdminProfileRoute: typeof AdminProfileRoute
   AdminRemittancesRoute: typeof AdminRemittancesRoute
   AdminReportsRoute: typeof AdminReportsRoute
@@ -814,6 +827,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/kyc'
       fullPath: '/admin/kyc'
       preLoaderRoute: typeof AdminKycRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/popups': {
+      id: '/admin/popups'
+      path: '/admin/popups'
+      fullPath: '/admin/popups'
+      preLoaderRoute: typeof AdminPopupsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/profile': {
@@ -1150,6 +1170,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminDepositsRoute: AdminDepositsRoute,
   AdminInternetRoute: AdminInternetRoute,
   AdminKycRoute: AdminKycRoute,
+  AdminPopupsRoute: AdminPopupsRoute,
   AdminProfileRoute: AdminProfileRoute,
   AdminRemittancesRoute: AdminRemittancesRoute,
   AdminReportsRoute: AdminReportsRoute,
