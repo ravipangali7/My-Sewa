@@ -25,6 +25,8 @@ export type LoginOtpChallenge = {
   email_hint?: string | null;
   phone_hint?: string | null;
   message: string;
+  login_via?: "email" | "phone" | string | null;
+  preferred_channel?: "email" | "sms" | string | null;
   debug_otp?: string;
 };
 
@@ -36,7 +38,7 @@ type AuthContextValue = {
   isAuthenticated: boolean;
   isStaff: boolean;
   /** Step 1: verify credentials and receive OTP challenge (no session yet). */
-  beginLogin: (phone: string, password: string) => Promise<LoginOtpChallenge>;
+  beginLogin: (identifier: string, password: string) => Promise<LoginOtpChallenge>;
   /** Step 2: verify OTP and establish session. */
   verifyLoginOtp: (challengeId: string, otp: string) => Promise<UserProfile>;
   resendLoginOtp: (challengeId: string) => Promise<LoginOtpChallenge>;
@@ -64,6 +66,8 @@ function toChallenge(res: {
   email_hint?: string | null;
   phone_hint?: string | null;
   message: string;
+  login_via?: string | null;
+  preferred_channel?: string | null;
   debug_otp?: string;
 }): LoginOtpChallenge {
   const challenge: LoginOtpChallenge = {
@@ -74,6 +78,9 @@ function toChallenge(res: {
   };
   if (res.email_hint != null) challenge.email_hint = res.email_hint;
   if (res.phone_hint != null) challenge.phone_hint = res.phone_hint;
+  if (res.login_via != null) challenge.login_via = res.login_via;
+  if (res.preferred_channel != null) challenge.preferred_channel = res.preferred_channel;
+  // Keep debug_otp for toast-only phone feedback / email form hint; UI decides visibility.
   if (res.debug_otp) challenge.debug_otp = res.debug_otp;
   return challenge;
 }
@@ -140,8 +147,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient],
   );
 
-  const beginLogin = useCallback(async (phone: string, password: string) => {
-    const res = await apiClient.login(phone, password);
+  const beginLogin = useCallback(async (identifier: string, password: string) => {
+    const res = await apiClient.login(identifier, password);
     return toChallenge(res);
   }, []);
 

@@ -123,39 +123,60 @@ def register(request):
     return Response(formatted_errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+def _looks_like_email(value: str) -> bool:
+    return '@' in (value or '')
+
+
+def _find_user_by_login_identifier(identifier: str):
+    """Look up a user by email or phone for login error messaging."""
+    if _looks_like_email(identifier):
+        return User.objects.filter(email__iexact=identifier).first()
+    return User.objects.filter(phone=identifier).first()
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
     """
-    Step 1 of login: verify phone + password, then send a one-time code
-    to the user's registered email and phone. A full auth token is issued
-    only after POST /api/auth/verify-login-otp/.
+    Step 1 of login: verify email/phone + password, then send a one-time code.
+    Email login → OTP emailed. Phone login → OTP via SMS (code is not returned
+    to the client). A full auth token is issued only after
+    POST /api/auth/verify-login-otp/.
     """
     from django.core.cache import cache
     from ..services.app_config import get_app_config
 
-    # Accept both 'phone' and 'username' for backward compatibility
-    phone = request.data.get('phone') or request.data.get('username')
+    # Accept identifier / email / phone / username for web + Flutter clients
+    identifier = (
+        request.data.get('identifier')
+        or request.data.get('email')
+        or request.data.get('phone')
+        or request.data.get('username')
+    )
     password = request.data.get('password')
 
-    logger.info(f"Login attempt received - Phone: {phone[:3]}*** (masked)" if phone else "Login attempt with empty phone")
+    logger.info(
+        f"Login attempt received - Identifier: {identifier[:3]}*** (masked)"
+        if identifier
+        else "Login attempt with empty identifier"
+    )
 
-    # Validate input
-    if not phone or not password:
-        logger.warning("Login attempt failed: Missing phone or password")
+    if not identifier or not password:
+        logger.warning("Login attempt failed: Missing identifier or password")
         return Response({
-            'error': 'Phone number and password are required',
-            'message': 'Phone number and password are required',
-            'detail': 'Please provide both phone number and password to login'
+            'error': 'Email/phone and password are required',
+            'message': 'Email or phone number and password are required',
+            'detail': 'Please provide your email or phone number and password to login',
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    # Normalize phone number: strip whitespace
-    phone = phone.strip() if phone else phone
-    logger.debug(f"Normalized phone number: {phone[:3]}***")
+    identifier = identifier.strip()
+    login_via = 'email' if _looks_like_email(identifier) else 'phone'
+    preferred_channel = 'email' if login_via == 'email' else 'sms'
+    logger.debug(f"Normalized login identifier ({login_via}): {identifier[:3]}***")
 
     security = get_app_config().get('security') or {}
     max_failed = int(security.get('max_failed_logins') or 0)
-    fail_key = f'failed_login:{phone}'
+    fail_key = f'failed_login:{identifier.lower() if login_via == "email" else identifier}'
     if max_failed > 0:
         fails = int(cache.get(fail_key) or 0)
         if fails >= max_failed:
@@ -165,17 +186,15 @@ def login(request):
                 'detail': f'Account temporarily locked after {max_failed} failed attempts.',
             }, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
-    # Use Django's authenticate() with custom PhoneBackend
-    # The backend will handle user lookup, active check, and password verification
     try:
-        user = authenticate(request=request, username=phone, password=password)
-        
+        user = authenticate(request=request, username=identifier, password=password)
+
         if user is not None:
-            # Authentication successful — require OTP before issuing a token
-            logger.info(f"Credentials verified for user ID: {user.id}, Phone: {user.phone[:3]}***")
+            logger.info(
+                f"Credentials verified for user ID: {user.id}, via {login_via}"
+            )
             cache.delete(fail_key)
 
-            # Staff can always log in during maintenance; customers are blocked
             if security.get('maintenance_mode') and not (user.is_staff or user.is_superuser):
                 return Response({
                     'error': 'maintenance_mode',
@@ -184,51 +203,61 @@ def login(request):
                     'code': 'maintenance_mode',
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-            return _start_login_otp_challenge(request, user)
+            return _start_login_otp_challenge(
+                request,
+                user,
+                preferred_channel=preferred_channel,
+                login_via=login_via,
+            )
         else:
-            # Authentication failed - user not found, inactive, or wrong password
-            logger.warning(f"Login failed for phone: {phone[:3]}*** - Invalid credentials")
+            logger.warning(
+                f"Login failed for {login_via}: {identifier[:3]}*** - Invalid credentials"
+            )
             if max_failed > 0:
                 cache.set(fail_key, int(cache.get(fail_key) or 0) + 1, timeout=60 * 30)
-            
-            # Try to get more specific error information
+
             try:
-                user = User.objects.get(phone=phone)
-                if not user.is_active:
-                    logger.warning(f"Login failed: User {user.id} is inactive")
+                existing = _find_user_by_login_identifier(identifier)
+                if existing is None:
+                    label = 'email address' if login_via == 'email' else 'phone number'
+                    logger.warning(
+                        f"Login failed: User not found with {login_via}: {identifier[:3]}***"
+                    )
+                    return Response({
+                        'error': 'Invalid credentials',
+                        'message': f'No user found with this {label}',
+                        'detail': (
+                            f'The {label} you entered is not registered. '
+                            'Please check and try again.'
+                        ),
+                    }, status=status.HTTP_401_UNAUTHORIZED)
+                if not existing.is_active:
+                    logger.warning(f"Login failed: User {existing.id} is inactive")
                     return Response({
                         'error': 'Account is inactive',
                         'message': 'Your account has been deactivated',
-                        'detail': 'Your account has been deactivated. Please contact support.'
+                        'detail': 'Your account has been deactivated. Please contact support.',
                     }, status=status.HTTP_401_UNAUTHORIZED)
-                else:
-                    logger.warning(f"Login failed: Incorrect password for user {user.id}")
-                    return Response({
-                        'error': 'Invalid credentials',
-                        'message': 'Incorrect password',
-                        'detail': 'The password you entered is incorrect. Please try again.'
-                    }, status=status.HTTP_401_UNAUTHORIZED)
-            except User.DoesNotExist:
-                logger.warning(f"Login failed: User not found with phone: {phone[:3]}***")
+                logger.warning(f"Login failed: Incorrect password for user {existing.id}")
                 return Response({
                     'error': 'Invalid credentials',
-                    'message': 'No user found with this phone number',
-                    'detail': 'The phone number you entered is not registered. Please check and try again.'
+                    'message': 'Incorrect password',
+                    'detail': 'The password you entered is incorrect. Please try again.',
                 }, status=status.HTTP_401_UNAUTHORIZED)
             except Exception as e:
                 logger.error(f"Unexpected error during login: {str(e)}")
                 return Response({
                     'error': 'Invalid credentials',
                     'message': 'Authentication failed',
-                    'detail': 'An unexpected error occurred during authentication. Please try again.'
+                    'detail': 'An unexpected error occurred during authentication. Please try again.',
                 }, status=status.HTTP_401_UNAUTHORIZED)
-                
+
     except Exception as e:
         logger.error(f"Exception during authentication: {str(e)}", exc_info=True)
         return Response({
             'error': 'Authentication error',
             'message': 'An error occurred during authentication',
-            'detail': 'An error occurred during authentication. Please try again.'
+            'detail': 'An error occurred during authentication. Please try again.',
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -251,8 +280,15 @@ def _invalidate_login_otp_for_user(user_id: int) -> None:
     cache.delete(f'login_otp_by_user:{user_id}')
 
 
-def _start_login_otp_challenge(request, user, *, reuse_challenge_id: str | None = None):
-    """Generate OTP, deliver via email + SMS, and return the challenge payload."""
+def _start_login_otp_challenge(
+    request,
+    user,
+    *,
+    reuse_challenge_id: str | None = None,
+    preferred_channel: str | None = None,
+    login_via: str | None = None,
+):
+    """Generate OTP, deliver via preferred channel, and return the challenge payload."""
     import secrets
     import uuid
 
@@ -267,6 +303,10 @@ def _start_login_otp_challenge(request, user, *, reuse_challenge_id: str | None 
     expires_minutes = max(1, timeout // 60)
     otp = f'{secrets.randbelow(1_000_000):06d}'
     challenge_id = reuse_challenge_id or str(uuid.uuid4())
+    channel = (preferred_channel or '').strip().lower() or None
+    via = (login_via or '').strip().lower() or None
+    if via not in ('email', 'phone'):
+        via = 'email' if channel == 'email' else 'phone' if channel == 'sms' else None
 
     _invalidate_login_otp_for_user(user.pk)
 
@@ -279,22 +319,48 @@ def _start_login_otp_challenge(request, user, *, reuse_challenge_id: str | None 
             'user_id': user.pk,
             'attempts': 0,
             'expires_at': _time.time() + timeout,
+            'preferred_channel': channel,
+            'login_via': via,
         },
         timeout=timeout,
     )
     cache.set(f'login_otp_by_user:{user.pk}', challenge_id, timeout=timeout)
 
-    delivery = send_login_otp(user, otp, expires_minutes=expires_minutes)
+    delivery = send_login_otp(
+        user,
+        otp,
+        expires_minutes=expires_minutes,
+        preferred_channel=channel,
+    )
     if not delivery.get('channels'):
         _invalidate_login_otp_for_user(user.pk)
-        logger.error('Failed to send login OTP for user_id=%s', user.pk)
-        return Response({
-            'error': 'otp_delivery_failed',
-            'message': (
+        logger.error(
+            'Failed to send login OTP for user_id=%s channel=%s',
+            user.pk,
+            channel or 'any',
+        )
+        if channel == 'email':
+            fail_message = (
+                'Unable to send a verification code to your email. '
+                'Please try again later or contact support.'
+            )
+            fail_detail = 'OTP delivery failed for email channel.'
+        elif channel == 'sms':
+            fail_message = (
+                'Unable to send a verification code to your phone. '
+                'Please try again later or contact support.'
+            )
+            fail_detail = 'OTP delivery failed for SMS channel.'
+        else:
+            fail_message = (
                 'Unable to send a verification code to your email or phone. '
                 'Please try again later or contact support.'
-            ),
-            'detail': 'OTP delivery failed for both email and SMS channels.',
+            )
+            fail_detail = 'OTP delivery failed for both email and SMS channels.'
+        return Response({
+            'error': 'otp_delivery_failed',
+            'message': fail_message,
+            'detail': fail_detail,
         }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
     log_security_event(
@@ -305,6 +371,8 @@ def _start_login_otp_challenge(request, user, *, reuse_challenge_id: str | None 
             'channels': delivery.get('channels') or [],
             'email_hint': delivery.get('email_hint'),
             'phone_hint': delivery.get('phone_hint'),
+            'preferred_channel': channel,
+            'login_via': via,
         },
     )
 
@@ -315,25 +383,55 @@ def _start_login_otp_challenge(request, user, *, reuse_challenge_id: str | None 
         channel_parts.append(delivery['phone_hint'])
     destinations = ' and '.join(channel_parts) if channel_parts else 'your registered contacts'
 
-    payload = {
-        'requires_otp': True,
-        'message': (
+    if channel == 'sms' or via == 'phone':
+        if delivery.get('phone_hint') and delivery.get('email_hint'):
+            message = (
+                f'A verification code has been sent to your phone ({delivery["phone_hint"]}) '
+                f'and email ({delivery["email_hint"]}). '
+                'Enter the code to finish signing in.'
+            )
+        elif delivery.get('phone_hint'):
+            message = (
+                f'A verification code has been sent to your phone ({delivery["phone_hint"]}). '
+                'Enter the code to finish signing in.'
+            )
+        else:
+            message = (
+                f'A verification code has been sent to {destinations}. '
+                'Enter the code to finish signing in.'
+            )
+    elif channel == 'email' or via == 'email':
+        message = (
+            f'A verification code has been sent to your email ({destinations}). '
+            'Enter the code to finish signing in.'
+        )
+    else:
+        message = (
             f'A verification code has been sent to {destinations}. '
             'Enter the code to finish signing in.'
-        ),
+        )
+
+    payload = {
+        'requires_otp': True,
+        'message': message,
         'challenge_id': challenge_id,
         'expires_in': timeout,
         'channels': delivery.get('channels') or [],
         'email_hint': delivery.get('email_hint'),
         'phone_hint': delivery.get('phone_hint'),
+        'login_via': via,
+        'preferred_channel': channel,
     }
-    if getattr(dj_settings, 'DEBUG', False):
+    # Never expose OTP for phone/SMS login in the API response (even in DEBUG).
+    # Email login may include debug_otp in DEBUG so local testing stays easy.
+    if getattr(dj_settings, 'DEBUG', False) and channel != 'sms' and via != 'phone':
         payload['debug_otp'] = otp
 
     logger.info(
-        'Login OTP sent via %s for user_id=%s',
+        'Login OTP sent via %s for user_id=%s (login_via=%s)',
         ','.join(delivery.get('channels') or []),
         user.pk,
+        via,
     )
     return Response(payload, status=status.HTTP_200_OK)
 
@@ -512,7 +610,15 @@ def resend_login_otp(request):
         }, status=status.HTTP_429_TOO_MANY_REQUESTS)
     cache.set(throttle_key, 1, timeout=30)
 
-    return _start_login_otp_challenge(request, user, reuse_challenge_id=challenge_id)
+    preferred_channel = pending.get('preferred_channel')
+    login_via = pending.get('login_via')
+    return _start_login_otp_challenge(
+        request,
+        user,
+        reuse_challenge_id=challenge_id,
+        preferred_channel=preferred_channel,
+        login_via=login_via,
+    )
 
 
 @api_view(['POST'])

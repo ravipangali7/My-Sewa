@@ -694,22 +694,46 @@ def send_password_reset_otp(email: str, otp: str) -> bool:
     return _send_email(subject, text, [email], html_message=html, fail_silently=True)
 
 
-def send_login_otp(user, otp: str, *, expires_minutes: int = 5) -> dict:
+def send_login_otp(
+    user,
+    otp: str,
+    *,
+    expires_minutes: int = 5,
+    preferred_channel: str | None = None,
+) -> dict:
     """
-    Send a login OTP to the user's registered email and phone (SMS).
+    Send a login OTP to the user.
+
+    preferred_channel:
+      - 'email': send only to email (email login)
+      - 'sms': send via SMS; also email when available so the user can still
+        receive the code if SMS delivery is unavailable
+      - None / other: try both channels (legacy)
 
     Returns a dict with email_sent / sms_sent booleans and channel hints.
-    Login proceeds when at least one channel succeeds.
+    Login proceeds when at least one requested channel succeeds.
     """
     site_name = _site_name()
     email = _user_email(user)
     phone = (getattr(user, 'phone', None) or '').strip()
     expiry_label = f'{expires_minutes} minute{"s" if expires_minutes != 1 else ""}'
+    prefer = (preferred_channel or '').strip().lower() or None
+
+    if prefer == 'email':
+        send_email = True
+        send_sms = False
+    elif prefer == 'sms':
+        send_sms = True
+        # Keep email as a delivery fallback for phone login.
+        send_email = bool(email)
+    else:
+        send_email = True
+        send_sms = True
 
     email_sent = False
     sms_sent = False
 
-    if email:
+    if send_email and email:
         subject = f'{site_name} Login OTP'
         text = (
             f'Your {site_name} login verification code is: {otp}\n\n'
@@ -735,7 +759,7 @@ def send_login_otp(user, otp: str, *, expires_minutes: int = 5) -> dict:
             subject, text, [email], html_message=html, fail_silently=True
         )
 
-    if phone:
+    if send_sms and phone:
         sms_message = (
             f'{site_name} login code: {otp}. '
             f'Valid for {expiry_label}. Do not share this code.'
@@ -751,6 +775,7 @@ def send_login_otp(user, otp: str, *, expires_minutes: int = 5) -> dict:
             *(['email'] if email_sent else []),
             *(['sms'] if sms_sent else []),
         ],
+        'preferred_channel': prefer,
     }
 
 

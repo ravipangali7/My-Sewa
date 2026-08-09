@@ -37,13 +37,25 @@ export const Route = createFileRoute("/")({
   component: LoginPage,
 });
 
+function isEmailIdentifier(value: string) {
+  return value.trim().includes("@");
+}
+
+function isPhoneLoginChallenge(challenge: LoginOtpChallenge) {
+  return (
+    challenge.login_via === "phone" ||
+    challenge.preferred_channel === "sms" ||
+    (challenge.channels.includes("sms") && !challenge.channels.includes("email"))
+  );
+}
+
 function LoginPage() {
   const navigate = useNavigate();
   const { beginLogin, verifyLoginOtp, resendLoginOtp, token, user, isStaff, isLoading } =
     useAuth();
   const { logoUrl } = useSiteBranding();
   const t = useT();
-  const [phone, setPhone] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
   const [challenge, setChallenge] = useState<LoginOtpChallenge | null>(null);
@@ -57,9 +69,18 @@ function LoginPage() {
 
   const destinationHint = useMemo(() => {
     if (!challenge) return "";
+    if (isPhoneLoginChallenge(challenge)) {
+      const parts = [challenge.phone_hint, challenge.email_hint].filter(Boolean);
+      return parts.join(" · ") || t("auth.yourPhone");
+    }
+    if (challenge.login_via === "email" || challenge.preferred_channel === "email") {
+      return challenge.email_hint || t("auth.yourEmail");
+    }
     const parts = [challenge.email_hint, challenge.phone_hint].filter(Boolean);
     return parts.join(" · ") || t("auth.registeredContacts");
   }, [challenge, t]);
+
+  const showDevCode = Boolean(challenge?.debug_otp && !isPhoneLoginChallenge(challenge));
 
   useEffect(() => {
     if (token && !isLoading && user) {
@@ -71,6 +92,28 @@ function LoginPage() {
   if (token && (isLoading || user)) {
     return <AuthSessionLoader />;
   }
+
+  const notifyOtpSent = (next: LoginOtpChallenge, options?: { resent?: boolean }) => {
+    const title = options?.resent ? t("auth.otpResent") : t("auth.otpSent");
+    if (isPhoneLoginChallenge(next)) {
+      // Phone login: never show the verification code in the UI — toast only.
+      toast.success(title, {
+        description:
+          next.message ||
+          t("auth.otpSentToPhone", {
+            phone: next.phone_hint || t("auth.yourPhone"),
+          }),
+      });
+      return;
+    }
+    toast.success(title, {
+      description:
+        next.message ||
+        t("auth.otpSentToEmail", {
+          email: next.email_hint || t("auth.yourEmail"),
+        }),
+    });
+  };
 
   const applyChallenge = (next: LoginOtpChallenge) => {
     const now = Date.now();
@@ -89,6 +132,7 @@ function LoginPage() {
   };
 
   const canResend = otpExpired || resendWaitSeconds <= 0;
+  const identifierLooksLikeEmail = isEmailIdentifier(identifier);
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
@@ -118,7 +162,7 @@ function LoginPage() {
             <p className="mt-1 text-[15px] text-muted-foreground">
               {challenge
                 ? t("auth.verifyLoginSubtitle", { destination: destinationHint })
-                : t("auth.signInWithPhone")}
+                : t("auth.signInWithEmailOrPhone")}
             </p>
           </div>
 
@@ -127,11 +171,16 @@ function LoginPage() {
               className="space-y-4"
               onSubmit={async (e) => {
                 e.preventDefault();
+                const trimmed = identifier.trim();
+                if (!trimmed) {
+                  toast.error(t("auth.identifierRequired"));
+                  return;
+                }
                 setSubmitting(true);
                 try {
-                  const next = await beginLogin(phone.trim(), password);
+                  const next = await beginLogin(trimmed, password);
                   applyChallenge(next);
-                  toast.success(t("auth.otpSent"), { description: next.message });
+                  notifyOtpSent(next, { resent: false });
                 } catch (err) {
                   const msg = err instanceof ApiError ? err.message : t("auth.loginFailed");
                   toast.error(msg);
@@ -141,14 +190,16 @@ function LoginPage() {
               }}
             >
               <div className="space-y-1.5">
-                <Label htmlFor="phone">{t("auth.phone")}</Label>
+                <Label htmlFor="identifier">{t("auth.emailOrPhone")}</Label>
                 <Input
-                  id="phone"
-                  inputMode="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  id="identifier"
+                  type={identifierLooksLikeEmail ? "email" : "text"}
+                  inputMode={identifierLooksLikeEmail ? "email" : "tel"}
+                  autoComplete="username"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
                   className="h-12 rounded-xl"
-                  placeholder="98XXXXXXXX"
+                  placeholder={t("auth.emailOrPhonePlaceholder")}
                   required
                 />
               </div>
@@ -201,7 +252,7 @@ function LoginPage() {
                 }
               }}
             >
-              {challenge.debug_otp && (
+              {showDevCode && (
                 <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
                   {t("auth.devCode")}{" "}
                   <span className="font-semibold text-foreground">{challenge.debug_otp}</span>
@@ -257,7 +308,7 @@ function LoginPage() {
                     try {
                       const next = await resendLoginOtp(challenge.challenge_id);
                       applyChallenge(next);
-                      toast.success(t("auth.otpResent"), { description: next.message });
+                      notifyOtpSent(next, { resent: true });
                     } catch (err) {
                       toast.error(
                         err instanceof ApiError ? err.message : t("common.requestFailed"),

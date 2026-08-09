@@ -243,8 +243,10 @@ function buildAdminListQuery(filters?: AdminListFilters) {
 }
 
 export const apiClient = {
-  login: (phone: string, password: string) =>
-    api<{
+  login: (identifier: string, password: string) => {
+    const trimmed = identifier.trim();
+    const isEmail = trimmed.includes("@");
+    return api<{
       message: string;
       requires_otp: true;
       challenge_id: string;
@@ -252,8 +254,17 @@ export const apiClient = {
       channels: Array<"email" | "sms" | string>;
       email_hint?: string | null;
       phone_hint?: string | null;
+      login_via?: "email" | "phone" | string | null;
+      preferred_channel?: "email" | "sms" | string | null;
       debug_otp?: string;
-    }>("/api/auth/login/", { method: "POST", body: { phone, password }, auth: false }),
+    }>("/api/auth/login/", {
+      method: "POST",
+      body: isEmail
+        ? { email: trimmed, identifier: trimmed, password }
+        : { phone: trimmed, identifier: trimmed, password },
+      auth: false,
+    });
+  },
 
   verifyLoginOtp: (body: { challenge_id: string; otp: string }) =>
     api<{
@@ -281,6 +292,8 @@ export const apiClient = {
       channels: Array<"email" | "sms" | string>;
       email_hint?: string | null;
       phone_hint?: string | null;
+      login_via?: "email" | "phone" | string | null;
+      preferred_channel?: "email" | "sms" | string | null;
       debug_otp?: string;
     }>("/api/auth/resend-login-otp/", {
       method: "POST",
