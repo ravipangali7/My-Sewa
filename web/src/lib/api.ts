@@ -1062,7 +1062,11 @@ export const apiClient = {
     ),
 
   adminStatementBalance: () =>
-    api<{ data: Record<string, unknown> }>("/api/admin/statement/balance/"),
+    api<{
+      data: Record<string, unknown> | null;
+      error?: string;
+      unavailable?: boolean;
+    }>("/api/admin/statement/balance/"),
 
   adminStatementSolve: (id: number) =>
     api<{ message: string; data: import("./types").StatementDiscrepancy }>(

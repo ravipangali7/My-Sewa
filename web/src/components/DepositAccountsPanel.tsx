@@ -3,10 +3,19 @@ import { enabledPaymentAccounts, methodLabel } from "@/lib/payment-accounts";
 import type { BankDetails } from "@/lib/types";
 import { useT } from "@/lib/i18n";
 
+export type DepositQrOption = {
+  id: "bank" | "khalti" | "esewa";
+  url: string;
+  label: string;
+  alt?: string;
+};
+
 type DepositAccountsPanelProps = {
   bankDetails?: BankDetails | null;
   loading?: boolean;
-  /** Optional QR shown beside the first account block */
+  /** Optional QR codes shown above account details (single column on mobile) */
+  qrOptions?: DepositQrOption[];
+  /** @deprecated Prefer qrOptions — kept for single-QR callers */
   qrUrl?: string | null;
   qrAlt?: string;
   instructions?: string;
@@ -16,6 +25,7 @@ type DepositAccountsPanelProps = {
 export function DepositAccountsPanel({
   bankDetails,
   loading,
+  qrOptions,
   qrUrl,
   qrAlt,
   instructions,
@@ -23,6 +33,13 @@ export function DepositAccountsPanel({
 }: DepositAccountsPanelProps) {
   const t = useT();
   const accounts = enabledPaymentAccounts(bankDetails);
+
+  const resolvedQrs: DepositQrOption[] =
+    qrOptions && qrOptions.length > 0
+      ? qrOptions.filter((q) => Boolean(q.url))
+      : qrUrl
+        ? [{ id: "bank", url: qrUrl, label: t("load.methodBank"), alt: qrAlt }]
+        : [];
 
   return (
     <section className="inset-group min-w-0 max-w-full p-4">
@@ -35,13 +52,29 @@ export function DepositAccountsPanel({
 
       {loading ? (
         <p className="mt-3 text-muted-foreground">{t("load.loadingBank")}</p>
-      ) : accounts.length === 0 ? (
+      ) : accounts.length === 0 && resolvedQrs.length === 0 ? (
         <p className="mt-3 text-muted-foreground">{t("load.bankNotConfigured")}</p>
       ) : (
         <div className="mt-3 space-y-4">
-          {qrUrl ? (
-            <div className="mx-auto flex size-36 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-muted sm:mx-0">
-              <img src={qrUrl} alt={qrAlt || t("load.qrAlt")} className="size-full object-contain" />
+          {resolvedQrs.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              {resolvedQrs.map((qr) => (
+                <div
+                  key={qr.id}
+                  className="mx-auto flex w-full max-w-44 flex-col items-center gap-2 sm:mx-0 sm:max-w-38"
+                >
+                  <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {qr.label}
+                  </p>
+                  <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-muted">
+                    <img
+                      src={qr.url}
+                      alt={qr.alt || `${qr.label} ${t("load.qrAlt")}`}
+                      className="size-full object-contain p-1.5"
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : null}
 

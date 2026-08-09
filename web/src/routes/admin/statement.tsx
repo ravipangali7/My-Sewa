@@ -121,9 +121,16 @@ function StatementPage() {
     mutationFn: () =>
       apiClient.adminStatementRun({ from_date: fromDate, to_date: toDate }),
     onSuccess: (res) => {
+      const warning =
+        typeof (res as { warning?: string }).warning === "string"
+          ? (res as { warning?: string }).warning
+          : res.data?.error_message;
       toast.success(
         `Check done — ${res.data.issues_new} new issue(s), ${res.data.issues_open} open`,
       );
+      if (warning) {
+        toast.message(warning);
+      }
       queryClient.invalidateQueries({ queryKey: ["admin", "statement"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
     },
@@ -161,6 +168,9 @@ function StatementPage() {
   const items = listQuery.data?.items ?? [];
   const summary = listQuery.data?.summary;
   const balance = balanceQuery.data?.data;
+  const balanceUnavailable = Boolean(
+    balanceQuery.data?.unavailable || (balanceQuery.data?.error && !balance),
+  );
   const balanceRupees =
     typeof balance?.total_balance_in_rupees === "number"
       ? balance.total_balance_in_rupees
@@ -191,6 +201,18 @@ function StatementPage() {
       description="Compare HimalPay reseller statement with MySewa and fix wallet mismatches"
     >
       <StatsCards items={cards} />
+
+      {balanceUnavailable ? (
+        <div className="mt-4 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-foreground">
+          HimalPay float unavailable on LIVE API. Add portal login under{" "}
+          <span className="font-medium">Admin → Settings → HimalPay</span> (phone/email +
+          password) or ask HimalPay to enable{" "}
+          <span className="font-mono text-xs">/wallet/reseller-balance</span>.
+          {balanceQuery.data?.error ? (
+            <p className="mt-1 text-xs text-muted-foreground">{balanceQuery.data.error}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-4 flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -199,6 +199,10 @@ export interface SecurityConfig {
 export interface IntegrationsConfig {
   himalpay_api_key: string;
   himalpay_base_url: string;
+  /** Optional HimalPay app/portal login for LIVE statement + balance fallback */
+  himalpay_portal_phone?: string;
+  himalpay_portal_email?: string;
+  himalpay_portal_password?: string;
 }
 
 export interface SmtpConfig {
@@ -250,8 +254,13 @@ export interface AppConfig {
 
 export interface AppSettings {
   id: number;
+  /** Bank deposit QR (legacy field name) */
   qr_code: string | null;
   qr_code_url: string | null;
+  khalti_qr_code: string | null;
+  khalti_qr_code_url: string | null;
+  esewa_qr_code: string | null;
+  esewa_qr_code_url: string | null;
   logo: string | null;
   logo_url: string | null;
   bank_details: BankDetails;

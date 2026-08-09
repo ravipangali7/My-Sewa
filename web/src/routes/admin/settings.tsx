@@ -145,6 +145,9 @@ const DEFAULT_CONFIG: AppConfig = {
   integrations: {
     himalpay_api_key: "",
     himalpay_base_url: "https://api.himalpay.com.np/api/v1",
+    himalpay_portal_phone: "",
+    himalpay_portal_email: "",
+    himalpay_portal_password: "",
   },
   smtp: {
     enabled: true,
@@ -205,8 +208,13 @@ function SettingsPage() {
 
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
-  const [qrFile, setQrFile] = useState<File | null>(null);
-  const [qrPreview, setQrPreview] = useState<string | null>(null);
+  const [qrTab, setQrTab] = useState<"bank" | "khalti" | "esewa">("bank");
+  const [qrFiles, setQrFiles] = useState<
+    Partial<Record<"bank" | "khalti" | "esewa", File | null>>
+  >({});
+  const [qrPreviews, setQrPreviews] = useState<
+    Partial<Record<"bank" | "khalti" | "esewa", string | null>>
+  >({});
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [smtpTestEmail, setSmtpTestEmail] = useState("");
@@ -258,15 +266,27 @@ function SettingsPage() {
       remote?.smtp?.from_email ||
       "",
     );
-  }, [settingsQuery.data]);  useEffect(() => {
-    if (!qrFile) {
-      setQrPreview(null);
-      return;
+  }, [settingsQuery.data]);
+
+  useEffect(() => {
+    const kinds = ["bank", "khalti", "esewa"] as const;
+    const urls: Partial<Record<"bank" | "khalti" | "esewa", string | null>> = {};
+    const revoke: string[] = [];
+    for (const kind of kinds) {
+      const file = qrFiles[kind];
+      if (file) {
+        const url = URL.createObjectURL(file);
+        urls[kind] = url;
+        revoke.push(url);
+      } else {
+        urls[kind] = null;
+      }
     }
-    const url = URL.createObjectURL(qrFile);
-    setQrPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [qrFile]);
+    setQrPreviews(urls);
+    return () => {
+      for (const url of revoke) URL.revokeObjectURL(url);
+    };
+  }, [qrFiles]);
 
   useEffect(() => {
     if (!logoFile) {
@@ -288,7 +308,7 @@ function SettingsPage() {
       apiClient.adminUpdateSettings(payload),
     onSuccess: () => {
       toast.success("Settings saved — changes apply across the system");
-      setQrFile(null);
+      setQrFiles({});
       setLogoFile(null);
       invalidate();
     },
@@ -435,27 +455,58 @@ function SettingsPage() {
   };
 
   const saveHimalpay = () => {
+    const portalPassword = config.integrations?.himalpay_portal_password ?? "";
     saveConfigSection("integrations", {
       himalpay_api_key: config.integrations?.himalpay_api_key ?? "",
       himalpay_base_url:
         config.integrations?.himalpay_base_url ||
         DEFAULT_CONFIG.integrations!.himalpay_base_url,
+      himalpay_portal_phone: config.integrations?.himalpay_portal_phone ?? "",
+      himalpay_portal_email: config.integrations?.himalpay_portal_email ?? "",
+      ...(portalPassword && portalPassword !== "••••••••"
+        ? { himalpay_portal_password: portalPassword }
+        : {}),
     });
   };
 
-  const saveQrCode = () => {
-    if (!qrFile) {
+  const QR_UPLOAD_FIELDS = {
+    bank: {
+      fileKey: "qr_code",
+      clearKey: "clear_qr",
+      label: "Bank QR",
+      pathKey: "qr_code" as const,
+      urlKey: "qr_code_url" as const,
+    },
+    khalti: {
+      fileKey: "khalti_qr_code",
+      clearKey: "clear_khalti_qr",
+      label: "Khalti QR",
+      pathKey: "khalti_qr_code" as const,
+      urlKey: "khalti_qr_code_url" as const,
+    },
+    esewa: {
+      fileKey: "esewa_qr_code",
+      clearKey: "clear_esewa_qr",
+      label: "eSewa QR",
+      pathKey: "esewa_qr_code" as const,
+      urlKey: "esewa_qr_code_url" as const,
+    },
+  } as const;
+
+  const saveQrCode = (kind: "bank" | "khalti" | "esewa") => {
+    const file = qrFiles[kind];
+    if (!file) {
       toast.error("Choose a QR image first");
       return;
     }
     const fd = new FormData();
-    fd.append("qr_code", qrFile);
+    fd.append(QR_UPLOAD_FIELDS[kind].fileKey, file);
     saveMutation.mutate(fd);
   };
 
-  const clearQrCode = () => {
+  const clearQrCode = (kind: "bank" | "khalti" | "esewa") => {
     const fd = new FormData();
-    fd.append("clear_qr", "true");
+    fd.append(QR_UPLOAD_FIELDS[kind].clearKey, "true");
     saveMutation.mutate(fd);
   };
 
@@ -1027,8 +1078,8 @@ function SettingsPage() {
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Each deposit type has its own fields and Save action. Saving bank, Khalti, or
-                eSewa only updates that type — the others stay as last saved. HimalPay and QR
-                also save separately. {updatedAt}
+                eSewa only updates that type — the others stay as last saved. HimalPay and deposit
+                QR codes also save separately. {updatedAt}
               </p>
 
               {DEPOSIT_METHODS.map(({ method, title, description, addLabel }) => {
@@ -1192,6 +1243,7 @@ function SettingsPage() {
                         setConfig((c) => ({
                           ...c,
                           integrations: {
+                            ...c.integrations,
                             himalpay_base_url:
                               c.integrations?.himalpay_base_url ||
                               DEFAULT_CONFIG.integrations!.himalpay_base_url,
@@ -1219,6 +1271,7 @@ function SettingsPage() {
                         setConfig((c) => ({
                           ...c,
                           integrations: {
+                            ...c.integrations,
                             himalpay_api_key: c.integrations?.himalpay_api_key ?? "",
                             himalpay_base_url: e.target.value,
                           },
@@ -1229,6 +1282,75 @@ function SettingsPage() {
                       LIVE: https://api.himalpay.com.np/api/v1 — UAT:
                       https://uatapi.himalpay.com.np/api/v1. Authenticate with header X-API-Key.
                     </p>
+                  </div>
+                  <div className="rounded-lg border border-border/70 bg-muted/20 p-3 space-y-3">
+                    <div>
+                      <p className="text-sm font-medium">Portal login (LIVE statement / balance)</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        LIVE HimalPay does not expose reseller statement/balance routes yet.
+                        Optional: add the HimalPay app login for this reseller account so MySewa
+                        can read float + ledger via /users/me/wallet and /users/statement.
+                      </p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="himalpay_portal_phone">Portal phone</Label>
+                        <Input
+                          id="himalpay_portal_phone"
+                          inputMode="tel"
+                          autoComplete="off"
+                          placeholder="98XXXXXXXX"
+                          value={config.integrations?.himalpay_portal_phone ?? ""}
+                          onChange={(e) =>
+                            setConfig((c) => ({
+                              ...c,
+                              integrations: {
+                                ...c.integrations!,
+                                himalpay_portal_phone: e.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="himalpay_portal_email">Portal email</Label>
+                        <Input
+                          id="himalpay_portal_email"
+                          type="email"
+                          autoComplete="off"
+                          placeholder="reseller@example.com"
+                          value={config.integrations?.himalpay_portal_email ?? ""}
+                          onChange={(e) =>
+                            setConfig((c) => ({
+                              ...c,
+                              integrations: {
+                                ...c.integrations!,
+                                himalpay_portal_email: e.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="himalpay_portal_password">Portal password</Label>
+                      <PasswordInput
+                        id="himalpay_portal_password"
+                        revealLabel="Portal password"
+                        autoComplete="new-password"
+                        placeholder="HimalPay login password"
+                        value={config.integrations?.himalpay_portal_password ?? ""}
+                        onChange={(e) =>
+                          setConfig((c) => ({
+                            ...c,
+                            integrations: {
+                              ...c.integrations!,
+                              himalpay_portal_password: e.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
                   </div>
 
                   <div
@@ -1278,92 +1400,140 @@ function SettingsPage() {
               </SettingsPanel>
 
               <div className="rounded-xl border border-border bg-surface p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-base font-semibold">Deposit QR code</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Upload a QR image shown to customers. Saved independently from payment
-                      accounts.
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    disabled={saving || !qrFile}
-                    className="gap-1.5"
-                    onClick={saveQrCode}
-                  >
-                    <Save className="size-3.5" />
-                    {saving ? "Saving…" : "Save QR"}
-                  </Button>
-                </div>
-                <div className="mt-4 flex aspect-square max-w-xs items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
-                  {qrPreview || settingsQuery.data?.qr_code_url ? (
-                    <img
-                      src={qrPreview || settingsQuery.data?.qr_code_url || ""}
-                      alt="Deposit QR preview"
-                      className="size-full object-contain p-2"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <QrCode className="size-16" />
-                      <span className="text-xs">No QR uploaded</span>
-                    </div>
-                  )}
-                </div>
-                {qrFile ? (
-                  <p className="mt-3 truncate text-xs font-medium text-brand">
-                    New file selected: {qrFile.name}
+                <div className="mb-4">
+                  <h2 className="text-base font-semibold">Deposit QR codes</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Upload separate QR images for bank, Khalti, and eSewa. Each saves
+                    independently from payment accounts.
                   </p>
-                ) : (
-                  <p className="mt-3 truncate text-xs text-muted-foreground">
-                    {settingsQuery.data?.qr_code || "No QR on file"}
-                  </p>
-                )}
-                <label className="mt-3 block max-w-xs">
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    className="sr-only"
-                    onChange={(e) => setQrFile(e.target.files?.[0] ?? null)}
-                  />
-                  <Button
-                    variant="secondary"
-                    className="w-full"
-                    type="button"
-                    onClick={(e) => {
-                      const input = (
-                        e.currentTarget.parentElement as HTMLLabelElement
-                      ).querySelector("input");
-                      input?.click();
-                    }}
-                  >
-                    {qrFile ? "Choose a different image" : "Upload QR image"}
-                  </Button>
-                </label>
-                <div className="mt-2 flex max-w-xs flex-col gap-2">
-                  {settingsQuery.data?.qr_code_url && !qrFile ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full"
-                      disabled={saving}
-                      onClick={clearQrCode}
-                    >
-                      Remove QR code
-                    </Button>
-                  ) : null}
-                  {qrFile ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="w-full"
-                      disabled={saving}
-                      onClick={() => setQrFile(null)}
-                    >
-                      Cancel selection
-                    </Button>
-                  ) : null}
                 </div>
+
+                <Tabs
+                  value={qrTab}
+                  onValueChange={(v) => setQrTab(v as "bank" | "khalti" | "esewa")}
+                  className="space-y-4"
+                >
+                  <TabsList className="grid h-auto w-full grid-cols-3 gap-1 bg-muted/80 p-1.5">
+                    {(
+                      [
+                        ["bank", "Bank QR"],
+                        ["khalti", "Khalti QR"],
+                        ["esewa", "eSewa QR"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <TabsTrigger key={value} value={value} className="px-2 py-2 text-xs sm:text-sm">
+                        {label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+
+                  {(
+                    [
+                      ["bank", "Bank QR"],
+                      ["khalti", "Khalti QR"],
+                      ["esewa", "eSewa QR"],
+                    ] as const
+                  ).map(([kind, label]) => {
+                    const meta = QR_UPLOAD_FIELDS[kind];
+                    const file = qrFiles[kind] ?? null;
+                    const preview = qrPreviews[kind] ?? null;
+                    const savedUrl = settingsQuery.data?.[meta.urlKey] ?? null;
+                    const savedPath = settingsQuery.data?.[meta.pathKey] ?? null;
+                    return (
+                      <TabsContent key={kind} value={kind} className="mt-0 space-y-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <p className="text-sm text-muted-foreground">
+                            Shown to customers as the {label} option on Load Wallet.
+                          </p>
+                          <Button
+                            type="button"
+                            disabled={saving || !file}
+                            className="gap-1.5"
+                            onClick={() => saveQrCode(kind)}
+                          >
+                            <Save className="size-3.5" />
+                            {saving ? "Saving…" : `Save ${label}`}
+                          </Button>
+                        </div>
+                        <div className="flex aspect-square max-w-xs items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
+                          {preview || savedUrl ? (
+                            <img
+                              src={preview || savedUrl || ""}
+                              alt={`${label} preview`}
+                              className="size-full object-contain p-2"
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                              <QrCode className="size-16" />
+                              <span className="text-xs">No QR uploaded</span>
+                            </div>
+                          )}
+                        </div>
+                        {file ? (
+                          <p className="truncate text-xs font-medium text-brand">
+                            New file selected: {file.name}
+                          </p>
+                        ) : (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {savedPath || "No QR on file"}
+                          </p>
+                        )}
+                        <label className="block max-w-xs">
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,image/gif"
+                            className="sr-only"
+                            onChange={(e) =>
+                              setQrFiles((prev) => ({
+                                ...prev,
+                                [kind]: e.target.files?.[0] ?? null,
+                              }))
+                            }
+                          />
+                          <Button
+                            variant="secondary"
+                            className="w-full"
+                            type="button"
+                            onClick={(e) => {
+                              const input = (
+                                e.currentTarget.parentElement as HTMLLabelElement
+                              ).querySelector("input");
+                              input?.click();
+                            }}
+                          >
+                            {file ? "Choose a different image" : `Upload ${label} image`}
+                          </Button>
+                        </label>
+                        <div className="flex max-w-xs flex-col gap-2">
+                          {savedUrl && !file ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full"
+                              disabled={saving}
+                              onClick={() => clearQrCode(kind)}
+                            >
+                              Remove {label}
+                            </Button>
+                          ) : null}
+                          {file ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="w-full"
+                              disabled={saving}
+                              onClick={() =>
+                                setQrFiles((prev) => ({ ...prev, [kind]: null }))
+                              }
+                            >
+                              Cancel selection
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TabsContent>
+                    );
+                  })}
+                </Tabs>
               </div>
             </div>
           </TabsContent>

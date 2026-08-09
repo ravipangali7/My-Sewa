@@ -163,6 +163,26 @@ function Services() {
           <DepositAccountsPanel
             bankDetails={settingsQuery.data?.bank_details ?? null}
             loading={settingsQuery.isLoading}
+            qrOptions={[
+              {
+                id: "bank",
+                url: settingsQuery.data?.qr_code_url ?? "",
+                label: t("load.qrBank"),
+                alt: t("load.qrBankAlt"),
+              },
+              {
+                id: "khalti",
+                url: settingsQuery.data?.khalti_qr_code_url ?? "",
+                label: t("load.qrKhalti"),
+                alt: t("load.qrKhaltiAlt"),
+              },
+              {
+                id: "esewa",
+                url: settingsQuery.data?.esewa_qr_code_url ?? "",
+                label: t("load.qrEsewa"),
+                alt: t("load.qrEsewaAlt"),
+              },
+            ]}
             title={t("services.depositAccount")}
           />
         ) : null}

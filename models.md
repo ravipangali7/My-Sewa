@@ -51,7 +51,9 @@ Singleton app settings (always `pk=1`). Holds deposit QR and bank details shown 
 | Field | Type | Specs |
 |---|---|---|
 | `id` | `BigAutoField` (PK) | Forced to `1` |
-| `qr_code` | `ImageField` | Upload to `settings/`, nullable. Deposit QR image |
+| `qr_code` | `ImageField` | Upload to `settings/`, nullable. Bank deposit QR image |
+| `khalti_qr_code` | `ImageField` | Upload to `settings/`, nullable. Khalti deposit QR image |
+| `esewa_qr_code` | `ImageField` | Upload to `settings/`, nullable. eSewa deposit QR image |
 | `bank_details` | `JSONField` | Default `{}`. Bank account info for remittance/load |
 | `created_at` | `DateTimeField` | `auto_now_add` |
 | `updated_at` | `DateTimeField` | `auto_now` |

@@ -153,7 +153,11 @@ class SettingsAdmin(admin.ModelAdmin):
     list_display = ('id', 'smtp_email_display', 'smtp_from_display', 'created_at', 'updated_at')
     readonly_fields = ('created_at', 'updated_at', 'smtp_preview')
     fieldsets = (
-        ('Branding', {'fields': ('logo', 'qr_code')}),
+        ('Branding', {'fields': ('logo',)}),
+        (
+            'Deposit QR codes',
+            {'fields': ('qr_code', 'khalti_qr_code', 'esewa_qr_code')},
+        ),
         ('Bank / deposit', {'fields': ('bank_details',)}),
         (
             'SMTP email (smtp_email, smtp_password, smtp_email_from, smtp_name)',

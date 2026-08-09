@@ -24,7 +24,7 @@ from ..models import (
     TopupTransaction,
     WaterBillTransaction,
 )
-from .himalpay import HimalPayAPI, HimalPayError
+from .himalpay import HimalPayAPI, HimalPayError, is_route_not_found_error
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +196,99 @@ def _map_hp_status(hp_status: str) -> str:
     return 'pending'
 
 
+def _build_entries_via_status_checks(
+    api: HimalPayAPI,
+    from_date: date,
+    to_date: date,
+) -> List[Dict[str, Any]]:
+    """
+    LIVE fallback when HimalPay statement routes are missing.
+
+    Builds synthetic statement rows from local merchant_txn_id status polls so
+    reconcile can still detect status/amount/wallet mismatches.
+    Cannot detect provider-only (missing local) rows without a real ledger.
+    """
+    local_index = _index_local_txns(from_date, to_date, [])
+    entries: List[Dict[str, Any]] = []
+
+    for local in local_index.values():
+        merchant_id = str(getattr(local.obj, 'merchant_txn_id', None) or '').strip()
+        if not merchant_id:
+            continue
+        try:
+            result = api.check_transaction_status(merchant_id)
+        except HimalPayError as exc:
+            logger.warning(
+                'Status check failed for %s during statement fallback: %s',
+                merchant_id,
+                exc,
+            )
+            continue
+        if not isinstance(result, dict):
+            continue
+
+        status = str(result.get('status') or '').upper() or 'UNKNOWN'
+        txn_uuid = (
+            api.extract_transaction_id(result)
+            or local.provider_id
+            or merchant_id
+        )
+        if local.txn_type == StatementDiscrepancy.TXN_REMITTANCE:
+            direction = 'credit'
+            amount_paisa = result.get('total_credited')
+            if amount_paisa is None:
+                amount_paisa = result.get('amount')
+            if amount_paisa is None:
+                amount_paisa = api.to_paisa(_local_net_amount(local))
+        else:
+            direction = 'debit'
+            amount_paisa = result.get('total_debited')
+            if amount_paisa is None:
+                amount_paisa = result.get('amount')
+            if amount_paisa is None:
+                amount_paisa = api.to_paisa(_local_net_amount(local))
+
+        charge = int(result.get('charge') or 0)
+        cashback = int(result.get('cashback') or 0)
+        # Prefer principal amount when net was returned as total_debited/credited.
+        principal = result.get('amount')
+        if principal is None:
+            if direction == 'debit':
+                principal = max(int(amount_paisa) - charge + cashback, 0)
+            else:
+                principal = max(int(amount_paisa) + charge - cashback, 0)
+
+        entries.append({
+            'direction': direction,
+            'amount': int(principal),
+            'is_refund': False,
+            'is_cashback': False,
+            'is_charge': False,
+            'reference_id': api.extract_reference_id(result),
+            'created_at': str(result.get('created_at') or '') or None,
+            'transaction_uuid': str(txn_uuid).strip(),
+            'status': status,
+            'wallet_service_name': str(
+                result.get('wallet_service_name')
+                or getattr(local.obj, 'wallet_service_name', None)
+                or getattr(local.obj, 'product_name', None)
+                or ''
+            ),
+            'transaction_cashback': cashback,
+            'transaction_charge': charge,
+            '_fallback': 'status_check',
+            '_merchant_txn_id': merchant_id,
+        })
+
+    logger.info(
+        'Built %s synthetic HimalPay statement entries via status checks (%s → %s)',
+        len(entries),
+        from_date,
+        to_date,
+    )
+    return entries
+
+
 def _suggest_for_issue(
     issue_type: str,
     hp: Optional[GroupedHpTxn],
@@ -336,10 +429,22 @@ def run_statement_reconcile(
     api = himalpay or HimalPayAPI()
 
     try:
-        entries = api.get_reseller_statement(
-            from_date=from_date.isoformat(),
-            to_date=to_date.isoformat(),
-        )
+        used_status_fallback = False
+        try:
+            entries = api.get_reseller_statement(
+                from_date=from_date.isoformat(),
+                to_date=to_date.isoformat(),
+            )
+        except HimalPayError as exc:
+            if not is_route_not_found_error(exc.message, exc.status_code, exc.error_type):
+                raise
+            logger.warning(
+                'HimalPay statement unavailable (%s); using status-check fallback',
+                exc,
+            )
+            entries = _build_entries_via_status_checks(api, from_date, to_date)
+            used_status_fallback = True
+
         try:
             balance = api.get_reseller_balance()
         except HimalPayError as exc:
@@ -482,6 +587,10 @@ def run_statement_reconcile(
                 if rupees is not None:
                     run.himalpay_balance_rupees = _money(rupees)
             run.status = StatementReconcileRun.STATUS_SUCCESS
+            if used_status_fallback:
+                run.error_message = (
+                    'Used status-check fallback (HimalPay reseller statement route unavailable on this host).'
+                )
             run.finished_at = timezone.now()
             run.save()
 

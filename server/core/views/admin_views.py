@@ -1970,16 +1970,22 @@ def admin_settings(request):
             bank[k] = str(request.data.get(k))
             updated_bank = True
 
-    if 'qr_code' in request.FILES:
-        settings_obj.qr_code = request.FILES['qr_code']
-    elif 'clear_qr' in request.data and str(request.data.get('clear_qr')).lower() in (
-        '1', 'true', 'yes',
-    ):
-        if settings_obj.qr_code:
-            settings_obj.qr_code.delete(save=False)
-        settings_obj.qr_code = None
-    elif request.data.get('qr_code') in ('', 'null', None) and 'qr_code' in request.data:
-        pass  # ignore empty
+    def _apply_image_upload(field_name, clear_key):
+        if field_name in request.FILES:
+            setattr(settings_obj, field_name, request.FILES[field_name])
+        elif clear_key in request.data and str(request.data.get(clear_key)).lower() in (
+            '1', 'true', 'yes',
+        ):
+            current = getattr(settings_obj, field_name)
+            if current:
+                current.delete(save=False)
+            setattr(settings_obj, field_name, None)
+        elif request.data.get(field_name) in ('', 'null', None) and field_name in request.data:
+            pass  # ignore empty
+
+    _apply_image_upload('qr_code', 'clear_qr')
+    _apply_image_upload('khalti_qr_code', 'clear_khalti_qr')
+    _apply_image_upload('esewa_qr_code', 'clear_esewa_qr')
 
     if 'logo' in request.FILES:
         settings_obj.logo = request.FILES['logo']
@@ -2034,6 +2040,16 @@ def admin_settings(request):
                             current.get(section) or {},
                             values,
                         )
+                    elif section == 'integrations':
+                        from ..services.smtp import PASSWORD_MASK
+                        merged_integ = {**(current.get(section) or {}), **values}
+                        incoming_pw = str(values.get('himalpay_portal_password') or '').strip()
+                        if not incoming_pw or incoming_pw == PASSWORD_MASK:
+                            merged_integ['himalpay_portal_password'] = (
+                                (current.get(section) or {}).get('himalpay_portal_password') or ''
+                            )
+                        merged_integ.pop('himalpay_portal_password_set', None)
+                        current[section] = merged_integ
                     else:
                         current[section] = {**(current.get(section) or {}), **values}
                 else:
@@ -2609,15 +2625,20 @@ def admin_statement_run(request):
     except Exception as exc:
         return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    return Response({
+    payload = {
         'message': 'Statement reconcile completed',
         'data': StatementReconcileRunSerializer(run).data,
-    })
+    }
+    if run.error_message:
+        payload['warning'] = run.error_message
+    return Response(payload)
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_statement_balance(request):
+    from ..services.himalpay import is_route_not_found_error
+
     himalpay = HimalPayAPI()
     # Keep balance probe snappy so nginx/gunicorn do not surface a blank 502.
     original_timeout = getattr(himalpay, 'timeout', 60)
@@ -2625,9 +2646,20 @@ def admin_statement_balance(request):
     try:
         data = himalpay.get_reseller_balance()
     except HimalPayError as exc:
+        message = str(exc.message if hasattr(exc, 'message') else exc)
+        # Soft-fail when LIVE HimalPay has not deployed reseller balance yet, so
+        # the Statement page still loads instead of a hard 502.
+        if is_route_not_found_error(message, exc.status_code, exc.error_type):
+            return Response(
+                {
+                    'error': message,
+                    'data': None,
+                    'unavailable': True,
+                }
+            )
         return Response(
             {
-                'error': str(exc.message if hasattr(exc, 'message') else exc),
+                'error': message,
                 'data': None,
             },
             status=status.HTTP_502_BAD_GATEWAY,

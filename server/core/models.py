@@ -282,6 +282,11 @@ def default_app_config():
         'integrations': {
             'himalpay_api_key': '',
             'himalpay_base_url': 'https://api.himalpay.com.np/api/v1',
+            # Optional: HimalPay app/portal login for LIVE statement + balance
+            # when reseller ledger routes are not deployed yet.
+            'himalpay_portal_phone': '',
+            'himalpay_portal_email': '',
+            'himalpay_portal_password': '',
         },
         'smtp': {
             'enabled': True,
@@ -332,7 +337,24 @@ def merge_app_config(stored):
 
 class Settings(models.Model):
     """Singleton model for QR code, bank details, and global app configuration"""
-    qr_code = models.ImageField(upload_to='settings/', null=True, blank=True, help_text="QR code image for deposits")
+    qr_code = models.ImageField(
+        upload_to='settings/',
+        null=True,
+        blank=True,
+        help_text="Bank deposit QR code image shown to customers",
+    )
+    khalti_qr_code = models.ImageField(
+        upload_to='settings/',
+        null=True,
+        blank=True,
+        help_text="Khalti deposit QR code image shown to customers",
+    )
+    esewa_qr_code = models.ImageField(
+        upload_to='settings/',
+        null=True,
+        blank=True,
+        help_text="eSewa deposit QR code image shown to customers",
+    )
     logo = models.ImageField(
         upload_to='settings/logo/',
         null=True,

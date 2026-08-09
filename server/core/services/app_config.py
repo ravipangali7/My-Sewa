@@ -273,6 +273,10 @@ def is_auto_status_verified(config: Optional[Dict] = None) -> bool:
 def get_himalpay_credentials() -> Dict[str, str]:
     """
     Resolve HimalPay credentials: Settings.config.integrations first, then env.
+
+    Optional portal login (phone or email + password) is used as a LIVE fallback
+    for statement/balance via /users/statement and /users/me/wallet when the
+    reseller ledger routes are not deployed yet.
     """
     from django.conf import settings as django_settings
 
@@ -281,6 +285,9 @@ def get_himalpay_credentials() -> Dict[str, str]:
         getattr(django_settings, 'HIMALPAY_BASE_URL', '')
         or 'https://api.himalpay.com.np/api/v1'
     ).strip()
+    env_phone = (getattr(django_settings, 'HIMALPAY_PORTAL_PHONE', '') or '').strip()
+    env_email = (getattr(django_settings, 'HIMALPAY_PORTAL_EMAIL', '') or '').strip()
+    env_password = (getattr(django_settings, 'HIMALPAY_PORTAL_PASSWORD', '') or '').strip()
 
     try:
         integrations = get_app_config().get('integrations') or {}
@@ -289,10 +296,16 @@ def get_himalpay_credentials() -> Dict[str, str]:
 
     db_key = str(integrations.get('himalpay_api_key') or '').strip()
     db_base = str(integrations.get('himalpay_base_url') or '').strip()
+    db_phone = str(integrations.get('himalpay_portal_phone') or '').strip()
+    db_email = str(integrations.get('himalpay_portal_email') or '').strip()
+    db_password = str(integrations.get('himalpay_portal_password') or '').strip()
 
     return {
         'api_key': db_key or env_key,
         'base_url': (db_base or env_base).rstrip('/'),
+        'portal_phone': db_phone or env_phone,
+        'portal_email': db_email or env_email,
+        'portal_password': db_password or env_password,
     }
 
 

@@ -77,6 +77,31 @@ def is_insufficient_balance_error(message: str = '') -> bool:
     )
 
 
+def is_route_not_found_error(
+    message: str = '',
+    status_code: Optional[int] = None,
+    error_type: Optional[str] = None,
+) -> bool:
+    """True when HimalPay returns a Go-style missing route (common on LIVE)."""
+    text = (message or '').strip().lower()
+    etype = (error_type or '').strip().lower()
+    return (
+        status_code == 404
+        or etype in {'resellerendpointnotfound', 'endpointnotfound'}
+        or text == '404 page not found'
+        or '404 page not found' in text
+    )
+
+
+RESELLER_LEDGER_UNAVAILABLE_MSG = (
+    'HimalPay LIVE does not expose reseller statement/balance yet '
+    '(/statement/reseller-statement, /wallet/reseller-balance — UAT only). '
+    'Add HimalPay portal login under Admin → Settings → HimalPay to use '
+    '/users/statement and /users/me/wallet on LIVE, or ask HimalPay to deploy '
+    'the reseller ledger endpoints.'
+)
+
+
 # User-facing copy for known HimalPay error_code values (see himalpay-api.md).
 _HIMALPAY_CODE_MESSAGES: Dict[int, str] = {
     1000: 'Payment service authentication failed. Please try again later or contact MySewa support.',
@@ -257,8 +282,12 @@ class HimalPayAPI:
         creds = get_himalpay_credentials()
         self.base_url = creds['base_url']
         self.api_key = creds['api_key']
+        self.portal_phone = (creds.get('portal_phone') or '').strip()
+        self.portal_email = (creds.get('portal_email') or '').strip()
+        self.portal_password = (creds.get('portal_password') or '').strip()
         self.bypass_api = getattr(settings, 'HIMALPAY_BYPASS_API', False)
         self.timeout = getattr(settings, 'HIMALPAY_TIMEOUT', 60)
+        self._portal_token: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Amount helpers (rupees <-> paisa)
@@ -385,6 +414,12 @@ class HimalPayAPI:
                 error_type = None
                 response_data = {'raw': data}
 
+            # Plain Go mux 404 bodies often arrive as raw text, not JSON.
+            if response.status_code == 404 and is_route_not_found_error(
+                str(message), response.status_code, str(error_type) if error_type else None
+            ):
+                error_type = error_type or 'ResellerEndpointNotFound'
+
             raise HimalPayError(
                 message=str(message),
                 status_code=response.status_code,
@@ -394,6 +429,217 @@ class HimalPayAPI:
             )
 
         return data
+
+    def _has_portal_login(self) -> bool:
+        return bool(self.portal_password and (self.portal_phone or self.portal_email))
+
+    def _portal_auth_headers(self, token: str) -> Dict[str, str]:
+        return {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {token}',
+        }
+
+    def _login_portal(self) -> str:
+        """Exchange portal phone/email + password for a Bearer JWT."""
+        if self._portal_token:
+            return self._portal_token
+        if not self._has_portal_login():
+            raise HimalPayError(
+                'HimalPay portal login is not configured.',
+                status_code=500,
+                error_type='ResellerEndpointNotFound',
+            )
+
+        if self.portal_phone:
+            endpoint = '/auth/login'
+            payload = {
+                'mobile_no': self.portal_phone,
+                'password': self.portal_password,
+            }
+        else:
+            endpoint = '/auth/login/email'
+            payload = {
+                'email': self.portal_email,
+                'password': self.portal_password,
+            }
+
+        # Avoid recursive X-API-Key auth for the consumer auth routes.
+        url = f'{self.base_url}{endpoint}'
+        try:
+            response = requests.request(
+                method='POST',
+                url=url,
+                headers={
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                json=payload,
+                timeout=self.timeout,
+            )
+        except requests.Timeout as exc:
+            raise HimalPayError(
+                'The payment service took too long to respond. Please try again.',
+                status_code=504,
+            ) from exc
+        except requests.RequestException as exc:
+            raise HimalPayError(
+                'Could not reach the payment service. Check your connection and try again.',
+                status_code=502,
+            ) from exc
+
+        try:
+            data = response.json() if response.content else {}
+        except ValueError:
+            data = {}
+
+        if response.status_code >= 400 or not isinstance(data, dict):
+            message = (
+                (data.get('error') if isinstance(data, dict) else None)
+                or (data.get('message') if isinstance(data, dict) else None)
+                or 'HimalPay portal login failed'
+            )
+            raise HimalPayError(
+                str(message),
+                status_code=response.status_code or 401,
+                error_code=(data.get('error_code') if isinstance(data, dict) else None),
+                error_type=(data.get('error_type') if isinstance(data, dict) else None),
+                response_data=data if isinstance(data, dict) else {'raw': data},
+            )
+
+        token = str(data.get('token') or '').strip()
+        if not token:
+            raise HimalPayError(
+                'HimalPay portal login succeeded but no token was returned.',
+                status_code=502,
+            )
+        self._portal_token = token
+        return token
+
+    def _request_bearer(
+        self,
+        method: str,
+        endpoint: str,
+        payload: Optional[Dict] = None,
+        params: Optional[Dict] = None,
+        *,
+        _retried: bool = False,
+    ) -> Any:
+        token = self._login_portal()
+        url = f'{self.base_url}{endpoint}'
+        logger.info('HimalPay bearer %s %s params=%s', method, endpoint, params)
+        try:
+            response = requests.request(
+                method=method,
+                url=url,
+                headers=self._portal_auth_headers(token),
+                json=payload,
+                params=params,
+                timeout=self.timeout,
+            )
+        except requests.Timeout as exc:
+            raise HimalPayError(
+                'The payment service took too long to respond. Please try again.',
+                status_code=504,
+            ) from exc
+        except requests.RequestException as exc:
+            raise HimalPayError(
+                'Could not reach the payment service. Check your connection and try again.',
+                status_code=502,
+            ) from exc
+
+        try:
+            data = response.json() if response.content else {}
+        except ValueError:
+            data = {'error': response.text or 'Invalid JSON response from HimalPay'}
+
+        if response.status_code >= 400:
+            if isinstance(data, dict):
+                message = (
+                    data.get('error')
+                    or data.get('message')
+                    or data.get('detail')
+                    or f'HimalPay request failed ({response.status_code})'
+                )
+                error_code = data.get('error_code')
+                error_type = data.get('error_type')
+                response_data = data
+            else:
+                message = str(data) if data else f'HimalPay request failed ({response.status_code})'
+                error_code = None
+                error_type = None
+                response_data = {'raw': data}
+
+            # One retry after clearing a stale token.
+            if response.status_code in (401, 403) and not _retried:
+                self._portal_token = None
+                return self._request_bearer(
+                    method,
+                    endpoint,
+                    payload=payload,
+                    params=params,
+                    _retried=True,
+                )
+
+            raise HimalPayError(
+                message=str(message),
+                status_code=response.status_code,
+                error_code=error_code if isinstance(error_code, int) else None,
+                error_type=str(error_type) if error_type else None,
+                response_data=response_data if isinstance(response_data, dict) else {'raw': response_data},
+            )
+
+        return data
+
+    def _raise_ledger_unavailable(self, cause: Optional[Exception] = None) -> None:
+        raise HimalPayError(
+            RESELLER_LEDGER_UNAVAILABLE_MSG,
+            status_code=404,
+            error_type='ResellerEndpointNotFound',
+        ) from cause
+
+    def _get_portal_statement(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        transaction_id: Optional[str] = None,
+    ) -> List[Dict]:
+        """LIVE fallback: paginated GET /users/statement (Bearer portal JWT)."""
+        entries: List[Dict] = []
+        page = 1
+        max_pages = 50
+        while page <= max_pages:
+            params: Dict[str, Any] = {'page': page, 'limit': 100}
+            if transaction_id:
+                params['transaction_uuid'] = str(transaction_id).strip()
+            if from_date:
+                params['from_date'] = str(from_date).strip()
+            if to_date:
+                params['to_date'] = str(to_date).strip()
+            data = self._request_bearer('GET', '/users/statement', params=params)
+            if isinstance(data, list):
+                batch = data
+                pagination: Dict[str, Any] = {}
+            elif isinstance(data, dict):
+                batch = data.get('data') or []
+                pagination = data.get('pagination') or {}
+            else:
+                batch = []
+                pagination = {}
+            if isinstance(batch, list):
+                entries.extend([row for row in batch if isinstance(row, dict)])
+            total_pages = int(pagination.get('total_pages') or page)
+            if page >= total_pages or not batch:
+                break
+            page += 1
+        return entries
+
+    def _get_portal_wallet(self) -> Dict:
+        """LIVE fallback: GET /users/me/wallet (Bearer portal JWT)."""
+        data = self._request_bearer('GET', '/users/me/wallet')
+        if isinstance(data, dict) and isinstance(data.get('wallet'), dict):
+            return data['wallet']
+        return data if isinstance(data, dict) else {'data': data}
 
     # ------------------------------------------------------------------
     # Core endpoints
@@ -554,9 +800,8 @@ class HimalPayAPI:
         """
         Fetch reseller ledger statement entries.
 
-        GET /statement/reseller-statement
-        Date range (from_date + to_date) must not exceed 2 months.
-        When only transaction_id is supplied, lookup is not date-bound.
+        Preferred: GET /statement/reseller-statement (X-API-Key) — available on UAT.
+        LIVE fallback: GET /users/statement (Bearer portal JWT) when reseller route 404s.
         """
         params: Dict[str, str] = {}
         if transaction_id:
@@ -573,7 +818,26 @@ class HimalPayAPI:
                 transaction_id=transaction_id,
             )
 
-        data = self._request('GET', '/statement/reseller-statement', params=params or None)
+        try:
+            data = self._request('GET', '/statement/reseller-statement', params=params or None)
+        except HimalPayError as exc:
+            if not is_route_not_found_error(exc.message, exc.status_code, exc.error_type):
+                raise
+            if not self._has_portal_login():
+                self._raise_ledger_unavailable(exc)
+            logger.warning(
+                'Reseller statement route missing on %s; falling back to portal /users/statement',
+                self.base_url,
+            )
+            try:
+                return self._get_portal_statement(
+                    from_date=from_date,
+                    to_date=to_date,
+                    transaction_id=transaction_id,
+                )
+            except HimalPayError as portal_exc:
+                self._raise_ledger_unavailable(portal_exc)
+
         if isinstance(data, list):
             return data
         if isinstance(data, dict):
@@ -582,7 +846,12 @@ class HimalPayAPI:
         return []
 
     def get_reseller_balance(self) -> Dict:
-        """GET /wallet/reseller-balance — current HimalPay reseller wallet balances."""
+        """
+        Current HimalPay reseller wallet balances.
+
+        Preferred: GET /wallet/reseller-balance (X-API-Key) — available on UAT.
+        LIVE fallback: GET /users/me/wallet (Bearer portal JWT) when reseller route 404s.
+        """
         if self.bypass_api:
             return {
                 'id': 1,
@@ -596,7 +865,22 @@ class HimalPayAPI:
                 'updated_at': '2026-08-09T00:00:00Z',
             }
 
-        data = self._request('GET', '/wallet/reseller-balance')
+        try:
+            data = self._request('GET', '/wallet/reseller-balance')
+        except HimalPayError as exc:
+            if not is_route_not_found_error(exc.message, exc.status_code, exc.error_type):
+                raise
+            if not self._has_portal_login():
+                self._raise_ledger_unavailable(exc)
+            logger.warning(
+                'Reseller balance route missing on %s; falling back to portal /users/me/wallet',
+                self.base_url,
+            )
+            try:
+                return self._get_portal_wallet()
+            except HimalPayError as portal_exc:
+                self._raise_ledger_unavailable(portal_exc)
+
         return data if isinstance(data, dict) else {'data': data}
 
     def _bypass_reseller_statement(

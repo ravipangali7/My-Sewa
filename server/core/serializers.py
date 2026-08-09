@@ -774,6 +774,8 @@ class DepositCreateSerializer(serializers.ModelSerializer):
 class SettingsSerializer(serializers.ModelSerializer):
     """Settings serializer"""
     qr_code_url = serializers.SerializerMethodField()
+    khalti_qr_code_url = serializers.SerializerMethodField()
+    esewa_qr_code_url = serializers.SerializerMethodField()
     logo_url = serializers.SerializerMethodField()
     bank_details = serializers.SerializerMethodField()
     config = serializers.SerializerMethodField()
@@ -781,7 +783,11 @@ class SettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Settings
         fields = (
-            'id', 'qr_code', 'qr_code_url', 'logo', 'logo_url', 'bank_details', 'config',
+            'id',
+            'qr_code', 'qr_code_url',
+            'khalti_qr_code', 'khalti_qr_code_url',
+            'esewa_qr_code', 'esewa_qr_code_url',
+            'logo', 'logo_url', 'bank_details', 'config',
             'created_at', 'updated_at',
         )
         read_only_fields = ('id', 'created_at', 'updated_at')
@@ -797,6 +803,12 @@ class SettingsSerializer(serializers.ModelSerializer):
     def get_qr_code_url(self, obj):
         return self._absolute_media_url(obj.qr_code)
 
+    def get_khalti_qr_code_url(self, obj):
+        return self._absolute_media_url(obj.khalti_qr_code)
+
+    def get_esewa_qr_code_url(self, obj):
+        return self._absolute_media_url(obj.esewa_qr_code)
+
     def get_logo_url(self, obj):
         return self._absolute_media_url(obj.logo)
 
@@ -808,9 +820,18 @@ class SettingsSerializer(serializers.ModelSerializer):
         config = obj.get_config()
         # Mask SMTP password for admin responses (never send the raw secret)
         try:
-            from .services.smtp import smtp_config_for_admin
+            from .services.smtp import smtp_config_for_admin, PASSWORD_MASK
             config = dict(config)
             config['smtp'] = smtp_config_for_admin(config)
+            integrations = dict(config.get('integrations') or {})
+            portal_password = str(integrations.get('himalpay_portal_password') or '').strip()
+            if portal_password:
+                integrations['himalpay_portal_password'] = PASSWORD_MASK
+                integrations['himalpay_portal_password_set'] = True
+            else:
+                integrations['himalpay_portal_password'] = ''
+                integrations['himalpay_portal_password_set'] = False
+            config['integrations'] = integrations
         except Exception:
             pass
         return config
