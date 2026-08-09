@@ -65,18 +65,51 @@ export const Route = createFileRoute("/app/water")({
 
 type Step = "provider" | "account" | "review" | "pay";
 
+type WaterProviderId = "community" | "kukl" | "sansthan";
+
 type WaterProvider = {
-  id: string;
+  id: WaterProviderId;
   name: string;
-  enabled: boolean;
 };
 
 /** Top-level drinking water companies shown as a list (reference UI). */
 const WATER_PROVIDERS: WaterProvider[] = [
-  { id: "community", name: "Community Khanepani", enabled: false },
-  { id: "kukl", name: "KUKL", enabled: true },
-  { id: "sansthan", name: "Khanepani Sansthan", enabled: false },
+  { id: "community", name: "Community Khanepani" },
+  { id: "kukl", name: "KUKL" },
+  { id: "sansthan", name: "Khanepani Sansthan" },
 ];
+
+/** Classify HimalPay counters into the company the user picked. */
+function countersForProvider(
+  all: CounterOption[],
+  providerId: WaterProviderId,
+): CounterOption[] {
+  if (!all.length) return all;
+
+  const hay = (c: CounterOption) => `${c.value} ${c.label}`.toLowerCase();
+  const isKukl = (c: CounterOption) => {
+    const h = hay(c);
+    return h.includes("kukl") || h.includes("kathmandu upatyaka");
+  };
+  const isSansthan = (c: CounterOption) => {
+    const h = hay(c);
+    return h.includes("sansthan") || h.includes("sanstha");
+  };
+
+  let filtered: CounterOption[];
+  if (providerId === "kukl") {
+    filtered = all.filter(isKukl);
+  } else if (providerId === "sansthan") {
+    filtered = all.filter(isSansthan);
+  } else {
+    // Community Khanepani: everything that is not clearly KUKL / Sansthan.
+    filtered = all.filter((c) => !isKukl(c) && !isSansthan(c));
+  }
+
+  // If the provider cannot be inferred from counter labels, keep the full list
+  // so inquiry/pay still works through the shared HimalPay KUKL water services.
+  return filtered.length ? filtered : all;
+}
 
 function WaterBillPayment() {
   const queryClient = useQueryClient();
@@ -120,15 +153,19 @@ function WaterBillPayment() {
     settingsQuery.data?.config?.payment?.water_bills_enabled !== false && !accountPending;
 
   const countersQuery = useQuery({
-    queryKey: ["water", "counters", selectedProvider?.id],
+    queryKey: ["water", "counters"],
     queryFn: () => apiClient.waterCounters(),
-    enabled: enabled && selectedProvider?.id === "kukl" && step !== "provider",
+    enabled: enabled && Boolean(selectedProvider) && step !== "provider",
   });
 
   useEffect(() => {
-    if (!countersQuery.data?.data) return;
-    setCounters(extractCounterOptions(countersQuery.data.data));
-  }, [countersQuery.data]);
+    if (!countersQuery.data?.data || !selectedProvider) {
+      setCounters([]);
+      return;
+    }
+    const all = extractCounterOptions(countersQuery.data.data);
+    setCounters(countersForProvider(all, selectedProvider.id));
+  }, [countersQuery.data, selectedProvider]);
 
   const walletQuery = useQuery({
     queryKey: ["wallet", "balance"],
@@ -305,10 +342,6 @@ function WaterBillPayment() {
   });
 
   const selectProvider = (provider: WaterProvider) => {
-    if (!provider.enabled) {
-      toast.message(t("water.providerUnavailable", { provider: provider.name }));
-      return;
-    }
     if (!enabled) return;
     setSelectedProvider(provider);
     setSelectedCounter(null);
@@ -426,7 +459,6 @@ function WaterBillPayment() {
                       className={cn(
                         "flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors",
                         "hover:bg-muted/40 active:bg-muted/60 disabled:opacity-50",
-                        !provider.enabled && "opacity-70",
                       )}
                     >
                       <span className="flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-border bg-surface shadow-sm">

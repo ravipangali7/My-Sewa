@@ -496,7 +496,7 @@ export const messages = {
 
     "activity.internetBill": "{isp} Internet",
     "activity.dataPack": "{operator} Data Pack",
-    "activity.waterBill": "KUKL Water",
+    "activity.waterBill": "Water bill",
     "activity.electricityBill": "NEA Electricity",
     "activity.communityElectricity": "{provider} Electricity",
 
@@ -1544,7 +1544,7 @@ export const messages = {
 
     "activity.internetBill": "{isp} इन्टरनेट",
     "activity.dataPack": "{operator} डाटा प्याक",
-    "activity.waterBill": "KUKL खानेपानी",
+    "activity.waterBill": "खानेपानी बिल",
     "activity.electricityBill": "NEA बिजुली",
     "activity.communityElectricity": "{provider} बिजुली",
 

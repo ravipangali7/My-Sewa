@@ -41,6 +41,7 @@ import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
+import { COLORS } from "@/constants/colors";
 import {
   extractCounterOptions,
   extractCustomerName,
@@ -64,8 +65,8 @@ export const Route = createFileRoute("/app/electricity")({
 
 type Step = "list" | "details" | "review" | "pay";
 
-/** Bright green from the reference screenshots */
-const NEA_GREEN = "#22C55E";
+/** App primary brand for electricity header + accents */
+const NEA_GREEN = COLORS.brand;
 const PAGE_BG = "#EEF2F6";
 
 function cleanCounterLabel(option: CounterOption) {
@@ -492,7 +493,7 @@ function ElectricityBillPayment() {
                   className={cn(
                     "flex h-12 w-full items-center justify-between rounded-xl px-3.5 text-left text-[15px] transition-colors disabled:opacity-50",
                     listingCounter
-                      ? "border border-[#22C55E] bg-white text-[#111827]"
+                      ? "border border-[#0A7A4B] bg-white text-[#111827]"
                       : "border-0 bg-[#F3F4F6] text-[#9CA3AF]",
                   )}
                 >
@@ -561,7 +562,7 @@ function ElectricityBillPayment() {
                     >
                       <SelectTrigger
                         id="electricity_counter_details"
-                        className="h-12 rounded-xl border-[#22C55E] bg-white text-[15px] text-[#111827] shadow-none focus:ring-[#22C55E]/30"
+                        className="h-12 rounded-xl border-[#0A7A4B] bg-white text-[15px] text-[#111827] shadow-none focus:ring-[#0A7A4B]/30"
                       >
                         <SelectValue placeholder={t("electricity.counterSelectPlaceholder")}>
                           {cleanCounterLabel(selectedCounter)}
@@ -589,7 +590,7 @@ function ElectricityBillPayment() {
                       value={scNo}
                       onChange={(e) => setScNo(e.target.value)}
                       placeholder={t("electricity.scPlaceholder")}
-                      className="h-12 rounded-xl border-0 bg-[#F3F4F6] text-[15px] shadow-none placeholder:text-[#9CA3AF] focus-visible:ring-[#22C55E]/30"
+                      className="h-12 rounded-xl border-0 bg-[#F3F4F6] text-[15px] shadow-none placeholder:text-[#9CA3AF] focus-visible:ring-[#0A7A4B]/30"
                       disabled={!enabled}
                       autoComplete="off"
                       required
@@ -608,7 +609,7 @@ function ElectricityBillPayment() {
                       value={consumerId}
                       onChange={(e) => setConsumerId(e.target.value)}
                       placeholder={t("electricity.consumerIdPlaceholder")}
-                      className="h-12 rounded-xl border-0 bg-[#F3F4F6] text-[15px] shadow-none placeholder:text-[#9CA3AF] focus-visible:ring-[#22C55E]/30"
+                      className="h-12 rounded-xl border-0 bg-[#F3F4F6] text-[15px] shadow-none placeholder:text-[#9CA3AF] focus-visible:ring-[#0A7A4B]/30"
                       disabled={!enabled}
                       autoComplete="off"
                       required
@@ -659,7 +660,7 @@ function ElectricityBillPayment() {
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder={t("electricity.amountPlaceholder")}
-                    className="h-12 rounded-xl border-0 bg-[#F3F4F6] font-medium tabular shadow-none focus-visible:ring-[#22C55E]/30"
+                    className="h-12 rounded-xl border-0 bg-[#F3F4F6] font-medium tabular shadow-none focus-visible:ring-[#0A7A4B]/30"
                     disabled={!enabled}
                     required
                   />
@@ -898,7 +899,7 @@ function ElectricityBillPayment() {
                         {cleanCounterLabel(counter)}
                       </span>
                       {active ? (
-                        <Check className="size-4 shrink-0 text-[#22C55E]" />
+                        <Check className="size-4 shrink-0 text-[#0A7A4B]" />
                       ) : (
                         <ChevronRight className="size-4 shrink-0 text-[#D1D5DB]" />
                       )}
