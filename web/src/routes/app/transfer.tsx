@@ -57,6 +57,14 @@ export const Route = createFileRoute("/app/transfer")({
 
 type TransferMethod = "bank" | "phone";
 
+type VerifiedDestination = {
+  bank_code: string;
+  bank_name: string;
+  account_name: string;
+  account_number: string;
+  is_mobile: boolean;
+};
+
 function Transfer() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -83,6 +91,7 @@ function Transfer() {
   const [verifyStatus, setVerifyStatus] = useState<"idle" | "verified" | "unverified">(
     "idle",
   );
+  const [verifiedDetails, setVerifiedDetails] = useState<VerifiedDestination | null>(null);
   const [charge, setCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
@@ -210,12 +219,22 @@ function Transfer() {
   useEffect(() => {
     setVerified(false);
     setVerifyStatus("idle");
+    setVerifiedDetails(null);
+    setAmount("");
+    setCharge("0.00");
+    setCashback("0.00");
+    setTotalDebited("0.00");
     if (method === "phone") setAccName("");
   }, [method]);
 
   function resetVerification() {
     setVerified(false);
     setVerifyStatus("idle");
+    setVerifiedDetails(null);
+    setAmount("");
+    setCharge("0.00");
+    setCashback("0.00");
+    setTotalDebited("0.00");
   }
 
   useEffect(() => {
@@ -226,7 +245,7 @@ function Transfer() {
   }, [locale]);
 
   useEffect(() => {
-    if (!transfersEnabled || amt < minTransfer) {
+    if (!transfersEnabled || !verified || amt < minTransfer) {
       setCharge("0.00");
       setCashback("0.00");
       setTotalDebited("0.00");
@@ -257,7 +276,7 @@ function Transfer() {
     }, 350);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [amt, transfersEnabled, minTransfer]);
+  }, [amt, transfersEnabled, minTransfer, verified]);
 
   const selectedBank = banks.find((b) => b.bank_code === bank);
 
@@ -343,6 +362,7 @@ function Transfer() {
       setAmount("");
       setVerified(false);
       setVerifyStatus("idle");
+      setVerifiedDetails(null);
       queryClient.invalidateQueries({ queryKey: ["transfers"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
@@ -402,6 +422,7 @@ function Transfer() {
     try {
       const res = await apiClient.verifyBank({
         bank_code: bank,
+        bank_name: selectedBank?.bank_name || "",
         // Phone transfers: name is not required — provider returns the registered holder.
         ...(isMobile ? {} : { account_name: accName.trim() }),
         account_number: destinationNumber,
@@ -410,20 +431,35 @@ function Transfer() {
       if (!res.data?.verified) {
         setVerified(false);
         setVerifyStatus("unverified");
+        setVerifiedDetails(null);
         toast.error(t("transfer.dontMatch"));
         return;
       }
-      const originalName = (res.data.account_name || accName).trim();
+      const originalName = (res.data.account_name || "").trim();
       if (!originalName) {
         setVerified(false);
         setVerifyStatus("unverified");
+        setVerifiedDetails(null);
         toast.error(t("transfer.dontMatch"));
         return;
       }
-      setAccName(originalName);
+      const confirmedBankCode = res.data.bank_code || bank;
+      const confirmedNumber = (res.data.account_number || destinationNumber).trim();
       if (res.data.bank_code && res.data.bank_code !== bank) {
         setBank(res.data.bank_code);
       }
+      setAccName(originalName);
+      setVerifiedDetails({
+        bank_code: confirmedBankCode,
+        bank_name:
+          res.data.bank_name ||
+          banks.find((b) => b.bank_code === confirmedBankCode)?.bank_name ||
+          selectedBank?.bank_name ||
+          confirmedBankCode,
+        account_name: originalName,
+        account_number: confirmedNumber,
+        is_mobile: isMobile,
+      });
       setVerified(true);
       setVerifyStatus("verified");
       toast.success(
@@ -434,14 +470,18 @@ function Transfer() {
     } catch (err) {
       setVerified(false);
       setVerifyStatus("unverified");
+      setVerifiedDetails(null);
       const mismatch =
         err instanceof ApiError &&
         (err.message === "Don't Match" ||
+          err.message === "Account details do not match." ||
           err.message.toLowerCase().includes("don't match") ||
           err.message.toLowerCase().includes("do not match") ||
           (err.body &&
             typeof err.body === "object" &&
             ((err.body as Record<string, unknown>)["error"] === "Don't Match" ||
+              (err.body as Record<string, unknown>)["error"] ===
+                "Account details do not match." ||
               (err.body as Record<string, unknown>)["mismatch"] === true)));
       toastApiError(err, {
         title: mismatch ? t("transfer.dontMatch") : t("transfer.verifyFailed"),
@@ -599,16 +639,18 @@ function Transfer() {
                   </Button>
                 </div>
                 <p className="text-[12px] text-muted-foreground">{t("transfer.phoneHelp")}</p>
-                <VerifyStatusMessage
-                  status={verifyStatus}
-                  verifiedLabel={
-                    accName
-                      ? t("transfer.verifiedPhone", { name: accName })
-                      : t("transfer.statusVerified")
-                  }
-                  unverifiedLabel={t("transfer.dontMatch")}
-                  unverifiedStatusLabel={t("transfer.statusUnverified")}
-                />
+                {verifiedDetails ? null : (
+                  <VerifyStatusMessage
+                    status={verifyStatus}
+                    verifiedLabel={
+                      accName
+                        ? t("transfer.verifiedPhone", { name: accName })
+                        : t("transfer.statusVerified")
+                    }
+                    unverifiedLabel={t("transfer.dontMatch")}
+                    unverifiedStatusLabel={t("transfer.statusUnverified")}
+                  />
+                )}
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -642,18 +684,62 @@ function Transfer() {
                     {verifying ? "…" : t("transfer.verify")}
                   </Button>
                 </div>
-                <VerifyStatusMessage
-                  status={verifyStatus}
-                  verifiedLabel={
-                    accName
-                      ? t("transfer.verifiedAccount", { name: accName })
-                      : t("transfer.statusVerified")
-                  }
-                  unverifiedLabel={t("transfer.dontMatch")}
-                  unverifiedStatusLabel={t("transfer.statusUnverified")}
-                />
+                {verifiedDetails ? null : (
+                  <VerifyStatusMessage
+                    status={verifyStatus}
+                    verifiedLabel={
+                      accName
+                        ? t("transfer.verifiedAccount", { name: accName })
+                        : t("transfer.statusVerified")
+                    }
+                    unverifiedLabel={t("transfer.dontMatch")}
+                    unverifiedStatusLabel={t("transfer.statusUnverified")}
+                  />
+                )}
               </div>
             )}
+
+            {verified && verifiedDetails ? (
+              <div className="rounded-xl border border-success/25 bg-success/5 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[13px] font-semibold text-success">
+                      {t("transfer.verifiedPreviewTitle")}
+                    </p>
+                    <p className="mt-0.5 text-[12px] text-muted-foreground">
+                      {t("transfer.verifiedPreviewHint")}
+                    </p>
+                  </div>
+                  <span className="rounded-md bg-success/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-success">
+                    {t("transfer.statusVerified")}
+                  </span>
+                </div>
+                <dl className="mt-3 space-y-1.5 text-[14px]">
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{t("transfer.destBank")}</dt>
+                    <dd className="max-w-[60%] truncate text-right font-medium">
+                      {verifiedDetails.bank_name}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{t("transfer.accHolder")}</dt>
+                    <dd className="max-w-[60%] truncate text-right font-medium">
+                      {verifiedDetails.account_name}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">
+                      {verifiedDetails.is_mobile
+                        ? t("transfer.destPhone")
+                        : t("transfer.destAccount")}
+                    </dt>
+                    <dd className="tabular max-w-[60%] truncate text-right font-medium">
+                      {verifiedDetails.account_number}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            ) : null}
 
             <div className="space-y-1.5">
               <Label htmlFor="tamount">{t("common.amountNpr")}</Label>
@@ -665,14 +751,16 @@ function Transfer() {
                 onChange={(e) => setAmount(e.target.value)}
                 className="tabular h-12 rounded-xl text-[22px] font-semibold"
                 required
-                disabled={!transfersEnabled}
+                disabled={!transfersEnabled || !verified}
               />
               <p className="text-[12px] text-muted-foreground">
-                {t("common.minMaxDaily", {
-                  min: minTransfer,
-                  max: maxTransfer,
-                  daily: dailyLimit,
-                })}
+                {verified
+                  ? t("common.minMaxDaily", {
+                      min: minTransfer,
+                      max: maxTransfer,
+                      daily: dailyLimit,
+                    })
+                  : t("transfer.unlockAmountHint")}
               </p>
             </div>
 
@@ -683,7 +771,7 @@ function Transfer() {
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 className="h-12 rounded-xl"
-                disabled={!transfersEnabled}
+                disabled={!transfersEnabled || !verified}
               />
             </div>
 
@@ -712,7 +800,8 @@ function Transfer() {
                 submitMutation.isPending ||
                 !transfersEnabled ||
                 insufficient ||
-                !verified
+                !verified ||
+                amt < minTransfer
               }
               className="h-12 w-full rounded-xl text-[17px]"
             >

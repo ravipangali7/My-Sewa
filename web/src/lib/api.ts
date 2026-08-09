@@ -517,6 +517,7 @@ export const apiClient = {
 
   verifyBank: (body: {
     bank_code: string;
+    bank_name?: string;
     account_name?: string;
     account_number: string;
     is_mobile?: boolean;
@@ -531,6 +532,8 @@ export const apiClient = {
         account_name?: string;
         account_number?: string;
         bank_code?: string;
+        bank_name?: string;
+        is_mobile?: boolean;
         merchant_txn_id?: string;
         provider?: unknown;
       };

@@ -220,6 +220,7 @@ def lookup_remittance(request):
             {
                 'error': 'Remittance lookup failed',
                 'message': message,
+                'provider_message': provider_message or None,
                 'error_code': failure.get('error_code'),
                 'error_type': failure.get('error_type'),
             },
@@ -244,26 +245,25 @@ def lookup_remittance(request):
 
     if parsed['payout_amt'] <= 0:
         logger.error(
-            'Remittance lookup missing/zero payout_amt ref_no=%s link_id=%s status=%s raw=%s',
+            'Remittance lookup missing/zero payout_amt ref_no=%s link_id=%s status=%s '
+            'provider_message=%r raw=%s',
             ref_no,
             parsed.get('samsara_link_id'),
             parsed.get('status'),
+            provider_message,
             parsed.get('raw') or raw,
         )
-        # Prefer the exact HimalPay/vendor reason (e.g. amount locked). Only fall
-        # back to the generic missing-amount copy when the provider sent nothing.
-        if provider_message:
-            return Response(
-                {
-                    'error': 'Remittance not available',
-                    'message': provider_message,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Always surface the exact HimalPay/vendor reason (e.g. "Amount is locked").
+        # Never tell customers the amount is "missing" when HimalPay already explained why.
+        message = provider_message or (
+            'Remittance is not available for payout right now. '
+            'Please try again later or contact MySewa support.'
+        )
         return Response(
             {
-                'error': 'Invalid amount',
-                'message': 'Remittance payout amount is missing or zero.',
+                'error': 'Remittance not available',
+                'message': message,
+                'provider_message': provider_message or None,
             },
             status=status.HTTP_400_BAD_REQUEST,
         )

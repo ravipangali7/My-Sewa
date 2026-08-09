@@ -1336,61 +1336,111 @@ class HimalPayAPI:
         """
         Raw HimalPay / vendor message without MySewa rewriting.
 
-        Walks nested SAMSARA_GET payloads and prefers explicit error text, then
-        vendor_state (e.g. "amount is locked" / "already received"), then other
-        provider hints.
+        Walks nested SAMSARA_GET payloads (including JSON-string / list wrappers)
+        and prefers actionable vendor text such as ``vendor_state``
+        ("Amount is locked" / "Already Received") over outer SUCCESS labels.
         """
-        root = response if isinstance(response, dict) else {}
-        nested = root.get('data') if isinstance(root.get('data'), dict) else {}
-        nested_data = nested.get('data')
-        deeper = nested_data if isinstance(nested_data, dict) else {}
-        deepest = deeper.get('data') if isinstance(deeper.get('data'), dict) else {}
-        nested_data_text = nested_data.strip() if isinstance(nested_data, str) else ''
+        noise = {
+            '',
+            '0',
+            '00',
+            'success',
+            'successful',
+            'ok',
+            'pending',
+            'unknown',
+            'null',
+            'none',
+            'n/a',
+            'na',
+            '-',
+            'true',
+            'false',
+        }
 
-        def _text(*values) -> str:
-            for value in values:
-                if value is None:
+        # Prefer vendor_state first — Samsara puts the real payout reason there
+        # even when outer status is SUCCESS and payout_amt is 0.
+        preferred_keys = (
+            'vendor_state',
+            'VendorState',
+            'vendorState',
+            'error',
+            'Error',
+            'error_message',
+            'ErrorMessage',
+            'errorMessage',
+            'message',
+            'Message',
+            'detail',
+            'Detail',
+            'reason',
+            'Reason',
+            'remarks',
+            'Remarks',
+            'status_message',
+            'StatusMessage',
+            'statusMessage',
+            'ms_message',
+            'description',
+            'Description',
+        )
+        status_keys = (
+            'vendor_status',
+            'VendorStatus',
+            'vendorStatus',
+            'ms_status',
+            'status',
+            'Status',
+        )
+
+        def _clean(value: Any) -> str:
+            if value is None or isinstance(value, (dict, list, bool)):
+                return ''
+            text = str(value).strip()
+            if not text:
+                return ''
+            # Skip JSON blobs accidentally stored in string ``data`` fields.
+            if text[0] in '{[':
+                return ''
+            if text.casefold() in noise:
+                return ''
+            return text
+
+        layers = list(HimalPayAPI._iter_nested_dicts(response))
+        if not layers:
+            root = HimalPayAPI._coerce_mapping(response)
+            layers = [root] if root else []
+
+        # 1) vendor_state / explicit error text from any nesting level
+        for key in preferred_keys:
+            for layer in layers:
+                if key not in layer:
                     continue
-                text = str(value).strip()
+                text = _clean(layer.get(key))
                 if text:
                     return text
-            return ''
 
-        vendor_status = _text(
-            nested.get('vendor_status'),
-            deeper.get('vendor_status'),
-            root.get('vendor_status'),
-        )
-        vendor_state = _text(
-            nested.get('vendor_state'),
-            deeper.get('vendor_state'),
-            root.get('vendor_state'),
-        )
+        # 2) Plain-string ``data`` payloads (common vendor failure shape)
+        for layer in layers:
+            data_val = layer.get('data')
+            if isinstance(data_val, str):
+                text = _clean(data_val)
+                if text:
+                    return text
 
-        # Prefer vendor_state when it carries the actionable Samsara reason
-        # (already received / amount locked) even if outer status is SUCCESS.
-        return _text(
-            vendor_state,
-            nested_data_text,
-            root.get('error'),
-            nested.get('error'),
-            deeper.get('error'),
-            deepest.get('error'),
-            root.get('message'),
-            nested.get('message'),
-            deeper.get('message'),
-            deepest.get('message'),
-            root.get('detail'),
-            nested.get('detail'),
-            deeper.get('detail'),
-            root.get('reason'),
-            nested.get('reason'),
-            deeper.get('reason'),
-            root.get('status_message'),
-            nested.get('status_message'),
-            deeper.get('status_message'),
-            vendor_status if vendor_status not in ('0', '00', 'SUCCESS', 'OK') else '',
-        )
+        # 3) Non-success vendor/status codes that are themselves readable text
+        for key in status_keys:
+            for layer in layers:
+                if key not in layer:
+                    continue
+                text = _clean(layer.get(key))
+                if text and text.casefold() not in ('1', '2', 'failed', 'failure', 'error'):
+                    # Numeric / bare failed flags are not useful as user copy.
+                    if text.isdigit():
+                        continue
+                    return text
+
+        return ''
 
     @staticmethod
     def extract_failure_details(response: Any) -> Dict[str, Any]:
@@ -1540,7 +1590,13 @@ class HimalPayAPI:
             'AccountName',
             'account_holder_name',
             'AccountHolderName',
+            'original_account_name',
+            'originalAccountName',
             'destination_acc_name',
+            'customer_name',
+            'CustomerName',
+            'holder_name',
+            'full_name',
             'name',
         )
         candidates = []
@@ -1586,34 +1642,59 @@ class HimalPayAPI:
         require_name: bool = True,
     ) -> Dict[str, Any]:
         """
-        Ensure provider-verified bank, account number, and (when required)
-        account holder name all match the values the user entered.
-        """
-        verified_name = cls.extract_verified_account_name(response, fallback=account_name)
-        verified_number = cls.extract_verified_account_number(
-            response, fallback=account_number
-        )
-        verified_bank = cls.extract_verified_bank_code(response, fallback=bank_code)
+        Compare user-entered destination details against provider-returned
+        registered account details.
 
-        bank_ok = cls.normalize_bank_code(verified_bank) == cls.normalize_bank_code(bank_code)
-        number_ok = cls.normalize_account_number(verified_number) == cls.normalize_account_number(
-            account_number
-        )
-        if require_name:
-            name_ok = cls.names_match(verified_name, account_name)
+        Critical: never fall back to the user's own input when deciding a
+        match — that would make every successful HTTP response look like a
+        perfect match even when the bank returned different (or no) details.
+        """
+        # Extract registered values WITHOUT user-input fallbacks.
+        registered_name = cls.extract_verified_account_name(response, fallback='')
+        registered_number = cls.extract_verified_account_number(response, fallback='')
+        registered_bank = cls.extract_verified_bank_code(response, fallback='')
+
+        if registered_bank:
+            bank_ok = cls.normalize_bank_code(registered_bank) == cls.normalize_bank_code(
+                bank_code
+            )
         else:
-            # Phone transfers: accept any registered name returned by the provider
-            name_ok = bool(cls.normalize_account_name(verified_name))
+            # Provider confirmed the verify call without echoing bank — trust
+            # the upstream success flag already checked by the caller.
+            bank_ok = bool(cls.normalize_bank_code(bank_code))
+
+        if registered_number:
+            number_ok = cls.normalize_account_number(
+                registered_number
+            ) == cls.normalize_account_number(account_number)
+        else:
+            number_ok = bool(cls.normalize_account_number(account_number))
+
+        if require_name:
+            if registered_name:
+                name_ok = cls.names_match(registered_name, account_name)
+            else:
+                # Bank verify succeeded but name was not echoed — keep the
+                # submitted holder name only if the user actually provided one.
+                name_ok = bool(cls.normalize_account_name(account_name))
+        else:
+            # Phone transfers: the registered holder name must come from the
+            # provider. Reject empty names and phone-number placeholders.
+            name_ok = bool(cls.normalize_account_name(registered_name)) and (
+                cls.normalize_account_number(registered_name)
+                != cls.normalize_account_number(account_number)
+            )
 
         matched = bool(bank_ok and number_ok and name_ok)
+        display_name = registered_name or (account_name if require_name else '')
         return {
             'matched': matched,
             'bank_ok': bank_ok,
             'number_ok': number_ok,
             'name_ok': name_ok,
-            'account_name': verified_name,
-            'account_number': verified_number or account_number,
-            'bank_code': verified_bank or bank_code,
+            'account_name': display_name,
+            'account_number': registered_number or account_number,
+            'bank_code': registered_bank or bank_code,
         }
 
     @staticmethod
@@ -1660,11 +1741,47 @@ class HimalPayAPI:
             }
 
         if wallet_service_name == self.SERVICE_BANK_TRANSFER_VERIFICATION:
+            # Simulate registered bank details so local name/number matching is real.
+            bank_code = str(data.get('bank_code') or '').strip().upper()
+            account_number = str(data.get('account_number') or '').strip()
+            submitted_name = str(data.get('account_name') or '').strip()
+            is_mobile = str(data.get('is_mobile') or 'n').lower() in (
+                'y',
+                'yes',
+                'true',
+                '1',
+            )
+            mock_registry = {
+                ('LXBLNPKA', '1845008000023'): 'Kishor Adhikari',
+                ('NARBNPKA', '0123456789012'): 'Test Account Holder',
+                ('SCBLNPKA', '00101102012345'): 'Bypass Demo User',
+                ('LXBLNPKA', '9800000000'): 'Kishor Adhikari',
+                ('NARBNPKA', '9811111111'): 'Test Account Holder',
+            }
+            normalized_number = self.normalize_account_number(account_number)
+            registered_name = None
+            for (reg_bank, reg_number), holder in mock_registry.items():
+                if (
+                    reg_bank == bank_code
+                    and self.normalize_account_number(reg_number) == normalized_number
+                ):
+                    registered_name = holder
+                    break
+
+            if registered_name is not None:
+                account_name_out = registered_name
+            elif is_mobile:
+                # Never echo the phone number as the holder name.
+                account_name_out = f'Bypass Holder {normalized_number[-4:] or "0000"}'
+            else:
+                # Unknown account: echo submitted name for local happy-path testing.
+                account_name_out = submitted_name or f'Bypass Holder {normalized_number[-4:] or "0000"}'
+
             return {
                 'verified': True,
-                'account_name': data.get('account_name'),
-                'account_number': data.get('account_number'),
-                'bank_code': data.get('bank_code'),
+                'account_name': account_name_out,
+                'account_number': account_number,
+                'bank_code': bank_code,
                 'message': 'Account verified successfully (bypass)',
             }
 

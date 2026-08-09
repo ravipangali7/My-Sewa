@@ -963,6 +963,7 @@ class BankTransferTransactionSerializer(serializers.ModelSerializer):
 class BankAccountVerifySerializer(serializers.Serializer):
     """Verify destination bank account before transfer"""
     bank_code = serializers.CharField(max_length=50, required=True)
+    bank_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
     # Optional for phone/mobile transfers — provider returns the registered name.
     account_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
     account_number = serializers.CharField(max_length=50, required=True)

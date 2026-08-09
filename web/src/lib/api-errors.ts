@@ -129,7 +129,7 @@ export function userFriendlyApiMessage(err: unknown, fallback = FALLBACK): strin
   if (err instanceof ApiError) {
     const code = errorCodeFromBody(err.body);
     const body = asRecord(err.body);
-    const preferred = firstString(body?.["message"], err.message);
+    const preferred = firstString(body?.["message"], body?.["provider_message"], err.message);
     if (preferred) {
       const friendly = sanitizeProviderMessage(preferred, "");
       if (friendly) return friendly;

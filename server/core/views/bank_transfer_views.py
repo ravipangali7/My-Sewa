@@ -43,6 +43,8 @@ from django.db.models import Sum
 
 logger = logging.getLogger(__name__)
 
+ACCOUNT_DETAILS_MISMATCH = 'Account details do not match.'
+
 
 def _get_or_create_wallet(user):
     try:
@@ -233,7 +235,8 @@ def verify_account(request):
     is_mobile_flag = 'y' if is_mobile else 'n'
     account_name = (data.get('account_name') or '').strip()
     # HimalPay still expects an account_name field; for phone transfers use the
-    # mobile number as a placeholder when the user did not enter a name.
+    # mobile number as a placeholder. Local matching never treats that placeholder
+    # as the registered holder name.
     verify_name = account_name or (data['account_number'] if is_mobile else '')
 
     himalpay = HimalPayAPI()
@@ -253,9 +256,10 @@ def verify_account(request):
         if not himalpay.is_verification_success(result):
             return Response(
                 {
-                    'error': "Don't Match",
-                    'message': "Don't Match",
+                    'error': ACCOUNT_DETAILS_MISMATCH,
+                    'message': ACCOUNT_DETAILS_MISMATCH,
                     'verified': False,
+                    'mismatch': True,
                     'merchant_txn_id': merchant_txn_id,
                     'provider': result,
                 },
@@ -266,14 +270,16 @@ def verify_account(request):
             result,
             bank_code=bank_code,
             account_number=data['account_number'],
-            account_name=account_name or verify_name,
+            # For phone transfers compare against provider-returned holder only
+            # (do not pass the mobile number as a fake account_name).
+            account_name=account_name if not is_mobile else '',
             require_name=not is_mobile,
         )
         if not match['matched']:
             return Response(
                 {
-                    'error': "Don't Match",
-                    'message': "Don't Match",
+                    'error': ACCOUNT_DETAILS_MISMATCH,
+                    'message': ACCOUNT_DETAILS_MISMATCH,
                     'verified': False,
                     'mismatch': True,
                     'merchant_txn_id': merchant_txn_id,
@@ -299,6 +305,8 @@ def verify_account(request):
                     'account_name': match['account_name'],
                     'account_number': match['account_number'],
                     'bank_code': match['bank_code'],
+                    'bank_name': data.get('bank_name') or '',
+                    'is_mobile': is_mobile,
                     'merchant_txn_id': merchant_txn_id,
                     'provider': result,
                 },
@@ -308,11 +316,13 @@ def verify_account(request):
     except HimalPayError as exc:
         return Response(
             {
-                'error': "Don't Match",
-                'message': exc.message or "Don't Match",
+                'error': ACCOUNT_DETAILS_MISMATCH,
+                'message': ACCOUNT_DETAILS_MISMATCH,
+                'provider_message': exc.message or ACCOUNT_DETAILS_MISMATCH,
                 'error_code': exc.error_code,
                 'error_type': exc.error_type,
                 'verified': False,
+                'mismatch': True,
                 'merchant_txn_id': merchant_txn_id,
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -563,7 +573,7 @@ def create_bank_transfer(request):
     )
 
     try:
-        # Step 1: verify destination with a dedicated verify txn id
+        # Step 1: re-verify destination against registered bank details
         verify_name = data['destination_acc_name'] or (
             data['destination_acc_no'] if is_mobile else ''
         )
@@ -580,9 +590,10 @@ def create_bank_transfer(request):
             transfer.save()
             return Response(
                 {
-                    'error': "Don't Match",
-                    'message': "Don't Match",
+                    'error': ACCOUNT_DETAILS_MISMATCH,
+                    'message': ACCOUNT_DETAILS_MISMATCH,
                     'verified': False,
+                    'mismatch': True,
                     'wallet_debited': False,
                     'data': BankTransferTransactionSerializer(transfer).data,
                     'provider': verify_result,
@@ -594,7 +605,7 @@ def create_bank_transfer(request):
             verify_result,
             bank_code=data['destination_bank'],
             account_number=data['destination_acc_no'],
-            account_name=data['destination_acc_name'] or verify_name,
+            account_name='' if is_mobile else data['destination_acc_name'],
             require_name=not is_mobile,
         )
         if not match['matched']:
@@ -603,8 +614,8 @@ def create_bank_transfer(request):
             transfer.save()
             return Response(
                 {
-                    'error': "Don't Match",
-                    'message': "Don't Match",
+                    'error': ACCOUNT_DETAILS_MISMATCH,
+                    'message': ACCOUNT_DETAILS_MISMATCH,
                     'verified': False,
                     'mismatch': True,
                     'wallet_debited': False,

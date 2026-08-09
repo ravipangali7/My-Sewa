@@ -358,6 +358,53 @@ class RemittanceLookupParseTests(SimpleTestCase):
             HimalPayAPI.is_remittance_already_received('Amount is locked')
         )
 
+    def test_extract_provider_message_stringified_nested_vendor_state(self):
+        import json
+        raw = {
+            'status': 'SUCCESS',
+            'data': json.dumps({
+                'core_transaction_uuid': 'abc123',
+                'vendor_state': 'Amount is locked',
+                'vendor_status': '1',
+                'data': {
+                    'ref_no': 'S1001',
+                    'payout_amt': '0.0000',
+                    'receiver_name': 'TEST',
+                },
+            }),
+        }
+        self.assertEqual(HimalPayAPI.extract_provider_message(raw), 'Amount is locked')
+
+    def test_extract_provider_message_ignores_success_noise(self):
+        raw = {
+            'status': 'SUCCESS',
+            'message': 'SUCCESS',
+            'data': {
+                'status': 'SUCCESS',
+                'ms_status': 'SUCCESS',
+                'vendor_status': '1',
+                'vendor_state': 'Already Received',
+                'data': {'ref_no': 'S1001', 'payout_amt': '0'},
+            },
+        }
+        self.assertEqual(HimalPayAPI.extract_provider_message(raw), 'Already Received')
+
+    def test_extract_provider_message_list_wrapped_data(self):
+        raw = {
+            'status': 'SUCCESS',
+            'data': {
+                'core_transaction_uuid': 'abc123',
+                'data': [
+                    {
+                        'vendor_state': 'Amount is locked',
+                        'ref_no': 'S1001',
+                        'payout_amt': '0.0000',
+                    }
+                ],
+            },
+        }
+        self.assertEqual(HimalPayAPI.extract_provider_message(raw), 'Amount is locked')
+
 
 class ResetPasswordSerializerTests(SimpleTestCase):
     """date_of_birth must be present and YYYY-MM-DD before reset can proceed."""
