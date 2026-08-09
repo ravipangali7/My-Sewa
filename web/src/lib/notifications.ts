@@ -247,7 +247,7 @@ function notificationCopy(
       }),
     };
   }
-  if (item.kind === "water" || item.kind === "community_electricity" || item.kind === "internet" || item.kind === "data_pack") {
+  if (item.kind === "water" || item.kind === "electricity" || item.kind === "community_electricity" || item.kind === "internet" || item.kind === "data_pack") {
     return {
       title:
         item.status === "failed"

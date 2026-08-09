@@ -34,6 +34,7 @@ function walk(node: unknown, visit: (obj: Record<string, unknown>) => void) {
 
 function counterValue(item: Record<string, unknown>): string | null {
   return firstString(
+    item["office_code"],
     item["counter_code"],
     item["counter"],
     item["code"],
@@ -47,6 +48,7 @@ function counterValue(item: Record<string, unknown>): string | null {
 
 function counterLabel(item: Record<string, unknown>, value: string): string {
   const name = firstString(
+    item["office_name"],
     item["counter_name"],
     item["name"],
     item["label"],
@@ -54,6 +56,7 @@ function counterLabel(item: Record<string, unknown>, value: string): string {
     item["description"],
     item["counter"],
     item["counter_code"],
+    item["office_code"],
   );
   if (!name || name === value) return value;
   return `${name} (${value})`;
@@ -61,7 +64,9 @@ function counterLabel(item: Record<string, unknown>, value: string): string {
 
 function looksLikeCounter(item: Record<string, unknown>): boolean {
   return Boolean(
-    item["counter_code"] ||
+    item["office_code"] ||
+      item["office_name"] ||
+      item["counter_code"] ||
       item["counter"] ||
       item["counter_name"] ||
       item["slug"] ||
@@ -91,6 +96,7 @@ export function extractCounterOptions(raw: unknown): CounterOption[] {
       const keyLower = key.toLowerCase();
       const isCounterKey =
         keyLower.includes("counter") ||
+        keyLower.includes("office") ||
         keyLower.includes("slug") ||
         keyLower === "data" ||
         keyLower === "items" ||

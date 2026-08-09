@@ -106,6 +106,7 @@ const DEFAULT_CONFIG: AppConfig = {
     internet_bills_enabled: true,
     data_packs_enabled: true,
     water_bills_enabled: true,
+    electricity_bills_enabled: true,
     community_electricity_enabled: true,
     min_deposit: 100,
     max_deposit: 100000,
@@ -990,6 +991,17 @@ function SettingsPage() {
                     setConfig((c) => ({
                       ...c,
                       payment: { ...c.payment, water_bills_enabled: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="Electricity bill payments (NEA)"
+                  description="Allow NEA electricity bill inquiry and payment"
+                  checked={config.payment.electricity_bills_enabled !== false}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      payment: { ...c.payment, electricity_bills_enabled: v },
                     }))
                   }
                 />

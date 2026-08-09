@@ -11,6 +11,7 @@ from .models import (
     BankTransferTransaction,
     RemittanceTransaction,
     WaterBillTransaction,
+    ElectricityBillTransaction,
     CommunityElectricityTransaction,
     UserFeeConfig,
     DeviceToken,
@@ -366,6 +367,24 @@ class WaterBillTransactionAdmin(admin.ModelAdmin):
         'merchant_txn_id', 'service_hub_txn_id', 'reference_id', 'session_id',
     )
     readonly_fields = [f.name for f in WaterBillTransaction._meta.fields]
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(ElectricityBillTransaction)
+class ElectricityBillTransactionAdmin(admin.ModelAdmin):
+    list_display = (
+        'user', 'sc_no', 'consumer_id', 'office_code', 'amount',
+        'status', 'total_debited', 'merchant_txn_id', 'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    search_fields = (
+        'user__phone', 'sc_no', 'consumer_id', 'office_code', 'office_name',
+        'merchant_txn_id', 'service_hub_txn_id', 'reference_id', 'session_id',
+    )
+    readonly_fields = [f.name for f in ElectricityBillTransaction._meta.fields]
     ordering = ('-created_at',)
 
     def has_add_permission(self, request):

@@ -18,6 +18,7 @@ from .models import (
     RemittanceTransaction,
     InternetBillTransaction,
     WaterBillTransaction,
+    ElectricityBillTransaction,
     CommunityElectricityTransaction,
     DataPackTransaction,
     DeviceToken,
@@ -1350,6 +1351,79 @@ class WaterBillPaySerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=10, decimal_places=2)
     session_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
     payment_type = serializers.CharField(max_length=50, required=False, allow_blank=True, default='Bill Payment')
+    customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    pay_data = serializers.JSONField(required=False)
+    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Amount must be greater than zero.')
+        return value
+
+
+class ElectricityBillTransactionSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = ElectricityBillTransaction
+        fields = (
+            'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
+            'sc_no', 'consumer_id', 'office_code', 'office_name', 'customer_name',
+            'session_id', 'amount', 'pay_service',
+            'status', 'status_display', 'merchant_txn_id',
+            'service_hub_txn_id', 'charge', 'cashback', 'total_debited',
+            'balance_before', 'balance_after',
+            'reference_id', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+
+class AdminElectricityBillSerializer(ElectricityBillTransactionSerializer):
+    """Staff electricity bill detail — includes raw provider response for support."""
+
+    class Meta(ElectricityBillTransactionSerializer.Meta):
+        fields = ElectricityBillTransactionSerializer.Meta.fields + ('provider_response',)
+
+
+class ElectricityBillInquirySerializer(serializers.Serializer):
+    sc_no = serializers.CharField(max_length=50)
+    consumer_id = serializers.CharField(max_length=50)
+    office_code = serializers.CharField(max_length=100)
+
+    def validate_sc_no(self, value):
+        cleaned = str(value or '').strip()
+        if not cleaned:
+            raise serializers.ValidationError('SC number is required.')
+        return cleaned
+
+    def validate_consumer_id(self, value):
+        cleaned = str(value or '').strip()
+        if not cleaned:
+            raise serializers.ValidationError('Consumer ID is required.')
+        return cleaned
+
+    def validate_office_code(self, value):
+        cleaned = (value or '').strip()
+        if not cleaned:
+            raise serializers.ValidationError('Office / counter is required.')
+        return cleaned
+
+
+class ElectricityBillPaySerializer(serializers.Serializer):
+    sc_no = serializers.CharField(max_length=50)
+    consumer_id = serializers.CharField(max_length=50)
+    office_code = serializers.CharField(max_length=100)
+    office_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    session_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
     customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
     pay_data = serializers.JSONField(required=False)
     transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)

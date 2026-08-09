@@ -105,6 +105,15 @@ function Services() {
       enabled: payment?.water_bills_enabled !== false && !accountPending,
     },
     {
+      to: "/app/electricity" as const,
+      title: t("services.electricity"),
+      desc: accountPending
+        ? t("services.unavailablePending")
+        : t("services.electricityDesc"),
+      icon: Zap,
+      enabled: payment?.electricity_bills_enabled !== false && !accountPending,
+    },
+    {
       to: "/app/community-electricity" as const,
       title: t("services.communityElectricity"),
       desc: accountPending

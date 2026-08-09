@@ -265,6 +265,7 @@ def default_app_config():
             'internet_bills_enabled': True,
             'data_packs_enabled': True,
             'water_bills_enabled': True,
+            'electricity_bills_enabled': True,
             'community_electricity_enabled': True,
             'min_deposit': 100,
             'max_deposit': 100000,
@@ -752,6 +753,52 @@ class WaterBillTransaction(models.Model):
         ordering = ['-created_at']
 
 
+class ElectricityBillTransaction(models.Model):
+    """NEA electricity bill payment via HimalPay."""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='electricity_bills',
+    )
+    sc_no = models.CharField(max_length=50)
+    consumer_id = models.CharField(max_length=50)
+    office_code = models.CharField(max_length=100)
+    office_name = models.CharField(max_length=200, blank=True, default='')
+    customer_name = models.CharField(max_length=200, blank=True, default='')
+    session_id = models.CharField(max_length=100, blank=True, default='')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
+    pay_service = models.CharField(max_length=80, default='NEA_PAY')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    merchant_txn_id = models.CharField(max_length=100, unique=True)
+    service_hub_txn_id = models.CharField(max_length=100, blank=True, null=True)
+    reference_id = models.CharField(max_length=100, blank=True, null=True)
+    charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    inquiry_response = models.JSONField(default=dict, blank=True)
+    pay_payload = models.JSONField(default=dict, blank=True)
+    provider_response = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return (
+            f"{self.user.phone} - NEA - {self.sc_no}/{self.consumer_id} "
+            f"- Rs. {self.amount}"
+        )
+
+    class Meta:
+        verbose_name = "Electricity Bill Transaction"
+        verbose_name_plural = "Electricity Bill Transactions"
+        ordering = ['-created_at']
+
+
 class CommunityElectricityTransaction(models.Model):
     """Community electricity bill payment via HimalPay (Himchuli, Watermark, Dreamer, Softlab, BPC)."""
     STATUS_CHOICES = [
@@ -1185,6 +1232,7 @@ class StatementDiscrepancy(models.Model):
     TXN_DATA_PACK = 'data_pack'
     TXN_INTERNET = 'internet'
     TXN_WATER = 'water'
+    TXN_ELECTRICITY = 'electricity'
     TXN_COMMUNITY_ELECTRICITY = 'community_electricity'
     TXN_BANK_TRANSFER = 'bank_transfer'
     TXN_REMITTANCE = 'remittance'
@@ -1193,6 +1241,7 @@ class StatementDiscrepancy(models.Model):
         (TXN_DATA_PACK, 'Data pack'),
         (TXN_INTERNET, 'Internet'),
         (TXN_WATER, 'Water'),
+        (TXN_ELECTRICITY, 'Electricity'),
         (TXN_COMMUNITY_ELECTRICITY, 'Community electricity'),
         (TXN_BANK_TRANSFER, 'Bank transfer'),
         (TXN_REMITTANCE, 'Remittance'),

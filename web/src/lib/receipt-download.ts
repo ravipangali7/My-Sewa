@@ -13,6 +13,7 @@ const ACTIVITY_PREFIX_BY_KIND: Record<ActivityKind, string> = {
   internet: "isp",
   data_pack: "data",
   water: "water",
+  electricity: "nea",
   community_electricity: "ce",
   wallet_adjustment: "adj",
 };

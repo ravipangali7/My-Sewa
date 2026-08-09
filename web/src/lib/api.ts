@@ -743,6 +743,52 @@ export const apiClient = {
       body: { merchant_transaction_id },
     }),
 
+  electricityCounters: () =>
+    api<{ message: string; data: unknown }>("/api/electricity/counters/"),
+
+  electricityInquiry: (body: {
+    sc_no: string;
+    consumer_id: string;
+    office_code: string;
+  }) =>
+    api<{ message: string; data: import("./types").UtilityInquiry }>(
+      "/api/electricity/inquiry/",
+      { method: "POST", body },
+    ),
+
+  electricityPay: (body: {
+    sc_no: string;
+    consumer_id: string;
+    office_code: string;
+    office_name?: string;
+    amount: number;
+    session_id?: string;
+    customer_name?: string;
+    pay_data?: Record<string, unknown>;
+    transaction_pin: string;
+  }) =>
+    api<{
+      message: string;
+      pending_message?: string;
+      data: import("./types").ElectricityBillTransaction;
+    }>("/api/electricity/pay/", { method: "POST", body }),
+
+  electricityHistory: (filters?: AdminListFilters) =>
+    api<
+      import("./types").AdminListResponse<import("./types").ElectricityBillTransaction>
+    >(`/api/electricity/history/${buildAdminListQuery(filters)}`),
+
+  electricityStatus: (merchant_transaction_id: string) =>
+    api<{
+      status: import("./types").TxnStatus;
+      message?: string | null;
+      data: Record<string, unknown>;
+      local_bill: import("./types").ElectricityBillTransaction | null;
+    }>("/api/electricity/status/", {
+      method: "POST",
+      body: { merchant_transaction_id },
+    }),
+
   communityElectricityProviders: () =>
     api<{ providers: import("./types").CommunityProviderOption[] }>(
       "/api/community-electricity/providers/",

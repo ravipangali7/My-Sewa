@@ -32,6 +32,7 @@ from ..models import (
     RemittanceTransaction,
     InternetBillTransaction,
     WaterBillTransaction,
+    ElectricityBillTransaction,
     CommunityElectricityTransaction,
     DataPackTransaction,
     UserFeeConfig,
@@ -57,6 +58,8 @@ from ..serializers import (
     AdminInternetBillSerializer,
     WaterBillTransactionSerializer,
     AdminWaterBillSerializer,
+    ElectricityBillTransactionSerializer,
+    AdminElectricityBillSerializer,
     CommunityElectricityTransactionSerializer,
     AdminCommunityElectricitySerializer,
     DataPackTransactionSerializer,
@@ -1130,6 +1133,7 @@ def admin_wallet_transactions(request, wallet_id):
         'internet': 'internet_bills',
         'data_pack': 'data_packs',
         'water': 'water_bills',
+        'electricity': 'electricity_bills',
         'community_electricity': 'community_electricity',
         'adjustment': 'wallet_adjustments',
         'wallet_adjustment': 'wallet_adjustments',
@@ -1146,6 +1150,7 @@ def admin_wallet_transactions(request, wallet_id):
     internet_bills = _bucket(InternetBillTransaction.objects.filter(user=user))
     data_packs = _bucket(DataPackTransaction.objects.filter(user=user))
     water_bills = _bucket(WaterBillTransaction.objects.filter(user=user))
+    electricity_bills = _bucket(ElectricityBillTransaction.objects.filter(user=user))
     community_electricity = _bucket(CommunityElectricityTransaction.objects.filter(user=user))
     adjustments = _bucket(WalletAdjustment.objects.filter(user=user))
 
@@ -1157,6 +1162,7 @@ def admin_wallet_transactions(request, wallet_id):
         'internet_bills': InternetBillTransactionSerializer(internet_bills, many=True).data,
         'data_packs': DataPackTransactionSerializer(data_packs, many=True).data,
         'water_bills': WaterBillTransactionSerializer(water_bills, many=True).data,
+        'electricity_bills': ElectricityBillTransactionSerializer(electricity_bills, many=True).data,
         'community_electricity': CommunityElectricityTransactionSerializer(
             community_electricity, many=True
         ).data,
@@ -1168,7 +1174,8 @@ def admin_wallet_transactions(request, wallet_id):
     if type_key:
         for key in (
             'deposits', 'remittances', 'topups', 'bank_transfers',
-            'internet_bills', 'data_packs', 'water_bills', 'community_electricity',
+            'internet_bills', 'data_packs', 'water_bills', 'electricity_bills',
+            'community_electricity',
             'wallet_adjustments',
         ):
             if key != type_key:
@@ -1751,6 +1758,103 @@ def admin_update_water_bill_status(request, bill_id):
     return Response({
         'message': f'Water bill status updated to {bill.status}',
         'data': AdminWaterBillSerializer(bill).data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_list_electricity_bills(request):
+    qs = ElectricityBillTransaction.objects.select_related('user').order_by('-created_at')
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+    status_filter = request.query_params.get('status')
+    if status_filter in ('pending', 'success', 'failed'):
+        qs = qs.filter(status=status_filter)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(sc_no__icontains=q)
+            | Q(consumer_id__icontains=q)
+            | Q(office_code__icontains=q)
+            | Q(office_name__icontains=q)
+            | Q(customer_name__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | Q(session_id__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-electricity-bills.csv',
+            [
+                'id', 'phone', 'sc_no', 'consumer_id', 'office_code',
+                'office_name', 'customer_name', 'amount', 'charge', 'cashback',
+                'total_debited', 'merchant_txn_id', 'service_hub_txn_id',
+                'status', 'created_at',
+            ],
+            [
+                [
+                    t.id, t.user.phone, t.sc_no, t.consumer_id, t.office_code,
+                    t.office_name, t.customer_name, t.amount, t.charge, t.cashback,
+                    t.total_debited, t.merchant_txn_id, t.service_hub_txn_id or '',
+                    t.status, t.created_at.isoformat() if t.created_at else '',
+                ]
+                for t in qs
+            ],
+        )
+
+    return Response({
+        'items': ElectricityBillTransactionSerializer(qs, many=True).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status='success').count(),
+            'pending': qs.filter(status='pending').count(),
+            'failed': qs.filter(status='failed').count(),
+        },
+        'summary': _amount_summary(qs, direction='debit'),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_get_electricity_bill(request, bill_id):
+    try:
+        bill = ElectricityBillTransaction.objects.select_related('user').get(pk=bill_id)
+    except ElectricityBillTransaction.DoesNotExist:
+        return Response({'error': 'Electricity bill not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(AdminElectricityBillSerializer(bill).data)
+
+
+@api_view(['POST', 'PATCH'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_update_electricity_bill_status(request, bill_id):
+    """Change electricity bill status from the admin list (pending / success / failed)."""
+    try:
+        bill = ElectricityBillTransaction.objects.select_related('user').get(pk=bill_id)
+    except ElectricityBillTransaction.DoesNotExist:
+        return Response({'error': 'Electricity bill not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    new_status = (request.data.get('status') or '').strip().lower()
+    old_status = bill.status
+    ok, err = apply_outbound_status_change(bill, new_status)
+    if not ok:
+        return Response({'error': err}, status=status.HTTP_400_BAD_REQUEST)
+
+    bill.refresh_from_db()
+    if old_status != 'success' and bill.status == 'success':
+        from ..services.notifications import notify_low_balance_if_needed
+        from ..models import Wallet
+        try:
+            wallet = Wallet.objects.select_related('user').get(user=bill.user)
+            notify_low_balance_if_needed(wallet)
+        except Wallet.DoesNotExist:
+            pass
+
+    return Response({
+        'message': f'Electricity bill status updated to {bill.status}',
+        'data': AdminElectricityBillSerializer(bill).data,
     })
 
 

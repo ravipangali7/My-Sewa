@@ -118,6 +118,8 @@ function txnDetailPath(row: StatementLedgerRow): string | null {
       return `/admin/internet/${ms.txn_id}`;
     case "water":
       return `/admin/water/${ms.txn_id}`;
+    case "electricity":
+      return null;
     case "community_electricity":
       return `/admin/community-electricity/${ms.txn_id}`;
     case "bank_transfer":

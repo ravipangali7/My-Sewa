@@ -9,6 +9,7 @@ from .views import (
     remittance_views,
     internet_views,
     water_views,
+    electricity_views,
     community_electricity_views,
     data_pack_views,
     admin_views,
@@ -120,6 +121,13 @@ urlpatterns = [
     path('api/water/history/', water_views.water_bill_history, name='water_history'),
     path('api/water/status/', water_views.water_bill_status, name='water_status'),
 
+    # NEA Electricity
+    path('api/electricity/counters/', electricity_views.list_counters, name='electricity_counters'),
+    path('api/electricity/inquiry/', electricity_views.inquiry_bill, name='electricity_inquiry'),
+    path('api/electricity/pay/', electricity_views.pay_bill, name='electricity_pay'),
+    path('api/electricity/history/', electricity_views.electricity_bill_history, name='electricity_history'),
+    path('api/electricity/status/', electricity_views.electricity_bill_status, name='electricity_status'),
+
     # Community electricity (Himchuli, Watermark, Dreamer, Softlab, BPC)
     path(
         'api/community-electricity/providers/',
@@ -188,6 +196,9 @@ urlpatterns = [
     path('api/admin/water-bills/', admin_views.admin_list_water_bills, name='admin_list_water_bills'),
     path('api/admin/water-bills/<int:bill_id>/', admin_views.admin_get_water_bill, name='admin_get_water_bill'),
     path('api/admin/water-bills/<int:bill_id>/status/', admin_views.admin_update_water_bill_status, name='admin_update_water_bill_status'),
+    path('api/admin/electricity-bills/', admin_views.admin_list_electricity_bills, name='admin_list_electricity_bills'),
+    path('api/admin/electricity-bills/<int:bill_id>/', admin_views.admin_get_electricity_bill, name='admin_get_electricity_bill'),
+    path('api/admin/electricity-bills/<int:bill_id>/status/', admin_views.admin_update_electricity_bill_status, name='admin_update_electricity_bill_status'),
     path('api/admin/community-electricity/', admin_views.admin_list_community_electricity, name='admin_list_community_electricity'),
     path('api/admin/community-electricity/<int:bill_id>/', admin_views.admin_get_community_electricity, name='admin_get_community_electricity'),
     path('api/admin/community-electricity/<int:bill_id>/status/', admin_views.admin_update_community_electricity_status, name='admin_update_community_electricity_status'),

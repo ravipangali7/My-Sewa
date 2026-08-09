@@ -1,5 +1,5 @@
 """
-Catalog of KUKL water and Community Electricity payment platforms (HimalPay).
+Catalog of KUKL water, NEA Electricity, and Community Electricity platforms (HimalPay).
 
 Each entry maps a user-facing provider to HimalPay GET/PAY (and optional
 counter/slug) wallet_service_name values from himalpay-api.md.
@@ -26,6 +26,45 @@ KUKL_WATER: Dict[str, Any] = {
 
 def get_kukl() -> Dict[str, Any]:
     return dict(KUKL_WATER)
+
+
+# ---------------------------------------------------------------------------
+# NEA Electricity (3-step: office counter → detail → pay)
+# ---------------------------------------------------------------------------
+
+NEA_ELECTRICITY: Dict[str, Any] = {
+    'id': 'nea',
+    'name': 'NEA Electricity',
+    'counter_service': 'NEA_GET_COUNTER',
+    'get_service': 'NEA_GET_DETAIL',
+    'pay_service': 'NEA_PAY',
+    'steps': 3,
+    'fields': ('sc_no', 'office_code', 'consumer_id'),
+}
+
+
+def get_nea() -> Dict[str, Any]:
+    return dict(NEA_ELECTRICITY)
+
+
+def build_nea_inquiry_payload(
+    sc_no: Any,
+    office_code: str,
+    consumer_id: Any,
+) -> Dict[str, Any]:
+    """Build NEA_GET_DETAIL data payload."""
+    return {
+        'sc_no': str(sc_no or '').strip(),
+        'office_code': str(office_code or '').strip(),
+        'consumer_id': _as_int_or_str(consumer_id),
+    }
+
+
+def build_nea_pay_payload(session_id: Any, consumer_id: Any) -> Dict[str, Any]:
+    return {
+        'session_id': _as_int_or_str(session_id),
+        'consumer_id': _as_int_or_str(consumer_id),
+    }
 
 
 def build_kukl_inquiry_payload(

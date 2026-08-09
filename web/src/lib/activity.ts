@@ -8,6 +8,7 @@ import type {
   InternetBillTransaction,
   DataPackTransaction,
   WaterBillTransaction,
+  ElectricityBillTransaction,
   CommunityElectricityTransaction,
   WalletAdjustment,
   WalletTransactions,
@@ -27,6 +28,7 @@ const DEBIT_KINDS = new Set<ActivityKind>([
   "internet",
   "data_pack",
   "water",
+  "electricity",
   "community_electricity",
   "wallet_adjustment",
 ]);
@@ -131,6 +133,18 @@ export function buildActivity(
       kind: "water" as const,
       title: t("activity.waterBill"),
       subtitle: `${bill.connection_no} · ${bill.customer_code}`,
+      amount: bill.total_debited !== "0.00" ? bill.total_debited : bill.amount,
+      credit: false,
+      status: bill.status,
+      created_at: bill.created_at,
+      balance_before: bill.balance_before,
+      balance_after: bill.balance_after,
+    })),
+    ...(tx.electricity_bills ?? []).map((bill: ElectricityBillTransaction) => ({
+      id: `nea-${bill.id}`,
+      kind: "electricity" as const,
+      title: t("activity.electricityBill"),
+      subtitle: `${bill.sc_no} · ${bill.consumer_id}`,
       amount: bill.total_debited !== "0.00" ? bill.total_debited : bill.amount,
       credit: false,
       status: bill.status,
@@ -512,6 +526,57 @@ export function buildActivityStatement(
     pushDetail(details, t("water.customerCode"), bill.customer_code, { mono: true });
     pushDetail(details, t("water.counter"), bill.counter);
     pushDetail(details, t("water.customerName"), bill.customer_name || "—");
+    pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
+    pushDetail(details, t("common.charge"), formatNPR(bill.charge));
+    pushDetail(details, t("common.cashback"), formatNPR(bill.cashback));
+    pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
+    pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
+    pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.providerTxn"), bill.service_hub_txn_id, {
+      mono: true,
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.reference"), bill.reference_id, {
+      skipEmpty: true,
+    });
+    pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
+    return {
+      item,
+      reference,
+      headlineAmount: formatNPR(
+        bill.total_debited !== "0.00" ? bill.total_debited : bill.amount,
+      ),
+      amountCaption: t("history.totalDebited"),
+      footer: t("history.footer"),
+      details,
+    };
+  }
+
+  if (item.kind === "electricity") {
+    const bill = (tx.electricity_bills ?? []).find((x) => `nea-${x.id}` === id);
+    if (!bill) return undefined;
+    const reference =
+      bill.merchant_txn_id ||
+      bill.reference_id ||
+      bill.service_hub_txn_id ||
+      `#${bill.id}`;
+    const details: StatementRow[] = [];
+    pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("history.dateTime"), formatDateTime(bill.created_at));
+    pushDetail(details, t("history.channel"), t("history.channelOnline"));
+    pushDetail(details, t("history.serviceName"), t("activity.electricityBill"));
+    pushDetail(details, t("common.status"), translateStatus(bill.status, t));
+    pushDetail(details, t("electricity.scNumber"), bill.sc_no, { mono: true });
+    pushDetail(details, t("electricity.consumerId"), bill.consumer_id, { mono: true });
+    pushDetail(
+      details,
+      t("electricity.counter"),
+      bill.office_name || bill.office_code,
+    );
+    pushDetail(details, t("electricity.customerName"), bill.customer_name || "—");
     pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
     pushDetail(details, t("common.charge"), formatNPR(bill.charge));
     pushDetail(details, t("common.cashback"), formatNPR(bill.cashback));

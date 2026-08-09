@@ -19,6 +19,7 @@ export type ActivityKind =
   | "internet"
   | "data_pack"
   | "water"
+  | "electricity"
   | "community_electricity"
   | "wallet_adjustment";
 export type WalletAdjustmentType = "credit" | "debit";
@@ -156,6 +157,7 @@ export interface PaymentConfig {
   internet_bills_enabled: boolean;
   data_packs_enabled: boolean;
   water_bills_enabled: boolean;
+  electricity_bills_enabled: boolean;
   community_electricity_enabled: boolean;
   min_deposit: number;
   max_deposit: number;
@@ -563,6 +565,36 @@ export interface WaterBillTransaction {
   provider_response?: Record<string, unknown> | null;
 }
 
+export interface ElectricityBillTransaction {
+  id: number;
+  user: string;
+  user_id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  sc_no: string;
+  consumer_id: string;
+  office_code: string;
+  office_name: string;
+  customer_name: string;
+  session_id: string;
+  amount: string;
+  pay_service: string;
+  status: TxnStatus;
+  status_display: string;
+  merchant_txn_id: string;
+  service_hub_txn_id: string | null;
+  charge: string;
+  cashback: string;
+  total_debited: string;
+  balance_before: string | null;
+  balance_after: string | null;
+  reference_id: string | null;
+  created_at: string;
+  updated_at: string;
+  provider_response?: Record<string, unknown> | null;
+}
+
 export interface CommunityElectricityTransaction {
   id: number;
   user: string;
@@ -662,6 +694,7 @@ export interface WalletTransactions {
   internet_bills?: InternetBillTransaction[];
   data_packs?: DataPackTransaction[];
   water_bills?: WaterBillTransaction[];
+  electricity_bills?: ElectricityBillTransaction[];
   community_electricity?: CommunityElectricityTransaction[];
   wallet_adjustments?: WalletAdjustment[];
   summary?: AmountSummary;

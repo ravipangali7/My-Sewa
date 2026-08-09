@@ -1,13 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Search, Droplets, ChevronRight, Check } from "lucide-react";
+import { ArrowLeft, Search, Droplets, ChevronRight, Check, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
@@ -35,17 +42,34 @@ import type { UtilityInquiry, WaterBillTransaction } from "@/lib/types";
 export const Route = createFileRoute("/app/water")({
   head: () => ({
     meta: [
-      { title: "Khane Pani (KUKL) — MySewa" },
+      { title: "Khanepani — MySewa" },
       {
         name: "description",
-        content: "Pay KUKL Khane Pani water bills from your MySewa business wallet.",
+        content: "Pay drinking water bills from your MySewa business wallet.",
       },
     ],
   }),
   component: WaterBillPayment,
 });
 
-type Step = "counter" | "account" | "review" | "pay";
+type Step = "provider" | "account" | "review" | "pay";
+
+type WaterProvider = {
+  id: string;
+  name: string;
+  subtitle: string;
+  color: string;
+};
+
+/** Top-level drinking water companies. Counters load after a company is selected. */
+const WATER_PROVIDERS: WaterProvider[] = [
+  {
+    id: "kukl",
+    name: "KUKL",
+    subtitle: "Kathmandu Upatyaka Khanepani Limited",
+    color: "#0EA5E9",
+  },
+];
 
 function WaterBillPayment() {
   const queryClient = useQueryClient();
@@ -63,7 +87,9 @@ function WaterBillPayment() {
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
 
-  const [step, setStep] = useState<Step>("counter");
+  const [step, setStep] = useState<Step>("provider");
+  const [providerQuery, setProviderQuery] = useState("");
+  const [selectedProvider, setSelectedProvider] = useState<WaterProvider | null>(null);
   const [counters, setCounters] = useState<CounterOption[]>([]);
   const [selectedCounter, setSelectedCounter] = useState<CounterOption | null>(null);
   const [connectionNo, setConnectionNo] = useState("");
@@ -86,9 +112,9 @@ function WaterBillPayment() {
     settingsQuery.data?.config?.payment?.water_bills_enabled !== false && !accountPending;
 
   const countersQuery = useQuery({
-    queryKey: ["water", "counters"],
+    queryKey: ["water", "counters", selectedProvider?.id],
     queryFn: () => apiClient.waterCounters(),
-    enabled,
+    enabled: enabled && Boolean(selectedProvider) && step !== "provider",
   });
 
   useEffect(() => {
@@ -112,6 +138,14 @@ function WaterBillPayment() {
     [historyQuery.data?.items],
   );
   const waterStats = historyQuery.data?.stats;
+
+  const filteredProviders = useMemo(() => {
+    const q = providerQuery.trim().toLowerCase();
+    if (!q) return WATER_PROVIDERS;
+    return WATER_PROVIDERS.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.subtitle.toLowerCase().includes(q),
+    );
+  }, [providerQuery]);
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
   const payAmount = Number(amount) || 0;
@@ -263,9 +297,23 @@ function WaterBillPayment() {
     },
   });
 
-  const resetFlow = () => {
-    setStep("counter");
+  const selectProvider = (provider: WaterProvider) => {
+    setSelectedProvider(provider);
     setSelectedCounter(null);
+    setCounters([]);
+    setConnectionNo("");
+    setCustomerCode("");
+    setInquiry(null);
+    setCustomerName("");
+    setAmount("");
+    setStep("account");
+  };
+
+  const resetFlow = () => {
+    setStep("provider");
+    setSelectedProvider(null);
+    setSelectedCounter(null);
+    setCounters([]);
     setConnectionNo("");
     setCustomerCode("");
     setInquiry(null);
@@ -279,11 +327,22 @@ function WaterBillPayment() {
   const goBack = () => {
     if (step === "pay") setStep("review");
     else if (step === "review") setStep("account");
-    else if (step === "account") setStep("counter");
+    else if (step === "account") {
+      setSelectedProvider(null);
+      setSelectedCounter(null);
+      setCounters([]);
+      setConnectionNo("");
+      setCustomerCode("");
+      setInquiry(null);
+      setStep("provider");
+    }
   };
 
+  const shellTitle =
+    step === "provider" ? t("water.title") : t("water.paymentTitle", { provider: selectedProvider?.name ?? "" });
+
   const stepTitle = useMemo(() => {
-    if (step === "counter") return t("water.stepCounter");
+    if (step === "provider") return t("water.stepProvider");
     if (step === "account") return t("water.stepAccount");
     if (step === "review") return t("water.stepReview");
     return t("water.stepPay");
@@ -291,8 +350,8 @@ function WaterBillPayment() {
 
   return (
     <UserShell
-      title={t("water.title")}
-      back="/app"
+      title={shellTitle}
+      {...(step === "provider" ? { back: "/app" } : { onBack: goBack })}
       headerTrailing={
         <Button
           type="button"
@@ -319,10 +378,60 @@ function WaterBillPayment() {
           </section>
         ) : null}
 
-        <section className="inset-group min-w-0 max-w-full p-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="text-[15px] font-semibold">{stepTitle}</h2>
-            {step !== "counter" ? (
+        {step === "provider" ? (
+          <section className="inset-group min-w-0 max-w-full overflow-hidden">
+            <div className="border-b border-border px-4 py-3">
+              <div className="relative">
+                <Input
+                  value={providerQuery}
+                  onChange={(e) => setProviderQuery(e.target.value)}
+                  placeholder={t("water.providerSearchPlaceholder")}
+                  className="h-11 rounded-xl pr-10"
+                  disabled={!enabled}
+                  autoComplete="off"
+                />
+                <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+            </div>
+            {!filteredProviders.length ? (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                {t("water.noProviders")}
+              </p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {filteredProviders.map((provider) => (
+                  <li key={provider.id}>
+                    <button
+                      type="button"
+                      disabled={!enabled}
+                      onClick={() => selectProvider(provider)}
+                      className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/50 disabled:opacity-50"
+                    >
+                      <span
+                        className="flex size-11 shrink-0 items-center justify-center rounded-xl text-white"
+                        style={{ backgroundColor: provider.color }}
+                      >
+                        <Droplets className="size-5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[15px] font-semibold text-foreground">
+                          {provider.name}
+                        </span>
+                        <span className="block truncate text-[12px] text-muted-foreground">
+                          {provider.subtitle}
+                        </span>
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        ) : (
+          <section className="inset-group min-w-0 max-w-full p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-[15px] font-semibold">{stepTitle}</h2>
               <Button
                 type="button"
                 variant="ghost"
@@ -333,209 +442,231 @@ function WaterBillPayment() {
                 <ArrowLeft className="size-3.5" />
                 {t("common.goBack")}
               </Button>
-            ) : null}
-          </div>
-
-          {step === "counter" ? (
-            <div className="space-y-3">
-              <p className="text-[13px] text-muted-foreground">{t("water.counterHelp")}</p>
-              {countersQuery.isLoading ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">{t("common.loading")}</p>
-              ) : countersQuery.isError ? (
-                <div className="space-y-3 py-4 text-center">
-                  <p className="text-sm text-destructive">{t("water.countersFailed")}</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-xl"
-                    onClick={() => void countersQuery.refetch()}
-                  >
-                    {t("common.retry")}
-                  </Button>
-                </div>
-              ) : !counters.length ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">{t("water.noCounters")}</p>
-              ) : (
-                <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  {counters.map((c) => (
-                    <li key={c.value}>
-                      <button
-                        type="button"
-                        disabled={!enabled}
-                        onClick={() => {
-                          setSelectedCounter(c);
-                          setStep("account");
-                        }}
-                        className="flex w-full items-center gap-3 rounded-2xl border border-border bg-surface px-3 py-3 text-left shadow-card transition-colors hover:border-brand/40 hover:bg-brand/5 disabled:opacity-50"
-                      >
-                        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#0EA5E9] text-white">
-                          <Droplets className="size-5" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[15px] font-semibold">{c.label}</span>
-                          <span className="block text-[12px] text-muted-foreground">
-                            {t("water.counter")}
-                          </span>
-                        </span>
-                        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
-          ) : null}
 
-          {step === "account" && selectedCounter ? (
-            <form
-              className="space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                inquiryMutation.mutate();
-              }}
-            >
-              <div className="flex items-center gap-3 rounded-xl bg-muted/60 px-3 py-2.5">
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#0EA5E9] text-white">
-                  <Droplets className="size-4" />
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-[14px] font-semibold">{selectedCounter.label}</p>
-                  <p className="text-[12px] text-muted-foreground">{t("water.billPayment")}</p>
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="connection_no">{t("water.connectionNo")}</Label>
-                <Input
-                  id="connection_no"
-                  value={connectionNo}
-                  onChange={(e) => setConnectionNo(e.target.value)}
-                  placeholder={t("water.connectionPlaceholder")}
-                  className="h-12 rounded-xl font-medium"
-                  disabled={!enabled}
-                  autoComplete="off"
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="customer_code">{t("water.customerCode")}</Label>
-                <Input
-                  id="customer_code"
-                  value={customerCode}
-                  onChange={(e) => setCustomerCode(e.target.value)}
-                  placeholder={t("water.customerCodePlaceholder")}
-                  className="h-12 rounded-xl font-medium"
-                  disabled={!enabled}
-                  autoComplete="off"
-                  required
-                />
-                <p className="text-[12px] text-muted-foreground">{t("water.accountHelp")}</p>
-              </div>
-              <Button
-                type="submit"
-                disabled={inquiryMutation.isPending || !enabled}
-                className="h-12 w-full rounded-xl text-[17px]"
-              >
-                <Search className="mr-2 size-4" />
-                {inquiryMutation.isPending ? t("water.liveInquiry") : t("water.inquiry")}
-              </Button>
-            </form>
-          ) : null}
-
-          {step === "review" && inquiry && selectedCounter ? (
-            <div className="space-y-4">
-              <dl className="space-y-2 rounded-xl bg-muted/50 p-3 text-[14px]">
-                <Row label={t("water.counter")} value={selectedCounter.label} />
-                <Row label={t("water.connectionNo")} value={connectionNo.trim()} mono />
-                <Row label={t("water.customerCode")} value={customerCode.trim()} mono />
-                {customerName ? <Row label={t("water.customerName")} value={customerName} /> : null}
-              </dl>
-              <div className="space-y-1.5">
-                <Label htmlFor="water_amount">{t("water.amount")}</Label>
-                <Input
-                  id="water_amount"
-                  type="number"
-                  inputMode="decimal"
-                  min="1"
-                  step="0.01"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder={t("water.amountPlaceholder")}
-                  className="h-12 rounded-xl font-medium tabular"
-                  disabled={!enabled}
-                  required
-                />
-                <p className="text-[12px] text-muted-foreground">{t("water.amountHelp")}</p>
-              </div>
-              <Button
-                type="button"
-                disabled={!enabled || payAmount <= 0}
-                className="h-12 w-full rounded-xl text-[17px]"
-                onClick={() => setStep("pay")}
-              >
-                {t("water.continuePay")}
-                <ChevronRight className="ml-2 size-4" />
-              </Button>
-            </div>
-          ) : null}
-
-          {step === "pay" && selectedCounter && inquiry ? (
-            <div className="space-y-4">
-              <div className="rounded-xl border border-brand/20 bg-brand/5 p-3">
-                <p className="text-[13px] text-muted-foreground">{t("water.title")}</p>
-                <p className="mt-1 text-[16px] font-semibold">
-                  {connectionNo.trim()} · {customerCode.trim()}
-                </p>
-                <p className="mt-2 tabular text-[28px] font-bold">{formatNPR(payAmount)}</p>
-              </div>
-
-              <div className="rounded-xl bg-muted px-3 py-2.5 text-[14px]">
-                <p className="text-[12px] text-muted-foreground">{t("topup.walletLabel")}</p>
-                <p className="tabular text-[17px] font-semibold">
-                  {walletQuery.isLoading ? "…" : formatNPR(walletBalance)}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-muted p-3 text-[14px]">
-                <FeeRow label={t("common.amount")} value={formatNPR(payAmount)} />
-                <FeeRow label={t("common.charge")} value={feeLoading ? "…" : formatNPR(charge)} />
-                <FeeRow
-                  label={t("common.cashback")}
-                  value={feeLoading ? "…" : `− ${formatNPR(cashback)}`}
-                />
-                <div className="mt-2 border-t border-separator pt-2">
-                  <FeeRow
-                    label={t("common.totalDebited")}
-                    value={feeLoading ? "…" : formatNPR(totalDebited)}
-                    strong
-                  />
-                </div>
-                {insufficient ? (
-                  <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
-                    {t("topup.insufficient", {
-                      required: formatNPR(totalDue),
-                      available: formatNPR(walletBalance),
-                    })}
-                  </p>
-                ) : null}
-              </div>
-
-              <Button
-                type="button"
-                disabled={payMutation.isPending || feeLoading || insufficient || !enabled}
-                className="h-12 w-full rounded-xl text-[17px]"
-                onClick={() => {
-                  setPinError(null);
-                  setPinOpen(true);
+            {step === "account" && selectedProvider ? (
+              <form
+                className="space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!selectedCounter) {
+                    toast.error(t("water.selectCounter"));
+                    return;
+                  }
+                  inquiryMutation.mutate();
                 }}
               >
-                <Check className="mr-2 size-4" />
-                {payMutation.isPending
-                  ? t("common.processing")
-                  : t("water.confirmPay", { amount: formatNPR(totalDebited || payAmount) })}
-              </Button>
-            </div>
-          ) : null}
-        </section>
+                <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-3 shadow-card">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+                    <Droplets className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12px] text-muted-foreground">{t("topup.walletLabel")}</p>
+                    <p className="tabular text-[17px] font-semibold">
+                      {walletQuery.isLoading ? "…" : formatNPR(walletBalance)}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-9 shrink-0 rounded-full"
+                    onClick={() => void walletQuery.refetch()}
+                    aria-label={t("common.retry")}
+                  >
+                    <RefreshCw className={cn("size-4", walletQuery.isFetching && "animate-spin")} />
+                  </Button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="water_counter">{t("water.counter")}</Label>
+                  {countersQuery.isLoading ? (
+                    <p className="py-3 text-sm text-muted-foreground">{t("common.loading")}</p>
+                  ) : countersQuery.isError ? (
+                    <div className="space-y-2">
+                      <p className="text-sm text-destructive">{t("water.countersFailed")}</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-10 w-full rounded-xl"
+                        onClick={() => void countersQuery.refetch()}
+                      >
+                        {t("common.retry")}
+                      </Button>
+                    </div>
+                  ) : !counters.length ? (
+                    <p className="py-3 text-sm text-muted-foreground">{t("water.noCounters")}</p>
+                  ) : (
+                    <Select
+                      {...(selectedCounter ? { value: selectedCounter.value } : {})}
+                      onValueChange={(value) => {
+                        const match = counters.find((c) => c.value === value) ?? null;
+                        setSelectedCounter(match);
+                      }}
+                      disabled={!enabled}
+                    >
+                      <SelectTrigger
+                        id="water_counter"
+                        className="h-12 rounded-xl border-transparent bg-muted text-[15px] shadow-none"
+                      >
+                        <SelectValue placeholder={t("water.counterSelectPlaceholder")} />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {counters.map((c) => (
+                          <SelectItem key={c.value} value={c.value}>
+                            {c.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="connection_no">{t("water.connectionNo")}</Label>
+                  <Input
+                    id="connection_no"
+                    value={connectionNo}
+                    onChange={(e) => setConnectionNo(e.target.value)}
+                    placeholder={t("water.connectionPlaceholder")}
+                    className="h-12 rounded-xl border-transparent bg-muted font-medium shadow-none"
+                    disabled={!enabled}
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="customer_code">{t("water.customerCode")}</Label>
+                  <Input
+                    id="customer_code"
+                    value={customerCode}
+                    onChange={(e) => setCustomerCode(e.target.value)}
+                    placeholder={t("water.customerCodePlaceholder")}
+                    className="h-12 rounded-xl border-transparent bg-muted font-medium shadow-none"
+                    disabled={!enabled}
+                    autoComplete="off"
+                    required
+                  />
+                  <p className="text-[12px] text-muted-foreground">{t("water.accountHelp")}</p>
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={
+                    inquiryMutation.isPending ||
+                    !enabled ||
+                    !selectedCounter ||
+                    countersQuery.isLoading
+                  }
+                  className="h-12 w-full rounded-xl text-[17px] font-semibold tracking-wide"
+                >
+                  {inquiryMutation.isPending ? t("water.liveInquiry") : t("water.proceed")}
+                </Button>
+              </form>
+            ) : null}
+
+            {step === "review" && inquiry && selectedCounter ? (
+              <div className="space-y-4">
+                <dl className="space-y-2 rounded-xl bg-muted/50 p-3 text-[14px]">
+                  {selectedProvider ? (
+                    <Row label={t("water.provider")} value={selectedProvider.name} />
+                  ) : null}
+                  <Row label={t("water.counter")} value={selectedCounter.label} />
+                  <Row label={t("water.connectionNo")} value={connectionNo.trim()} mono />
+                  <Row label={t("water.customerCode")} value={customerCode.trim()} mono />
+                  {customerName ? <Row label={t("water.customerName")} value={customerName} /> : null}
+                </dl>
+                <div className="space-y-1.5">
+                  <Label htmlFor="water_amount">{t("water.amount")}</Label>
+                  <Input
+                    id="water_amount"
+                    type="number"
+                    inputMode="decimal"
+                    min="1"
+                    step="0.01"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder={t("water.amountPlaceholder")}
+                    className="h-12 rounded-xl font-medium tabular"
+                    disabled={!enabled}
+                    required
+                  />
+                  <p className="text-[12px] text-muted-foreground">{t("water.amountHelp")}</p>
+                </div>
+                <Button
+                  type="button"
+                  disabled={!enabled || payAmount <= 0}
+                  className="h-12 w-full rounded-xl text-[17px]"
+                  onClick={() => setStep("pay")}
+                >
+                  {t("water.continuePay")}
+                  <ChevronRight className="ml-2 size-4" />
+                </Button>
+              </div>
+            ) : null}
+
+            {step === "pay" && selectedCounter && inquiry ? (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-brand/20 bg-brand/5 p-3">
+                  <p className="text-[13px] text-muted-foreground">
+                    {selectedProvider?.name ?? t("water.title")}
+                  </p>
+                  <p className="mt-1 text-[16px] font-semibold">
+                    {connectionNo.trim()} · {customerCode.trim()}
+                  </p>
+                  <p className="mt-2 tabular text-[28px] font-bold">{formatNPR(payAmount)}</p>
+                </div>
+
+                <div className="rounded-xl bg-muted px-3 py-2.5 text-[14px]">
+                  <p className="text-[12px] text-muted-foreground">{t("topup.walletLabel")}</p>
+                  <p className="tabular text-[17px] font-semibold">
+                    {walletQuery.isLoading ? "…" : formatNPR(walletBalance)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-muted p-3 text-[14px]">
+                  <FeeRow label={t("common.amount")} value={formatNPR(payAmount)} />
+                  <FeeRow label={t("common.charge")} value={feeLoading ? "…" : formatNPR(charge)} />
+                  <FeeRow
+                    label={t("common.cashback")}
+                    value={feeLoading ? "…" : `− ${formatNPR(cashback)}`}
+                  />
+                  <div className="mt-2 border-t border-separator pt-2">
+                    <FeeRow
+                      label={t("common.totalDebited")}
+                      value={feeLoading ? "…" : formatNPR(totalDebited)}
+                      strong
+                    />
+                  </div>
+                  {insufficient ? (
+                    <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
+                      {t("topup.insufficient", {
+                        required: formatNPR(totalDue),
+                        available: formatNPR(walletBalance),
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+
+                <Button
+                  type="button"
+                  disabled={payMutation.isPending || feeLoading || insufficient || !enabled}
+                  className="h-12 w-full rounded-xl text-[17px]"
+                  onClick={() => {
+                    setPinError(null);
+                    setPinOpen(true);
+                  }}
+                >
+                  <Check className="mr-2 size-4" />
+                  {payMutation.isPending
+                    ? t("common.processing")
+                    : t("water.confirmPay", { amount: formatNPR(totalDebited || payAmount) })}
+                </Button>
+              </div>
+            ) : null}
+          </section>
+        )}
 
         <section>
           {lastReceiptId ? (

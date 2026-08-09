@@ -32,6 +32,7 @@ import { Route as AdminWaterRouteImport } from './routes/admin/water'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as AppCommunityElectricityRouteImport } from './routes/app/community-electricity'
 import { Route as AppDataTopupRouteImport } from './routes/app/data-topup'
+import { Route as AppElectricityRouteImport } from './routes/app/electricity'
 import { Route as AppHistoryRouteImport } from './routes/app/history'
 import { Route as AppInternetRouteImport } from './routes/app/internet'
 import { Route as AppLoadRouteImport } from './routes/app/load'
@@ -180,6 +181,11 @@ const AppCommunityElectricityRoute = AppCommunityElectricityRouteImport.update({
 const AppDataTopupRoute = AppDataTopupRouteImport.update({
   id: '/app/data-topup',
   path: '/app/data-topup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppElectricityRoute = AppElectricityRouteImport.update({
+  id: '/app/electricity',
+  path: '/app/electricity',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppHistoryRoute = AppHistoryRouteImport.update({
@@ -375,6 +381,7 @@ export interface FileRoutesByFullPath {
   '/admin/water': typeof AdminWaterRoute
   '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
+  '/app/electricity': typeof AppElectricityRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
@@ -433,6 +440,7 @@ export interface FileRoutesByTo {
   '/admin/water': typeof AdminWaterRoute
   '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
+  '/app/electricity': typeof AppElectricityRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
@@ -492,6 +500,7 @@ export interface FileRoutesById {
   '/admin/water': typeof AdminWaterRoute
   '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
+  '/app/electricity': typeof AppElectricityRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
@@ -552,6 +561,7 @@ export interface FileRouteTypes {
     | '/admin/water'
     | '/app/community-electricity'
     | '/app/data-topup'
+    | '/app/electricity'
     | '/app/history'
     | '/app/internet'
     | '/app/load'
@@ -610,6 +620,7 @@ export interface FileRouteTypes {
     | '/admin/water'
     | '/app/community-electricity'
     | '/app/data-topup'
+    | '/app/electricity'
     | '/app/history'
     | '/app/internet'
     | '/app/load'
@@ -668,6 +679,7 @@ export interface FileRouteTypes {
     | '/admin/water'
     | '/app/community-electricity'
     | '/app/data-topup'
+    | '/app/electricity'
     | '/app/history'
     | '/app/internet'
     | '/app/load'
@@ -727,6 +739,7 @@ export interface RootRouteChildren {
   AdminWaterRoute: typeof AdminWaterRoute
   AppCommunityElectricityRoute: typeof AppCommunityElectricityRoute
   AppDataTopupRoute: typeof AppDataTopupRoute
+  AppElectricityRoute: typeof AppElectricityRoute
   AppHistoryRoute: typeof AppHistoryRoute
   AppInternetRoute: typeof AppInternetRoute
   AppLoadRoute: typeof AppLoadRoute
@@ -925,6 +938,13 @@ declare module '@tanstack/react-router' {
       path: '/app/data-topup'
       fullPath: '/app/data-topup'
       preLoaderRoute: typeof AppDataTopupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/electricity': {
+      id: '/app/electricity'
+      path: '/app/electricity'
+      fullPath: '/app/electricity'
+      preLoaderRoute: typeof AppElectricityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/history': {
@@ -1183,6 +1203,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminWaterRoute: AdminWaterRoute,
   AppCommunityElectricityRoute: AppCommunityElectricityRoute,
   AppDataTopupRoute: AppDataTopupRoute,
+  AppElectricityRoute: AppElectricityRoute,
   AppHistoryRoute: AppHistoryRoute,
   AppInternetRoute: AppInternetRoute,
   AppLoadRoute: AppLoadRoute,

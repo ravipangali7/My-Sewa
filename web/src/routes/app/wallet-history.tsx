@@ -73,6 +73,7 @@ function KindIcon({ item }: { item: ActivityItem }) {
   if (item.kind === "internet") return <Wifi className="size-[18px]" strokeWidth={2.25} />;
   if (item.kind === "data_pack") return <Signal className="size-[18px]" strokeWidth={2.25} />;
   if (item.kind === "water") return <Droplets className="size-[18px]" strokeWidth={2.25} />;
+  if (item.kind === "electricity") return <Zap className="size-[18px]" strokeWidth={2.25} />;
   if (item.kind === "community_electricity") return <Zap className="size-[18px]" strokeWidth={2.25} />;
   if (item.kind === "wallet_adjustment") {
     return item.credit ? (

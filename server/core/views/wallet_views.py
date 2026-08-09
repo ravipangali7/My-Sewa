@@ -17,6 +17,7 @@ from ..models import (
     RemittanceTransaction,
     InternetBillTransaction,
     WaterBillTransaction,
+    ElectricityBillTransaction,
     CommunityElectricityTransaction,
     DataPackTransaction,
     WalletAdjustment,
@@ -29,6 +30,7 @@ from ..serializers import (
     RemittanceTransactionSerializer,
     InternetBillTransactionSerializer,
     WaterBillTransactionSerializer,
+    ElectricityBillTransactionSerializer,
     CommunityElectricityTransactionSerializer,
     DataPackTransactionSerializer,
     WalletAdjustmentSerializer,
@@ -67,6 +69,7 @@ def get_transaction_history(request):
     transfers = BankTransferTransaction.objects.filter(user=request.user).order_by('-created_at')
     internet_bills = InternetBillTransaction.objects.filter(user=request.user).order_by('-created_at')
     water_bills = WaterBillTransaction.objects.filter(user=request.user).order_by('-created_at')
+    electricity_bills = ElectricityBillTransaction.objects.filter(user=request.user).order_by('-created_at')
     community_electricity = CommunityElectricityTransaction.objects.filter(
         user=request.user,
     ).order_by('-created_at')
@@ -82,6 +85,7 @@ def get_transaction_history(request):
     success_transfers = transfers.filter(status='success')
     success_internet = internet_bills.filter(status='success')
     success_water = water_bills.filter(status='success')
+    success_electricity = electricity_bills.filter(status='success')
     success_community = community_electricity.filter(status='success')
     success_packs = data_packs.filter(status='success')
     credit_adjustments = adjustments.filter(adjustment_type='credit')
@@ -104,6 +108,7 @@ def get_transaction_history(request):
         + _debit(success_transfers)
         + _debit(success_internet)
         + _debit(success_water)
+        + _debit(success_electricity)
         + _debit(success_community)
         + _debit(success_packs)
         + adjustment_debit
@@ -122,6 +127,7 @@ def get_transaction_history(request):
         + _debit(success_transfers.filter(created_at__date=today))
         + _debit(success_internet.filter(created_at__date=today))
         + _debit(success_water.filter(created_at__date=today))
+        + _debit(success_electricity.filter(created_at__date=today))
         + _debit(success_community.filter(created_at__date=today))
         + _debit(success_packs.filter(created_at__date=today))
         + abs(_sum_or_zero(debit_adjustments.filter(created_at__date=today)))
@@ -139,6 +145,7 @@ def get_transaction_history(request):
         + _debit(success_transfers.filter(created_at__date__gte=month_start))
         + _debit(success_internet.filter(created_at__date__gte=month_start))
         + _debit(success_water.filter(created_at__date__gte=month_start))
+        + _debit(success_electricity.filter(created_at__date__gte=month_start))
         + _debit(success_community.filter(created_at__date__gte=month_start))
         + _debit(success_packs.filter(created_at__date__gte=month_start))
         + abs(_sum_or_zero(debit_adjustments.filter(created_at__date__gte=month_start)))
@@ -151,6 +158,7 @@ def get_transaction_history(request):
         'bank_transfers': BankTransferTransactionSerializer(transfers, many=True).data,
         'internet_bills': InternetBillTransactionSerializer(internet_bills, many=True).data,
         'water_bills': WaterBillTransactionSerializer(water_bills, many=True).data,
+        'electricity_bills': ElectricityBillTransactionSerializer(electricity_bills, many=True).data,
         'community_electricity': CommunityElectricityTransactionSerializer(
             community_electricity, many=True,
         ).data,

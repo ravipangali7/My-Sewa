@@ -70,6 +70,7 @@ def payment_disabled_response(feature: str) -> Response:
         'internet_bills': 'Internet bill payments are currently disabled.',
         'data_packs': 'Data pack top-ups are currently disabled.',
         'water_bills': 'Water bill payments are currently disabled.',
+        'electricity_bills': 'Electricity bill payments are currently disabled.',
         'community_electricity': 'Community electricity payments are currently disabled.',
     }
     return Response(
@@ -220,6 +221,7 @@ def require_feature_enabled(feature: str) -> Optional[Response]:
         'internet_bills': 'internet_bills_enabled',
         'data_packs': 'data_packs_enabled',
         'water_bills': 'water_bills_enabled',
+        'electricity_bills': 'electricity_bills_enabled',
         'community_electricity': 'community_electricity_enabled',
     }.get(feature)
     if key and not payment.get(key, True):
