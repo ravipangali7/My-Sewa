@@ -45,6 +45,10 @@ from django.db.models import Sum
 logger = logging.getLogger(__name__)
 
 ACCOUNT_DETAILS_MISMATCH = 'Account details do not match.'
+BANK_VERIFY_SERVICE_UNAVAILABLE = (
+    'Bank account verification is not available on the payment provider right now. '
+    'Please try again later or contact MySewa support.'
+)
 
 _BANK_CODE_KEYS = (
     'bank_code',
@@ -173,6 +177,42 @@ def _fallback_bank_rows() -> list:
     ]
 
 
+def _is_wallet_service_not_allowed(exc: HimalPayError) -> bool:
+    etype = (exc.error_type or '').casefold()
+    provider = (exc.provider_message or '').casefold()
+    return (
+        exc.error_code == 7000
+        or 'walletservicenotallowed' in etype
+        or 'wallet service is not allowed' in provider
+        or 'wallet service is currently disabled' in provider
+        or 'wallet service not found' in provider
+    )
+
+
+def _verify_provider_error_payload(exc: HimalPayError, merchant_txn_id: str) -> dict:
+    """
+    Map HimalPay verify failures to the correct client error.
+
+    Service / auth / allowlist problems must NOT be reported as
+    "Account details do not match." — that message is only for real
+    name/number/bank mismatches.
+    """
+    if _is_wallet_service_not_allowed(exc):
+        message = BANK_VERIFY_SERVICE_UNAVAILABLE
+    else:
+        message = exc.message or 'Account verification failed.'
+    return {
+        'error': message,
+        'message': message,
+        'provider_message': exc.provider_message or exc.message or message,
+        'error_code': exc.error_code,
+        'error_type': exc.error_type,
+        'verified': False,
+        'mismatch': False,
+        'merchant_txn_id': merchant_txn_id,
+    }
+
+
 def _resolve_destination_bank(himalpay: HimalPayAPI, code: str, bank_name: str = '') -> str:
     """
     Map short/legacy bank codes (e.g. CTZN) to HimalPay SWIFT codes (CTZNNPKA).
@@ -278,13 +318,20 @@ def list_banks(request):
             exc.provider_message or exc.message,
             len(banks),
         )
+        warning = exc.message
+        if _is_wallet_service_not_allowed(exc):
+            warning = (
+                'HimalPay bank-transfer services are not enabled for this reseller account '
+                '(BANK_TRANSFER_LIST / BANK_TRANSFER_VERIFICATION). '
+                'Showing the local fallback bank catalog until HimalPay enables them.'
+            )
         return Response(
             with_himapay_response(
                 {
                     'data': {'banks': banks, 'source': 'fallback'},
                     'banks': banks,
                     'source': 'fallback',
-                    'warning': exc.message,
+                    'warning': warning,
                     'error_code': exc.error_code,
                     'error_type': exc.error_type,
                 },
@@ -417,21 +464,25 @@ def verify_account(request):
             status=status.HTTP_200_OK,
         )
     except HimalPayError as exc:
+        logger.warning(
+            'Bank verify HimalPay error: %s code=%s type=%s txn=%s',
+            exc.provider_message or exc.message,
+            exc.error_code,
+            exc.error_type,
+            merchant_txn_id,
+        )
+        status_code = status.HTTP_400_BAD_REQUEST
+        if exc.status_code >= 500:
+            status_code = status.HTTP_502_BAD_GATEWAY
+        elif _is_wallet_service_not_allowed(exc):
+            # Provider account is missing BANK_TRANSFER_VERIFICATION entitlement.
+            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return Response(
             with_himapay_response(
-                {
-                    'error': ACCOUNT_DETAILS_MISMATCH,
-                    'message': ACCOUNT_DETAILS_MISMATCH,
-                    'provider_message': exc.message or ACCOUNT_DETAILS_MISMATCH,
-                    'error_code': exc.error_code,
-                    'error_type': exc.error_type,
-                    'verified': False,
-                    'mismatch': True,
-                    'merchant_txn_id': merchant_txn_id,
-                },
+                _verify_provider_error_payload(exc, merchant_txn_id),
                 exc.response_data,
             ),
-            status=status.HTTP_400_BAD_REQUEST,
+            status=status_code,
         )
 
 
@@ -706,20 +757,41 @@ def create_bank_transfer(request):
             transfer.status = 'failed'
             transfer.provider_response = verify_result if isinstance(verify_result, dict) else {}
             transfer.save()
+            # Provider may return an unsuccessful body without raising (rare).
+            nested_error = ''
+            if isinstance(verify_result, dict):
+                nested_error = str(
+                    verify_result.get('error')
+                    or verify_result.get('message')
+                    or ''
+                )
+            looks_like_service_block = (
+                'not allowed' in nested_error.casefold()
+                or 'not available' in nested_error.casefold()
+            )
+            message = (
+                BANK_VERIFY_SERVICE_UNAVAILABLE
+                if looks_like_service_block
+                else ACCOUNT_DETAILS_MISMATCH
+            )
             return Response(
                 with_himapay_response(
                     {
-                        'error': ACCOUNT_DETAILS_MISMATCH,
-                        'message': ACCOUNT_DETAILS_MISMATCH,
+                        'error': message,
+                        'message': message,
                         'verified': False,
-                        'mismatch': True,
+                        'mismatch': not looks_like_service_block,
                         'wallet_debited': False,
                         'data': BankTransferTransactionSerializer(transfer).data,
                         'provider': verify_result,
                     },
                     verify_result,
                 ),
-                status=status.HTTP_400_BAD_REQUEST,
+                status=(
+                    status.HTTP_503_SERVICE_UNAVAILABLE
+                    if looks_like_service_block
+                    else status.HTTP_400_BAD_REQUEST
+                ),
             )
 
         match = himalpay.verification_details_match(

@@ -143,13 +143,16 @@ function vendorHintFromHimpay(payload: unknown): string | null {
     return null;
   };
   return pick(
+    root["ms_message"],
     root["vendor_state"],
     root["provider_message"],
     root["error"],
     root["message"],
+    nested?.["ms_message"],
     nested?.["vendor_state"],
     nested?.["error"],
     nested?.["message"],
+    deeper?.["ms_message"],
     deeper?.["vendor_state"],
     deeper?.["error"],
     deeper?.["message"],

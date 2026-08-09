@@ -310,6 +310,8 @@ export const messages = {
     "transfer.invalidPhone": "Invalid phone number",
     "transfer.invalidAccount": "Invalid account",
     "transfer.verifyFailed": "Verification failed",
+    "transfer.verifyUnavailable":
+      "Bank account verification is not available right now. Please contact support.",
     "transfer.verifyRequired": "Verification required",
     "transfer.disabledTitle": "Transfers temporarily unavailable",
     "transfer.disabledBody":
@@ -1264,6 +1266,8 @@ export const messages = {
     "transfer.invalidPhone": "अमान्य फोन नम्बर",
     "transfer.invalidAccount": "अमान्य खाता",
     "transfer.verifyFailed": "प्रमाणीकरण असफल",
+    "transfer.verifyUnavailable":
+      "बैंक खाता प्रमाणीकरण अहिले उपलब्ध छैन। कृपया सहयोग टिमलाई सम्पर्क गर्नुहोस्।",
     "transfer.verifyRequired": "प्रमाणीकरण आवश्यक",
     "transfer.disabledTitle": "ट्रान्सफर अस्थायी रूपमा उपलब्ध छैन",
     "transfer.disabledBody":

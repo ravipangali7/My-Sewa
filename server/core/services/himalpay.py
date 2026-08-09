@@ -1324,6 +1324,7 @@ class HimalPayAPI:
             for layer in HimalPayAPI._iter_nested_dicts(response):
                 for key in (
                     'vendor_state',
+                    'ms_message',
                     'message',
                     'error',
                     'detail',
@@ -1342,6 +1343,7 @@ class HimalPayAPI:
 
         patterns = (
             'already received',
+            'already been paid',
             'already paid',
             'already processed',
             'already cashed',
@@ -1350,6 +1352,8 @@ class HimalPayAPI:
             'already payout',
             'remittance already',
             'transaction already paid',
+            'transaction reference has already',
+            'reference has already been paid',
             'txn already paid',
             'paid already',
             'received already',
@@ -1371,6 +1375,7 @@ class HimalPayAPI:
             for layer in HimalPayAPI._iter_nested_dicts(response):
                 for key in (
                     'vendor_state',
+                    'ms_message',
                     'message',
                     'error',
                     'detail',
@@ -1443,6 +1448,10 @@ class HimalPayAPI:
         # Prefer vendor_state first — Samsara puts the real payout reason there
         # even when outer status is SUCCESS and payout_amt is 0.
         preferred_keys = (
+            # Samsara microservice reason (e.g. "Transaction reference has already been paid")
+            'ms_message',
+            'MsMessage',
+            'msMessage',
             'vendor_state',
             'VendorState',
             'vendorState',
@@ -1451,6 +1460,9 @@ class HimalPayAPI:
             'error_message',
             'ErrorMessage',
             'errorMessage',
+            'status_message',
+            'StatusMessage',
+            'statusMessage',
             'message',
             'Message',
             'detail',
@@ -1459,10 +1471,6 @@ class HimalPayAPI:
             'Reason',
             'remarks',
             'Remarks',
-            'status_message',
-            'StatusMessage',
-            'statusMessage',
-            'ms_message',
             'description',
             'Description',
         )

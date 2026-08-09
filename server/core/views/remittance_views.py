@@ -288,30 +288,38 @@ def lookup_remittance(request):
             vendor_state,
             parsed.get('raw') or raw,
         )
-        # Always surface the exact HimalPay/vendor reason (e.g. "Amount is locked").
-        # Never tell customers the amount is "missing or zero".
+        # Always surface the exact HimalPay/vendor reason (ms_message / vendor_state).
+        # Never invent "missing or zero" / "Remittance not available".
         message = provider_message or vendor_state or (
             'Remittance is not available for payout right now. '
             'Please try again later or contact MySewa support.'
         )
-        error_label = 'Remittance not available'
         if himalpay.is_remittance_already_received(message, raw):
             error_label = 'Already received'
         elif himalpay.is_remittance_amount_locked(message, raw):
             error_label = 'Amount locked'
+        else:
+            error_label = 'Lookup failed'
         return _lookup_error(error_label, message)
 
     lookup_status = str(parsed.get('status') or '').upper()
     if lookup_status and lookup_status not in (
         'SUCCESS', 'SUCCESSFUL', 'OK', 'PENDING', 'UNKNOWN', '',
     ):
+        message = _provider_message(
+            himalpay,
+            raw,
+            f'Remittance status is {lookup_status}.',
+        )
+        if himalpay.is_remittance_already_received(message, raw):
+            error_label = 'Already received'
+        elif himalpay.is_remittance_amount_locked(message, raw):
+            error_label = 'Amount locked'
+        else:
+            error_label = 'Lookup failed'
         return _lookup_error(
-            'Remittance not available',
-            _provider_message(
-                himalpay,
-                raw,
-                f'Remittance status is {lookup_status}.',
-            ),
+            error_label,
+            message,
             data={
                 'ref_no': parsed.get('ref_no') or ref_no,
                 'status': lookup_status,

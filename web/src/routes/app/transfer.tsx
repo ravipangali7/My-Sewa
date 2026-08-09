@@ -471,21 +471,36 @@ function Transfer() {
       setVerified(false);
       setVerifyStatus("unverified");
       setVerifiedDetails(null);
+      const body =
+        err instanceof ApiError && err.body && typeof err.body === "object"
+          ? (err.body as Record<string, unknown>)
+          : null;
+      const errorCode = body?.error_code;
+      const serviceBlocked =
+        errorCode === 7000 ||
+        errorCode === "7000" ||
+        String(body?.error_type || "")
+          .toLowerCase()
+          .includes("walletservicenotallowed");
       const mismatch =
+        !serviceBlocked &&
         err instanceof ApiError &&
-        (err.message === "Don't Match" ||
+        (body?.mismatch === true ||
+          err.message === "Don't Match" ||
           err.message === "Account details do not match." ||
           err.message.toLowerCase().includes("don't match") ||
-          err.message.toLowerCase().includes("do not match") ||
-          (err.body &&
-            typeof err.body === "object" &&
-            ((err.body as Record<string, unknown>)["error"] === "Don't Match" ||
-              (err.body as Record<string, unknown>)["error"] ===
-                "Account details do not match." ||
-              (err.body as Record<string, unknown>)["mismatch"] === true)));
+          err.message.toLowerCase().includes("do not match"));
       toastApiError(err, {
-        title: mismatch ? t("transfer.dontMatch") : t("transfer.verifyFailed"),
-        fallback: mismatch ? t("transfer.dontMatch") : t("transfer.verifyFailed"),
+        title: mismatch
+          ? t("transfer.dontMatch")
+          : serviceBlocked
+            ? t("transfer.verifyUnavailable")
+            : t("transfer.verifyFailed"),
+        fallback: mismatch
+          ? t("transfer.dontMatch")
+          : serviceBlocked
+            ? t("transfer.verifyUnavailable")
+            : t("transfer.verifyFailed"),
       });
     } finally {
       setVerifying(false);
