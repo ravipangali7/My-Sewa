@@ -80,8 +80,6 @@ function LoginPage() {
     return parts.join(" · ") || t("auth.registeredContacts");
   }, [challenge, t]);
 
-  const showDevCode = Boolean(challenge?.debug_otp && !isPhoneLoginChallenge(challenge));
-
   useEffect(() => {
     if (token && !isLoading && user) {
       navigate({ to: isStaff ? "/admin" : "/app" });
@@ -252,13 +250,6 @@ function LoginPage() {
                 }
               }}
             >
-              {showDevCode && (
-                <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
-                  {t("auth.devCode")}{" "}
-                  <span className="font-semibold text-foreground">{challenge.debug_otp}</span>
-                </p>
-              )}
-
               <div className="space-y-2">
                 <Label htmlFor="login_otp">{t("auth.verificationCode")}</Label>
                 <div className="flex justify-center">

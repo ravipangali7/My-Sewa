@@ -1,17 +1,16 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Search,
-  Zap,
-  ChevronRight,
   ChevronUp,
   Check,
   RefreshCw,
   Wallet,
   Info,
   AlertTriangle,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
@@ -65,7 +64,22 @@ export const Route = createFileRoute("/app/electricity")({
 
 type Step = "list" | "details" | "review" | "pay";
 
-const BOARD_OPTIONS = [{ id: "nea", labelKey: "electricity.nea" as const }];
+/** Bright green from the reference screenshots */
+const NEA_GREEN = "#22C55E";
+const PAGE_BG = "#EEF2F6";
+
+function cleanCounterLabel(option: CounterOption) {
+  const cut = option.label.indexOf(" (");
+  if (cut > 0) return option.label.slice(0, cut);
+  return option.label;
+}
+
+function formatBalanceNPR(value: number) {
+  return `NPR ${value.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 function ElectricityBillPayment() {
   const queryClient = useQueryClient();
@@ -80,15 +94,16 @@ function ElectricityBillPayment() {
   const { filters, setFilters, debounced } = useListFilters();
   const [exporting, setExporting] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [counterPickerOpen, setCounterPickerOpen] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
-  const [paymentsOpen, setPaymentsOpen] = useState(true);
+  const [paymentsOpen, setPaymentsOpen] = useState(false);
   const accountPending = isAccountPending(user);
 
   const [step, setStep] = useState<Step>("list");
-  const [selectedBoard, setSelectedBoard] = useState<string | null>(null);
   const [counters, setCounters] = useState<CounterOption[]>([]);
   const [counterQuery, setCounterQuery] = useState("");
   const [selectedCounter, setSelectedCounter] = useState<CounterOption | null>(null);
+  const [listSelection, setListSelection] = useState<CounterOption | null>(null);
   const [scNo, setScNo] = useState("");
   const [consumerId, setConsumerId] = useState("");
   const [inquiry, setInquiry] = useState<UtilityInquiry | null>(null);
@@ -109,9 +124,9 @@ function ElectricityBillPayment() {
     settingsQuery.data?.config?.payment?.electricity_bills_enabled !== false && !accountPending;
 
   const countersQuery = useQuery({
-    queryKey: ["electricity", "counters", selectedBoard],
+    queryKey: ["electricity", "counters"],
     queryFn: () => apiClient.electricityCounters(),
-    enabled: enabled && selectedBoard === "nea",
+    enabled,
   });
 
   useEffect(() => {
@@ -140,7 +155,10 @@ function ElectricityBillPayment() {
     const q = counterQuery.trim().toLowerCase();
     if (!q) return counters;
     return counters.filter(
-      (c) => c.label.toLowerCase().includes(q) || c.value.toLowerCase().includes(q),
+      (c) =>
+        cleanCounterLabel(c).toLowerCase().includes(q) ||
+        c.label.toLowerCase().includes(q) ||
+        c.value.toLowerCase().includes(q),
     );
   }, [counters, counterQuery]);
 
@@ -148,6 +166,7 @@ function ElectricityBillPayment() {
   const payAmount = Number(amount) || 0;
   const totalDue = Number(totalDebited) || payAmount;
   const insufficient = payAmount > 0 && totalDue > 0 && walletBalance < totalDue;
+  const listingCounter = listSelection;
 
   useEffect(() => {
     if (payAmount <= 0 || !enabled || step !== "pay") {
@@ -239,7 +258,7 @@ function ElectricityBillPayment() {
         sc_no: scNo.trim(),
         consumer_id: consumerId.trim(),
         office_code: selectedCounter.value,
-        office_name: selectedCounter.label,
+        office_name: cleanCounterLabel(selectedCounter),
         amount: Number(payAmount.toFixed(2)),
         transaction_pin,
       };
@@ -269,6 +288,7 @@ function ElectricityBillPayment() {
       }
       resetFlow();
       setLastReceiptId(activityIdForKind("electricity", res.data.id));
+      setPaymentsOpen(true);
       queryClient.invalidateQueries({ queryKey: ["electricity-bills"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
@@ -303,8 +323,8 @@ function ElectricityBillPayment() {
 
   const resetFlow = () => {
     setStep("list");
-    setSelectedBoard(null);
     setSelectedCounter(null);
+    setListSelection(null);
     setCounterQuery("");
     setScNo("");
     setConsumerId("");
@@ -316,24 +336,16 @@ function ElectricityBillPayment() {
     setTotalDebited("0.00");
   };
 
-  const selectBoard = (boardId: string) => {
-    setSelectedBoard(boardId);
-    setSelectedCounter(null);
-    setCounterQuery("");
-    setCounters([]);
-    setScNo("");
-    setConsumerId("");
-    setInquiry(null);
-  };
-
-  const selectCounter = (counter: CounterOption) => {
+  const openDetails = (counter: CounterOption) => {
     setSelectedCounter(counter);
+    setListSelection(counter);
     setScNo("");
     setConsumerId("");
     setInquiry(null);
     setCustomerName("");
     setAmount("");
     setStep("details");
+    setCounterPickerOpen(false);
   };
 
   const goBack = () => {
@@ -356,458 +368,548 @@ function ElectricityBillPayment() {
     resetFlow();
   };
 
-  const shellOnBack = step === "list" ? undefined : goBack;
+  const onListProceed = () => {
+    if (!listingCounter) {
+      toast.error(t("electricity.selectCounter"));
+      setCounterPickerOpen(true);
+      return;
+    }
+    openDetails(listingCounter);
+  };
 
   return (
-    <UserShell
-      title={t("electricity.title")}
-      {...(step === "list" ? { back: "/app" } : {})}
-      {...(shellOnBack ? { onBack: shellOnBack } : {})}
-      headerTrailing={
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "size-10 shrink-0 rounded-full border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
-            "hover:bg-white/25",
-            "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
-          )}
-          onClick={() => setSearchOpen(true)}
-          aria-label={t("electricity.searchTitle")}
+    <UserShell title={t("electricity.title")} hideHeader>
+      <div
+        className="-mx-3 min-h-[calc(100dvh-5.5rem)] sm:-mx-4"
+        style={{ backgroundColor: PAGE_BG }}
+      >
+        {/* Curved green header — matches reference screenshots */}
+        <header
+          className="relative px-4 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-7"
+          style={{ backgroundColor: NEA_GREEN }}
         >
-          <Info className="size-4" />
-        </Button>
-      }
-    >
-      <div className="min-w-0 max-w-full space-y-4 overflow-x-clip">
-        {accountPending ? <AccountPendingBanner /> : null}
-        {!enabled && !accountPending ? (
-          <section className="inset-group border-destructive/20 bg-destructive/5 p-4">
-            <p className="text-[15px] font-medium text-destructive">
-              {t("electricity.disabledTitle")}
-            </p>
-            <p className="mt-1 text-[13px] text-muted-foreground">
-              {t("electricity.disabledBody")}
-            </p>
-          </section>
-        ) : null}
+          <div className="flex items-center gap-2">
+            {step === "list" ? (
+              <Link
+                to="/app"
+                aria-label={t("common.goBack")}
+                className="inline-flex size-10 items-center justify-center text-white"
+              >
+                <ArrowLeft className="size-6" strokeWidth={2.25} />
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={goBack}
+                aria-label={t("common.goBack")}
+                className="inline-flex size-10 items-center justify-center text-white"
+              >
+                <ArrowLeft className="size-6" strokeWidth={2.25} />
+              </button>
+            )}
+            <h1 className="flex-1 text-center text-[20px] font-bold tracking-wide text-white">
+              {t("electricity.title")}
+            </h1>
+            <button
+              type="button"
+              className="inline-flex size-10 items-center justify-center text-white"
+              onClick={() => setSearchOpen(true)}
+              aria-label={t("electricity.searchTitle")}
+            >
+              <Info className="size-6" strokeWidth={2} />
+            </button>
+          </div>
+          {/* Downward curve */}
+          <div
+            className="pointer-events-none absolute inset-x-0 -bottom-4 h-8"
+            style={{
+              backgroundColor: NEA_GREEN,
+              borderBottomLeftRadius: "50% 100%",
+              borderBottomRightRadius: "50% 100%",
+            }}
+            aria-hidden
+          />
+        </header>
 
-        {step === "list" ? (
-          <>
-            <BalanceCard
-              balance={walletBalance}
-              loading={walletQuery.isLoading}
-              fetching={walletQuery.isFetching}
-              label={t("topup.walletLabel")}
-              onRefresh={() => void walletQuery.refetch()}
-              retryLabel={t("common.retry")}
-            />
+        <div className="relative z-10 space-y-3.5 px-4 pt-2 pb-28">
+          {accountPending ? <AccountPendingBanner /> : null}
+          {!enabled && !accountPending ? (
+            <section className="rounded-2xl border border-destructive/20 bg-white p-4 shadow-sm">
+              <p className="text-[15px] font-medium text-destructive">
+                {t("electricity.disabledTitle")}
+              </p>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                {t("electricity.disabledBody")}
+              </p>
+            </section>
+          ) : null}
 
-            <ImportantInfoCard
-              title={t("electricity.importantTitle")}
-              body1={t("electricity.importantBody1")}
-              body2={t("electricity.importantBody2")}
-            />
-
-            <section className="rounded-2xl border border-border bg-surface p-4 shadow-card">
-              <div className="space-y-1.5">
-                <Label htmlFor="electricity_board">{t("electricity.board")}</Label>
-                <Select
-                  {...(selectedBoard ? { value: selectedBoard } : {})}
-                  onValueChange={(value) => selectBoard(value)}
-                  disabled={!enabled}
+          {/* ——— LIST (image 1) ——— */}
+          {step === "list" ? (
+            <>
+              <div className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3.5 shadow-[0_2px_12px_-4px_rgba(16,24,40,0.12)]">
+                <Wallet className="size-6 shrink-0 text-[#9CA3AF]" strokeWidth={1.75} />
+                <div className="min-w-0 flex-1">
+                  <p className="tabular text-[17px] font-bold leading-tight text-[#111827]">
+                    {walletQuery.isLoading ? "…" : formatBalanceNPR(walletBalance)}
+                  </p>
+                  <p className="text-[13px] text-[#9CA3AF]">{t("electricity.balanceLabel")}</p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex size-9 items-center justify-center rounded-full text-[#9CA3AF]"
+                  onClick={() => void walletQuery.refetch()}
+                  aria-label={t("common.retry")}
                 >
-                  <SelectTrigger
-                    id="electricity_board"
-                    className="h-12 rounded-xl border-transparent bg-muted text-[15px] shadow-none"
-                  >
-                    <SelectValue placeholder={t("electricity.boardSelectPlaceholder")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {BOARD_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.id} value={opt.id}>
-                        {t(opt.labelKey)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <RefreshCw
+                    className={cn("size-5", walletQuery.isFetching && "animate-spin")}
+                    strokeWidth={1.75}
+                  />
+                </button>
               </div>
 
-              {selectedBoard === "nea" ? (
-                <div className="mt-4 space-y-3">
+              <ImportantInfoCard
+                title={t("electricity.importantTitle")}
+                body1={t("electricity.importantBody1")}
+                body2={t("electricity.importantBody2")}
+              />
+
+              <div className="rounded-2xl bg-white px-4 py-4 shadow-[0_2px_12px_-4px_rgba(16,24,40,0.12)]">
+                <Label
+                  htmlFor="electricity_counter_list"
+                  className="mb-2 block text-[15px] font-medium text-[#1F2937]"
+                >
+                  {t("electricity.counter")}
+                </Label>
+                <button
+                  type="button"
+                  id="electricity_counter_list"
+                  disabled={!enabled}
+                  onClick={() => {
+                    setCounterQuery("");
+                    setCounterPickerOpen(true);
+                  }}
+                  className={cn(
+                    "flex h-12 w-full items-center justify-between rounded-xl px-3.5 text-left text-[15px] transition-colors disabled:opacity-50",
+                    listingCounter
+                      ? "border border-[#22C55E] bg-white text-[#111827]"
+                      : "border-0 bg-[#F3F4F6] text-[#9CA3AF]",
+                  )}
+                >
+                  <span className="truncate">
+                    {listingCounter
+                      ? cleanCounterLabel(listingCounter)
+                      : t("electricity.counterSelectPlaceholder")}
+                  </span>
+                  <svg
+                    viewBox="0 0 20 20"
+                    className="size-5 shrink-0 text-[#9CA3AF]"
+                    fill="currentColor"
+                    aria-hidden
+                  >
+                    <path d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06z" />
+                  </svg>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                disabled={!enabled}
+                onClick={onListProceed}
+                className="flex h-[52px] w-full items-center justify-center rounded-full text-[16px] font-bold tracking-[0.08em] text-white shadow-sm disabled:opacity-50"
+                style={{ backgroundColor: NEA_GREEN }}
+              >
+                {t("electricity.proceed")}
+              </button>
+            </>
+          ) : null}
+
+          {/* ——— DETAILS (image 2) ——— */}
+          {step === "details" && selectedCounter ? (
+            <>
+              <ImportantInfoCard
+                title={t("electricity.importantTitle")}
+                body1={t("electricity.importantBody1")}
+                body2={t("electricity.importantBody2")}
+              />
+
+              <div className="rounded-2xl bg-white px-4 py-4 shadow-[0_2px_12px_-4px_rgba(16,24,40,0.12)]">
+                <form
+                  className="space-y-4"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    inquiryMutation.mutate();
+                  }}
+                >
                   <div>
-                    <p className="text-[15px] font-semibold">{t("electricity.powerhouseTitle")}</p>
-                    <p className="text-[12px] text-muted-foreground">
-                      {t("electricity.powerhouseHelp")}
-                    </p>
+                    <Label
+                      htmlFor="electricity_counter_details"
+                      className="mb-2 block text-[15px] font-medium text-[#1F2937]"
+                    >
+                      {t("electricity.counter")}
+                    </Label>
+                    <Select
+                      value={selectedCounter.value}
+                      onValueChange={(value) => {
+                        const match = counters.find((c) => c.value === value);
+                        if (match) {
+                          setSelectedCounter(match);
+                          setListSelection(match);
+                        }
+                      }}
+                      disabled={!enabled || !counters.length}
+                    >
+                      <SelectTrigger
+                        id="electricity_counter_details"
+                        className="h-12 rounded-xl border-[#22C55E] bg-white text-[15px] text-[#111827] shadow-none focus:ring-[#22C55E]/30"
+                      >
+                        <SelectValue placeholder={t("electricity.counterSelectPlaceholder")}>
+                          {cleanCounterLabel(selectedCounter)}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {counters.map((c) => (
+                          <SelectItem key={c.value} value={c.value}>
+                            {cleanCounterLabel(c)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
-                  {countersQuery.isLoading ? (
-                    <p className="py-4 text-center text-sm text-muted-foreground">
-                      {t("common.loading")}
-                    </p>
-                  ) : countersQuery.isError ? (
-                    <div className="space-y-2">
-                      <p className="text-sm text-destructive">{t("electricity.countersFailed")}</p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-10 w-full rounded-xl"
-                        onClick={() => void countersQuery.refetch()}
-                      >
-                        {t("common.retry")}
-                      </Button>
-                    </div>
-                  ) : !counters.length ? (
-                    <p className="py-4 text-center text-sm text-muted-foreground">
-                      {t("electricity.noCounters")}
-                    </p>
-                  ) : (
-                    <>
-                      <div className="relative">
-                        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                        <Input
-                          value={counterQuery}
-                          onChange={(e) => setCounterQuery(e.target.value)}
-                          placeholder={t("electricity.searchCounters")}
-                          className="h-11 rounded-xl border-transparent bg-muted pl-9 shadow-none"
-                        />
-                      </div>
-                      <ul className="max-h-[42vh] divide-y divide-border overflow-y-auto rounded-xl border border-border">
-                        {filteredCounters.map((counter) => (
-                          <li key={counter.value}>
-                            <button
-                              type="button"
-                              disabled={!enabled}
-                              onClick={() => selectCounter(counter)}
-                              className="flex w-full items-center gap-3 px-3 py-3.5 text-left transition-colors hover:bg-muted/50 disabled:opacity-50"
-                            >
-                              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#F59E0B]/15 text-[#F59E0B]">
-                                <Zap className="size-4" />
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-[15px] font-semibold">
-                                  {counter.label}
-                                </span>
-                                {counter.label !== counter.value ? (
-                                  <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                                    {counter.value}
-                                  </span>
-                                ) : null}
-                              </span>
-                              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </div>
-              ) : null}
-            </section>
-          </>
-        ) : null}
-
-        {step === "details" && selectedCounter ? (
-          <>
-            <ImportantInfoCard
-              title={t("electricity.importantTitle")}
-              body1={t("electricity.importantBody1")}
-              body2={t("electricity.importantBody2")}
-            />
-
-            <section className="rounded-2xl border border-border bg-surface p-4 shadow-card">
-              <form
-                className="space-y-4"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  inquiryMutation.mutate();
-                }}
-              >
-                <div className="space-y-1.5">
-                  <Label htmlFor="electricity_counter">{t("electricity.counter")}</Label>
-                  <Select
-                    value={selectedCounter.value}
-                    onValueChange={(value) => {
-                      const match = counters.find((c) => c.value === value);
-                      if (match) setSelectedCounter(match);
-                    }}
-                    disabled={!enabled || !counters.length}
-                  >
-                    <SelectTrigger
-                      id="electricity_counter"
-                      className="h-12 rounded-xl border-brand/40 bg-muted text-[15px] shadow-none"
+                  <div>
+                    <Label
+                      htmlFor="sc_no"
+                      className="mb-2 block text-[15px] font-medium text-[#1F2937]"
                     >
-                      <SelectValue placeholder={t("electricity.counterSelectPlaceholder")} />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-64">
-                      {counters.map((c) => (
-                        <SelectItem key={c.value} value={c.value}>
-                          {c.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                      {t("electricity.scNumber")}
+                    </Label>
+                    <Input
+                      id="sc_no"
+                      value={scNo}
+                      onChange={(e) => setScNo(e.target.value)}
+                      placeholder={t("electricity.scPlaceholder")}
+                      className="h-12 rounded-xl border-0 bg-[#F3F4F6] text-[15px] shadow-none placeholder:text-[#9CA3AF] focus-visible:ring-[#22C55E]/30"
+                      disabled={!enabled}
+                      autoComplete="off"
+                      required
+                    />
+                  </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="sc_no">{t("electricity.scNumber")}</Label>
-                  <Input
-                    id="sc_no"
-                    value={scNo}
-                    onChange={(e) => setScNo(e.target.value)}
-                    placeholder={t("electricity.scPlaceholder")}
-                    className="h-12 rounded-xl border-transparent bg-muted font-medium shadow-none"
-                    disabled={!enabled}
-                    autoComplete="off"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="consumer_id">{t("electricity.consumerId")}</Label>
-                  <Input
-                    id="consumer_id"
-                    value={consumerId}
-                    onChange={(e) => setConsumerId(e.target.value)}
-                    placeholder={t("electricity.consumerIdPlaceholder")}
-                    className="h-12 rounded-xl border-transparent bg-muted font-medium shadow-none"
-                    disabled={!enabled}
-                    autoComplete="off"
-                    required
-                  />
-                  <p className="text-[12px] text-muted-foreground">{t("electricity.accountHelp")}</p>
-                </div>
-
-                <Button
-                  type="submit"
-                  disabled={inquiryMutation.isPending || !enabled}
-                  className="h-12 w-full rounded-full text-[17px] font-semibold tracking-wide"
-                >
-                  {inquiryMutation.isPending
-                    ? t("electricity.liveInquiry")
-                    : t("electricity.proceed")}
-                </Button>
-              </form>
-            </section>
-          </>
-        ) : null}
-
-        {step === "review" && inquiry && selectedCounter ? (
-          <section className="rounded-2xl border border-border bg-surface p-4 shadow-card">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-[15px] font-semibold">{t("electricity.stepReview")}</h2>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1 px-2 text-[13px]"
-                onClick={goBack}
-              >
-                <ArrowLeft className="size-3.5" />
-                {t("common.goBack")}
-              </Button>
-            </div>
-            <div className="space-y-4">
-              <dl className="space-y-2 rounded-xl bg-muted/50 p-3 text-[14px]">
-                <Row label={t("electricity.counter")} value={selectedCounter.label} />
-                <Row label={t("electricity.scNumber")} value={scNo.trim()} mono />
-                <Row label={t("electricity.consumerId")} value={consumerId.trim()} mono />
-                {customerName ? (
-                  <Row label={t("electricity.customerName")} value={customerName} />
-                ) : null}
-              </dl>
-              <div className="space-y-1.5">
-                <Label htmlFor="electricity_amount">{t("electricity.amount")}</Label>
-                <Input
-                  id="electricity_amount"
-                  type="number"
-                  inputMode="decimal"
-                  min="1"
-                  step="0.01"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder={t("electricity.amountPlaceholder")}
-                  className="h-12 rounded-xl font-medium tabular"
-                  disabled={!enabled}
-                  required
-                />
-                <p className="text-[12px] text-muted-foreground">{t("electricity.amountHelp")}</p>
+                  <div>
+                    <Label
+                      htmlFor="consumer_id"
+                      className="mb-2 block text-[15px] font-medium text-[#1F2937]"
+                    >
+                      {t("electricity.consumerId")}
+                    </Label>
+                    <Input
+                      id="consumer_id"
+                      value={consumerId}
+                      onChange={(e) => setConsumerId(e.target.value)}
+                      placeholder={t("electricity.consumerIdPlaceholder")}
+                      className="h-12 rounded-xl border-0 bg-[#F3F4F6] text-[15px] shadow-none placeholder:text-[#9CA3AF] focus-visible:ring-[#22C55E]/30"
+                      disabled={!enabled}
+                      autoComplete="off"
+                      required
+                    />
+                  </div>
+                </form>
               </div>
-              <Button
+
+              <button
+                type="button"
+                disabled={inquiryMutation.isPending || !enabled}
+                onClick={() => inquiryMutation.mutate()}
+                className="flex h-[52px] w-full items-center justify-center rounded-full text-[16px] font-bold tracking-[0.08em] text-white shadow-sm disabled:opacity-50"
+                style={{ backgroundColor: NEA_GREEN }}
+              >
+                {inquiryMutation.isPending
+                  ? t("electricity.liveInquiry")
+                  : t("electricity.proceed")}
+              </button>
+            </>
+          ) : null}
+
+          {/* ——— REVIEW ——— */}
+          {step === "review" && inquiry && selectedCounter ? (
+            <>
+              <div className="rounded-2xl bg-white px-4 py-4 shadow-[0_2px_12px_-4px_rgba(16,24,40,0.12)]">
+                <dl className="space-y-2.5 text-[14px]">
+                  <Row label={t("electricity.counter")} value={cleanCounterLabel(selectedCounter)} />
+                  <Row label={t("electricity.scNumber")} value={scNo.trim()} mono />
+                  <Row label={t("electricity.consumerId")} value={consumerId.trim()} mono />
+                  {customerName ? (
+                    <Row label={t("electricity.customerName")} value={customerName} />
+                  ) : null}
+                </dl>
+                <div className="mt-4">
+                  <Label
+                    htmlFor="electricity_amount"
+                    className="mb-2 block text-[15px] font-medium text-[#1F2937]"
+                  >
+                    {t("electricity.amount")}
+                  </Label>
+                  <Input
+                    id="electricity_amount"
+                    type="number"
+                    inputMode="decimal"
+                    min="1"
+                    step="0.01"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder={t("electricity.amountPlaceholder")}
+                    className="h-12 rounded-xl border-0 bg-[#F3F4F6] font-medium tabular shadow-none focus-visible:ring-[#22C55E]/30"
+                    disabled={!enabled}
+                    required
+                  />
+                  <p className="mt-1.5 text-[12px] text-[#9CA3AF]">{t("electricity.amountHelp")}</p>
+                </div>
+              </div>
+              <button
                 type="button"
                 disabled={!enabled || payAmount <= 0}
-                className="h-12 w-full rounded-full text-[17px]"
                 onClick={() => setStep("pay")}
+                className="flex h-[52px] w-full items-center justify-center gap-1 rounded-full text-[16px] font-bold tracking-wide text-white disabled:opacity-50"
+                style={{ backgroundColor: NEA_GREEN }}
               >
                 {t("electricity.continuePay")}
-                <ChevronRight className="ml-2 size-4" />
-              </Button>
-            </div>
-          </section>
-        ) : null}
+                <ChevronRight className="size-5" />
+              </button>
+            </>
+          ) : null}
 
-        {step === "pay" && selectedCounter && inquiry ? (
-          <section className="rounded-2xl border border-border bg-surface p-4 shadow-card">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-[15px] font-semibold">{t("electricity.stepPay")}</h2>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1 px-2 text-[13px]"
-                onClick={goBack}
-              >
-                <ArrowLeft className="size-3.5" />
-                {t("common.goBack")}
-              </Button>
-            </div>
-            <div className="space-y-4">
-              <div className="rounded-xl border border-brand/20 bg-brand/5 p-3">
-                <p className="text-[13px] text-muted-foreground">{t("electricity.title")}</p>
-                <p className="mt-1 text-[16px] font-semibold">
-                  {scNo.trim()} · {consumerId.trim()}
-                </p>
-                <p className="mt-2 tabular text-[28px] font-bold">{formatNPR(payAmount)}</p>
-              </div>
-
-              <div className="rounded-xl bg-muted px-3 py-2.5 text-[14px]">
-                <p className="text-[12px] text-muted-foreground">{t("topup.walletLabel")}</p>
-                <p className="tabular text-[17px] font-semibold">
-                  {walletQuery.isLoading ? "…" : formatNPR(walletBalance)}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-muted p-3 text-[14px]">
-                <FeeRow label={t("common.amount")} value={formatNPR(payAmount)} />
-                <FeeRow label={t("common.charge")} value={feeLoading ? "…" : formatNPR(charge)} />
-                <FeeRow
-                  label={t("common.cashback")}
-                  value={feeLoading ? "…" : `− ${formatNPR(cashback)}`}
-                />
-                <div className="mt-2 border-t border-separator pt-2">
-                  <FeeRow
-                    label={t("common.totalDebited")}
-                    value={feeLoading ? "…" : formatNPR(totalDebited)}
-                    strong
-                  />
-                </div>
-                {insufficient ? (
-                  <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
-                    {t("topup.insufficient", {
-                      required: formatNPR(totalDue),
-                      available: formatNPR(walletBalance),
-                    })}
+          {/* ——— PAY ——— */}
+          {step === "pay" && selectedCounter && inquiry ? (
+            <>
+              <div className="rounded-2xl bg-white px-4 py-4 shadow-[0_2px_12px_-4px_rgba(16,24,40,0.12)]">
+                <div
+                  className="rounded-xl border p-3"
+                  style={{ borderColor: `${NEA_GREEN}33`, backgroundColor: `${NEA_GREEN}0D` }}
+                >
+                  <p className="text-[13px] text-[#6B7280]">{t("electricity.title")}</p>
+                  <p className="mt-1 text-[16px] font-semibold text-[#111827]">
+                    {scNo.trim()} · {consumerId.trim()}
                   </p>
-                ) : null}
+                  <p className="mt-2 tabular text-[28px] font-bold text-[#111827]">
+                    {formatNPR(payAmount)}
+                  </p>
+                </div>
+                <div className="mt-3 rounded-xl bg-[#F3F4F6] px-3 py-2.5">
+                  <p className="text-[12px] text-[#9CA3AF]">{t("topup.walletLabel")}</p>
+                  <p className="tabular text-[17px] font-semibold">
+                    {walletQuery.isLoading ? "…" : formatNPR(walletBalance)}
+                  </p>
+                </div>
+                <div className="mt-3 rounded-xl bg-[#F3F4F6] p-3 text-[14px]">
+                  <FeeRow label={t("common.amount")} value={formatNPR(payAmount)} />
+                  <FeeRow label={t("common.charge")} value={feeLoading ? "…" : formatNPR(charge)} />
+                  <FeeRow
+                    label={t("common.cashback")}
+                    value={feeLoading ? "…" : `− ${formatNPR(cashback)}`}
+                  />
+                  <div className="mt-2 border-t border-[#E5E7EB] pt-2">
+                    <FeeRow
+                      label={t("common.totalDebited")}
+                      value={feeLoading ? "…" : formatNPR(totalDebited)}
+                      strong
+                    />
+                  </div>
+                  {insufficient ? (
+                    <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
+                      {t("topup.insufficient", {
+                        required: formatNPR(totalDue),
+                        available: formatNPR(walletBalance),
+                      })}
+                    </p>
+                  ) : null}
+                </div>
               </div>
-
-              <Button
+              <button
                 type="button"
                 disabled={payMutation.isPending || feeLoading || insufficient || !enabled}
-                className="h-12 w-full rounded-full text-[17px]"
                 onClick={() => {
                   setPinError(null);
                   setPinOpen(true);
                 }}
+                className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold text-white disabled:opacity-50"
+                style={{ backgroundColor: NEA_GREEN }}
               >
-                <Check className="mr-2 size-4" />
+                <Check className="size-5" />
                 {payMutation.isPending
                   ? t("common.processing")
                   : t("electricity.confirmPay", {
                       amount: formatNPR(totalDebited || payAmount),
                     })}
-              </Button>
-            </div>
-          </section>
-        ) : null}
+              </button>
+            </>
+          ) : null}
+        </div>
 
-        <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-2 px-4 py-3 text-[14px] font-medium text-muted-foreground"
-            onClick={() => setPaymentsOpen((v) => !v)}
-          >
-            <ChevronUp
-              className={cn("size-4 transition-transform", !paymentsOpen && "rotate-180")}
-            />
-            {t("electricity.myPayments")}
-          </button>
+        {/* My Payments — fixed bar above bottom tabs, matches reference */}
+        <div className="fixed inset-x-0 bottom-[calc(4.25rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] z-30 lg:bottom-4">
+          <div className="mx-auto max-w-lg px-0 lg:px-4">
+            <div className="overflow-hidden border-t border-[#E5E7EB] bg-white shadow-[0_-4px_20px_-8px_rgba(16,24,40,0.12)] lg:rounded-2xl lg:border">
+              <button
+                type="button"
+                className="flex w-full items-center justify-center gap-2 px-4 py-3.5 text-[15px] font-medium text-[#6B7280]"
+                onClick={() => setPaymentsOpen((v) => !v)}
+              >
+                <ChevronUp
+                  className={cn(
+                    "size-4 transition-transform duration-200",
+                    !paymentsOpen && "rotate-180",
+                  )}
+                />
+                {t("electricity.myPayments")}
+              </button>
 
-          {paymentsOpen ? (
-            <div className="border-t border-border px-4 pb-4 pt-2">
-              {lastReceiptId ? (
-                <div className="mb-3">
-                  <TransactionResultBanner
-                    tone={
-                      electricityItems.find(
-                        (x) => activityIdForKind("electricity", x.id) === lastReceiptId,
-                      )?.status === "failed"
-                        ? "danger"
-                        : electricityItems.find(
-                              (x) => activityIdForKind("electricity", x.id) === lastReceiptId,
-                            )?.status === "pending"
-                          ? "warning"
-                          : "success"
-                    }
-                    title={t("electricity.paySuccess")}
-                    body={t("history.downloadStatement")}
-                    receiptLabel={t("history.downloadPdf")}
-                    onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
-                    downloading={receiptDownloading}
-                  />
+              {paymentsOpen ? (
+                <div className="max-h-[40vh] overflow-y-auto border-t border-[#F3F4F6] px-4 pb-3">
+                  {lastReceiptId ? (
+                    <div className="mb-3 mt-3">
+                      <TransactionResultBanner
+                        tone={
+                          electricityItems.find(
+                            (x) => activityIdForKind("electricity", x.id) === lastReceiptId,
+                          )?.status === "failed"
+                            ? "danger"
+                            : electricityItems.find(
+                                  (x) => activityIdForKind("electricity", x.id) === lastReceiptId,
+                                )?.status === "pending"
+                              ? "warning"
+                              : "success"
+                        }
+                        title={t("electricity.paySuccess")}
+                        body={t("history.downloadStatement")}
+                        receiptLabel={t("history.downloadPdf")}
+                        onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
+                        downloading={receiptDownloading}
+                      />
+                    </div>
+                  ) : null}
+
+                  {historyQuery.isLoading ? (
+                    <div className="py-6 text-center text-sm text-[#9CA3AF]">
+                      {t("common.loading")}
+                    </div>
+                  ) : !electricityItems.length ? (
+                    <div className="py-6 text-center text-sm text-[#9CA3AF]">
+                      {t("electricity.empty")}
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-[#F3F4F6]">
+                      {electricityItems.map((item: ElectricityBillTransaction) => (
+                        <li key={item.id} className="py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[15px] font-medium text-[#111827]">
+                                {item.sc_no} · {item.consumer_id}
+                              </p>
+                              <p className="truncate text-[12px] text-[#9CA3AF]">
+                                {item.office_name || item.office_code} ·{" "}
+                                {formatDateTime(item.created_at)}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="tabular text-[15px] font-semibold">
+                                {formatNPR(item.amount)}
+                              </p>
+                              <StatusChip status={item.status} compact className="mt-1" />
+                            </div>
+                          </div>
+                          {(item.status === "success" || item.status === "failed") && (
+                            <div className="mt-1 flex justify-end">
+                              <ReceiptDownloadLink
+                                label={t("list.downloadReceipt")}
+                                downloading={receiptDownloading}
+                                onClick={() =>
+                                  void downloadReceipt(activityIdForKind("electricity", item.id))
+                                }
+                              />
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ) : null}
-
-              {historyQuery.isLoading ? (
-                <div className="py-6 text-center text-sm text-muted-foreground">
-                  {t("common.loading")}
-                </div>
-              ) : !electricityItems.length ? (
-                <div className="py-6 text-center text-sm text-muted-foreground">
-                  {t("electricity.empty")}
-                </div>
-              ) : (
-                <ul className="divide-y divide-border overflow-hidden">
-                  {electricityItems.map((item: ElectricityBillTransaction) => (
-                    <li key={item.id} className="min-w-0 py-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[15px] font-medium">
-                            {item.sc_no} · {item.consumer_id}
-                          </p>
-                          <p className="truncate text-[13px] text-muted-foreground">
-                            {item.office_name || item.office_code || item.merchant_txn_id} ·{" "}
-                            {formatDateTime(item.created_at)}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="tabular text-[15px] font-semibold">
-                            {formatNPR(item.amount)}
-                          </p>
-                          <StatusChip status={item.status} compact className="mt-1" />
-                        </div>
-                      </div>
-                      {(item.status === "success" || item.status === "failed") && (
-                        <div className="mt-1 flex justify-end">
-                          <ReceiptDownloadLink
-                            label={t("list.downloadReceipt")}
-                            downloading={receiptDownloading}
-                            onClick={() =>
-                              void downloadReceipt(activityIdForKind("electricity", item.id))
-                            }
-                          />
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
-          ) : null}
-        </section>
+          </div>
+        </div>
       </div>
+
+      {/* Counter picker sheet — full powerhouse list */}
+      <Sheet open={counterPickerOpen} onOpenChange={setCounterPickerOpen}>
+        <SheetContent
+          side="bottom"
+          className="max-h-[88dvh] overflow-hidden rounded-t-2xl px-0 pb-[max(1rem,calc(0.5rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-4"
+        >
+          <SheetHeader className="mb-3 px-4 text-left">
+            <SheetTitle>{t("electricity.powerhouseTitle")}</SheetTitle>
+            <p className="text-[13px] text-muted-foreground">{t("electricity.powerhouseHelp")}</p>
+          </SheetHeader>
+          <div className="px-4 pb-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[#9CA3AF]" />
+              <Input
+                value={counterQuery}
+                onChange={(e) => setCounterQuery(e.target.value)}
+                placeholder={t("electricity.searchCounters")}
+                className="h-11 rounded-xl border-0 bg-[#F3F4F6] pl-9 shadow-none"
+                autoFocus
+              />
+            </div>
+          </div>
+          {countersQuery.isLoading ? (
+            <p className="px-4 py-8 text-center text-sm text-[#9CA3AF]">{t("common.loading")}</p>
+          ) : countersQuery.isError ? (
+            <div className="space-y-2 px-4 py-6">
+              <p className="text-center text-sm text-destructive">{t("electricity.countersFailed")}</p>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 w-full rounded-xl"
+                onClick={() => void countersQuery.refetch()}
+              >
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : !filteredCounters.length ? (
+            <p className="px-4 py-8 text-center text-sm text-[#9CA3AF]">
+              {t("electricity.noCounters")}
+            </p>
+          ) : (
+            <ul className="max-h-[55vh] overflow-y-auto border-t border-[#F3F4F6]">
+              {filteredCounters.map((counter) => {
+                const active = listingCounter?.value === counter.value;
+                return (
+                  <li key={counter.value}>
+                    <button
+                      type="button"
+                      onClick={() => openDetails(counter)}
+                      className={cn(
+                        "flex w-full items-center gap-3 px-4 py-3.5 text-left",
+                        active ? "bg-[#ECFDF5]" : "hover:bg-[#F9FAFB]",
+                      )}
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#111827]">
+                        {cleanCounterLabel(counter)}
+                      </span>
+                      {active ? (
+                        <Check className="size-4 shrink-0 text-[#22C55E]" />
+                      ) : (
+                        <ChevronRight className="size-4 shrink-0 text-[#D1D5DB]" />
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
         <SheetContent
@@ -847,6 +949,7 @@ function ElectricityBillPayment() {
           <Button
             type="button"
             className="mt-4 h-11 w-full rounded-xl"
+            style={{ backgroundColor: NEA_GREEN }}
             onClick={() => setSearchOpen(false)}
           >
             {t("history.applyFilters")}
@@ -872,46 +975,6 @@ function ElectricityBillPayment() {
   );
 }
 
-function BalanceCard({
-  balance,
-  loading,
-  fetching,
-  label,
-  onRefresh,
-  retryLabel,
-}: {
-  balance: number;
-  loading: boolean;
-  fetching: boolean;
-  label: string;
-  onRefresh: () => void;
-  retryLabel: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-border bg-surface px-4 py-3.5 shadow-card">
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand">
-        <Wallet className="size-5" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="tabular text-[18px] font-bold tracking-tight">
-          {loading ? "…" : formatNPR(balance)}
-        </p>
-        <p className="text-[12px] text-muted-foreground">{label}</p>
-      </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-9 shrink-0 rounded-full"
-        onClick={onRefresh}
-        aria-label={retryLabel}
-      >
-        <RefreshCw className={cn("size-4", fetching && "animate-spin")} />
-      </Button>
-    </div>
-  );
-}
-
 function ImportantInfoCard({
   title,
   body1,
@@ -922,18 +985,18 @@ function ImportantInfoCard({
   body2: string;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-[#BFDBFE] bg-surface shadow-card">
-      <div className="flex items-center gap-2 bg-[#EFF6FF] px-4 py-2.5">
-        <AlertTriangle className="size-4 shrink-0 text-[#2563EB]" />
-        <p className="text-[14px] font-semibold text-[#2563EB]">{title}</p>
+    <section className="overflow-hidden rounded-2xl border border-[#BFDBFE] bg-white shadow-[0_2px_12px_-4px_rgba(16,24,40,0.08)]">
+      <div className="flex items-center gap-2 bg-[#DBEAFE] px-4 py-2.5">
+        <AlertTriangle className="size-[18px] shrink-0 text-[#2563EB]" strokeWidth={2.25} />
+        <p className="text-[15px] font-semibold text-[#2563EB]">{title}</p>
       </div>
-      <ul className="space-y-2 px-4 py-3 text-[13px] leading-relaxed text-foreground">
-        <li className="flex gap-2">
-          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground/70" />
+      <ul className="space-y-2.5 px-4 py-3.5 text-[13px] leading-relaxed text-[#1F2937]">
+        <li className="flex gap-2.5">
+          <span className="mt-[7px] size-[5px] shrink-0 rounded-full bg-[#1F2937]" />
           <span>{body1}</span>
         </li>
-        <li className="flex gap-2">
-          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground/70" />
+        <li className="flex gap-2.5">
+          <span className="mt-[7px] size-[5px] shrink-0 rounded-full bg-[#1F2937]" />
           <span>{body2}</span>
         </li>
       </ul>
@@ -945,23 +1008,15 @@ function Row({
   label,
   value,
   mono,
-  strong,
 }: {
   label: string;
   value: string;
   mono?: boolean;
-  strong?: boolean;
 }) {
   return (
     <div className="flex justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd
-        className={cn(
-          "text-right font-medium",
-          mono && "font-mono text-[13px]",
-          strong && "text-[17px] font-semibold tabular",
-        )}
-      >
+      <dt className="text-[#6B7280]">{label}</dt>
+      <dd className={cn("text-right font-medium text-[#111827]", mono && "font-mono text-[13px]")}>
         {value}
       </dd>
     </div>
@@ -971,8 +1026,10 @@ function Row({
 function FeeRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className="flex justify-between py-0.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("tabular", strong ? "font-semibold" : "font-medium")}>{value}</span>
+      <span className="text-[#6B7280]">{label}</span>
+      <span className={cn("tabular", strong ? "font-semibold text-[#111827]" : "font-medium")}>
+        {value}
+      </span>
     </div>
   );
 }

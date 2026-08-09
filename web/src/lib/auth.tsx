@@ -27,7 +27,6 @@ export type LoginOtpChallenge = {
   message: string;
   login_via?: "email" | "phone" | string | null;
   preferred_channel?: "email" | "sms" | string | null;
-  debug_otp?: string;
 };
 
 type AuthContextValue = {
@@ -68,7 +67,6 @@ function toChallenge(res: {
   message: string;
   login_via?: string | null;
   preferred_channel?: string | null;
-  debug_otp?: string;
 }): LoginOtpChallenge {
   const challenge: LoginOtpChallenge = {
     challenge_id: res.challenge_id,
@@ -80,8 +78,6 @@ function toChallenge(res: {
   if (res.phone_hint != null) challenge.phone_hint = res.phone_hint;
   if (res.login_via != null) challenge.login_via = res.login_via;
   if (res.preferred_channel != null) challenge.preferred_channel = res.preferred_channel;
-  // Keep debug_otp for toast-only phone feedback / email form hint; UI decides visibility.
-  if (res.debug_otp) challenge.debug_otp = res.debug_otp;
   return challenge;
 }
 

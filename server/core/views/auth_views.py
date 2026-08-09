@@ -292,7 +292,6 @@ def _start_login_otp_challenge(
     import secrets
     import uuid
 
-    from django.conf import settings as dj_settings
     from django.core.cache import cache
 
     from ..models import SecurityAuditLog
@@ -422,11 +421,8 @@ def _start_login_otp_challenge(
         'login_via': via,
         'preferred_channel': channel,
     }
-    # Never expose OTP for phone/SMS login in the API response (even in DEBUG).
-    # Email login may include debug_otp in DEBUG so local testing stays easy.
-    if getattr(dj_settings, 'DEBUG', False) and channel != 'sms' and via != 'phone':
-        payload['debug_otp'] = otp
-
+    # Never expose the login OTP in the API response — it is delivered only via
+    # email/SMS so the code cannot appear on the login page UI.
     logger.info(
         'Login OTP sent via %s for user_id=%s (login_via=%s)',
         ','.join(delivery.get('channels') or []),
