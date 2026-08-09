@@ -1140,33 +1140,53 @@ def admin_wallet_transactions(request, wallet_id):
     }
     type_key = type_aliases.get(type_raw) if type_raw and type_raw != 'all' else None
 
-    def _bucket(qs):
-        return _apply_created_range(qs.order_by('-created_at'), start, end)
+    def _bucket(model):
+        try:
+            qs = model.objects.filter(user=user).order_by('-created_at')
+            qs.exists()
+            return _apply_created_range(qs, start, end)
+        except (OperationalError, ProgrammingError):
+            if model is ElectricityBillTransaction:
+                try:
+                    from ..models import _ensure_electricity_bill_table
+                    _ensure_electricity_bill_table()
+                    qs = model.objects.filter(user=user).order_by('-created_at')
+                    qs.exists()
+                    return _apply_created_range(qs, start, end)
+                except Exception:
+                    pass
+            return model.objects.none()
 
-    deposits = _bucket(Deposit.objects.filter(user=user))
-    remittances = _bucket(RemittanceTransaction.objects.filter(user=user))
-    topups = _bucket(TopupTransaction.objects.filter(user=user))
-    transfers = _bucket(BankTransferTransaction.objects.filter(user=user))
-    internet_bills = _bucket(InternetBillTransaction.objects.filter(user=user))
-    data_packs = _bucket(DataPackTransaction.objects.filter(user=user))
-    water_bills = _bucket(WaterBillTransaction.objects.filter(user=user))
-    electricity_bills = _bucket(ElectricityBillTransaction.objects.filter(user=user))
-    community_electricity = _bucket(CommunityElectricityTransaction.objects.filter(user=user))
-    adjustments = _bucket(WalletAdjustment.objects.filter(user=user))
+    def _ser(serializer_cls, qs):
+        try:
+            return serializer_cls(qs, many=True).data
+        except (OperationalError, ProgrammingError):
+            return []
+
+    deposits = _bucket(Deposit)
+    remittances = _bucket(RemittanceTransaction)
+    topups = _bucket(TopupTransaction)
+    transfers = _bucket(BankTransferTransaction)
+    internet_bills = _bucket(InternetBillTransaction)
+    data_packs = _bucket(DataPackTransaction)
+    water_bills = _bucket(WaterBillTransaction)
+    electricity_bills = _bucket(ElectricityBillTransaction)
+    community_electricity = _bucket(CommunityElectricityTransaction)
+    adjustments = _bucket(WalletAdjustment)
 
     payload = {
-        'deposits': DepositSerializer(deposits, many=True).data,
-        'remittances': RemittanceTransactionSerializer(remittances, many=True).data,
-        'topups': TopupTransactionSerializer(topups, many=True).data,
-        'bank_transfers': BankTransferTransactionSerializer(transfers, many=True).data,
-        'internet_bills': InternetBillTransactionSerializer(internet_bills, many=True).data,
-        'data_packs': DataPackTransactionSerializer(data_packs, many=True).data,
-        'water_bills': WaterBillTransactionSerializer(water_bills, many=True).data,
-        'electricity_bills': ElectricityBillTransactionSerializer(electricity_bills, many=True).data,
-        'community_electricity': CommunityElectricityTransactionSerializer(
-            community_electricity, many=True
-        ).data,
-        'wallet_adjustments': WalletAdjustmentSerializer(adjustments, many=True).data,
+        'deposits': _ser(DepositSerializer, deposits),
+        'remittances': _ser(RemittanceTransactionSerializer, remittances),
+        'topups': _ser(TopupTransactionSerializer, topups),
+        'bank_transfers': _ser(BankTransferTransactionSerializer, transfers),
+        'internet_bills': _ser(InternetBillTransactionSerializer, internet_bills),
+        'data_packs': _ser(DataPackTransactionSerializer, data_packs),
+        'water_bills': _ser(WaterBillTransactionSerializer, water_bills),
+        'electricity_bills': _ser(ElectricityBillTransactionSerializer, electricity_bills),
+        'community_electricity': _ser(
+            CommunityElectricityTransactionSerializer, community_electricity
+        ),
+        'wallet_adjustments': _ser(WalletAdjustmentSerializer, adjustments),
         'wallet_id': wallet.id,
         'user_id': user.id,
     }

@@ -2,8 +2,10 @@
 Wallet views: Get balance, transaction history
 """
 from decimal import Decimal
+import logging
 
 from django.db.models import Sum
+from django.db.utils import OperationalError, ProgrammingError
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -21,6 +23,7 @@ from ..models import (
     CommunityElectricityTransaction,
     DataPackTransaction,
     WalletAdjustment,
+    _ensure_electricity_bill_table,
 )
 from ..serializers import (
     WalletSerializer,
@@ -36,13 +39,45 @@ from ..serializers import (
     WalletAdjustmentSerializer,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _money(value):
     return float(value or 0)
 
 
 def _sum_or_zero(qs, field='amount'):
-    return qs.aggregate(t=Sum(field))['t'] or Decimal('0')
+    try:
+        return qs.aggregate(t=Sum(field))['t'] or Decimal('0')
+    except (OperationalError, ProgrammingError):
+        # Missing table after a partial deploy (e.g. electricity migration not applied).
+        return Decimal('0')
+
+
+def _user_ordered(model, user):
+    """Return user txs, or empty qs if the model table is missing."""
+    qs = model.objects.filter(user=user).order_by('-created_at')
+    try:
+        qs.exists()
+        return qs
+    except (OperationalError, ProgrammingError) as exc:
+        msg = str(exc).lower()
+        if model is ElectricityBillTransaction and 'electricitybilltransaction' in msg:
+            try:
+                _ensure_electricity_bill_table()
+                qs = model.objects.filter(user=user).order_by('-created_at')
+                qs.exists()
+                return qs
+            except Exception:
+                logger.exception('Failed to self-heal electricity bill table')
+        return model.objects.none()
+
+
+def _serialize_many(serializer_cls, qs):
+    try:
+        return serializer_cls(qs, many=True).data
+    except (OperationalError, ProgrammingError):
+        return []
 
 
 @api_view(['GET'])
@@ -63,18 +98,22 @@ def get_wallet_balance(request):
 @permission_classes([IsAuthenticated])
 def get_transaction_history(request):
     """Get transaction history (deposits, remittances, topups, bank transfers, bills, data packs, adjustments)"""
-    deposits = Deposit.objects.filter(user=request.user).order_by('-created_at')
-    remittances = RemittanceTransaction.objects.filter(user=request.user).order_by('-created_at')
-    topups = TopupTransaction.objects.filter(user=request.user).order_by('-created_at')
-    transfers = BankTransferTransaction.objects.filter(user=request.user).order_by('-created_at')
-    internet_bills = InternetBillTransaction.objects.filter(user=request.user).order_by('-created_at')
-    water_bills = WaterBillTransaction.objects.filter(user=request.user).order_by('-created_at')
-    electricity_bills = ElectricityBillTransaction.objects.filter(user=request.user).order_by('-created_at')
-    community_electricity = CommunityElectricityTransaction.objects.filter(
-        user=request.user,
-    ).order_by('-created_at')
-    data_packs = DataPackTransaction.objects.filter(user=request.user).order_by('-created_at')
-    adjustments = WalletAdjustment.objects.filter(user=request.user).order_by('-created_at')
+    # Self-heal skipped migrate 0031 so wallet history never 500s on missing table.
+    try:
+        _ensure_electricity_bill_table()
+    except Exception:
+        logger.exception('electricity bill table ensure failed')
+
+    deposits = _user_ordered(Deposit, request.user)
+    remittances = _user_ordered(RemittanceTransaction, request.user)
+    topups = _user_ordered(TopupTransaction, request.user)
+    transfers = _user_ordered(BankTransferTransaction, request.user)
+    internet_bills = _user_ordered(InternetBillTransaction, request.user)
+    water_bills = _user_ordered(WaterBillTransaction, request.user)
+    electricity_bills = _user_ordered(ElectricityBillTransaction, request.user)
+    community_electricity = _user_ordered(CommunityElectricityTransaction, request.user)
+    data_packs = _user_ordered(DataPackTransaction, request.user)
+    adjustments = _user_ordered(WalletAdjustment, request.user)
 
     today = timezone.localdate()
     month_start = today.replace(day=1)
@@ -152,18 +191,18 @@ def get_transaction_history(request):
     )
 
     return Response({
-        'deposits': DepositSerializer(deposits, many=True).data,
-        'remittances': RemittanceTransactionSerializer(remittances, many=True).data,
-        'topups': TopupTransactionSerializer(topups, many=True).data,
-        'bank_transfers': BankTransferTransactionSerializer(transfers, many=True).data,
-        'internet_bills': InternetBillTransactionSerializer(internet_bills, many=True).data,
-        'water_bills': WaterBillTransactionSerializer(water_bills, many=True).data,
-        'electricity_bills': ElectricityBillTransactionSerializer(electricity_bills, many=True).data,
-        'community_electricity': CommunityElectricityTransactionSerializer(
-            community_electricity, many=True,
-        ).data,
-        'data_packs': DataPackTransactionSerializer(data_packs, many=True).data,
-        'wallet_adjustments': WalletAdjustmentSerializer(adjustments, many=True).data,
+        'deposits': _serialize_many(DepositSerializer, deposits),
+        'remittances': _serialize_many(RemittanceTransactionSerializer, remittances),
+        'topups': _serialize_many(TopupTransactionSerializer, topups),
+        'bank_transfers': _serialize_many(BankTransferTransactionSerializer, transfers),
+        'internet_bills': _serialize_many(InternetBillTransactionSerializer, internet_bills),
+        'water_bills': _serialize_many(WaterBillTransactionSerializer, water_bills),
+        'electricity_bills': _serialize_many(ElectricityBillTransactionSerializer, electricity_bills),
+        'community_electricity': _serialize_many(
+            CommunityElectricityTransactionSerializer, community_electricity,
+        ),
+        'data_packs': _serialize_many(DataPackTransactionSerializer, data_packs),
+        'wallet_adjustments': _serialize_many(WalletAdjustmentSerializer, adjustments),
         'summary': {
             'total_volume': _money(total_credit + total_debit),
             'total_credit': _money(total_credit),

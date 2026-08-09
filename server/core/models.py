@@ -30,6 +30,32 @@ def _ensure_settings_app_update_columns():
         recorder.record_applied('core', '0029_settings_app_version_apk')
 
 
+def _ensure_electricity_bill_table():
+    """
+    Create core_electricitybilltransaction if deploy skipped migrate 0031.
+    Wallet history queries this model; a missing table 500s the whole endpoint.
+    """
+    table = 'core_electricitybilltransaction'
+    if table in connection.introspection.table_names():
+        return False
+
+    from django.apps import apps
+    from django.db.migrations.recorder import MigrationRecorder
+
+    model = apps.get_model('core', 'ElectricityBillTransaction')
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(model)
+
+    recorder = MigrationRecorder(connection)
+    if not recorder.migration_qs.filter(
+        app='core', name='0031_electricity_bill'
+    ).exists():
+        # Only safe to mark applied when 0030 is already recorded (matches deps).
+        if recorder.migration_qs.filter(app='core', name='0030_home_popup').exists():
+            recorder.record_applied('core', '0031_electricity_bill')
+    return True
+
+
 class CustomUserManager(BaseUserManager):
     """Custom user manager where phone is the unique identifier"""
     
