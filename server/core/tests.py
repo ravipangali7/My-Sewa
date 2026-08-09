@@ -444,6 +444,25 @@ class RemittanceLookupParseTests(SimpleTestCase):
             self.assertNotIn('Invalid amount', msg)
             self.assertNotIn('missing or zero', msg.casefold())
 
+    def test_ms_message_already_been_paid(self):
+        """HimalPay often puts the real reason in ms_message (not vendor_state)."""
+        raw = {
+            'status': 'SUCCESS',
+            'data': {
+                'core_transaction_uuid': 'abc123',
+                'ms_status': 'FAILED',
+                'ms_message': 'Transaction reference has already been paid',
+                'vendor_state': '',
+                'data': {'ref_no': 'S1001', 'payout_amt': '0.0000'},
+            },
+        }
+        msg = HimalPayAPI.extract_provider_message(raw)
+        self.assertEqual(msg, 'Transaction reference has already been paid')
+        self.assertTrue(HimalPayAPI.is_remittance_already_received(msg, raw))
+        self.assertTrue(HimalPayAPI.is_remittance_already_received('', raw))
+        self.assertNotIn('missing or zero', msg.casefold())
+        self.assertNotIn('Remittance not available', msg)
+
 
 class ResetPasswordSerializerTests(SimpleTestCase):
     """date_of_birth must be present and YYYY-MM-DD before reset can proceed."""
