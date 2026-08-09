@@ -78,10 +78,13 @@ function extractMessage(body: unknown, fallback: string): string {
   const primary = firstString(
     b["message"],
     b["provider_message"],
+    b["vendor_state"],
     nested?.["error"],
     nested?.["message"],
+    nested?.["vendor_state"],
     deeper?.["error"],
     deeper?.["message"],
+    deeper?.["vendor_state"],
     b["error"],
     b["detail"],
   );

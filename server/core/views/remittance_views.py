@@ -197,34 +197,45 @@ def lookup_remittance(request):
         )
 
     provider_message = _provider_message(himalpay, raw, '')
+    vendor_state = himalpay.extract_vendor_state(raw)
+
+    def _lookup_error(error: str, message: str, **extra):
+        """Build a remittance lookup error; never invent 'Invalid amount'."""
+        payload = {
+            'error': error,
+            'message': message,
+            'provider_message': provider_message or None,
+            'vendor_state': vendor_state or None,
+        }
+        payload.update(extra)
+        return Response(payload, status=status.HTTP_400_BAD_REQUEST)
 
     # HimalPay/Samsara may return outer SUCCESS with zero/missing payout_amt and
     # the real reason in vendor_state (already received / already paid / locked).
     # Surface that reason instead of a misleading "Invalid amount" / amount 0.
     if himalpay.is_remittance_already_received(provider_message, raw):
-        return Response(
-            {
-                'error': 'Already received',
-                'message': provider_message or (
-                    f'Remittance {ref_no} has already been received.'
-                ),
-            },
-            status=status.HTTP_400_BAD_REQUEST,
+        return _lookup_error(
+            'Already received',
+            provider_message
+            or vendor_state
+            or f'Remittance {ref_no} has already been received.',
+        )
+
+    if himalpay.is_remittance_amount_locked(provider_message, raw):
+        return _lookup_error(
+            'Amount locked',
+            provider_message or vendor_state or 'Amount is locked',
         )
 
     provider_status = himalpay.normalize_status(raw)
     if provider_status == 'failed':
-        message = provider_message or 'Remittance lookup failed.'
+        message = provider_message or vendor_state or 'Remittance lookup failed.'
         failure = himalpay.extract_failure_details(raw)
-        return Response(
-            {
-                'error': 'Remittance lookup failed',
-                'message': message,
-                'provider_message': provider_message or None,
-                'error_code': failure.get('error_code'),
-                'error_type': failure.get('error_type'),
-            },
-            status=status.HTTP_400_BAD_REQUEST,
+        return _lookup_error(
+            'Remittance lookup failed',
+            message,
+            error_code=failure.get('error_code'),
+            error_type=failure.get('error_type'),
         )
 
     if not parsed.get('samsara_link_id'):
@@ -233,59 +244,52 @@ def lookup_remittance(request):
             ref_no,
             list((parsed.get('raw') or {}).keys()) if isinstance(parsed.get('raw'), dict) else type(raw),
         )
-        return Response(
-            {
-                'error': 'Invalid remittance',
-                'message': provider_message or (
-                    'Remittance details could not be resolved. Check the reference number.'
-                ),
-            },
-            status=status.HTTP_400_BAD_REQUEST,
+        return _lookup_error(
+            'Invalid remittance',
+            provider_message
+            or vendor_state
+            or 'Remittance details could not be resolved. Check the reference number.',
         )
 
     if parsed['payout_amt'] <= 0:
         logger.error(
             'Remittance lookup missing/zero payout_amt ref_no=%s link_id=%s status=%s '
-            'provider_message=%r raw=%s',
+            'provider_message=%r vendor_state=%r raw=%s',
             ref_no,
             parsed.get('samsara_link_id'),
             parsed.get('status'),
             provider_message,
+            vendor_state,
             parsed.get('raw') or raw,
         )
         # Always surface the exact HimalPay/vendor reason (e.g. "Amount is locked").
-        # Never tell customers the amount is "missing" when HimalPay already explained why.
-        message = provider_message or (
+        # Never tell customers the amount is "missing or zero".
+        message = provider_message or vendor_state or (
             'Remittance is not available for payout right now. '
             'Please try again later or contact MySewa support.'
         )
-        return Response(
-            {
-                'error': 'Remittance not available',
-                'message': message,
-                'provider_message': provider_message or None,
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        error_label = 'Remittance not available'
+        if himalpay.is_remittance_already_received(message, raw):
+            error_label = 'Already received'
+        elif himalpay.is_remittance_amount_locked(message, raw):
+            error_label = 'Amount locked'
+        return _lookup_error(error_label, message)
 
     lookup_status = str(parsed.get('status') or '').upper()
     if lookup_status and lookup_status not in (
         'SUCCESS', 'SUCCESSFUL', 'OK', 'PENDING', 'UNKNOWN', '',
     ):
-        return Response(
-            {
-                'error': 'Remittance not available',
-                'message': _provider_message(
-                    himalpay,
-                    raw,
-                    f'Remittance status is {lookup_status}.',
-                ),
-                'data': {
-                    'ref_no': parsed.get('ref_no') or ref_no,
-                    'status': lookup_status,
-                },
+        return _lookup_error(
+            'Remittance not available',
+            _provider_message(
+                himalpay,
+                raw,
+                f'Remittance status is {lookup_status}.',
+            ),
+            data={
+                'ref_no': parsed.get('ref_no') or ref_no,
+                'status': lookup_status,
             },
-            status=status.HTTP_400_BAD_REQUEST,
         )
 
     return Response(

@@ -405,6 +405,45 @@ class RemittanceLookupParseTests(SimpleTestCase):
         }
         self.assertEqual(HimalPayAPI.extract_provider_message(raw), 'Amount is locked')
 
+    def test_amount_locked_detection(self):
+        raw = {
+            'status': 'SUCCESS',
+            'data': {
+                'vendor_state': 'Amount is locked',
+                'data': {'ref_no': 'S1001', 'payout_amt': '0'},
+            },
+        }
+        self.assertTrue(HimalPayAPI.is_remittance_amount_locked('', raw))
+        self.assertEqual(HimalPayAPI.extract_vendor_state(raw), 'Amount is locked')
+        self.assertFalse(HimalPayAPI.is_remittance_already_received('', raw))
+
+    def test_zero_payout_never_reports_invalid_amount_label(self):
+        """Regression: locked/already-received must not surface Invalid amount."""
+        locked = {
+            'status': 'SUCCESS',
+            'data': {
+                'core_transaction_uuid': 'abc123',
+                'vendor_state': 'Amount is locked',
+                'data': {'ref_no': 'S1001', 'payout_amt': '0.0000'},
+            },
+        }
+        already = {
+            'status': 'SUCCESS',
+            'data': {
+                'core_transaction_uuid': 'abc123',
+                'vendor_state': 'Already Received',
+                'data': {'ref_no': 'S1001', 'payout_amt': '0.0000'},
+            },
+        }
+        self.assertTrue(HimalPayAPI.is_remittance_amount_locked('', locked))
+        self.assertTrue(HimalPayAPI.is_remittance_already_received('', already))
+        for raw in (locked, already):
+            parsed = HimalPayAPI.parse_remittance_lookup(raw)
+            self.assertEqual(parsed['payout_amt'], Decimal('0.00'))
+            msg = HimalPayAPI.extract_provider_message(raw)
+            self.assertNotIn('Invalid amount', msg)
+            self.assertNotIn('missing or zero', msg.casefold())
+
 
 class ResetPasswordSerializerTests(SimpleTestCase):
     """date_of_birth must be present and YYYY-MM-DD before reset can proceed."""

@@ -129,7 +129,12 @@ export function userFriendlyApiMessage(err: unknown, fallback = FALLBACK): strin
   if (err instanceof ApiError) {
     const code = errorCodeFromBody(err.body);
     const body = asRecord(err.body);
-    const preferred = firstString(body?.["message"], body?.["provider_message"], err.message);
+    const preferred = firstString(
+      body?.["message"],
+      body?.["provider_message"],
+      body?.["vendor_state"],
+      err.message,
+    );
     if (preferred) {
       const friendly = sanitizeProviderMessage(preferred, "");
       if (friendly) return friendly;
@@ -143,13 +148,35 @@ export function userFriendlyApiMessage(err: unknown, fallback = FALLBACK): strin
 type ToastApiErrorOpts = {
   title?: string;
   fallback?: string;
+  /** When true, prefer API `error` (e.g. "Already received") as the toast title. */
+  preferErrorTitle?: boolean;
 };
+
+/** Prefer remittance / HimalPay `error` labels as toast titles when useful. */
+export function apiErrorTitle(err: unknown, fallback: string): string {
+  if (!(err instanceof ApiError)) return fallback;
+  const body = asRecord(err.body);
+  const label = firstString(body?.["error"]);
+  if (!label) return fallback;
+  // Skip generic DRF / HTTP labels — keep the friendly fallback title.
+  if (/^(error|bad request|request failed|detail)$/i.test(label)) return fallback;
+  return sanitizeProviderMessage(label, fallback);
+}
 
 /** Show a HimalPay / API failure as a sonner toast (no technical jargon). */
 export function toastApiError(err: unknown, opts?: ToastApiErrorOpts) {
   const message = userFriendlyApiMessage(err, opts?.fallback || FALLBACK);
-  if (opts?.title) {
-    toast.error(opts.title, { description: message });
+  const title =
+    opts?.title && opts.preferErrorTitle
+      ? apiErrorTitle(err, opts.title)
+      : opts?.title;
+  if (title) {
+    // Avoid "Title / Title" when message equals the title (e.g. Already received).
+    if (message.toLowerCase() === title.toLowerCase()) {
+      toast.error(message);
+    } else {
+      toast.error(title, { description: message });
+    }
   } else {
     toast.error(message);
   }

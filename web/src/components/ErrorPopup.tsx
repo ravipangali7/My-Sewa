@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 
 export { errorMessageFromUnknown, userFriendlyApiMessage } from "@/lib/api-errors";
-export { toastApiError, toastApiMessage } from "@/lib/api-errors";
+export { toastApiError, toastApiMessage, apiErrorTitle } from "@/lib/api-errors";
 
 type ErrorPopupProps = {
   open: boolean;

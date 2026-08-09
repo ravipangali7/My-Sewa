@@ -425,6 +425,7 @@ def run_statement_reconcile(
         triggered_by=triggered_by,
         triggered_by_user=triggered_by_user,
         status=StatementReconcileRun.STATUS_RUNNING,
+        himalpay_statement_logs=[],
     )
     api = himalpay or HimalPayAPI()
 
@@ -575,7 +576,7 @@ def run_statement_reconcile(
             run.issues_open = open_count
             run.issues_new = new_count
             run.himalpay_statement_logs = [
-                row for row in entries if isinstance(row, dict)
+                row for row in (entries or []) if isinstance(row, dict)
             ]
             if isinstance(balance, dict):
                 bal = balance.get('balance')
@@ -611,7 +612,11 @@ def run_statement_reconcile(
         run.status = StatementReconcileRun.STATUS_FAILED
         run.error_message = str(exc)
         run.finished_at = timezone.now()
-        run.save(update_fields=['status', 'error_message', 'finished_at'])
+        if run.himalpay_statement_logs is None:
+            run.himalpay_statement_logs = []
+        run.save(update_fields=[
+            'status', 'error_message', 'finished_at', 'himalpay_statement_logs',
+        ])
         raise
 
 

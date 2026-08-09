@@ -17,7 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { toastApiError } from "@/lib/api-errors";
+import { apiErrorTitle, toastApiError, userFriendlyApiMessage } from "@/lib/api-errors";
+import { useErrorPopup } from "@/components/ErrorPopup";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
@@ -142,7 +143,11 @@ function ReceiveRemittance() {
   const [step, setStep] = useState<Step>("lookup");
   const [refNo, setRefNo] = useState("");
   const [lookup, setLookup] = useState<RemittanceLookup | null>(null);
+  const [lookupError, setLookupError] = useState<{ title: string; message: string } | null>(
+    null,
+  );
   const [kyc, setKyc] = useState<KycForm>(() => emptyKyc(user?.phone ?? ""));
+  const errorPopup = useErrorPopup(t("remittance.lookupFailed"));
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -168,9 +173,11 @@ function ReceiveRemittance() {
       if (!remittancesEnabled) throw new Error(t("remittance.disabledError"));
       const cleaned = refNo.trim();
       if (!cleaned) throw new Error(t("remittance.refRequired"));
+      setLookupError(null);
       return apiClient.lookupRemittance({ ref_no: cleaned });
     },
     onSuccess: (res) => {
+      setLookupError(null);
       setLookup(res.data);
       setKyc((prev) => ({
         ...prev,
@@ -187,7 +194,16 @@ function ReceiveRemittance() {
       toast.success(t("remittance.lookupSuccess"));
     },
     onError: (err) => {
-      toastApiError(err, { title: t("remittance.lookupFailed"), fallback: t("remittance.lookupFailed") });
+      // Show exact HimalPay / vendor message (vendor_state) — never a generic amount-0 blurb.
+      const message = userFriendlyApiMessage(err, t("remittance.lookupFailed"));
+      const title = apiErrorTitle(err, t("remittance.lookupFailed"));
+      setLookupError({ title, message });
+      toastApiError(err, {
+        title: t("remittance.lookupFailed"),
+        fallback: t("remittance.lookupFailed"),
+        preferErrorTitle: true,
+      });
+      errorPopup.showError(err, { title, fallback: t("remittance.lookupFailed") });
     },
   });
 
@@ -268,8 +284,15 @@ function ReceiveRemittance() {
         }
       }
       setPinOpen(false);
-      toastApiError(err, { title: t("remittance.failed"), fallback: t("remittance.failed") });
-
+      toastApiError(err, {
+        title: t("remittance.failed"),
+        fallback: t("remittance.failed"),
+        preferErrorTitle: true,
+      });
+      errorPopup.showError(err, {
+        title: apiErrorTitle(err, t("remittance.failed")),
+        fallback: t("remittance.failed"),
+      });
     },
   });
 
@@ -300,6 +323,7 @@ function ReceiveRemittance() {
         </Button>
       }
     >
+      {errorPopup.popup}
       <div className="min-w-0 max-w-full space-y-5 overflow-x-clip">
         {accountPending ? <AccountPendingBanner /> : null}
         {!remittancesEnabled && !accountPending ? (
@@ -343,7 +367,10 @@ function ReceiveRemittance() {
                 <Input
                   id="ref_no"
                   value={refNo}
-                  onChange={(e) => setRefNo(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    setRefNo(e.target.value.toUpperCase());
+                    if (lookupError) setLookupError(null);
+                  }}
                   placeholder={t("remittance.refPlaceholder")}
                   className="h-12 rounded-xl font-medium tracking-wide"
                   disabled={!remittancesEnabled}
@@ -352,6 +379,19 @@ function ReceiveRemittance() {
                 />
                 <p className="text-[12px] text-muted-foreground">{t("remittance.refHelp")}</p>
               </div>
+              {lookupError ? (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2.5"
+                >
+                  <p className="text-[13px] font-medium text-destructive">{lookupError.title}</p>
+                  {lookupError.message.toLowerCase() !== lookupError.title.toLowerCase() ? (
+                    <p className="mt-1 whitespace-pre-wrap wrap-break-word text-[13px] text-foreground">
+                      {lookupError.message}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <Button
                 type="submit"
                 disabled={lookupMutation.isPending || !remittancesEnabled}

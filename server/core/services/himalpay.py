@@ -1168,6 +1168,12 @@ class HimalPayAPI:
             'PayoutAmount',
             'pay_amount',
             'payoutAmt',
+            'net_payout_amt',
+            'NetPayoutAmt',
+            'remittance_amount',
+            'RemittanceAmount',
+            'txn_amount',
+            'TxnAmount',
         )
         detail_marker_keys = (
             'ref_no',
@@ -1330,6 +1336,60 @@ class HimalPayAPI:
             'payout already',
         )
         return any(p in blob for p in patterns)
+
+    @staticmethod
+    def is_remittance_amount_locked(
+        message: str = '',
+        response: Any = None,
+    ) -> bool:
+        """True when Samsara/HimalPay reports the payout amount is locked."""
+        candidates = [message or '']
+        if response is not None:
+            candidates.append(HimalPayAPI.extract_provider_message(response))
+            for layer in HimalPayAPI._iter_nested_dicts(response):
+                for key in (
+                    'vendor_state',
+                    'message',
+                    'error',
+                    'detail',
+                    'reason',
+                    'status_message',
+                ):
+                    value = layer.get(key)
+                    if value is not None:
+                        candidates.append(str(value))
+
+        blob = ' '.join(c for c in candidates if c).casefold()
+        if not blob:
+            return False
+
+        patterns = (
+            'amount is locked',
+            'amount locked',
+            'locked amount',
+            'payout locked',
+            'payout is locked',
+            'transaction locked',
+            'txn locked',
+            'remittance locked',
+            'amount is lock',
+        )
+        return any(p in blob for p in patterns)
+
+    @staticmethod
+    def extract_vendor_state(response: Any) -> str:
+        """Return nested ``vendor_state`` text when present (may be empty)."""
+        for layer in HimalPayAPI._iter_nested_dicts(response):
+            for key in ('vendor_state', 'VendorState', 'vendorState'):
+                if key not in layer:
+                    continue
+                value = layer.get(key)
+                if value is None or isinstance(value, (dict, list, bool)):
+                    continue
+                text = str(value).strip()
+                if text:
+                    return text
+        return ''
 
     @staticmethod
     def extract_provider_message(response: Any) -> str:

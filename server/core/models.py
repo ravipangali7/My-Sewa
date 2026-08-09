@@ -1091,7 +1091,9 @@ class StatementReconcileRun(models.Model):
         max_digits=14, decimal_places=2, null=True, blank=True,
     )
     # Raw HimalPay reseller/portal statement ledger rows for this run.
-    himalpay_statement_logs = models.JSONField(default=list, blank=True)
+    # null=True: SQLite column has no DB default; omitting the value on insert
+    # must not raise NOT NULL (e.g. older workers / partial deploys).
+    himalpay_statement_logs = models.JSONField(default=list, blank=True, null=True)
     error_message = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)

@@ -19,10 +19,10 @@ if [[ ! -x "$VENV_PY" ]]; then
   exit 1
 fi
 
-echo "==> Applying migrations (incl. core.0024_statement_reconcile)"
+echo "==> Applying migrations (incl. statement reconcile + himalpay logs)"
 cd "$SERVER_DIR"
 "$VENV_PY" manage.py migrate --noinput
-"$VENV_PY" manage.py showmigrations core | tail -5
+"$VENV_PY" manage.py showmigrations core | tail -8
 
 echo "==> Restarting API"
 systemctl restart mysewa-api
