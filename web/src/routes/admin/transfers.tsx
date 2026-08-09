@@ -50,7 +50,7 @@ export const Route = createFileRoute("/admin/transfers")({
       { property: "og:title", content: "Bank Transfer Ledger — MySewa Admin" },
       {
         property: "og:description",
-        content: "Oversight of every outbound transfer from MySewa wallets.",
+        content: "Oversight of every outbound transfer from MySewa business wallets.",
       },
     ],
   }),

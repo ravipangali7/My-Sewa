@@ -43,7 +43,7 @@ export const Route = createFileRoute("/app/history_/$activityId")({
       { title: "Transaction Statement — MySewa" },
       {
         name: "description",
-        content: "Detailed banking-style statement for a MySewa wallet transaction.",
+        content: "Detailed banking-style statement for a MySewa business wallet transaction.",
       },
     ],
   }),

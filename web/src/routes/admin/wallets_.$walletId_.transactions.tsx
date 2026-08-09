@@ -24,7 +24,7 @@ import {
 import { walletDisplayName } from "@/components/admin/WalletCard";
 import { apiClient, ApiError } from "@/lib/api";
 import { buildActivity } from "@/lib/activity";
-import { formatDateTime, formatNPR } from "@/lib/format";
+import { formatDateTime, formatNPR, sortByLatestFirst } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
 import type { ActivityKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -40,7 +40,7 @@ export const Route = createFileRoute("/admin/wallets_/$walletId_/transactions")(
       {
         name: "description",
         content:
-          "View deposits, top-ups, transfers, bills and adjustments for a specific MySewa wallet.",
+          "View deposits, top-ups, transfers, bills and adjustments for a specific MySewa business wallet.",
       },
       { property: "og:title", content: "Wallet Transaction History — MySewa Admin" },
     ],
@@ -101,7 +101,7 @@ function WalletTransactionsPage() {
   const items = useMemo(() => {
     const all = txQuery.data ? buildActivity(txQuery.data) : [];
     const q = debounced.q.trim().toLowerCase();
-    return all.filter((item) => {
+    const filtered = all.filter((item) => {
       if (typeTab !== "all" && item.kind !== typeTab) return false;
       if (debounced.status !== "all" && item.status !== debounced.status) return false;
       if (!q) return true;
@@ -110,6 +110,7 @@ function WalletTransactionsPage() {
         .toLowerCase();
       return haystack.includes(q);
     });
+    return sortByLatestFirst(filtered);
   }, [txQuery.data, debounced.q, debounced.status, typeTab]);
 
   const typeCounts = useMemo(() => {

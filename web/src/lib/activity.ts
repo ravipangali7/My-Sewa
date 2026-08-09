@@ -14,7 +14,7 @@ import type {
 } from "./types";
 import { OPERATORS } from "./constants";
 import type { TranslateFn } from "./i18n";
-import { formatNPR, formatDateTime, formatDate } from "./format";
+import { formatNPR, formatDateTime, formatDate, sortByLatestFirst } from "./format";
 import { translateStatus } from "./status";
 
 export type { ActivityKind };
@@ -169,7 +169,8 @@ export function buildActivity(
       };
     }),
   ];
-  return items.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  // Always newest-first so History, home, wallet history, and notifications agree.
+  return sortByLatestFirst(items);
 }
 
 /** True when the item should appear in wallet Credit History. */

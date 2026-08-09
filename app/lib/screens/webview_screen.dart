@@ -15,6 +15,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../config/app_config.dart';
+import '../services/session_lifecycle.dart';
 import 'no_internet_screen.dart';
 
 List<int> _decodeBase64InBackground(String value) {
@@ -274,6 +275,8 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Future<void> _bootstrap() async {
+    // Wipe restored WebView auth storage before the site can hydrate a token.
+    await SessionLifecycle.prepareFreshInstallSession();
     await _initWebView();
     _watchConnectivity();
   }

@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import WebKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -12,5 +13,74 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+
+    let channel = FlutterMethodChannel(
+      name: "com.mysewa.app/session_lifecycle",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    channel.setMethodCallHandler { call, result in
+      guard call.method == "prepareFreshInstallSession" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      Self.prepareFreshInstallSession(result: result)
+    }
+  }
+
+  /// Uses an Application Support marker (removed with uninstall / data wipe).
+  /// When missing, clears WKWebView website data so auth tokens cannot survive.
+  private static func prepareFreshInstallSession(result: @escaping FlutterResult) {
+    let fileManager = FileManager.default
+    guard
+      let supportUrl = fileManager.urls(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask
+      ).first
+    else {
+      result(
+        FlutterError(
+          code: "session_prep_failed",
+          message: "Application Support directory unavailable",
+          details: nil
+        )
+      )
+      return
+    }
+
+    let markerDir = supportUrl.appendingPathComponent("mysewa", isDirectory: true)
+    let markerUrl = markerDir.appendingPathComponent("install_session_v1")
+
+    if fileManager.fileExists(atPath: markerUrl.path) {
+      result(false)
+      return
+    }
+
+    let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+    let epoch = Date(timeIntervalSince1970: 0)
+    WKWebsiteDataStore.default().removeData(
+      ofTypes: dataTypes,
+      modifiedSince: epoch
+    ) {
+      do {
+        try fileManager.createDirectory(
+          at: markerDir,
+          withIntermediateDirectories: true
+        )
+        try "\(Int(Date().timeIntervalSince1970 * 1000))".write(
+          to: markerUrl,
+          atomically: true,
+          encoding: .utf8
+        )
+        result(true)
+      } catch {
+        result(
+          FlutterError(
+            code: "session_prep_failed",
+            message: error.localizedDescription,
+            details: nil
+          )
+        )
+      }
+    }
   }
 }

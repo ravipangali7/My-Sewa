@@ -361,6 +361,18 @@ class Settings(models.Model):
         blank=True,
         help_text="Brand logo used across the app and as the favicon",
     )
+    app_version = models.CharField(
+        max_length=32,
+        blank=True,
+        default='',
+        help_text="Latest Android app version string compared with Flutter appVersion",
+    )
+    apk = models.FileField(
+        upload_to='settings/apk/',
+        null=True,
+        blank=True,
+        help_text="Latest Android APK used for in-app updates",
+    )
     bank_details = models.JSONField(
         default=dict,
         help_text="Deposit payment accounts JSON: legacy bank_* fields plus accounts[] (bank/khalti/esewa)",
@@ -1020,6 +1032,8 @@ class SecurityAuditLog(models.Model):
     ACTION_PHONE_CHANGED = 'phone_changed'
     ACTION_EMAIL_CHANGE_OTP_SENT = 'email_change_otp_sent'
     ACTION_EMAIL_CHANGED = 'email_changed'
+    ACTION_LOGIN_OTP_SENT = 'login_otp_sent'
+    ACTION_LOGIN_OTP_VERIFIED = 'login_otp_verified'
     ACTION_CHOICES = [
         (ACTION_TRANSACTION_PIN_SET, 'Transaction PIN Set'),
         (ACTION_TRANSACTION_PIN_CHANGED, 'Transaction PIN Changed'),
@@ -1029,6 +1043,8 @@ class SecurityAuditLog(models.Model):
         (ACTION_PHONE_CHANGED, 'Phone Changed'),
         (ACTION_EMAIL_CHANGE_OTP_SENT, 'Email Change OTP Sent'),
         (ACTION_EMAIL_CHANGED, 'Email Changed'),
+        (ACTION_LOGIN_OTP_SENT, 'Login OTP Sent'),
+        (ACTION_LOGIN_OTP_VERIFIED, 'Login OTP Verified'),
     ]
 
     user = models.ForeignKey(

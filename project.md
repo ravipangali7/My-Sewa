@@ -10,7 +10,7 @@ Three core money flows:
 
 ### 1. Receive remittance / load wallet (Deposit)
 
-Users fund their MySewa wallet by transferring money to the company bank account (or scanning the deposit QR), then submitting a deposit request with screenshot proof.
+Users fund their MySewa business wallet by transferring money to the company bank account (or scanning the deposit QR), then submitting a deposit request with screenshot proof.
 
 - App shows bank details + QR from **Settings**
 - User creates a **Deposit** (`pending`)
@@ -21,7 +21,7 @@ This is the inbound “load” path — remittance-style funding into the wallet
 
 ### 2. Bank payment / fund transfer (BankTransferTransaction)
 
-Users send money from their MySewa wallet to any supported Nepali bank account via HimalPay.
+Users send money from their MySewa business wallet to any supported Nepali bank account via HimalPay.
 
 - Pick bank → verify account → see charge/cashback → confirm
 - Wallet is debited (`total_debited`)

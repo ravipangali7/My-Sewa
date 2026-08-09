@@ -936,7 +936,7 @@ class RemittanceNetCreditTests(SimpleTestCase):
 
 
 class WalletEmailDirectionTests(TestCase):
-    """Customer credit/debit emails must reverse direction for Super Admin."""
+    """Payment/remittance emails debit Admin Wallet and show remaining balances."""
 
     def setUp(self):
         cache.clear()
@@ -988,24 +988,33 @@ class WalletEmailDirectionTests(TestCase):
             return True
 
         with patch.object(notif, 'send_smtp_email', side_effect=fake_send):
-            notif.notify_wallet_credit(
-                self.user,
-                Decimal('95.00'),
-                balance_after=Decimal('595.00'),
-                reason='Remittance net of charge',
-                ref='REF95',
-            )
+            with patch.object(
+                notif,
+                '_admin_float_balance',
+                return_value=Decimal('200.00'),
+            ):
+                notif.notify_wallet_credit(
+                    self.user,
+                    Decimal('95.00'),
+                    balance_after=Decimal('595.00'),
+                    reason='Remittance net of charge',
+                    ref='REF95',
+                )
 
         self.assertEqual(len(sent), 2)
         customer = next(m for m in sent if 'customer@example.com' in m['recipients'])
         admin = next(m for m in sent if 'admin@example.com' in m['recipients'])
         self.assertIn('credited', customer['subject'].lower())
         self.assertIn('Rs. 95', customer['message'])
+        self.assertIn('credited to your wallet', customer['message'].lower())
+        self.assertIn('Rs. 595', customer['message'])
         self.assertIn('debit', admin['subject'].lower())
         self.assertIn('Rs. 95', admin['message'])
-        self.assertIn('admin wallet debit', admin['html'].lower())
+        self.assertIn('debited from the admin wallet', admin['message'].lower())
+        self.assertIn('Rs. 200', admin['message'])
+        self.assertIn('admin wallet debited', admin['html'].lower())
 
-    def test_customer_debit_sends_admin_credit(self):
+    def test_customer_debit_sends_admin_debit(self):
         from unittest.mock import patch
         from .services import notifications as notif
 
@@ -1023,22 +1032,31 @@ class WalletEmailDirectionTests(TestCase):
             return True
 
         with patch.object(notif, 'send_smtp_email', side_effect=fake_send):
-            notif.notify_wallet_debit(
-                self.user,
-                Decimal('105.00'),
-                balance_after=Decimal('395.00'),
-                reason='Top-up with charge',
-                ref='TOP105',
-            )
+            with patch.object(
+                notif,
+                '_admin_float_balance',
+                return_value=Decimal('200.00'),
+            ):
+                notif.notify_wallet_debit(
+                    self.user,
+                    Decimal('100.00'),
+                    balance_after=Decimal('400.00'),
+                    reason='Bank transfer',
+                    ref='XFER100',
+                )
 
         self.assertEqual(len(sent), 2)
         customer = next(m for m in sent if 'customer@example.com' in m['recipients'])
         admin = next(m for m in sent if 'admin@example.com' in m['recipients'])
         self.assertIn('debited', customer['subject'].lower())
-        self.assertIn('Rs. 105', customer['message'])
-        self.assertIn('credit', admin['subject'].lower())
-        self.assertIn('Rs. 105', admin['message'])
-
+        self.assertIn('Rs. 100', customer['message'])
+        self.assertIn('deducted from your wallet', customer['message'].lower())
+        self.assertIn('Rs. 400', customer['message'])
+        self.assertIn('debit', admin['subject'].lower())
+        self.assertIn('Rs. 100', admin['message'])
+        self.assertIn('debited from the admin wallet', admin['message'].lower())
+        self.assertIn('Rs. 200', admin['message'])
+        self.assertIn('admin wallet balance', admin['html'].lower())
 
 class RemittanceWalletCreditIntegrationTests(TestCase):
     """End-to-end: remittance with charge credits net amount and snapshots balances."""

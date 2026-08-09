@@ -15,7 +15,7 @@ import {
   normalizeNepalMobile,
   validateOperatorMobile,
 } from "@/lib/constants";
-import { formatNPR, formatDateTime } from "@/lib/format";
+import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
@@ -32,7 +32,7 @@ export const Route = createFileRoute("/app/topup")({
       {
         name: "description",
         content:
-          "Recharge NTC or NCELL mobile numbers from your MySewa wallet balance with a clear charge and cashback breakdown.",
+          "Recharge NTC or NCELL mobile numbers from your MySewa business wallet balance with a clear charge and cashback breakdown.",
       },
       { property: "og:title", content: "Mobile Top-Up — MySewa" },
       {
@@ -86,7 +86,10 @@ function TopUp() {
     queryFn: () => apiClient.topupHistory(),
     refetchInterval: LIVE_REFETCH_MS,
   });
-  const topupItems = historyQuery.data?.items ?? [];
+  const topupItems = useMemo(
+    () => sortByLatestFirst(historyQuery.data?.items ?? []),
+    [historyQuery.data?.items],
+  );
 
   const servicesQuery = useQuery({
     queryKey: ["topup", "services"],

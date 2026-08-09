@@ -22,13 +22,13 @@ import { useT } from "@/lib/i18n";
 export const Route = createFileRoute("/app/services")({
   head: () => ({
     meta: [
-      { title: "Services — MySewa Wallet" },
+      { title: "Services — MySewa Business Wallet" },
       {
         name: "description",
         content:
-          "Receive remittance, load your MySewa wallet, recharge NTC or NCELL and send money to any Nepali bank account.",
+          "Receive remittance, load your MySewa business wallet, recharge NTC or NCELL and send money to any Nepali bank account.",
       },
-      { property: "og:title", content: "Services — MySewa Wallet" },
+      { property: "og:title", content: "Services — MySewa Business Wallet" },
       {
         property: "og:description",
         content: "Remittance, wallet load, mobile top-up and bank transfer services in one hub.",

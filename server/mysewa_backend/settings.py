@@ -186,6 +186,10 @@ CACHES = {
 # Phone-change email OTP lifetime (seconds). Keep frontend countdown in sync.
 PHONE_CHANGE_OTP_TIMEOUT = int(os.environ.get('PHONE_CHANGE_OTP_TIMEOUT', '120'))
 
+# Login OTP lifetime (seconds). Keep frontend countdown in sync.
+LOGIN_OTP_TIMEOUT = int(os.environ.get('LOGIN_OTP_TIMEOUT', '300'))
+LOGIN_OTP_MAX_ATTEMPTS = int(os.environ.get('LOGIN_OTP_MAX_ATTEMPTS', '5'))
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -229,6 +233,10 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Allow APK uploads from Admin → Settings (typical release builds are 30–80 MB).
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('DATA_UPLOAD_MAX_MEMORY_SIZE', 100 * 1024 * 1024))
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('FILE_UPLOAD_MAX_MEMORY_SIZE', 100 * 1024 * 1024))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

@@ -25,3 +25,20 @@ export function formatDate(iso: string) {
     day: "2-digit",
   });
 }
+
+/** Epoch ms for sorting; invalid/missing timestamps sort as oldest. */
+export function createdAtMs(value: string | null | undefined): number {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/** Newest date/time first. Stable for equal timestamps via original index. */
+export function sortByLatestFirst<T extends { created_at?: string | null }>(
+  items: readonly T[],
+): T[] {
+  return items
+    .map((item, index) => ({ item, index, ms: createdAtMs(item.created_at) }))
+    .sort((a, b) => b.ms - a.ms || a.index - b.index)
+    .map(({ item }) => item);
+}

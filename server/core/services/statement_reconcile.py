@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -356,10 +356,10 @@ def _suggest_for_issue(
     if issue_type == StatementDiscrepancy.ISSUE_WALLET_NOT_APPLIED:
         if hp.direction == 'credit' or local.txn_type == StatementDiscrepancy.TXN_REMITTANCE:
             return 'credit', net, (
-                f'HimalPay credited Rs. {net} but MySewa wallet was not credited.'
+                f'HimalPay credited Rs. {net} but MySewa business wallet was not credited.'
             )
         return 'debit', net, (
-            f'HimalPay debited Rs. {net} but MySewa wallet was not debited.'
+            f'HimalPay debited Rs. {net} but MySewa business wallet was not debited.'
         )
 
     if issue_type == StatementDiscrepancy.ISSUE_STATUS_MISMATCH:
@@ -1003,7 +1003,22 @@ def build_statement_ledger(
             },
         )
 
-    # Stable: sort by user then by date desc
+    # Stable: sort by user then by date desc (most recent statement first)
+    def _row_ts(r: Dict[str, Any]) -> float:
+        raw = (
+            (r.get('himalpay') or {}).get('created_at')
+            or (r.get('mysewa') or {}).get('created_at')
+            or ''
+        )
+        if not raw:
+            return 0.0
+        try:
+            # Accept ISO strings with/without timezone.
+            normalized = str(raw).replace('Z', '+00:00')
+            return datetime.fromisoformat(normalized).timestamp()
+        except (TypeError, ValueError):
+            return 0.0
+
     by_user: Dict[str, List[Dict[str, Any]]] = {}
     for row in rows:
         bucket = row.get('user_phone') or '__unmatched__'
@@ -1011,14 +1026,7 @@ def build_statement_ledger(
     ordered: List[Dict[str, Any]] = []
     for phone in sorted(by_user.keys(), key=lambda p: (p == '__unmatched__', p.lower())):
         bucket_rows = by_user[phone]
-        bucket_rows.sort(
-            key=lambda r: (
-                (r.get('himalpay') or {}).get('created_at')
-                or (r.get('mysewa') or {}).get('created_at')
-                or ''
-            ),
-            reverse=True,
-        )
+        bucket_rows.sort(key=_row_ts, reverse=True)
         ordered.extend(bucket_rows)
     return ordered
 
@@ -1049,8 +1057,32 @@ def group_ledger_by_user(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         groups[key]['row_count'] += 1
         if row.get('match_state') not in ('matched', 'local_only'):
             groups[key]['issue_count'] += 1
-    # Unmatched HimalPay-only last
-    order.sort(key=lambda k: (k == '__unmatched__', k))
+
+    def _group_latest_ts(g: Dict[str, Any]) -> float:
+        best = 0.0
+        for r in g.get('rows') or []:
+            raw = (
+                (r.get('himalpay') or {}).get('created_at')
+                or (r.get('mysewa') or {}).get('created_at')
+                or ''
+            )
+            if not raw:
+                continue
+            try:
+                normalized = str(raw).replace('Z', '+00:00')
+                best = max(best, datetime.fromisoformat(normalized).timestamp())
+            except (TypeError, ValueError):
+                continue
+        return best
+
+    # Newest activity first; unmatched HimalPay-only last
+    order.sort(
+        key=lambda k: (
+            k == '__unmatched__',
+            -_group_latest_ts(groups[k]),
+            k,
+        ),
+    )
     return [groups[k] for k in order]
 
 

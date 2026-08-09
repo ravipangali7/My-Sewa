@@ -20,7 +20,7 @@ export const Route = createFileRoute("/app/notifications_/$notificationId")({
   head: () => ({
     meta: [
       { title: "Notification — MySewa" },
-      { name: "description", content: "Notification details for your MySewa wallet activity." },
+      { name: "description", content: "Notification details for your MySewa business wallet activity." },
     ],
   }),
   component: NotificationDetailPage,

@@ -109,13 +109,13 @@ function extractMessage(body: unknown, fallback: string): string {
   const isLocalInsufficient =
     (typeof b["error"] === "string" && /insufficient balance/i.test(b["error"])) ||
     (typeof primary === "string" &&
-      /^insufficient (mysewa wallet )?balance/i.test(primary) &&
+      /^insufficient (mysewa (business )?wallet )?balance/i.test(primary) &&
       required != null &&
       available != null);
   if (isLocalInsufficient && required != null && available != null) {
     const clear =
       firstString(b["message"]) ||
-      `Insufficient MySewa wallet balance. Need Rs. ${required}, have Rs. ${available}.`;
+      `Insufficient MySewa business wallet balance. Need Rs. ${required}, have Rs. ${available}.`;
     parts.push(stripTechnicalErrorMeta(clear));
   } else if (primary) {
     parts.push(stripTechnicalErrorMeta(primary));
@@ -136,7 +136,7 @@ function extractMessage(body: unknown, fallback: string): string {
   }
 
   if (b["wallet_debited"] === false && !parts.some((p) => /wallet was not charged/i.test(p))) {
-    parts.push("Your MySewa wallet was not charged.");
+    parts.push("Your MySewa business wallet was not charged.");
   }
 
   if (parts.length) return parts.join("\n\n");
@@ -246,6 +246,19 @@ export const apiClient = {
   login: (phone: string, password: string) =>
     api<{
       message: string;
+      requires_otp: true;
+      challenge_id: string;
+      expires_in: number;
+      channels: Array<"email" | "sms" | string>;
+      email_hint?: string | null;
+      phone_hint?: string | null;
+      debug_otp?: string;
+    }>("/api/auth/login/", { method: "POST", body: { phone, password }, auth: false }),
+
+  verifyLoginOtp: (body: { challenge_id: string; otp: string }) =>
+    api<{
+      message: string;
+      requires_otp?: false;
       token: string;
       user: {
         id: number;
@@ -257,7 +270,23 @@ export const apiClient = {
         is_superuser?: boolean;
         account_status?: import("./types").AccountStatus;
       };
-    }>("/api/auth/login/", { method: "POST", body: { phone, password }, auth: false }),
+    }>("/api/auth/verify-login-otp/", { method: "POST", body, auth: false }),
+
+  resendLoginOtp: (challenge_id: string) =>
+    api<{
+      message: string;
+      requires_otp: true;
+      challenge_id: string;
+      expires_in: number;
+      channels: Array<"email" | "sms" | string>;
+      email_hint?: string | null;
+      phone_hint?: string | null;
+      debug_otp?: string;
+    }>("/api/auth/resend-login-otp/", {
+      method: "POST",
+      body: { challenge_id },
+      auth: false,
+    }),
 
   register: (body: {
     phone: string;

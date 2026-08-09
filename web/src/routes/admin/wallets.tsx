@@ -57,7 +57,7 @@ export const Route = createFileRoute("/admin/wallets")({
       {
         name: "description",
         content:
-          "Search MySewa wallets by phone or name and review balances, creation dates and last update time.",
+          "Search MySewa business wallets by phone or name and review balances, creation dates and last update time.",
       },
       { property: "og:title", content: "Wallets — MySewa Admin" },
       { property: "og:description", content: "Wallet balances and total float across all users." },

@@ -99,7 +99,8 @@ def register(request):
     serializer = UserSerializer(data=data)
     if serializer.is_valid():
         user = serializer.save()
-        token, created = Token.objects.get_or_create(user=user)
+        Token.objects.filter(user=user).delete()
+        token = Token.objects.create(user=user)
         try:
             from ..services.notifications import notify_welcome_signup
             notify_welcome_signup(user)
@@ -126,8 +127,9 @@ def register(request):
 @permission_classes([AllowAny])
 def login(request):
     """
-    User login endpoint - returns DRF token (uses phone as authentication field)
-    Uses custom PhoneBackend for authentication with comprehensive logging
+    Step 1 of login: verify phone + password, then send a one-time code
+    to the user's registered email and phone. A full auth token is issued
+    only after POST /api/auth/verify-login-otp/.
     """
     from django.core.cache import cache
     from ..services.app_config import get_app_config
@@ -169,8 +171,8 @@ def login(request):
         user = authenticate(request=request, username=phone, password=password)
         
         if user is not None:
-            # Authentication successful
-            logger.info(f"Login successful for user ID: {user.id}, Phone: {user.phone[:3]}***")
+            # Authentication successful — require OTP before issuing a token
+            logger.info(f"Credentials verified for user ID: {user.id}, Phone: {user.phone[:3]}***")
             cache.delete(fail_key)
 
             # Staff can always log in during maintenance; customers are blocked
@@ -182,37 +184,7 @@ def login(request):
                     'code': 'maintenance_mode',
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-            # Get or create token
-            token, created = Token.objects.get_or_create(user=user)
-            if created:
-                logger.debug(f"New token created for user ID: {user.id}")
-            else:
-                logger.debug(f"Existing token retrieved for user ID: {user.id}")
-
-            # Seed session activity for timeout middleware
-            timeout_minutes = int(security.get('session_timeout_minutes') or 0)
-            if timeout_minutes > 0:
-                import time
-                cache.set(
-                    f'session_activity:{token.key}',
-                    time.time(),
-                    timeout=timeout_minutes * 60 + 300,
-                )
-
-            return Response({
-                'message': 'Login successful',
-                'token': token.key,
-                'user': {
-                    'id': user.id,
-                    'phone': user.phone,
-                    'email': user.email if user.email else '',
-                    'first_name': user.first_name,
-                    'last_name': user.last_name,
-                    'is_staff': user.is_staff,
-                    'is_superuser': user.is_superuser,
-                    'account_status': user.account_status,
-                }
-            }, status=status.HTTP_200_OK)
+            return _start_login_otp_challenge(request, user)
         else:
             # Authentication failed - user not found, inactive, or wrong password
             logger.warning(f"Login failed for phone: {phone[:3]}*** - Invalid credentials")
@@ -258,6 +230,289 @@ def login(request):
             'message': 'An error occurred during authentication',
             'detail': 'An error occurred during authentication. Please try again.'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _login_otp_timeout() -> int:
+    from django.conf import settings as dj_settings
+    return int(getattr(dj_settings, 'LOGIN_OTP_TIMEOUT', 300))
+
+
+def _login_otp_max_attempts() -> int:
+    from django.conf import settings as dj_settings
+    return int(getattr(dj_settings, 'LOGIN_OTP_MAX_ATTEMPTS', 5))
+
+
+def _invalidate_login_otp_for_user(user_id: int) -> None:
+    from django.core.cache import cache
+
+    old_challenge = cache.get(f'login_otp_by_user:{user_id}')
+    if old_challenge:
+        cache.delete(f'login_otp:{old_challenge}')
+    cache.delete(f'login_otp_by_user:{user_id}')
+
+
+def _start_login_otp_challenge(request, user, *, reuse_challenge_id: str | None = None):
+    """Generate OTP, deliver via email + SMS, and return the challenge payload."""
+    import secrets
+    import uuid
+
+    from django.conf import settings as dj_settings
+    from django.core.cache import cache
+
+    from ..models import SecurityAuditLog
+    from ..services.notifications import send_login_otp
+    from ..services.security import log_security_event
+
+    timeout = _login_otp_timeout()
+    expires_minutes = max(1, timeout // 60)
+    otp = f'{secrets.randbelow(1_000_000):06d}'
+    challenge_id = reuse_challenge_id or str(uuid.uuid4())
+
+    _invalidate_login_otp_for_user(user.pk)
+
+    import time as _time
+
+    cache.set(
+        f'login_otp:{challenge_id}',
+        {
+            'otp': otp,
+            'user_id': user.pk,
+            'attempts': 0,
+            'expires_at': _time.time() + timeout,
+        },
+        timeout=timeout,
+    )
+    cache.set(f'login_otp_by_user:{user.pk}', challenge_id, timeout=timeout)
+
+    delivery = send_login_otp(user, otp, expires_minutes=expires_minutes)
+    if not delivery.get('channels'):
+        _invalidate_login_otp_for_user(user.pk)
+        logger.error('Failed to send login OTP for user_id=%s', user.pk)
+        return Response({
+            'error': 'otp_delivery_failed',
+            'message': (
+                'Unable to send a verification code to your email or phone. '
+                'Please try again later or contact support.'
+            ),
+            'detail': 'OTP delivery failed for both email and SMS channels.',
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_LOGIN_OTP_SENT,
+        request=request,
+        details={
+            'channels': delivery.get('channels') or [],
+            'email_hint': delivery.get('email_hint'),
+            'phone_hint': delivery.get('phone_hint'),
+        },
+    )
+
+    channel_parts = []
+    if delivery.get('email_hint'):
+        channel_parts.append(delivery['email_hint'])
+    if delivery.get('phone_hint'):
+        channel_parts.append(delivery['phone_hint'])
+    destinations = ' and '.join(channel_parts) if channel_parts else 'your registered contacts'
+
+    payload = {
+        'requires_otp': True,
+        'message': (
+            f'A verification code has been sent to {destinations}. '
+            'Enter the code to finish signing in.'
+        ),
+        'challenge_id': challenge_id,
+        'expires_in': timeout,
+        'channels': delivery.get('channels') or [],
+        'email_hint': delivery.get('email_hint'),
+        'phone_hint': delivery.get('phone_hint'),
+    }
+    if getattr(dj_settings, 'DEBUG', False):
+        payload['debug_otp'] = otp
+
+    logger.info(
+        'Login OTP sent via %s for user_id=%s',
+        ','.join(delivery.get('channels') or []),
+        user.pk,
+    )
+    return Response(payload, status=status.HTTP_200_OK)
+
+
+def _issue_login_token_response(request, user):
+    """Issue DRF token after successful OTP verification (shared by Admin + User)."""
+    import time
+
+    from django.core.cache import cache
+
+    from ..models import SecurityAuditLog
+    from ..services.app_config import get_app_config
+    from ..services.security import log_security_event
+
+    # Always rotate so a token restored from backup/old installs cannot stay valid
+    # after a fresh credential + OTP login on this (or another) device.
+    old_keys = list(Token.objects.filter(user=user).values_list('key', flat=True))
+    Token.objects.filter(user=user).delete()
+    for old_key in old_keys:
+        cache.delete(f'session_activity:{old_key}')
+    token = Token.objects.create(user=user)
+    logger.debug('Rotated auth token for user ID: %s', user.id)
+
+    security = get_app_config().get('security') or {}
+    timeout_minutes = int(security.get('session_timeout_minutes') or 0)
+    if timeout_minutes > 0:
+        cache.set(
+            f'session_activity:{token.key}',
+            time.time(),
+            timeout=timeout_minutes * 60 + 300,
+        )
+
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_LOGIN_OTP_VERIFIED,
+        request=request,
+        details={'is_staff': bool(user.is_staff or user.is_superuser)},
+    )
+
+    return Response({
+        'message': 'Login successful',
+        'requires_otp': False,
+        'token': token.key,
+        'user': {
+            'id': user.id,
+            'phone': user.phone,
+            'email': user.email if user.email else '',
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
+            'account_status': user.account_status,
+        }
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verify_login_otp(request):
+    """
+    Step 2 of login: verify the OTP from email/SMS and issue the auth token.
+    Used by both Admin and User accounts.
+    """
+    from django.core.cache import cache
+
+    challenge_id = (request.data.get('challenge_id') or '').strip()
+    otp = (request.data.get('otp') or '').strip()
+
+    if not challenge_id or not otp:
+        return Response({
+            'error': 'otp_required',
+            'message': 'Verification code and challenge id are required.',
+            'detail': 'Provide challenge_id and otp to complete login.',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    cache_key = f'login_otp:{challenge_id}'
+    pending = cache.get(cache_key)
+    if not pending:
+        return Response({
+            'error': 'otp_expired',
+            'message': 'Verification code has expired or was not requested. Please sign in again.',
+            'detail': 'Login OTP challenge not found or expired.',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    attempts = int(pending.get('attempts') or 0)
+    max_attempts = _login_otp_max_attempts()
+    if attempts >= max_attempts:
+        user_id = pending.get('user_id')
+        _invalidate_login_otp_for_user(user_id)
+        return Response({
+            'error': 'otp_locked',
+            'message': 'Too many incorrect codes. Please sign in again to request a new code.',
+            'detail': f'Maximum OTP attempts ({max_attempts}) exceeded.',
+        }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+    if str(pending.get('otp')) != otp:
+        import time as _time
+
+        pending['attempts'] = attempts + 1
+        remaining = max_attempts - pending['attempts']
+        expires_at = float(pending.get('expires_at') or 0)
+        timeout = max(1, int(expires_at - _time.time())) if expires_at else _login_otp_timeout()
+        cache.set(cache_key, pending, timeout=timeout)
+        return Response({
+            'error': 'invalid_otp',
+            'message': 'Incorrect verification code. Please try again.',
+            'detail': f'Invalid OTP. {max(0, remaining)} attempt(s) remaining.',
+            'attempts_remaining': max(0, remaining),
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    user_id = pending.get('user_id')
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        _invalidate_login_otp_for_user(user_id)
+        return Response({
+            'error': 'invalid_credentials',
+            'message': 'Unable to complete login. Please sign in again.',
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    if not user.is_active:
+        _invalidate_login_otp_for_user(user_id)
+        return Response({
+            'error': 'Account is inactive',
+            'message': 'Your account has been deactivated',
+            'detail': 'Your account has been deactivated. Please contact support.'
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    _invalidate_login_otp_for_user(user.pk)
+    logger.info('Login OTP verified for user_id=%s', user.pk)
+    return _issue_login_token_response(request, user)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def resend_login_otp(request):
+    """Resend login OTP for an existing challenge (Admin + User)."""
+    from django.core.cache import cache
+
+    challenge_id = (request.data.get('challenge_id') or '').strip()
+    if not challenge_id:
+        return Response({
+            'error': 'challenge_required',
+            'message': 'Challenge id is required to resend the verification code.',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    pending = cache.get(f'login_otp:{challenge_id}')
+    if not pending:
+        return Response({
+            'error': 'otp_expired',
+            'message': 'Verification session expired. Please sign in again.',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = User.objects.get(pk=pending.get('user_id'))
+    except User.DoesNotExist:
+        _invalidate_login_otp_for_user(pending.get('user_id'))
+        return Response({
+            'error': 'invalid_credentials',
+            'message': 'Unable to resend code. Please sign in again.',
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    if not user.is_active:
+        _invalidate_login_otp_for_user(user.pk)
+        return Response({
+            'error': 'Account is inactive',
+            'message': 'Your account has been deactivated',
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Simple resend throttle: one resend per 30 seconds per challenge
+    throttle_key = f'login_otp_resend:{challenge_id}'
+    if cache.get(throttle_key):
+        return Response({
+            'error': 'resend_too_soon',
+            'message': 'Please wait a moment before requesting another code.',
+        }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    cache.set(throttle_key, 1, timeout=30)
+
+    return _start_login_otp_challenge(request, user, reuse_challenge_id=challenge_id)
 
 
 @api_view(['POST'])

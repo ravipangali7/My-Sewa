@@ -1,14 +1,20 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AuthSessionLoader } from "@/components/AuthSessionLoader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 import { PasswordInput } from "@/components/ui/password-input";
-import { useAuth } from "@/lib/auth";
+import { useAuth, type LoginOtpChallenge } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 import { useSiteBranding } from "@/hooks/use-site-branding";
+import { useOtpCountdown } from "@/hooks/use-otp-countdown";
 import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/")({
@@ -33,12 +39,27 @@ export const Route = createFileRoute("/")({
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { login, token, user, isStaff, isLoading } = useAuth();
+  const { beginLogin, verifyLoginOtp, resendLoginOtp, token, user, isStaff, isLoading } =
+    useAuth();
   const { logoUrl } = useSiteBranding();
   const t = useT();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [challenge, setChallenge] = useState<LoginOtpChallenge | null>(null);
+  const [otpExpiresAt, setOtpExpiresAt] = useState<number | null>(null);
+  const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
+
+  const { expired: otpExpired, formatted: otpCountdown } = useOtpCountdown(otpExpiresAt);
+  const { secondsLeft: resendWaitSeconds } = useOtpCountdown(resendAvailableAt);
+
+  const destinationHint = useMemo(() => {
+    if (!challenge) return "";
+    const parts = [challenge.email_hint, challenge.phone_hint].filter(Boolean);
+    return parts.join(" · ") || t("auth.registeredContacts");
+  }, [challenge, t]);
 
   useEffect(() => {
     if (token && !isLoading && user) {
@@ -50,6 +71,24 @@ function LoginPage() {
   if (token && (isLoading || user)) {
     return <AuthSessionLoader />;
   }
+
+  const applyChallenge = (next: LoginOtpChallenge) => {
+    const now = Date.now();
+    setChallenge(next);
+    setOtp("");
+    setOtpExpiresAt(now + next.expires_in * 1000);
+    // Match backend 30s resend throttle
+    setResendAvailableAt(now + 30_000);
+  };
+
+  const resetToCredentials = () => {
+    setChallenge(null);
+    setOtp("");
+    setOtpExpiresAt(null);
+    setResendAvailableAt(null);
+  };
+
+  const canResend = otpExpired || resendWaitSeconds <= 0;
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
@@ -74,77 +113,188 @@ function LoginPage() {
           <div className="mb-8 flex flex-col items-center lg:items-start">
             <img src={logoUrl} alt="MySewa" className="size-14 rounded-2xl object-cover lg:hidden" />
             <h1 className="mt-4 text-[34px] font-bold tracking-tight lg:mt-0">
-              {t("auth.welcomeBack")}
+              {challenge ? t("auth.verifyLoginTitle") : t("auth.welcomeBack")}
             </h1>
-            <p className="mt-1 text-[15px] text-muted-foreground">{t("auth.signInWithPhone")}</p>
+            <p className="mt-1 text-[15px] text-muted-foreground">
+              {challenge
+                ? t("auth.verifyLoginSubtitle", { destination: destinationHint })
+                : t("auth.signInWithPhone")}
+            </p>
           </div>
 
-          <form
-            className="space-y-4"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setSubmitting(true);
-              try {
-                const profile = await login(phone.trim(), password);
-                const staff = profile.is_staff || profile.is_superuser;
-                toast.success(t("auth.loginSuccess"));
-                navigate({ to: staff ? "/admin" : "/app" });
-              } catch (err) {
-                const msg = err instanceof ApiError ? err.message : t("auth.loginFailed");
-                toast.error(msg);
-              } finally {
-                setSubmitting(false);
-              }
-            }}
-          >
-            <div className="space-y-1.5">
-              <Label htmlFor="phone">{t("auth.phone")}</Label>
-              <Input
-                id="phone"
-                inputMode="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="h-12 rounded-xl"
-                placeholder="98XXXXXXXX"
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="password">{t("auth.password")}</Label>
-                <Link
-                  to="/forgot-password"
-                  className="text-[13px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                >
-                  {t("auth.forgotPassword")}
-                </Link>
+          {!challenge ? (
+            <form
+              className="space-y-4"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setSubmitting(true);
+                try {
+                  const next = await beginLogin(phone.trim(), password);
+                  applyChallenge(next);
+                  toast.success(t("auth.otpSent"), { description: next.message });
+                } catch (err) {
+                  const msg = err instanceof ApiError ? err.message : t("auth.loginFailed");
+                  toast.error(msg);
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+            >
+              <div className="space-y-1.5">
+                <Label htmlFor="phone">{t("auth.phone")}</Label>
+                <Input
+                  id="phone"
+                  inputMode="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="h-12 rounded-xl"
+                  placeholder="98XXXXXXXX"
+                  required
+                />
               </div>
-              <PasswordInput
-                id="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="h-12 rounded-xl"
-                required
-              />
-            </div>
-            <Button
-              type="submit"
-              disabled={submitting}
-              className="h-12 w-full rounded-xl text-[17px]"
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="password">{t("auth.password")}</Label>
+                  <Link
+                    to="/forgot-password"
+                    className="text-[13px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    {t("auth.forgotPassword")}
+                  </Link>
+                </div>
+                <PasswordInput
+                  id="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-12 rounded-xl"
+                  required
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={submitting}
+                className="h-12 w-full rounded-xl text-[17px]"
+              >
+                {submitting ? t("auth.signingIn") : t("auth.continue")}
+              </Button>
+            </form>
+          ) : (
+            <form
+              className="space-y-4"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (otp.length !== 6) {
+                  toast.error(t("auth.otpIncomplete"));
+                  return;
+                }
+                setSubmitting(true);
+                try {
+                  const profile = await verifyLoginOtp(challenge.challenge_id, otp);
+                  const staff = profile.is_staff || profile.is_superuser;
+                  toast.success(t("auth.loginSuccess"));
+                  navigate({ to: staff ? "/admin" : "/app" });
+                } catch (err) {
+                  const msg = err instanceof ApiError ? err.message : t("auth.otpFailed");
+                  toast.error(msg);
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
             >
-              {submitting ? t("auth.signingIn") : t("auth.logIn")}
-            </Button>
-          </form>
+              {challenge.debug_otp && (
+                <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
+                  {t("auth.devCode")}{" "}
+                  <span className="font-semibold text-foreground">{challenge.debug_otp}</span>
+                </p>
+              )}
 
-          <p className="mt-6 text-center text-[13px] text-muted-foreground">
-            {t("auth.newTo")}{" "}
-            <Link
-              to="/register"
-              className="font-semibold text-foreground underline-offset-2 hover:underline"
-            >
-              {t("auth.createAccount")}
-            </Link>
-          </p>
+              <div className="space-y-2">
+                <Label htmlFor="login_otp">{t("auth.verificationCode")}</Label>
+                <div className="flex justify-center">
+                  <InputOTP
+                    id="login_otp"
+                    maxLength={6}
+                    value={otp}
+                    onChange={(value) => setOtp(value.replace(/\D/g, "").slice(0, 6))}
+                    autoFocus
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    containerClassName="justify-center"
+                  >
+                    <InputOTPGroup>
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <InputOTPSlot
+                          key={i}
+                          index={i}
+                          className="size-11 text-[17px] font-semibold first:rounded-l-xl last:rounded-r-xl"
+                        />
+                      ))}
+                    </InputOTPGroup>
+                  </InputOTP>
+                </div>
+                <p className="text-center text-[13px] text-muted-foreground">
+                  {otpExpired
+                    ? t("auth.otpExpired")
+                    : t("auth.otpExpiresIn", { time: otpCountdown })}
+                </p>
+              </div>
+
+              <Button
+                type="submit"
+                disabled={submitting || otp.length !== 6}
+                className="h-12 w-full rounded-xl text-[17px]"
+              >
+                {submitting ? t("auth.verifying") : t("auth.verifyAndLogIn")}
+              </Button>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={resending || !canResend}
+                  className="w-full text-center text-[13px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  onClick={async () => {
+                    setResending(true);
+                    try {
+                      const next = await resendLoginOtp(challenge.challenge_id);
+                      applyChallenge(next);
+                      toast.success(t("auth.otpResent"), { description: next.message });
+                    } catch (err) {
+                      toast.error(
+                        err instanceof ApiError ? err.message : t("common.requestFailed"),
+                      );
+                    } finally {
+                      setResending(false);
+                    }
+                  }}
+                >
+                  {resending
+                    ? t("auth.sending")
+                    : canResend
+                      ? t("auth.resendCode")
+                      : t("auth.resendIn", { time: `${resendWaitSeconds}s` })}
+                </button>
+                <button
+                  type="button"
+                  className="w-full text-center text-[13px] font-medium text-muted-foreground hover:text-foreground"
+                  onClick={resetToCredentials}
+                >
+                  {t("auth.backToCredentials")}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {!challenge && (
+            <p className="mt-6 text-center text-[13px] text-muted-foreground">
+              {t("auth.newTo")}{" "}
+              <Link
+                to="/register"
+                className="font-semibold text-foreground underline-offset-2 hover:underline"
+              >
+                {t("auth.createAccount")}
+              </Link>
+            </p>
+          )}
         </div>
       </section>
     </div>

@@ -12,7 +12,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { apiClient } from "@/lib/api";
 import { buildActivity, buildActivityStatement } from "@/lib/activity";
 import type { ActivityKind } from "@/lib/types";
-import { formatNPR, formatDateTime } from "@/lib/format";
+import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
@@ -25,11 +25,11 @@ import { TXN_STATUS_OPTIONS, type ListStatus } from "@/hooks/use-list-filters";
 export const Route = createFileRoute("/app/history")({
   head: () => ({
     meta: [
-      { title: "Transaction History — MySewa Wallet" },
+      { title: "Transaction History — MySewa Business Wallet" },
       {
         name: "description",
         content:
-          "Every MySewa wallet movement in one place: deposits, NTC/NCELL top-ups and bank transfers with status and amounts.",
+          "Every MySewa business wallet movement in one place: deposits, NTC/NCELL top-ups and bank transfers with status and amounts.",
       },
       { property: "og:title", content: "Transaction History — MySewa" },
       {
@@ -105,7 +105,7 @@ function HistoryPage() {
     const start = toDayStart(filters.startDate);
     const end = toDayEnd(filters.endDate);
 
-    return all.filter((item) => {
+    const filtered = all.filter((item) => {
       if (filters.kind !== "all" && item.kind !== (filters.kind as ActivityKind)) {
         return false;
       }
@@ -131,6 +131,8 @@ function HistoryPage() {
         .toLowerCase();
       return haystack.includes(q);
     });
+    // Re-assert latest-first after filters (most recent statement at the top).
+    return sortByLatestFirst(filtered);
   }, [txQuery.data, t, locale, filters]);
 
   const filterMeta = FILTERS.find((f) => f.key === filters.kind);

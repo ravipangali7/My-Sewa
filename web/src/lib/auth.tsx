@@ -18,6 +18,16 @@ import {
   unregisterStoredDeviceToken,
 } from "./push-notifications";
 
+export type LoginOtpChallenge = {
+  challenge_id: string;
+  expires_in: number;
+  channels: string[];
+  email_hint?: string | null;
+  phone_hint?: string | null;
+  message: string;
+  debug_otp?: string;
+};
+
 type AuthContextValue = {
   token: string | null;
   user: UserProfile | null;
@@ -25,7 +35,11 @@ type AuthContextValue = {
   isLoading: boolean;
   isAuthenticated: boolean;
   isStaff: boolean;
-  login: (phone: string, password: string) => Promise<UserProfile>;
+  /** Step 1: verify credentials and receive OTP challenge (no session yet). */
+  beginLogin: (phone: string, password: string) => Promise<LoginOtpChallenge>;
+  /** Step 2: verify OTP and establish session. */
+  verifyLoginOtp: (challengeId: string, otp: string) => Promise<UserProfile>;
+  resendLoginOtp: (challengeId: string) => Promise<LoginOtpChallenge>;
   register: (input: {
     phone: string;
     email: string;
@@ -42,6 +56,27 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+function toChallenge(res: {
+  challenge_id: string;
+  expires_in: number;
+  channels: string[];
+  email_hint?: string | null;
+  phone_hint?: string | null;
+  message: string;
+  debug_otp?: string;
+}): LoginOtpChallenge {
+  const challenge: LoginOtpChallenge = {
+    challenge_id: res.challenge_id,
+    expires_in: res.expires_in,
+    channels: res.channels || [],
+    message: res.message,
+  };
+  if (res.email_hint != null) challenge.email_hint = res.email_hint;
+  if (res.phone_hint != null) challenge.phone_hint = res.phone_hint;
+  if (res.debug_otp) challenge.debug_otp = res.debug_otp;
+  return challenge;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
@@ -93,11 +128,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void setupPushNotifications();
   }, [token, profileQuery.data?.id]);
 
-  const login = useCallback(
-    async (phone: string, password: string) => {
-      const res = await apiClient.login(phone, password);
-      setToken(res.token);
-      setTokenState(res.token);
+  const establishSession = useCallback(
+    async (sessionToken: string) => {
+      setToken(sessionToken);
+      setTokenState(sessionToken);
       const profile = await apiClient.profile();
       queryClient.setQueryData(["auth", "profile"], profile);
       await queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });
@@ -105,6 +139,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     [queryClient],
   );
+
+  const beginLogin = useCallback(async (phone: string, password: string) => {
+    const res = await apiClient.login(phone, password);
+    return toChallenge(res);
+  }, []);
+
+  const verifyLoginOtp = useCallback(
+    async (challengeId: string, otp: string) => {
+      const res = await apiClient.verifyLoginOtp({
+        challenge_id: challengeId,
+        otp,
+      });
+      return establishSession(res.token);
+    },
+    [establishSession],
+  );
+
+  const resendLoginOtp = useCallback(async (challengeId: string) => {
+    const res = await apiClient.resendLoginOtp(challengeId);
+    return toChallenge(res);
+  }, []);
 
   const register = useCallback(
     async (input: {
@@ -118,14 +173,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       last_name?: string;
     }) => {
       const res = await apiClient.register(input);
-      setToken(res.token);
-      setTokenState(res.token);
-      const profile = await apiClient.profile();
-      queryClient.setQueryData(["auth", "profile"], profile);
-      await queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });
-      return profile;
+      return establishSession(res.token);
     },
-    [queryClient],
+    [establishSession],
   );
 
   const logout = useCallback(async () => {
@@ -162,7 +212,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading: !!token && (profileQuery.isLoading || walletQuery.isLoading),
       isAuthenticated: !!token && !!user,
       isStaff: !!(user?.is_staff || user?.is_superuser),
-      login,
+      beginLogin,
+      verifyLoginOtp,
+      resendLoginOtp,
       register,
       logout,
       refreshProfile,
@@ -174,7 +226,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       walletQuery.data,
       profileQuery.isLoading,
       walletQuery.isLoading,
-      login,
+      beginLogin,
+      verifyLoginOtp,
+      resendLoginOtp,
       register,
       logout,
       refreshProfile,

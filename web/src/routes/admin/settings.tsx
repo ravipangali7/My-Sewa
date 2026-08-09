@@ -15,6 +15,7 @@ import {
   Shield,
   ArrowDownToLine,
   Send,
+  Smartphone,
   Trash2,
 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
@@ -182,6 +183,7 @@ const DEFAULT_CONFIG: AppConfig = {
 
 const SECTIONS = [
   { id: "site", label: "General", icon: Building2 },
+  { id: "mobile", label: "Mobile app", icon: Smartphone },
   { id: "payment", label: "Payments", icon: CreditCard },
   { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
   { id: "remittance", label: "Remittance agent", icon: ArrowDownToLine },
@@ -221,12 +223,15 @@ function SettingsPage() {
   >({});
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState("");
+  const [apkFile, setApkFile] = useState<File | null>(null);
   const [smtpTestEmail, setSmtpTestEmail] = useState("");
   const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
 
   useEffect(() => {
     if (!settingsQuery.data) return;
     const remote = settingsQuery.data.config;
+    setAppVersion(settingsQuery.data.app_version ?? "");
     setConfig({
       site: { ...DEFAULT_CONFIG.site, ...(remote?.site ?? {}) },
       payment: { ...DEFAULT_CONFIG.payment, ...(remote?.payment ?? {}) },
@@ -333,6 +338,7 @@ function SettingsPage() {
       setQrFiles({});
       setAccountQrFiles({});
       setLogoFile(null);
+      setApkFile(null);
       invalidate();
     },
     onError: (err) => {

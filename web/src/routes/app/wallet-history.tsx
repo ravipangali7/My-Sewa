@@ -24,7 +24,7 @@ import {
   filterWalletDebits,
 } from "@/lib/activity";
 import type { ActivityItem } from "@/lib/types";
-import { formatNPR, formatDateTime } from "@/lib/format";
+import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -38,7 +38,7 @@ export const Route = createFileRoute("/app/wallet-history")({
       {
         name: "description",
         content:
-          "Credit and debit history for your MySewa wallet: deposits, remittances, top-ups, transfers and adjustments.",
+          "Credit and debit history for your MySewa business wallet: deposits, remittances, top-ups, transfers and adjustments.",
       },
       { property: "og:title", content: "Wallet History — MySewa" },
       {
@@ -203,8 +203,8 @@ function WalletHistoryPage() {
       (item) => hasBalance(item.balance_before) && hasBalance(item.balance_after),
     );
     return {
-      credits: filterWalletCredits(all),
-      debits: filterWalletDebits(all),
+      credits: sortByLatestFirst(filterWalletCredits(all)),
+      debits: sortByLatestFirst(filterWalletDebits(all)),
       latestWithBalances: withBalances ?? null,
     };
   }, [txQuery.data, t, locale]);

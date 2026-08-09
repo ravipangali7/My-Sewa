@@ -18,7 +18,7 @@ export const Route = createFileRoute("/register")({
       { title: "Create Account — MySewa" },
       {
         name: "description",
-        content: "Register for a MySewa wallet. New accounts start as Pending until admin approval.",
+        content: "Register for a MySewa business wallet. New accounts start as Pending until admin approval.",
       },
       { property: "og:title", content: "Create Account — MySewa" },
     ],

@@ -41,7 +41,7 @@ export const Route = createFileRoute("/app/")({
       {
         name: "description",
         content:
-          "Your MySewa wallet balance in NPR with quick access to load, top-up and bank transfer.",
+          "Your MySewa business wallet balance in NPR with quick access to load, top-up and bank transfer.",
       },
       { property: "og:title", content: "Wallet Home — MySewa" },
       { property: "og:description", content: "Balance, quick actions and recent wallet activity." },
@@ -167,11 +167,22 @@ function WalletHome() {
         : 0,
     [txQuery.data, t, locale],
   );
-  const firstName = user?.first_name?.trim() || t("common.user");
-  const initials = [user?.first_name, user?.last_name]
-    .filter(Boolean)
-    .map((s) => s![0])
-    .join("")
+  const displayName =
+    user?.business_name?.trim() ||
+    user?.first_name?.trim() ||
+    t("common.user");
+  const initials = (
+    user?.business_name?.trim()
+      ? user.business_name
+          .trim()
+          .split(/\s+/)
+          .map((s) => s[0])
+          .join("")
+      : [user?.first_name, user?.last_name]
+          .filter(Boolean)
+          .map((s) => s![0])
+          .join("")
+  )
     .slice(0, 2)
     .toUpperCase() || "MS";
 
@@ -223,14 +234,14 @@ function WalletHome() {
             className="relative z-10 mt-5 flex items-center gap-3 rounded-2xl outline-none transition-opacity active:opacity-90"
           >
             <Avatar className="size-[52px] ring-2 ring-white/40 shadow-md">
-              {user?.avatar_url ? <AvatarImage src={user.avatar_url} alt={firstName} /> : null}
+              {user?.avatar_url ? <AvatarImage src={user.avatar_url} alt={displayName} /> : null}
               <AvatarFallback className="bg-white/20 text-sm font-semibold text-white">
                 {initials}
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0">
               <p className="truncate text-[18px] font-bold text-white">
-                {t("home.greeting", { name: firstName })}
+                {t("home.greeting", { name: displayName })}
               </p>
               <p className="mt-0.5 text-[13px] font-medium text-white/80">
                 {user ? formatPhone(user.phone) : ""}

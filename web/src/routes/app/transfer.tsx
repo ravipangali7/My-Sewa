@@ -15,7 +15,7 @@ import { toastApiError, toastApiMessage } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { mergeBankLists } from "@/lib/nepali-banks";
 import type { BankOption, BankTransferTransaction } from "@/lib/types";
-import { formatNPR, formatDateTime } from "@/lib/format";
+import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
@@ -43,12 +43,12 @@ export const Route = createFileRoute("/app/transfer")({
       {
         name: "description",
         content:
-          "Send money from your MySewa wallet to any Nepali bank account or mobile number: verify, review charges and confirm.",
+          "Send money from your MySewa business wallet to any Nepali bank account or mobile number: verify, review charges and confirm.",
       },
       { property: "og:title", content: "Fund Transfer — MySewa" },
       {
         property: "og:description",
-        content: "Bank account or phone number transfers from your MySewa wallet.",
+        content: "Bank account or phone number transfers from your MySewa business wallet.",
       },
     ],
   }),
@@ -146,7 +146,10 @@ function Transfer() {
     queryFn: () => apiClient.transferHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
-  const transferItems = historyQuery.data?.items ?? [];
+  const transferItems = useMemo(
+    () => sortByLatestFirst(historyQuery.data?.items ?? []),
+    [historyQuery.data?.items],
+  );
   const transferStats = historyQuery.data?.stats;
 
   // Auto-poll HimalPay status for pending transfers (wallet-service-reseller-status)

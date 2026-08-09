@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatNPR, formatDateTime } from "@/lib/format";
+import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
@@ -38,7 +38,7 @@ export const Route = createFileRoute("/app/water")({
       { title: "Khane Pani (KUKL) — MySewa" },
       {
         name: "description",
-        content: "Pay KUKL Khane Pani water bills from your MySewa wallet.",
+        content: "Pay KUKL Khane Pani water bills from your MySewa business wallet.",
       },
     ],
   }),
@@ -107,7 +107,10 @@ function WaterBillPayment() {
     queryFn: () => apiClient.waterHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
-  const waterItems = historyQuery.data?.items ?? [];
+  const waterItems = useMemo(
+    () => sortByLatestFirst(historyQuery.data?.items ?? []),
+    [historyQuery.data?.items],
+  );
   const waterStats = historyQuery.data?.stats;
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);

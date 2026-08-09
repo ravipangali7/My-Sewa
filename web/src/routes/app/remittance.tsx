@@ -19,7 +19,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatNPR, formatDateTime } from "@/lib/format";
+import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
@@ -41,7 +41,7 @@ export const Route = createFileRoute("/app/remittance")({
       {
         name: "description",
         content:
-          "Look up a Samsara remittance by reference number and credit the payout into your MySewa wallet.",
+          "Look up a Samsara remittance by reference number and credit the payout into your MySewa business wallet.",
       },
       { property: "og:title", content: "Receive Remittance — MySewa" },
       {
@@ -156,7 +156,10 @@ function ReceiveRemittance() {
     queryFn: () => apiClient.remittanceHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
-  const remittanceItems = historyQuery.data?.items ?? [];
+  const remittanceItems = useMemo(
+    () => sortByLatestFirst(historyQuery.data?.items ?? []),
+    [historyQuery.data?.items],
+  );
 
   const setField = <K extends keyof KycForm>(key: K, value: KycForm[K]) => {
     setKyc((prev) => ({ ...prev, [key]: value }));

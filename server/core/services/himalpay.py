@@ -1837,7 +1837,7 @@ class HimalPayAPI:
                 f'{message.rstrip(".")}. '
                 'The payment provider could not complete this payment, '
                 'so the amount was returned on the provider side. '
-                'Your MySewa wallet was not charged.'
+                'Your MySewa business wallet was not charged.'
             )
 
         # Keep error_code / error_type in the structured response for clients/logs.

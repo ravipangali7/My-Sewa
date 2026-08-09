@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatNPR, formatDateTime, formatDate } from "@/lib/format";
+import { formatNPR, formatDateTime, formatDate, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
@@ -56,7 +56,7 @@ export const Route = createFileRoute("/app/load")({
       {
         name: "description",
         content:
-          "Fund your MySewa wallet: transfer to the deposit account, then submit transaction details with payment screenshot.",
+          "Fund your MySewa business wallet: transfer to the deposit account, then submit transaction details with payment screenshot.",
       },
       { property: "og:title", content: "Manual Wallet Load — MySewa" },
       {
@@ -109,7 +109,10 @@ function LoadWallet() {
     queryFn: () => apiClient.listDeposits(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
-  const depositItems = depositsQuery.data?.items ?? [];
+  const depositItems = useMemo(
+    () => sortByLatestFirst(depositsQuery.data?.items ?? []),
+    [depositsQuery.data?.items],
+  );
   const depositStats = depositsQuery.data?.stats;
 
   const payment = settingsQuery.data?.config?.payment;

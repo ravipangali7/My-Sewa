@@ -82,6 +82,16 @@ def mask_email(email: str) -> str:
     return f'{local[0]}***@{domain}'
 
 
+def mask_phone(phone: str) -> str:
+    """Mask a phone for safe display, e.g. 98******01."""
+    phone = (phone or '').strip()
+    if len(phone) < 4:
+        return '***'
+    if len(phone) <= 6:
+        return f'{phone[0]}***{phone[-1]}'
+    return f'{phone[:2]}{"*" * (len(phone) - 4)}{phone[-2:]}'
+
+
 def _escape(value) -> str:
     if value is None:
         return ''
@@ -406,43 +416,127 @@ def _opposite_direction(direction: str) -> str:
     return 'debit' if direction == 'credit' else 'credit'
 
 
-def _send_admin_opposite_wallet_email(
+def _admin_float_balance():
+    """
+    Best-effort Admin Wallet (HimalPay reseller float) balance in rupees.
+    Returns None when the float cannot be resolved.
+    """
+    try:
+        from .himalpay import HimalPayAPI
+
+        data = HimalPayAPI().get_reseller_balance() or {}
+        for key in (
+            'total_balance_in_rupees',
+            'balance_in_rupees',
+            'balance',
+        ):
+            raw = data.get(key)
+            if raw is None or raw == '':
+                continue
+            return Decimal(str(raw))
+    except Exception:
+        logger.debug('Could not resolve Admin Wallet float for email', exc_info=True)
+    return None
+
+
+def _resolve_admin_balance_after(
+    *,
+    admin_direction: str,
+    amount,
+    admin_balance_after=None,
+    admin_balance_before=None,
+):
+    """
+    Prefer an explicit post-txn Admin Wallet balance; otherwise live float;
+    otherwise derive from a known pre-txn balance ± amount.
+    """
+    if admin_balance_after is not None:
+        try:
+            return Decimal(str(admin_balance_after))
+        except Exception:
+            return admin_balance_after
+
+    live = _admin_float_balance()
+    if live is not None:
+        return live
+
+    if admin_balance_before is None:
+        return None
+    try:
+        before = Decimal(str(admin_balance_before))
+        delta = Decimal(str(amount))
+        if admin_direction == 'debit':
+            return before - delta
+        return before + delta
+    except Exception:
+        return None
+
+
+def _send_admin_wallet_email(
     *,
     user,
-    customer_direction: str,
+    admin_direction: str,
     amount,
-    balance_after=None,
+    customer_direction: str = None,
+    customer_balance_after=None,
+    admin_balance_after=None,
+    admin_balance_before=None,
     reason: str = None,
     ref: str = None,
     extra_rows: Optional[Sequence[Row]] = None,
     context_label: str = 'Wallet movement',
 ) -> None:
     """
-    Notify Super Admin with the opposite ledger direction of the customer's wallet
-    movement (customer credit → admin debit email, and vice versa).
+    Notify Super Admin of an Admin Wallet debit/credit with amount and remaining balance.
+
+    Payments and remittances debit the Admin Wallet (HimalPay float). Customer wallet
+    movement is included for context (credit on remittance/deposit, debit on payment).
     """
     admin_emails = _admin_alert_emails()
     if not admin_emails:
         return
 
-    admin_direction = _opposite_direction(customer_direction)
+    direction = (admin_direction or 'debit').lower()
+    if direction not in ('debit', 'credit'):
+        direction = 'debit'
+
     site_name = _site_name()
     amount_display = _fmt_amount(amount)
-    admin_status = 'Debited' if admin_direction == 'debit' else 'Credited'
-    customer_status = 'credited' if customer_direction == 'credit' else 'debited'
+    admin_status = 'Debited' if direction == 'debit' else 'Credited'
+    cust_dir = (customer_direction or '').lower()
+    customer_status = (
+        'credited' if cust_dir == 'credit'
+        else 'debited' if cust_dir == 'debit'
+        else None
+    )
     customer_phone = getattr(user, 'phone', None) or '-'
     customer_name = (
         f'{getattr(user, "first_name", "") or ""} {getattr(user, "last_name", "") or ""}'
     ).strip() or '-'
+    remaining = _resolve_admin_balance_after(
+        admin_direction=direction,
+        amount=amount,
+        admin_balance_after=admin_balance_after,
+        admin_balance_before=admin_balance_before,
+    )
+    remaining_display = _fmt_amount(remaining) if remaining is not None else '-'
+
+    type_label = f'Admin wallet {direction}'
+    if cust_dir in ('credit', 'debit'):
+        type_label = f'Admin {direction} · customer {cust_dir}'
 
     rows: List[Row] = [
-        ('Type', f'Admin {admin_direction} · customer {customer_direction}'),
+        ('Type', type_label),
         ('Context', context_label),
         ('Customer', f'{customer_name} ({customer_phone})'),
         ('Amount', amount_display),
+        ('Debit / Credit', admin_status),
+        ('Admin wallet balance', remaining_display),
         (
-            'Customer new balance',
-            _fmt_amount(balance_after) if balance_after is not None else '-',
+            'Customer wallet balance',
+            _fmt_amount(customer_balance_after)
+            if customer_balance_after is not None
+            else '-',
         ),
         ('Reason', reason or '-'),
         ('Reference', ref or '-'),
@@ -453,25 +547,86 @@ def _send_admin_opposite_wallet_email(
         # Insert extras before Status.
         rows = rows[:-1] + list(extra_rows) + rows[-1:]
 
-    title = f'Admin wallet {admin_direction}'
-    subtitle = (
-        f'Customer wallet was {customer_status}; '
-        f'admin ledger records the corresponding {admin_direction} of {amount_display}.'
-    )
+    if direction == 'debit':
+        title = 'Admin wallet debited'
+        subtitle = (
+            f'{amount_display} was debited from the Admin Wallet. '
+            f'Remaining wallet balance: {remaining_display}.'
+        )
+        text_intro = (
+            f'{amount_display} was debited from the Admin Wallet.\n'
+            f'Remaining Admin Wallet balance: {remaining_display}.'
+        )
+        if customer_status:
+            text_intro += (
+                f'\nCustomer {customer_phone} wallet was {customer_status} '
+                f'{amount_display}.'
+            )
+    else:
+        title = 'Admin wallet credited'
+        subtitle = (
+            f'{amount_display} was credited to the Admin Wallet. '
+            f'Updated wallet balance: {remaining_display}.'
+        )
+        text_intro = (
+            f'{amount_display} was credited to the Admin Wallet.\n'
+            f'Updated Admin Wallet balance: {remaining_display}.'
+        )
+        if customer_status:
+            text_intro += (
+                f'\nCustomer {customer_phone} wallet was {customer_status} '
+                f'{amount_display}.'
+            )
+
     _send_txn_email(
         recipients=admin_emails,
-        subject=f'[{site_name}] Admin wallet {admin_direction} · {customer_phone}',
-        text_intro=(
-            f'Customer {customer_phone} was {customer_status} {amount_display}. '
-            f'Admin side: {admin_direction} of {amount_display}.'
-        ),
+        subject=f'[{site_name}] Admin wallet {direction} · {customer_phone}',
+        text_intro=text_intro,
         title=title,
         subtitle=subtitle,
         amount_display=amount_display,
+        amount_label='Admin wallet debit' if direction == 'debit' else 'Admin wallet credit',
         status='success',
         status_label=admin_status,
         rows=rows,
         copy_admin=False,
+    )
+
+
+def _send_admin_opposite_wallet_email(
+    *,
+    user,
+    customer_direction: str,
+    amount,
+    balance_after=None,
+    reason: str = None,
+    ref: str = None,
+    extra_rows: Optional[Sequence[Row]] = None,
+    context_label: str = 'Wallet movement',
+    admin_direction: str = None,
+    admin_balance_after=None,
+    admin_balance_before=None,
+) -> None:
+    """
+    Notify Super Admin of Admin Wallet movement for a customer wallet event.
+
+    Default: opposite ledger (customer credit → admin debit).
+    Payment / remittance callers pass admin_direction='debit' so the Admin Wallet
+    is always shown as debited with the remaining float balance.
+    """
+    direction = admin_direction or _opposite_direction(customer_direction)
+    _send_admin_wallet_email(
+        user=user,
+        admin_direction=direction,
+        amount=amount,
+        customer_direction=customer_direction,
+        customer_balance_after=balance_after,
+        admin_balance_after=admin_balance_after,
+        admin_balance_before=admin_balance_before,
+        reason=reason,
+        ref=ref,
+        extra_rows=extra_rows,
+        context_label=context_label,
     )
 
 
@@ -537,6 +692,66 @@ def send_password_reset_otp(email: str, otp: str) -> bool:
         footer_note='If you did not request a password reset, you can ignore this email.',
     )
     return _send_email(subject, text, [email], html_message=html, fail_silently=True)
+
+
+def send_login_otp(user, otp: str, *, expires_minutes: int = 5) -> dict:
+    """
+    Send a login OTP to the user's registered email and phone (SMS).
+
+    Returns a dict with email_sent / sms_sent booleans and channel hints.
+    Login proceeds when at least one channel succeeds.
+    """
+    site_name = _site_name()
+    email = _user_email(user)
+    phone = (getattr(user, 'phone', None) or '').strip()
+    expiry_label = f'{expires_minutes} minute{"s" if expires_minutes != 1 else ""}'
+
+    email_sent = False
+    sms_sent = False
+
+    if email:
+        subject = f'{site_name} Login OTP'
+        text = (
+            f'Your {site_name} login verification code is: {otp}\n\n'
+            f'This code expires in {expiry_label}.\n'
+            'If you did not try to sign in, secure your account immediately.'
+        )
+        html = render_transaction_email(
+            title='Login verification code',
+            subtitle='Use this one-time code to finish signing in.',
+            amount_label='Verification code',
+            amount_display=otp,
+            status='success',
+            status_label=f'Valid {expiry_label}',
+            rows=[
+                ('Expires', expiry_label),
+                ('Security tip', 'Never share this code with anyone.'),
+            ],
+            footer_note=(
+                'If you did not try to sign in, secure your account immediately.'
+            ),
+        )
+        email_sent = _send_email(
+            subject, text, [email], html_message=html, fail_silently=True
+        )
+
+    if phone:
+        sms_message = (
+            f'{site_name} login code: {otp}. '
+            f'Valid for {expiry_label}. Do not share this code.'
+        )
+        sms_sent = _send_sms(phone, sms_message)
+
+    return {
+        'email_sent': email_sent,
+        'sms_sent': sms_sent,
+        'email_hint': mask_email(email) if email and email_sent else None,
+        'phone_hint': mask_phone(phone) if phone and sms_sent else None,
+        'channels': [
+            *(['email'] if email_sent else []),
+            *(['sms'] if sms_sent else []),
+        ],
+    }
 
 
 def send_transaction_pin_reset_otp(email: str, otp: str) -> bool:
@@ -729,16 +944,21 @@ def notify_wallet_credit(
     if balance_after is None:
         balance_after = _wallet_balance(user)
 
+    amount_display = _fmt_amount(amount)
+    balance_display = (
+        _fmt_amount(balance_after) if balance_after is not None else '-'
+    )
     title = f'{site_name}: Wallet credited'
-    short = f'{_fmt_amount(amount)} credited to your wallet. {reason or ""}'.strip()
+    short = f'{amount_display} credited to your wallet. {reason or ""}'.strip()
     rows: List[Row] = [
         ('Type', 'Wallet credit'),
-        ('Amount', _fmt_amount(amount)),
-        ('New balance', _fmt_amount(balance_after) if balance_after is not None else '-'),
+        ('Amount', amount_display),
+        ('Debit / Credit', 'Credited'),
+        ('New balance', balance_display),
         ('Reason', reason or '-'),
         ('Reference', ref or '-'),
         ('Date', _format_when()),
-        ('Status', 'Success'),
+        ('Status', 'Credited'),
     ]
 
     if cfg.get('email_on_wallet_credit', True):
@@ -746,10 +966,16 @@ def notify_wallet_credit(
             _send_txn_email(
                 recipients=[user.email],
                 subject=f'[{site_name}] Wallet credited',
-                text_intro='Your wallet has been credited.',
+                text_intro=(
+                    f'{amount_display} was credited to your wallet.\n'
+                    f'Updated wallet balance: {balance_display}.'
+                ),
                 title='Wallet credited',
-                subtitle='Funds were added to your MySewa wallet.',
-                amount_display=_fmt_amount(amount),
+                subtitle=(
+                    f'{amount_display} was added to your MySewa business wallet. '
+                    f'New balance: {balance_display}.'
+                ),
+                amount_display=amount_display,
                 status='success',
                 status_label='Credited',
                 rows=rows,
@@ -759,6 +985,7 @@ def notify_wallet_credit(
         _send_admin_opposite_wallet_email(
             user=user,
             customer_direction='credit',
+            admin_direction='debit',
             amount=amount,
             balance_after=balance_after,
             reason=reason,
@@ -788,16 +1015,21 @@ def notify_wallet_debit(
     if balance_after is None:
         balance_after = _wallet_balance(user)
 
+    amount_display = _fmt_amount(amount)
+    balance_display = (
+        _fmt_amount(balance_after) if balance_after is not None else '-'
+    )
     title = f'{site_name}: Wallet debited'
-    short = f'{_fmt_amount(amount)} debited from your wallet. {reason or ""}'.strip()
+    short = f'{amount_display} deducted from your wallet. {reason or ""}'.strip()
     rows: List[Row] = [
         ('Type', 'Wallet debit'),
-        ('Amount', _fmt_amount(amount)),
-        ('New balance', _fmt_amount(balance_after) if balance_after is not None else '-'),
+        ('Amount', amount_display),
+        ('Debit / Credit', 'Debited'),
+        ('New balance', balance_display),
         ('Reason', reason or '-'),
         ('Reference', ref or '-'),
         ('Date', _format_when()),
-        ('Status', 'Success'),
+        ('Status', 'Debited'),
     ]
 
     if cfg.get('email_on_wallet_debit', True):
@@ -805,10 +1037,16 @@ def notify_wallet_debit(
             _send_txn_email(
                 recipients=[user.email],
                 subject=f'[{site_name}] Wallet debited',
-                text_intro='Your wallet has been debited.',
+                text_intro=(
+                    f'{amount_display} was deducted from your wallet.\n'
+                    f'Updated wallet balance: {balance_display}.'
+                ),
                 title='Wallet debited',
-                subtitle='An amount was deducted from your MySewa wallet.',
-                amount_display=_fmt_amount(amount),
+                subtitle=(
+                    f'{amount_display} was deducted from your MySewa business wallet. '
+                    f'New balance: {balance_display}.'
+                ),
+                amount_display=amount_display,
                 status='success',
                 status_label='Debited',
                 rows=rows,
@@ -818,6 +1056,7 @@ def notify_wallet_debit(
         _send_admin_opposite_wallet_email(
             user=user,
             customer_direction='debit',
+            admin_direction='debit',
             amount=amount,
             balance_after=balance_after,
             reason=reason,
@@ -932,21 +1171,30 @@ def notify_deposit_approved(deposit, balance_after=None) -> None:
             ('Type', 'Add fund / Manual load'),
             ('Deposit ID', str(deposit.id)),
             ('Amount', _fmt_amount(deposit.amount)),
+            ('Debit / Credit', 'Credited'),
             ('Payment method', getattr(deposit, 'bank_name', None) or '-'),
             ('Transaction ID', getattr(deposit, 'transaction_id', None) or '-'),
             ('New balance', _fmt_amount(balance_after) if balance_after is not None else '-'),
             ('Date', _format_when(getattr(deposit, 'updated_at', None) or getattr(deposit, 'created_at', None))),
-            ('Status', 'Approved'),
+            ('Status', 'Credited'),
         ]
         _send_txn_email(
             recipients=[deposit.user.email],
             subject=f'[{site_name}] Deposit approved',
-            text_intro='Your deposit has been approved and credited.',
+            text_intro=(
+                f'{_fmt_amount(deposit.amount)} was credited to your wallet.\n'
+                f'Updated wallet balance: '
+                f'{_fmt_amount(balance_after) if balance_after is not None else "-"}.'
+            ),
             title='Deposit approved',
-            subtitle='Your wallet load was approved and credited successfully.',
+            subtitle=(
+                f'{_fmt_amount(deposit.amount)} was added to your MySewa business wallet. '
+                f'New balance: '
+                f'{_fmt_amount(balance_after) if balance_after is not None else "-"}.'
+            ),
             amount_display=_fmt_amount(deposit.amount),
             status='success',
-            status_label='Approved',
+            status_label='Credited',
             rows=rows,
             greeting=f'Hi {getattr(deposit.user, "first_name", "") or "there"},',
             copy_admin=False,
@@ -955,6 +1203,7 @@ def notify_deposit_approved(deposit, balance_after=None) -> None:
         _send_admin_opposite_wallet_email(
             user=deposit.user,
             customer_direction='credit',
+            admin_direction='debit',
             amount=deposit.amount,
             balance_after=balance_after,
             reason='Deposit approved',
@@ -1002,21 +1251,28 @@ def notify_topup_success(topup, balance_after=None) -> None:
         ('Charge', _fmt_amount(getattr(topup, 'charge', 0) or 0)),
         ('Cashback', _fmt_amount(getattr(topup, 'cashback', 0) or 0)),
         ('Total debited', _fmt_amount(debited)),
+        ('Debit / Credit', 'Debited'),
         ('New balance', _fmt_amount(balance_after) if balance_after is not None else '-'),
         ('Reference', topup.merchant_txn_id or '-'),
         ('Date', _format_when(getattr(topup, 'created_at', None))),
-        ('Status', 'Success'),
+        ('Status', 'Debited'),
     ]
     if cfg.get('email_on_topup', True):
         if _user_email(topup.user):
             _send_txn_email(
                 recipients=[topup.user.email],
                 subject=f'[{site_name}] {product} top-up successful',
-                text_intro=f'Your {product} top-up was successful.',
+                text_intro=(
+                    f'{_fmt_amount(debited)} was deducted from your wallet.\n'
+                    f'Updated wallet balance: '
+                    f'{_fmt_amount(balance_after) if balance_after is not None else "-"}.'
+                ),
                 title=f'{product} top-up successful',
                 subtitle=(
                     f'Recharge of {_fmt_amount(topup.amount)} to {topup.mobile_number} is complete. '
-                    f'Wallet debited {_fmt_amount(debited)}.'
+                    f'{_fmt_amount(debited)} was deducted from your wallet. '
+                    f'New balance: '
+                    f'{_fmt_amount(balance_after) if balance_after is not None else "-"}.'
                 ),
                 amount_display=_fmt_amount(debited),
                 amount_label='Wallet debit',
@@ -1029,6 +1285,7 @@ def notify_topup_success(topup, balance_after=None) -> None:
         _send_admin_opposite_wallet_email(
             user=topup.user,
             customer_direction='debit',
+            admin_direction='debit',
             amount=debited,
             balance_after=balance_after,
             reason=f'{product} top-up',
@@ -1088,10 +1345,11 @@ def notify_transfer_success(transfer, balance_after=None) -> None:
         ('Account number', str(dest)),
         ('Bank', bank or '-'),
         ('Remarks', getattr(transfer, 'transaction_remarks', None) or getattr(transfer, 'remarks', None) or '-'),
+        ('Debit / Credit', 'Debited'),
         ('New balance', _fmt_amount(balance_after) if balance_after is not None else '-'),
         ('Reference', transfer.merchant_txn_id or '-'),
         ('Date', _format_when(getattr(transfer, 'created_at', None))),
-        ('Status', 'Success'),
+        ('Status', 'Debited'),
     ]
 
     if cfg.get('email_on_transfer', True) or cfg.get('email_on_wallet_debit', True):
@@ -1099,11 +1357,17 @@ def notify_transfer_success(transfer, balance_after=None) -> None:
             _send_txn_email(
                 recipients=[transfer.user.email],
                 subject=f'[{site_name}] Bank transfer successful',
-                text_intro='Your bank transfer was successful.',
+                text_intro=(
+                    f'{_fmt_amount(debited)} was deducted from your wallet.\n'
+                    f'Updated wallet balance: '
+                    f'{_fmt_amount(balance_after) if balance_after is not None else "-"}.'
+                ),
                 title='Bank transfer successful',
                 subtitle=(
-                    f'Transfer of {_fmt_amount(transfer.amount)} was completed successfully. '
-                    f'Wallet debited {_fmt_amount(debited)}.'
+                    f'Transfer of {_fmt_amount(transfer.amount)} completed. '
+                    f'{_fmt_amount(debited)} was deducted from your wallet. '
+                    f'New balance: '
+                    f'{_fmt_amount(balance_after) if balance_after is not None else "-"}.'
                 ),
                 amount_display=_fmt_amount(debited),
                 amount_label='Wallet debit',
@@ -1116,6 +1380,7 @@ def notify_transfer_success(transfer, balance_after=None) -> None:
         _send_admin_opposite_wallet_email(
             user=transfer.user,
             customer_direction='debit',
+            admin_direction='debit',
             amount=debited,
             balance_after=balance_after,
             reason='Bank transfer',
@@ -1178,6 +1443,7 @@ def notify_withdrawal(
         _send_admin_opposite_wallet_email(
             user=user,
             customer_direction='debit',
+            admin_direction='debit',
             amount=amount,
             balance_after=balance_after,
             reason=reason or 'Withdrawal',
@@ -1261,7 +1527,7 @@ def notify_wallet_adjustment(
                 subject=f'[{site_name}] Wallet balance adjusted',
                 text_intro='Your wallet balance was adjusted by an administrator.',
                 title=f'Wallet {adj_type}',
-                subtitle='An administrator updated your MySewa wallet balance.',
+                subtitle='An administrator updated your MySewa business wallet balance.',
                 amount_display=f'{"+" if delta > 0 else "−"}{_fmt_amount(abs(delta))}',
                 status='success',
                 status_label=adj_type.title(),
@@ -1327,23 +1593,30 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
             ('Charge', _fmt_amount(charge)),
             ('Cashback', _fmt_amount(cashback)),
             ('Amount credited', _fmt_amount(credited)),
+            ('Debit / Credit', 'Credited'),
             ('Sender', getattr(remittance, 'sender_name', None) or '-'),
             ('Receiver', getattr(remittance, 'receiver_name', None) or '-'),
             ('New balance', _fmt_amount(balance_after) if balance_after is not None else '-'),
             ('Transaction ID', str(remittance.id)),
             ('Merchant ref.', getattr(remittance, 'merchant_txn_id', None) or '-'),
             ('Date', _format_when(getattr(remittance, 'created_at', None))),
-            ('Status', 'Success'),
+            ('Status', 'Credited'),
         ]
         if _user_email(remittance.user):
             _send_txn_email(
                 recipients=[remittance.user.email],
                 subject=f'[{site_name}] Remittance credited',
-                text_intro='Your remittance has been credited to your wallet.',
+                text_intro=(
+                    f'{_fmt_amount(credited)} was credited to your wallet.\n'
+                    f'Updated wallet balance: '
+                    f'{_fmt_amount(balance_after) if balance_after is not None else "-"}.'
+                ),
                 title='Remittance credited',
                 subtitle=(
-                    f'Remittance {remittance.ref_no} was credited to your wallet '
-                    f'({_fmt_amount(credited)} after charges).'
+                    f'{_fmt_amount(credited)} was added to your wallet '
+                    f'(remittance {remittance.ref_no}). '
+                    f'New balance: '
+                    f'{_fmt_amount(balance_after) if balance_after is not None else "-"}.'
                 ),
                 amount_display=_fmt_amount(credited),
                 amount_label='Amount credited',
@@ -1356,6 +1629,7 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
         _send_admin_opposite_wallet_email(
             user=remittance.user,
             customer_direction='credit',
+            admin_direction='debit',
             amount=credited,
             balance_after=balance_after,
             reason=f'Remittance {remittance.ref_no}',

@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatNPR, formatDateTime } from "@/lib/format";
+import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
@@ -43,7 +43,7 @@ export const Route = createFileRoute("/app/community-electricity")({
       {
         name: "description",
         content:
-          "Pay Himchuli, Watermark, Dreamer, Softlab and BPC community electricity bills from your MySewa wallet.",
+          "Pay Himchuli, Watermark, Dreamer, Softlab and BPC community electricity bills from your MySewa business wallet.",
       },
     ],
   }),
@@ -111,7 +111,10 @@ function CommunityElectricityPayment() {
     queryFn: () => apiClient.communityElectricityHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
-  const ceItems = historyQuery.data?.items ?? [];
+  const ceItems = useMemo(
+    () => sortByLatestFirst(historyQuery.data?.items ?? []),
+    [historyQuery.data?.items],
+  );
   const ceStats = historyQuery.data?.stats;
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);

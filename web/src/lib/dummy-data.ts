@@ -1,5 +1,7 @@
 /** Dummy data shaped exactly after models.md */
 
+import { sortByLatestFirst } from "./format";
+
 export type Role = "super_admin" | "user";
 
 export interface CustomUser {
@@ -526,7 +528,7 @@ export function activityFor(userId: number): ActivityItem[] {
         created_at: b.created_at,
       })),
   ];
-  return items.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return sortByLatestFirst(items);
 }
 
 export const walletFloat = wallets.reduce((sum, w) => sum + Number(w.balance), 0);

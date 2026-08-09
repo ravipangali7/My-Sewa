@@ -26,7 +26,7 @@ import {
   type DataPackOperator,
   type PackCategory,
 } from "@/lib/data-packs";
-import { formatNPR, formatDateTime } from "@/lib/format";
+import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
@@ -47,7 +47,7 @@ export const Route = createFileRoute("/app/data-topup")({
       { title: "Data Top-Up NTC & NCELL — MySewa" },
       {
         name: "description",
-        content: "Buy NTC or NCELL mobile data packs from your MySewa wallet balance.",
+        content: "Buy NTC or NCELL mobile data packs from your MySewa business wallet balance.",
       },
     ],
   }),
@@ -112,7 +112,10 @@ function DataTopUp() {
     queryFn: () => apiClient.dataPackHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
-  const dataPackItems = historyQuery.data?.items ?? [];
+  const dataPackItems = useMemo(
+    () => sortByLatestFirst(historyQuery.data?.items ?? []),
+    [historyQuery.data?.items],
+  );
   const dataPackStats = historyQuery.data?.stats;
 
   const mobileError = useMemo(

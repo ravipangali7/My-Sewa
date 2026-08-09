@@ -27,7 +27,7 @@ export const Route = createFileRoute("/admin/wallets_/$walletId")({
       { title: "Wallet Details — MySewa Admin" },
       {
         name: "description",
-        content: "View complete MySewa wallet details including balance and account owner.",
+        content: "View complete MySewa business wallet details including balance and account owner.",
       },
       { property: "og:title", content: "Wallet Details — MySewa Admin" },
     ],

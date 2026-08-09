@@ -267,6 +267,10 @@ export interface AppSettings {
   esewa_qr_code_url: string | null;
   logo: string | null;
   logo_url: string | null;
+  /** Latest Android version string compared with Flutter appVersion */
+  app_version?: string;
+  apk?: string | null;
+  apk_url?: string | null;
   bank_details: BankDetails;
   config: AppConfig;
   created_at: string;

@@ -693,7 +693,7 @@ def create_bank_transfer(request):
             {
                 'error': 'Insufficient balance',
                 'message': (
-                    f'Insufficient MySewa wallet balance. '
+                    f'Insufficient MySewa business wallet balance. '
                     f'Need Rs. {total_required}, have Rs. {wallet.balance}.'
                 ),
                 'required': str(total_required),
