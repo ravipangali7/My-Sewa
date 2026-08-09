@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Search,
-  ChevronUp,
   Check,
   RefreshCw,
   Wallet,
@@ -14,7 +13,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
-import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,7 +26,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
+import { formatNPR } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
@@ -36,11 +34,9 @@ import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
-import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
+import { ListPageToolbar } from "@/components/list/ListPageToolbar";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
-import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
-import { useSiteBranding } from "@/hooks/use-site-branding";
 import { COLORS } from "@/constants/colors";
 import {
   extractCounterOptions,
@@ -48,7 +44,7 @@ import {
   extractPayableAmount,
   type CounterOption,
 } from "@/lib/utility-parse";
-import type { ElectricityBillTransaction, UtilityInquiry } from "@/lib/types";
+import type { UtilityInquiry } from "@/lib/types";
 
 export const Route = createFileRoute("/app/electricity")({
   head: () => ({
@@ -86,18 +82,10 @@ function ElectricityBillPayment() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t } = useI18n();
-  const { logoUrl } = useSiteBranding();
-  const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
-    t,
-    user?.phone,
-    logoUrl,
-  );
   const { filters, setFilters, debounced } = useListFilters();
   const [exporting, setExporting] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [counterPickerOpen, setCounterPickerOpen] = useState(false);
-  const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
-  const [paymentsOpen, setPaymentsOpen] = useState(false);
   const accountPending = isAccountPending(user);
 
   const [step, setStep] = useState<Step>("list");
@@ -146,10 +134,6 @@ function ElectricityBillPayment() {
     queryFn: () => apiClient.electricityHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
-  const electricityItems = useMemo(
-    () => sortByLatestFirst(historyQuery.data?.items ?? []),
-    [historyQuery.data?.items],
-  );
   const electricityStats = historyQuery.data?.stats;
 
   const filteredCounters = useMemo(() => {
@@ -288,8 +272,6 @@ function ElectricityBillPayment() {
         });
       }
       resetFlow();
-      setLastReceiptId(activityIdForKind("electricity", res.data.id));
-      setPaymentsOpen(true);
       queryClient.invalidateQueries({ queryKey: ["electricity-bills"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
@@ -432,7 +414,7 @@ function ElectricityBillPayment() {
           />
         </header>
 
-        <div className="relative z-10 space-y-3.5 px-4 pt-2 pb-28">
+        <div className="relative z-10 space-y-3.5 px-4 pt-2 pb-8">
           {accountPending ? <AccountPendingBanner /> : null}
           {!enabled && !accountPending ? (
             <section className="rounded-2xl border border-destructive/20 bg-white p-4 shadow-sm">
@@ -493,7 +475,7 @@ function ElectricityBillPayment() {
                   className={cn(
                     "flex h-12 w-full items-center justify-between rounded-xl px-3.5 text-left text-[15px] transition-colors disabled:opacity-50",
                     listingCounter
-                      ? "border border-[#0A7A4B] bg-white text-[#111827]"
+                      ? "border border-brand bg-white text-[#111827]"
                       : "border-0 bg-[#F3F4F6] text-[#9CA3AF]",
                   )}
                 >
@@ -562,7 +544,7 @@ function ElectricityBillPayment() {
                     >
                       <SelectTrigger
                         id="electricity_counter_details"
-                        className="h-12 rounded-xl border-[#0A7A4B] bg-white text-[15px] text-[#111827] shadow-none focus:ring-[#0A7A4B]/30"
+                        className="h-12 rounded-xl border-brand bg-white text-[15px] text-[#111827] shadow-none focus:ring-brand/30"
                       >
                         <SelectValue placeholder={t("electricity.counterSelectPlaceholder")}>
                           {cleanCounterLabel(selectedCounter)}
@@ -590,7 +572,7 @@ function ElectricityBillPayment() {
                       value={scNo}
                       onChange={(e) => setScNo(e.target.value)}
                       placeholder={t("electricity.scPlaceholder")}
-                      className="h-12 rounded-xl border-0 bg-[#F3F4F6] text-[15px] shadow-none placeholder:text-[#9CA3AF] focus-visible:ring-[#0A7A4B]/30"
+                      className="h-12 rounded-xl border-0 bg-[#F3F4F6] text-[15px] shadow-none placeholder:text-[#9CA3AF] focus-visible:ring-brand/30"
                       disabled={!enabled}
                       autoComplete="off"
                       required
@@ -609,7 +591,7 @@ function ElectricityBillPayment() {
                       value={consumerId}
                       onChange={(e) => setConsumerId(e.target.value)}
                       placeholder={t("electricity.consumerIdPlaceholder")}
-                      className="h-12 rounded-xl border-0 bg-[#F3F4F6] text-[15px] shadow-none placeholder:text-[#9CA3AF] focus-visible:ring-[#0A7A4B]/30"
+                      className="h-12 rounded-xl border-0 bg-[#F3F4F6] text-[15px] shadow-none placeholder:text-[#9CA3AF] focus-visible:ring-brand/30"
                       disabled={!enabled}
                       autoComplete="off"
                       required
@@ -660,7 +642,7 @@ function ElectricityBillPayment() {
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder={t("electricity.amountPlaceholder")}
-                    className="h-12 rounded-xl border-0 bg-[#F3F4F6] font-medium tabular shadow-none focus-visible:ring-[#0A7A4B]/30"
+                    className="h-12 rounded-xl border-0 bg-[#F3F4F6] font-medium tabular shadow-none focus-visible:ring-brand/30"
                     disabled={!enabled}
                     required
                   />
@@ -746,99 +728,6 @@ function ElectricityBillPayment() {
             </>
           ) : null}
         </div>
-
-        {/* My Payments — fixed bar above bottom tabs, matches reference */}
-        <div className="fixed inset-x-0 bottom-[calc(4.25rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] z-30 lg:bottom-4">
-          <div className="mx-auto max-w-lg px-0 lg:px-4">
-            <div className="overflow-hidden border-t border-[#E5E7EB] bg-white shadow-[0_-4px_20px_-8px_rgba(16,24,40,0.12)] lg:rounded-2xl lg:border">
-              <button
-                type="button"
-                className="flex w-full items-center justify-center gap-2 px-4 py-3.5 text-[15px] font-medium text-[#6B7280]"
-                onClick={() => setPaymentsOpen((v) => !v)}
-              >
-                <ChevronUp
-                  className={cn(
-                    "size-4 transition-transform duration-200",
-                    !paymentsOpen && "rotate-180",
-                  )}
-                />
-                {t("electricity.myPayments")}
-              </button>
-
-              {paymentsOpen ? (
-                <div className="max-h-[40vh] overflow-y-auto border-t border-[#F3F4F6] px-4 pb-3">
-                  {lastReceiptId ? (
-                    <div className="mb-3 mt-3">
-                      <TransactionResultBanner
-                        tone={
-                          electricityItems.find(
-                            (x) => activityIdForKind("electricity", x.id) === lastReceiptId,
-                          )?.status === "failed"
-                            ? "danger"
-                            : electricityItems.find(
-                                  (x) => activityIdForKind("electricity", x.id) === lastReceiptId,
-                                )?.status === "pending"
-                              ? "warning"
-                              : "success"
-                        }
-                        title={t("electricity.paySuccess")}
-                        body={t("history.downloadStatement")}
-                        receiptLabel={t("history.downloadPdf")}
-                        onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
-                        downloading={receiptDownloading}
-                      />
-                    </div>
-                  ) : null}
-
-                  {historyQuery.isLoading ? (
-                    <div className="py-6 text-center text-sm text-[#9CA3AF]">
-                      {t("common.loading")}
-                    </div>
-                  ) : !electricityItems.length ? (
-                    <div className="py-6 text-center text-sm text-[#9CA3AF]">
-                      {t("electricity.empty")}
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-[#F3F4F6]">
-                      {electricityItems.map((item: ElectricityBillTransaction) => (
-                        <li key={item.id} className="py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-[15px] font-medium text-[#111827]">
-                                {item.sc_no} · {item.consumer_id}
-                              </p>
-                              <p className="truncate text-[12px] text-[#9CA3AF]">
-                                {item.office_name || item.office_code} ·{" "}
-                                {formatDateTime(item.created_at)}
-                              </p>
-                            </div>
-                            <div className="shrink-0 text-right">
-                              <p className="tabular text-[15px] font-semibold">
-                                {formatNPR(item.amount)}
-                              </p>
-                              <StatusChip status={item.status} compact className="mt-1" />
-                            </div>
-                          </div>
-                          {(item.status === "success" || item.status === "failed") && (
-                            <div className="mt-1 flex justify-end">
-                              <ReceiptDownloadLink
-                                label={t("list.downloadReceipt")}
-                                downloading={receiptDownloading}
-                                onClick={() =>
-                                  void downloadReceipt(activityIdForKind("electricity", item.id))
-                                }
-                              />
-                            </div>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Counter picker sheet — full powerhouse list */}
@@ -892,14 +781,14 @@ function ElectricityBillPayment() {
                       onClick={() => openDetails(counter)}
                       className={cn(
                         "flex w-full items-center gap-3 px-4 py-3.5 text-left",
-                        active ? "bg-[#ECFDF5]" : "hover:bg-[#F9FAFB]",
+                        active ? "bg-brand-soft" : "hover:bg-[#F9FAFB]",
                       )}
                     >
                       <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#111827]">
                         {cleanCounterLabel(counter)}
                       </span>
                       {active ? (
-                        <Check className="size-4 shrink-0 text-[#0A7A4B]" />
+                        <Check className="size-4 shrink-0 text-brand" />
                       ) : (
                         <ChevronRight className="size-4 shrink-0 text-[#D1D5DB]" />
                       )}
@@ -986,10 +875,10 @@ function ImportantInfoCard({
   body2: string;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-[#BFDBFE] bg-white shadow-[0_2px_12px_-4px_rgba(16,24,40,0.08)]">
-      <div className="flex items-center gap-2 bg-[#DBEAFE] px-4 py-2.5">
-        <AlertTriangle className="size-[18px] shrink-0 text-[#2563EB]" strokeWidth={2.25} />
-        <p className="text-[15px] font-semibold text-[#2563EB]">{title}</p>
+    <section className="overflow-hidden rounded-2xl border border-brand/25 bg-white shadow-[0_2px_12px_-4px_rgba(16,24,40,0.08)]">
+      <div className="flex items-center gap-2 bg-brand-soft px-4 py-2.5">
+        <AlertTriangle className="size-[18px] shrink-0 text-brand" strokeWidth={2.25} />
+        <p className="text-[15px] font-semibold text-brand-dark">{title}</p>
       </div>
       <ul className="space-y-2.5 px-4 py-3.5 text-[13px] leading-relaxed text-[#1F2937]">
         <li className="flex gap-2.5">

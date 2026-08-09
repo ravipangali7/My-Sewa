@@ -6,7 +6,6 @@ import {
   Search,
   Droplets,
   ChevronRight,
-  ChevronUp,
   Check,
   RefreshCw,
   Wallet,
@@ -15,7 +14,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
-import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +27,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
+import { formatNPR } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
@@ -37,18 +35,16 @@ import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
-import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
+import { ListPageToolbar } from "@/components/list/ListPageToolbar";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
-import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
-import { useSiteBranding } from "@/hooks/use-site-branding";
 import {
   extractCounterOptions,
   extractCustomerName,
   extractPayableAmount,
   type CounterOption,
 } from "@/lib/utility-parse";
-import type { UtilityInquiry, WaterBillTransaction } from "@/lib/types";
+import type { UtilityInquiry } from "@/lib/types";
 
 export const Route = createFileRoute("/app/water")({
   head: () => ({
@@ -115,17 +111,9 @@ function WaterBillPayment() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t } = useI18n();
-  const { logoUrl } = useSiteBranding();
-  const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
-    t,
-    user?.phone,
-    logoUrl,
-  );
   const { filters, setFilters, debounced } = useListFilters();
   const [exporting, setExporting] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
-  const [paymentsOpen, setPaymentsOpen] = useState(false);
   const accountPending = isAccountPending(user);
 
   const [step, setStep] = useState<Step>("provider");
@@ -178,10 +166,6 @@ function WaterBillPayment() {
     queryFn: () => apiClient.waterHistory(debounced),
     refetchInterval: LIVE_REFETCH_MS,
   });
-  const waterItems = useMemo(
-    () => sortByLatestFirst(historyQuery.data?.items ?? []),
-    [historyQuery.data?.items],
-  );
   const waterStats = historyQuery.data?.stats;
 
   const filteredProviders = useMemo(() => {
@@ -310,8 +294,6 @@ function WaterBillPayment() {
         });
       }
       resetFlow();
-      setPaymentsOpen(true);
-      setLastReceiptId(activityIdForKind("water", res.data.id));
       queryClient.invalidateQueries({ queryKey: ["water-bills"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
@@ -462,7 +444,7 @@ function WaterBillPayment() {
                       )}
                     >
                       <span className="flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-border bg-surface shadow-sm">
-                        <Droplets className="size-5 text-[#1D4ED8]" strokeWidth={1.75} />
+                        <Droplets className="size-5 text-brand" strokeWidth={1.75} />
                       </span>
                       <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#0F172A]">
                         {provider.name}
@@ -728,88 +710,6 @@ function WaterBillPayment() {
             </div>
           </section>
         ) : null}
-
-        {step !== "provider" ? (
-          <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
-            <button
-              type="button"
-              className="flex w-full items-center justify-center gap-2 px-4 py-3 text-[14px] font-medium text-foreground"
-              onClick={() => setPaymentsOpen((v) => !v)}
-            >
-              <ChevronUp
-                className={cn("size-4 transition-transform", !paymentsOpen && "rotate-180")}
-              />
-              {t("water.myPayments")}
-            </button>
-
-            {paymentsOpen ? (
-              <div className="border-t border-border px-4 pb-4 pt-2">
-                {lastReceiptId ? (
-                  <div className="mb-3">
-                    <TransactionResultBanner
-                      tone={
-                        waterItems.find((x) => activityIdForKind("water", x.id) === lastReceiptId)
-                          ?.status === "failed"
-                          ? "danger"
-                          : waterItems.find((x) => activityIdForKind("water", x.id) === lastReceiptId)
-                                ?.status === "pending"
-                            ? "warning"
-                            : "success"
-                      }
-                      title={t("water.paySuccess")}
-                      body={t("history.downloadStatement")}
-                      receiptLabel={t("history.downloadPdf")}
-                      onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
-                      downloading={receiptDownloading}
-                    />
-                  </div>
-                ) : null}
-                {historyQuery.isLoading ? (
-                  <p className="py-6 text-center text-sm text-muted-foreground">
-                    {t("common.loading")}
-                  </p>
-                ) : !waterItems.length ? (
-                  <p className="py-6 text-center text-sm text-muted-foreground">{t("water.empty")}</p>
-                ) : (
-                  <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-                    {waterItems.map((item: WaterBillTransaction) => (
-                      <li key={item.id} className="min-w-0 px-3 py-3">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-[15px] font-medium">
-                              {item.connection_no} · {item.customer_code}
-                            </p>
-                            <p className="truncate text-[13px] text-muted-foreground">
-                              {item.counter || item.merchant_txn_id} ·{" "}
-                              {formatDateTime(item.created_at)}
-                            </p>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <p className="tabular text-[15px] font-semibold">
-                              {formatNPR(item.amount)}
-                            </p>
-                            <StatusChip status={item.status} compact className="mt-1" />
-                          </div>
-                        </div>
-                        {(item.status === "success" || item.status === "failed") && (
-                          <div className="mt-1 flex justify-end">
-                            <ReceiptDownloadLink
-                              label={t("list.downloadReceipt")}
-                              downloading={receiptDownloading}
-                              onClick={() =>
-                                void downloadReceipt(activityIdForKind("water", item.id))
-                              }
-                            />
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
       </div>
 
       <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
@@ -887,7 +787,7 @@ function BalanceCard({
   retryLabel: string;
 }) {
   return (
-    <div className="relative z-10 -mt-8 flex items-center gap-3 rounded-2xl border border-border bg-surface px-4 py-3.5 shadow-[0_4px_16px_-4px_rgb(16_24_40_/_0.12)] lg:mt-0">
+    <div className="relative z-10 flex items-center gap-3 rounded-2xl border border-border bg-surface px-4 py-3.5 shadow-[0_4px_16px_-4px_rgb(16_24_40_/_0.12)]">
       <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
         <Wallet className="size-5" strokeWidth={1.75} />
       </span>
