@@ -178,6 +178,7 @@ function ReceiveRemittance() {
     },
     onSuccess: (res) => {
       setLookupError(null);
+      errorPopup.close();
       setLookup(res.data);
       setKyc((prev) => ({
         ...prev,
@@ -203,6 +204,7 @@ function ReceiveRemittance() {
         fallback: t("remittance.lookupFailed"),
         preferErrorTitle: true,
       });
+      // Structured Error / Message / HimaPay Response (values only — never empty labels).
       errorPopup.showError(err, { title, fallback: t("remittance.lookupFailed") });
     },
   });
@@ -260,16 +262,21 @@ function ReceiveRemittance() {
     onSuccess: (res) => {
       setPinOpen(false);
       setPinError(null);
+      errorPopup.close();
+      setLookupError(null);
+      const credited = res.data?.total_credited ?? res.data?.amount;
       toast.success(res.message || t("remittance.credited"), {
-        description: t("remittance.creditedBody", {
-          amount: formatNPR(res.data.total_credited || res.data.amount),
-        }),
+        description: credited != null
+          ? t("remittance.creditedBody", { amount: formatNPR(credited) })
+          : undefined,
       });
       setStep("lookup");
       setRefNo("");
       setLookup(null);
       setKyc(emptyKyc(user?.phone ?? ""));
-      setLastReceiptId(activityIdForKind("remittance", res.data.id));
+      if (res.data?.id != null) {
+        setLastReceiptId(activityIdForKind("remittance", res.data.id));
+      }
       queryClient.invalidateQueries({ queryKey: ["remittances"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
       queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
@@ -284,13 +291,15 @@ function ReceiveRemittance() {
         }
       }
       setPinOpen(false);
+      const title = apiErrorTitle(err, t("remittance.failed"));
+      // Toast stays short; popup shows Error / Message / HimaPay Response with real values.
       toastApiError(err, {
         title: t("remittance.failed"),
         fallback: t("remittance.failed"),
         preferErrorTitle: true,
       });
       errorPopup.showError(err, {
-        title: apiErrorTitle(err, t("remittance.failed")),
+        title,
         fallback: t("remittance.failed"),
       });
     },

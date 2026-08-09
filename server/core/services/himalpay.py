@@ -1285,10 +1285,15 @@ class HimalPayAPI:
     @staticmethod
     def normalize_status(response: Dict) -> str:
         """Normalize HimalPay status to lowercase success/failed/pending."""
+        root = response if isinstance(response, dict) else {}
+        nested = root.get('data') if isinstance(root.get('data'), dict) else {}
         raw = (
-            response.get('status')
-            or response.get('Status')
-            or response.get('transaction_status')
+            root.get('status')
+            or root.get('Status')
+            or root.get('transaction_status')
+            or nested.get('status')
+            or nested.get('Status')
+            or nested.get('ms_status')
             or ''
         )
         status = str(raw).upper()

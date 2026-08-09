@@ -104,6 +104,58 @@ export function sanitizeProviderMessage(text: string, fallback = FALLBACK): stri
   return cleaned[0]!.toUpperCase() + cleaned.slice(1);
 }
 
+function himapayPayloadFromBody(body: Record<string, unknown> | null): unknown {
+  if (!body) return null;
+  const direct = body["himapayResponse"] ?? body["himalpay_response"];
+  if (direct != null && direct !== "") return direct;
+  return null;
+}
+
+function vendorHintFromHimpay(payload: unknown): string | null {
+  const root = asRecord(payload);
+  if (!root) return null;
+  const nested = asRecord(root["data"]);
+  const deeper = nested ? asRecord(nested["data"]) : null;
+  const noise = new Set([
+    "success",
+    "successful",
+    "ok",
+    "pending",
+    "unknown",
+    "null",
+    "none",
+    "n/a",
+    "na",
+    "-",
+    "0",
+    "00",
+    "failed",
+    "failure",
+    "error",
+  ]);
+  const pick = (...values: unknown[]) => {
+    for (const value of values) {
+      if (typeof value !== "string") continue;
+      const text = value.trim();
+      if (!text || noise.has(text.toLowerCase())) continue;
+      return text;
+    }
+    return null;
+  };
+  return pick(
+    root["vendor_state"],
+    root["provider_message"],
+    root["error"],
+    root["message"],
+    nested?.["vendor_state"],
+    nested?.["error"],
+    nested?.["message"],
+    deeper?.["vendor_state"],
+    deeper?.["error"],
+    deeper?.["message"],
+  );
+}
+
 function errorCodeFromBody(body: unknown): number | null {
   const b = asRecord(body);
   if (!b) return null;
@@ -124,28 +176,77 @@ export function errorMessageFromUnknown(err: unknown, fallback = FALLBACK): stri
   return fallback;
 }
 
+export type ApiErrorFields = {
+  /** API `error` label (e.g. "Already received"). */
+  error: string | null;
+  /** Human-readable `message` / vendor reason. */
+  message: string;
+  /** Raw HimalPay payload from `himapayResponse`. */
+  himapayResponse: unknown;
+  /** Pretty JSON for UI when himapayResponse is present. */
+  himapayResponseText: string | null;
+};
+
+/**
+ * Pull the three remittance/HimalPay error fields with real values (never empty labels).
+ */
+export function apiErrorFields(err: unknown, fallback = FALLBACK): ApiErrorFields {
+  if (!(err instanceof ApiError)) {
+    const message = sanitizeProviderMessage(errorMessageFromUnknown(err, fallback), fallback);
+    return { error: null, message, himapayResponse: null, himapayResponseText: null };
+  }
+
+  const body = asRecord(err.body);
+  const himapayResponse = himapayPayloadFromBody(body);
+  const rawError = firstString(body?.["error"]);
+  const error =
+    rawError && !/^(error|bad request|request failed|detail)$/i.test(rawError)
+      ? sanitizeProviderMessage(rawError, rawError)
+      : null;
+
+  const preferred = firstString(
+    body?.["message"],
+    body?.["provider_message"],
+    body?.["vendor_state"],
+    vendorHintFromHimpay(himapayResponse),
+    err.message,
+  );
+  let message = preferred
+    ? sanitizeProviderMessage(preferred, "")
+    : "";
+  if (!message) {
+    const code = errorCodeFromBody(err.body);
+    if (code != null && CODE_MESSAGES[code]) {
+      message = CODE_MESSAGES[code];
+    } else {
+      message = sanitizeProviderMessage(err.message, fallback);
+    }
+  }
+
+  let himapayResponseText: string | null = null;
+  if (himapayResponse != null) {
+    try {
+      himapayResponseText =
+        typeof himapayResponse === "string"
+          ? himapayResponse.trim() || null
+          : JSON.stringify(himapayResponse, null, 2);
+    } catch {
+      himapayResponseText = String(himapayResponse);
+    }
+    if (himapayResponseText && !himapayResponseText.trim()) {
+      himapayResponseText = null;
+    }
+  }
+
+  return { error, message, himapayResponse, himapayResponseText };
+}
+
 /**
  * Resolve a user-friendly message from an API / HimalPay error.
  * Prefer server `message`, then sanitize; never surface enums or allowlist ops.
  */
 export function userFriendlyApiMessage(err: unknown, fallback = FALLBACK): string {
-  if (err instanceof ApiError) {
-    const code = errorCodeFromBody(err.body);
-    const body = asRecord(err.body);
-    const preferred = firstString(
-      body?.["message"],
-      body?.["provider_message"],
-      body?.["vendor_state"],
-      err.message,
-    );
-    if (preferred) {
-      const friendly = sanitizeProviderMessage(preferred, "");
-      if (friendly) return friendly;
-    }
-    if (code != null && CODE_MESSAGES[code]) return CODE_MESSAGES[code];
-    return sanitizeProviderMessage(err.message, fallback);
-  }
-  return sanitizeProviderMessage(errorMessageFromUnknown(err, fallback), fallback);
+  return apiErrorFields(err, fallback).message || fallback;
 }
 
 type ToastApiErrorOpts = {

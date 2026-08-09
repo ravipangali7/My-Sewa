@@ -69,23 +69,30 @@ function stripTechnicalErrorMeta(text: string): string {
 function extractMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
   const b = body as Record<string, unknown>;
+  // Prefer a non-empty HimalPay payload; empty `{}` must not block `data`.
+  const himapay =
+    asRecord(b["himapayResponse"]) || asRecord(b["himalpay_response"]);
+  const himapayUseful = himapay && Object.keys(himapay).length > 0 ? himapay : null;
   const nested =
-    asRecord(b["himapayResponse"]) ||
-    asRecord(b["himalpay_response"]) ||
+    himapayUseful ||
     asRecord(b["provider"]) ||
     asRecord(b["data"]);
   const deeper = nested ? asRecord(nested["data"]) : null;
+  const deepest = deeper ? asRecord(deeper["data"]) : null;
 
   const primary = firstString(
     b["message"],
     b["provider_message"],
     b["vendor_state"],
+    nested?.["vendor_state"],
+    deeper?.["vendor_state"],
+    deepest?.["vendor_state"],
     nested?.["error"],
     nested?.["message"],
-    nested?.["vendor_state"],
     deeper?.["error"],
     deeper?.["message"],
-    deeper?.["vendor_state"],
+    deepest?.["error"],
+    deepest?.["message"],
     b["error"],
     b["detail"],
   );
@@ -578,13 +585,17 @@ export const apiClient = {
       message: string;
       data: import("./types").RemittanceLookup;
       lookup_response?: unknown;
+      himapayResponse?: unknown;
+      himalpay_response?: unknown;
     }>("/api/remittance/lookup/", { method: "POST", body }),
 
   receiveRemittance: (body: Record<string, unknown>) =>
-    api<{ message: string; data: import("./types").RemittanceTransaction }>(
-      "/api/remittance/receive/",
-      { method: "POST", body },
-    ),
+    api<{
+      message: string;
+      data: import("./types").RemittanceTransaction;
+      himapayResponse?: unknown;
+      himalpay_response?: unknown;
+    }>("/api/remittance/receive/", { method: "POST", body }),
 
   remittanceHistory: (filters?: AdminListFilters) =>
     api<import("./types").AdminListResponse<import("./types").RemittanceTransaction>>(

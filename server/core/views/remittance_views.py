@@ -151,6 +151,28 @@ def _provider_message(himalpay: HimalPayAPI, response, fallback: str = '') -> st
     return message or fallback
 
 
+def _remittance_error_payload(
+    *,
+    error: str,
+    message: str,
+    himalpay_data=None,
+    **extra,
+) -> dict:
+    """
+    Always return Error / Message / HimaPay Response with real values.
+
+    - error: short label (e.g. Already received)
+    - message: actionable provider/user text
+    - himapayResponse: raw HimalPay payload (via with_himapay_response)
+    """
+    payload = {
+        'error': (error or 'Remittance failed').strip() or 'Remittance failed',
+        'message': (message or error or 'Remittance failed').strip() or 'Remittance failed',
+    }
+    payload.update(extra)
+    return with_himapay_response(payload, himalpay_data)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def lookup_remittance(request):
@@ -187,14 +209,12 @@ def lookup_remittance(request):
             exc.message, exc.error_code, exc.error_type,
         )
         return Response(
-            with_himapay_response(
-                {
-                    'error': 'Remittance lookup failed',
-                    'message': exc.provider_message or exc.message,
-                    'error_code': exc.error_code,
-                    'error_type': exc.error_type,
-                },
-                exc.response_data,
+            _remittance_error_payload(
+                error='Remittance lookup failed',
+                message=exc.provider_message or exc.message or 'Remittance lookup failed',
+                himalpay_data=exc.response_data,
+                error_code=exc.error_code,
+                error_type=exc.error_type,
             ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
@@ -204,15 +224,15 @@ def lookup_remittance(request):
 
     def _lookup_error(error: str, message: str, **extra):
         """Build a remittance lookup error; never invent 'Invalid amount'."""
-        payload = {
-            'error': error,
-            'message': message,
-            'provider_message': provider_message or None,
-            'vendor_state': vendor_state or None,
-        }
-        payload.update(extra)
         return Response(
-            with_himapay_response(payload, raw),
+            _remittance_error_payload(
+                error=error,
+                message=message,
+                himalpay_data=raw,
+                provider_message=provider_message or None,
+                vendor_state=vendor_state or None,
+                **extra,
+            ),
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -466,13 +486,15 @@ def receive_remittance(request):
             txn.save()
             failure = himalpay.extract_failure_details(response)
             return Response(
-                with_himapay_response(
-                    {
-                        'error': 'Remittance payout failed',
-                        'message': failure.get('provider_message') or failure.get('message') or 'Payout failed',
-                        'data': RemittanceTransactionSerializer(txn).data,
-                    },
-                    response,
+                _remittance_error_payload(
+                    error='Remittance payout failed',
+                    message=(
+                        failure.get('provider_message')
+                        or failure.get('message')
+                        or _provider_message(himalpay, response, 'Payout failed')
+                    ),
+                    himalpay_data=response,
+                    data=RemittanceTransactionSerializer(txn).data,
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -483,13 +505,11 @@ def receive_remittance(request):
                 txn.status = 'pending'
                 txn.save(update_fields=['status', 'updated_at'])
                 return Response(
-                    with_himapay_response(
-                        {
-                            'error': 'Wallet credit failed',
-                            'message': err or 'Could not credit wallet after successful payout.',
-                            'data': RemittanceTransactionSerializer(txn).data,
-                        },
-                        response,
+                    _remittance_error_payload(
+                        error='Wallet credit failed',
+                        message=err or 'Could not credit wallet after successful payout.',
+                        himalpay_data=response,
+                        data=RemittanceTransactionSerializer(txn).data,
                     ),
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
@@ -513,9 +533,10 @@ def receive_remittance(request):
             with_himapay_response(
                 {
                     'message': 'Remittance payout is being processed',
-                    'pending_message': response.get(
-                        'message',
-                        'Your remittance is being processed. Check status shortly.',
+                    'pending_message': (
+                        _provider_message(himalpay, response)
+                        or response.get('message')
+                        or 'Your remittance is being processed. Check status shortly.'
                     ),
                     'data': RemittanceTransactionSerializer(txn).data,
                 },
@@ -533,15 +554,13 @@ def receive_remittance(request):
             exc.message, exc.error_code, exc.error_type,
         )
         return Response(
-            with_himapay_response(
-                {
-                    'error': 'Remittance payout failed',
-                    'message': exc.provider_message or exc.message,
-                    'error_code': exc.error_code,
-                    'error_type': exc.error_type,
-                    'data': RemittanceTransactionSerializer(txn).data,
-                },
-                exc.response_data,
+            _remittance_error_payload(
+                error='Remittance payout failed',
+                message=exc.provider_message or exc.message or 'Remittance payout failed',
+                himalpay_data=exc.response_data,
+                error_code=exc.error_code,
+                error_type=exc.error_type,
+                data=RemittanceTransactionSerializer(txn).data,
             ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
@@ -619,13 +638,11 @@ def remittance_status(request):
         )
     except HimalPayError as exc:
         return Response(
-            with_himapay_response(
-                {
-                    'error': 'Status check failed',
-                    'message': exc.provider_message or exc.message,
-                    'data': RemittanceTransactionSerializer(txn).data,
-                },
-                exc.response_data,
+            _remittance_error_payload(
+                error='Status check failed',
+                message=exc.provider_message or exc.message or 'Status check failed',
+                himalpay_data=exc.response_data,
+                data=RemittanceTransactionSerializer(txn).data,
             ),
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
