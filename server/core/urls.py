@@ -192,6 +192,8 @@ urlpatterns = [
     path('api/admin/statement/run/', admin_views.admin_statement_run, name='admin_statement_run'),
     path('api/admin/statement/runs/', admin_views.admin_statement_runs, name='admin_statement_runs'),
     path('api/admin/statement/balance/', admin_views.admin_statement_balance, name='admin_statement_balance'),
+    path('api/admin/statement/ledger/', admin_views.admin_statement_ledger, name='admin_statement_ledger'),
+    path('api/admin/statement/correct/', admin_views.admin_statement_correct, name='admin_statement_correct'),
     path('api/admin/statement/discrepancies/<int:discrepancy_id>/solve/', admin_views.admin_statement_solve, name='admin_statement_solve'),
     path('api/admin/statement/discrepancies/<int:discrepancy_id>/ignore/', admin_views.admin_statement_ignore, name='admin_statement_ignore'),
 ]

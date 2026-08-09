@@ -1081,6 +1081,7 @@ export const apiClient = {
       message: string;
       data: import("./types").StatementReconcileRun;
       statement_logs?: Record<string, unknown>[];
+      ledger?: import("./types").StatementLedgerRow[];
       warning?: string;
     }>("/api/admin/statement/run/", {
       method: "POST",
@@ -1094,11 +1095,54 @@ export const apiClient = {
       unavailable?: boolean;
     }>("/api/admin/statement/balance/"),
 
-  adminStatementSolve: (id: number) =>
+  adminStatementLedger: (filters?: {
+    from_date?: string;
+    to_date?: string;
+    match_state?: string;
+    q?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.from_date) params.set("from_date", filters.from_date);
+    if (filters?.to_date) params.set("to_date", filters.to_date);
+    if (filters?.match_state) params.set("match_state", filters.match_state);
+    if (filters?.q) params.set("q", filters.q);
+    const query = params.toString();
+    return api<import("./types").StatementLedgerResponse>(
+      `/api/admin/statement/ledger/${query ? `?${query}` : ""}`,
+    );
+  },
+
+  adminStatementSolve: (
+    id: number,
+    payload?: {
+      adjustment_type?: "credit" | "debit";
+      amount?: string;
+      reason?: string;
+    },
+  ) =>
     api<{ message: string; data: import("./types").StatementDiscrepancy }>(
       `/api/admin/statement/discrepancies/${id}/solve/`,
-      { method: "POST", body: {} },
+      { method: "POST", body: payload || {} },
     ),
+
+  adminStatementCorrect: (payload: {
+    user_id: number;
+    adjustment_type: "credit" | "debit";
+    amount: string;
+    reason: string;
+    discrepancy_id?: number | null;
+    transaction_uuid?: string;
+  }) =>
+    api<{
+      message: string;
+      adjustment_id: number;
+      balance_before: string;
+      balance_after: string;
+      data?: import("./types").StatementDiscrepancy;
+    }>("/api/admin/statement/correct/", {
+      method: "POST",
+      body: payload,
+    }),
 
   adminStatementIgnore: (id: number, reason?: string) =>
     api<{ message: string; data: import("./types").StatementDiscrepancy }>(

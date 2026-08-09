@@ -623,3 +623,250 @@ def run_statement_reconcile(
 def default_reconcile_dates(day: Optional[date] = None) -> Tuple[date, date]:
     day = day or timezone.localdate()
     return day, day
+
+
+_TXN_TYPE_LABELS = {
+    StatementDiscrepancy.TXN_TOPUP: 'Top-up',
+    StatementDiscrepancy.TXN_DATA_PACK: 'Data pack',
+    StatementDiscrepancy.TXN_INTERNET: 'Internet',
+    StatementDiscrepancy.TXN_WATER: 'Water',
+    StatementDiscrepancy.TXN_COMMUNITY_ELECTRICITY: 'Community electricity',
+    StatementDiscrepancy.TXN_BANK_TRANSFER: 'Bank transfer',
+    StatementDiscrepancy.TXN_REMITTANCE: 'Remittance',
+}
+
+
+def _user_display(user) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+    if not user:
+        return None, None, None
+    name = f'{getattr(user, "first_name", "") or ""} {getattr(user, "last_name", "") or ""}'.strip()
+    phone = getattr(user, 'phone', None)
+    return getattr(user, 'pk', None), phone, (name or phone)
+
+
+def _local_side(local: LocalTxn) -> Dict[str, Any]:
+    obj = local.obj
+    user = getattr(obj, 'user', None)
+    user_id, user_phone, user_name = _user_display(user)
+    created = getattr(obj, 'created_at', None)
+    created_at = None
+    if created is not None:
+        created_at = (
+            timezone.localtime(created).isoformat()
+            if timezone.is_aware(created)
+            else created.isoformat()
+        )
+    return {
+        'txn_type': local.txn_type,
+        'txn_type_display': _TXN_TYPE_LABELS.get(local.txn_type, local.txn_type),
+        'txn_id': obj.pk,
+        'merchant_txn_id': str(getattr(obj, 'merchant_txn_id', '') or ''),
+        'provider_txn_id': local.provider_id,
+        'status': str(getattr(obj, 'status', '') or ''),
+        'amount': str(_local_net_amount(local)),
+        'user_id': user_id,
+        'user_phone': user_phone,
+        'user_name': user_name,
+        'created_at': created_at,
+        'wallet_applied': _wallet_applied(local),
+    }
+
+
+def _hp_side(hp: GroupedHpTxn) -> Dict[str, Any]:
+    return {
+        'transaction_uuid': hp.transaction_uuid,
+        'created_at': hp.created_at,
+        'service': hp.wallet_service_name,
+        'direction': hp.direction,
+        'status': hp.status,
+        'principal_amount': str(hp.principal_amount),
+        'net_amount': str(hp.net_amount),
+        'charge': str(hp.charge),
+        'cashback': str(hp.cashback),
+        'reference_id': hp.reference_id,
+    }
+
+
+def _match_state_for_pair(
+    hp: Optional[GroupedHpTxn],
+    local: Optional[LocalTxn],
+) -> str:
+    if hp is None and local is not None:
+        return StatementDiscrepancy.ISSUE_MISSING_PROVIDER
+    if local is None and hp is not None:
+        return StatementDiscrepancy.ISSUE_MISSING_LOCAL
+    if hp is None or local is None:
+        return 'unmatched'
+
+    local_status = str(getattr(local.obj, 'status', '') or '')
+    expected = _map_hp_status(hp.status)
+    if expected == 'success' and local_status != 'success':
+        return StatementDiscrepancy.ISSUE_STATUS_MISMATCH
+    if expected != 'success' and local_status == 'success':
+        return StatementDiscrepancy.ISSUE_STATUS_MISMATCH
+    if expected == 'success' and not _approx_equal(_local_net_amount(local), hp.net_amount):
+        return StatementDiscrepancy.ISSUE_AMOUNT_MISMATCH
+    if expected == 'success' and not _wallet_applied(local):
+        return StatementDiscrepancy.ISSUE_WALLET_NOT_APPLIED
+    return 'matched'
+
+
+def build_statement_ledger(
+    *,
+    from_date: date,
+    to_date: date,
+    entries: Optional[List[Dict[str, Any]]] = None,
+    run: Optional[StatementReconcileRun] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Build a dual-sided ledger: HimalPay on one side, MySewa on the other.
+
+    Prefer `entries` from a reconcile run; otherwise use `run.himalpay_statement_logs`.
+    Local transactions are always loaded from MySewa for the date range.
+    """
+    from_date, to_date = clamp_date_range(from_date, to_date)
+    if entries is None and run is not None:
+        logs = run.himalpay_statement_logs
+        entries = logs if isinstance(logs, list) else []
+    entries = entries or []
+
+    grouped = _group_statement_entries(entries)
+    local_index = _index_local_txns(from_date, to_date, grouped.keys())
+
+    open_discs = {
+        (d.transaction_uuid or '', d.issue_type): d
+        for d in StatementDiscrepancy.objects.filter(
+            status=StatementDiscrepancy.STATUS_OPEN,
+        ).select_related('user', 'resolution_adjustment')
+    }
+    # Also index by provider id alone for missing_provider rows
+    open_by_uuid: Dict[str, StatementDiscrepancy] = {}
+    for d in StatementDiscrepancy.objects.filter(
+        status=StatementDiscrepancy.STATUS_OPEN,
+    ).select_related('user', 'resolution_adjustment'):
+        key = d.transaction_uuid or d.merchant_txn_id
+        if key and key not in open_by_uuid:
+            open_by_uuid[key] = d
+
+    rows: List[Dict[str, Any]] = []
+    seen_local: set = set()
+
+    for uuid, hp in grouped.items():
+        local = local_index.get(uuid)
+        if local:
+            seen_local.add(uuid)
+        match_state = _match_state_for_pair(hp, local)
+        disc = open_discs.get((uuid, match_state)) or open_by_uuid.get(uuid)
+        suggested_type, suggested_amount, suggested_reason = _suggest_for_issue(
+            match_state if match_state != 'matched' else '',
+            hp,
+            local,
+        )
+        if match_state == 'matched':
+            suggested_type, suggested_amount, suggested_reason = '', None, ''
+
+        user = getattr(local.obj, 'user', None) if local else (disc.user if disc else None)
+        user_id, _, _ = _user_display(user)
+        can_correct = bool(user_id)
+        can_solve = bool(
+            disc
+            and disc.status == StatementDiscrepancy.STATUS_OPEN
+            and disc.user_id
+            and disc.suggested_adjustment_type
+            and disc.suggested_amount is not None
+            and Decimal(str(disc.suggested_amount)) > 0
+        )
+
+        rows.append({
+            'key': f'hp:{uuid}',
+            'match_state': match_state,
+            'himalpay': _hp_side(hp),
+            'mysewa': _local_side(local) if local else None,
+            'discrepancy_id': disc.pk if disc else None,
+            'suggested_adjustment_type': (
+                disc.suggested_adjustment_type if disc else suggested_type
+            ),
+            'suggested_amount': (
+                str(disc.suggested_amount)
+                if disc and disc.suggested_amount is not None
+                else (str(suggested_amount) if suggested_amount is not None else None)
+            ),
+            'reason': (disc.reason if disc else suggested_reason) or '',
+            'can_solve': can_solve,
+            'can_correct': can_correct,
+            'user_id': user_id,
+        })
+
+    for provider_id, local in local_index.items():
+        if provider_id in seen_local or provider_id in grouped:
+            continue
+        created = getattr(local.obj, 'created_at', None)
+        if created is not None:
+            local_day = (
+                timezone.localtime(created).date()
+                if timezone.is_aware(created)
+                else created.date()
+            )
+            if local_day < from_date or local_day > to_date:
+                continue
+        match_state = StatementDiscrepancy.ISSUE_MISSING_PROVIDER
+        disc = open_discs.get((provider_id, match_state)) or open_by_uuid.get(provider_id)
+        user = getattr(local.obj, 'user', None)
+        user_id, _, _ = _user_display(user)
+        rows.append({
+            'key': f'local:{local.txn_type}:{local.obj.pk}',
+            'match_state': match_state,
+            'himalpay': None,
+            'mysewa': _local_side(local),
+            'discrepancy_id': disc.pk if disc else None,
+            'suggested_adjustment_type': disc.suggested_adjustment_type if disc else '',
+            'suggested_amount': (
+                str(disc.suggested_amount)
+                if disc and disc.suggested_amount is not None
+                else None
+            ),
+            'reason': (disc.reason if disc else (
+                f'MySewa {local.txn_type} #{local.obj.pk} has no HimalPay statement entry.'
+            )),
+            'can_solve': bool(
+                disc
+                and disc.user_id
+                and disc.suggested_adjustment_type
+                and disc.suggested_amount is not None
+                and Decimal(str(disc.suggested_amount)) > 0
+            ),
+            'can_correct': bool(user_id),
+            'user_id': user_id,
+        })
+
+    def _sort_key(row: Dict[str, Any]):
+        hp = row.get('himalpay') or {}
+        ms = row.get('mysewa') or {}
+        when = hp.get('created_at') or ms.get('created_at') or ''
+        return (when, row.get('key') or '')
+
+    rows.sort(key=_sort_key, reverse=True)
+    return rows
+
+
+def ledger_from_latest_run(
+    *,
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+) -> Tuple[Optional[StatementReconcileRun], List[Dict[str, Any]]]:
+    """Load ledger rows from the latest successful reconcile run (optionally date-filtered)."""
+    qs = StatementReconcileRun.objects.filter(
+        status=StatementReconcileRun.STATUS_SUCCESS,
+    ).order_by('-created_at')
+    if from_date and to_date:
+        from_date, to_date = clamp_date_range(from_date, to_date)
+        # Prefer a run that covers the requested window
+        covering = qs.filter(from_date__lte=from_date, to_date__gte=to_date).first()
+        run = covering or qs.filter(from_date=from_date, to_date=to_date).first() or qs.first()
+    else:
+        run = qs.first()
+    if not run:
+        return None, []
+    start = from_date or run.from_date
+    end = to_date or run.to_date
+    return run, build_statement_ledger(from_date=start, to_date=end, run=run)

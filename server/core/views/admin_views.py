@@ -76,7 +76,11 @@ from ..services.himalpay import (
 )
 from ..services.app_config import get_app_config
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
-from ..services.statement_reconcile import run_statement_reconcile
+from ..services.statement_reconcile import (
+    build_statement_ledger,
+    ledger_from_latest_run,
+    run_statement_reconcile,
+)
 
 User = get_user_model()
 
@@ -2538,15 +2542,102 @@ def _statement_tables_missing_response():
             'items': [],
             'count': 0,
             'statement_logs': [],
+            'ledger': [],
         },
         status=status.HTTP_503_SERVICE_UNAVAILABLE,
     )
 
 
+def _apply_statement_wallet_correction(
+    *,
+    user_id: int,
+    adjustment_type: str,
+    magnitude: Decimal,
+    reason: str,
+    reference: str,
+    created_by,
+    discrepancy: StatementDiscrepancy | None = None,
+):
+    """
+    Apply a wallet credit/debit for statement correction and email the user.
+    Optionally resolve an open discrepancy in the same transaction.
+    Returns (wallet_adjustment, locked_discrepancy_or_none).
+    """
+    from ..services.notifications import notify_wallet_adjustment
+
+    if adjustment_type not in ('credit', 'debit'):
+        raise ValueError('adjustment_type must be credit or debit')
+    magnitude = Decimal(str(magnitude)).quantize(Decimal('0.01'))
+    if magnitude <= 0:
+        raise ValueError('Amount must be positive')
+
+    signed = magnitude if adjustment_type == 'credit' else -magnitude
+    reason = (reason or '').strip()[:2000]
+    if not reason:
+        raise ValueError('Reason is required')
+
+    with transaction.atomic():
+        locked_disc = None
+        if discrepancy is not None:
+            locked_disc = (
+                StatementDiscrepancy.objects
+                .select_for_update()
+                .select_related('user')
+                .get(pk=discrepancy.pk)
+            )
+            if locked_disc.status != StatementDiscrepancy.STATUS_OPEN:
+                raise ValueError('Discrepancy was already resolved.')
+            user_id = locked_disc.user_id or user_id
+
+        if not user_id:
+            raise ValueError('No MySewa user to correct')
+
+        wallet = (
+            Wallet.objects.select_for_update()
+            .select_related('user')
+            .get(user_id=user_id)
+        )
+        balance_before = wallet.balance
+        balance_after = balance_before + signed
+        if balance_after < 0:
+            raise ValueError('Adjustment would make wallet balance negative.')
+
+        wallet.balance = balance_after
+        wallet.save(update_fields=['balance', 'updated_at'])
+        adj = WalletAdjustment.objects.create(
+            wallet=wallet,
+            user=wallet.user,
+            amount=signed,
+            adjustment_type=adjustment_type,
+            balance_before=balance_before,
+            balance_after=balance_after,
+            reason=reason,
+            created_by=created_by,
+            reference=reference[:100],
+        )
+        if locked_disc is not None:
+            locked_disc.status = StatementDiscrepancy.STATUS_RESOLVED
+            locked_disc.resolved_by = created_by
+            locked_disc.resolved_at = timezone.now()
+            locked_disc.resolution_adjustment = adj
+            locked_disc.save(update_fields=[
+                'status', 'resolved_by', 'resolved_at', 'resolution_adjustment', 'updated_at',
+            ])
+
+        notify_wallet_adjustment(
+            wallet.user,
+            balance_before,
+            balance_after,
+            reason=reason,
+            ref=reference,
+        )
+        return adj, locked_disc
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_statement_list(request):
-    """List statement discrepancies with filters + open-issue summary."""
+    """List statement discrepancies with filters + open-issue summary + ledger."""
     try:
         qs = (
             StatementDiscrepancy.objects
@@ -2585,10 +2676,16 @@ def admin_statement_list(request):
             StatementReconcileRunSerializer(latest_run).data if latest_run else None
         )
         statement_logs = []
+        ledger = []
         if latest_run is not None:
             logs = latest_run.himalpay_statement_logs
             if isinstance(logs, list):
                 statement_logs = logs
+            ledger = build_statement_ledger(
+                from_date=latest_run.from_date,
+                to_date=latest_run.to_date,
+                run=latest_run,
+            )
 
         return Response({
             'summary': {
@@ -2599,10 +2696,78 @@ def admin_statement_list(request):
             'items': StatementDiscrepancySerializer(qs[:500], many=True).data,
             'count': qs.count(),
             'statement_logs': statement_logs,
+            'ledger': ledger,
         })
     except (ProgrammingError, OperationalError):
         return _statement_tables_missing_response()
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_statement_ledger(request):
+    """Dual-sided HimalPay ↔ MySewa ledger for a date range (from latest run)."""
+    from_raw = (
+        request.query_params.get('from_date')
+        or request.query_params.get('start_date')
+        or ''
+    ).strip()
+    to_raw = (
+        request.query_params.get('to_date')
+        or request.query_params.get('end_date')
+        or ''
+    ).strip()
+    from_date = parse_date(from_raw) if from_raw else None
+    to_date = parse_date(to_raw) if to_raw else None
+    match_filter = (request.query_params.get('match_state') or 'all').strip()
+    q = (request.query_params.get('q') or '').strip().lower()
+
+    try:
+        run, rows = ledger_from_latest_run(from_date=from_date, to_date=to_date)
+        if match_filter and match_filter != 'all':
+            rows = [r for r in rows if r.get('match_state') == match_filter]
+        if q:
+            def _row_matches(row):
+                hp = row.get('himalpay') or {}
+                ms = row.get('mysewa') or {}
+                hay = ' '.join([
+                    str(hp.get('transaction_uuid') or ''),
+                    str(hp.get('service') or ''),
+                    str(hp.get('status') or ''),
+                    str(ms.get('merchant_txn_id') or ''),
+                    str(ms.get('provider_txn_id') or ''),
+                    str(ms.get('user_phone') or ''),
+                    str(ms.get('user_name') or ''),
+                    str(ms.get('txn_type') or ''),
+                    str(row.get('reason') or ''),
+                ]).lower()
+                return q in hay
+            rows = [r for r in rows if _row_matches(r)]
+
+        counts = {
+            'total': len(rows),
+            'matched': sum(1 for r in rows if r.get('match_state') == 'matched'),
+            'issues': sum(1 for r in rows if r.get('match_state') != 'matched'),
+        }
+        return Response({
+            'run': StatementReconcileRunSerializer(run).data if run else None,
+            'from_date': (from_date or (run.from_date if run else None)),
+            'to_date': (to_date or (run.to_date if run else None)),
+            'counts': counts,
+            'items': rows[:1000],
+        })
+    except (ProgrammingError, OperationalError):
+        return Response(
+            {
+                'error': (
+                    'Statement reconcile tables are missing. '
+                    'Run: python manage.py migrate core 0024_statement_reconcile'
+                ),
+                'run': None,
+                'items': [],
+                'counts': {'total': 0, 'matched': 0, 'issues': 0},
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
@@ -2657,6 +2822,11 @@ def admin_statement_run(request):
     except Exception as exc:
         return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    ledger = build_statement_ledger(
+        from_date=run.from_date,
+        to_date=run.to_date,
+        run=run,
+    )
     payload = {
         'message': 'Statement reconcile completed',
         'data': StatementReconcileRunSerializer(run).data,
@@ -2665,6 +2835,7 @@ def admin_statement_run(request):
             if isinstance(run.himalpay_statement_logs, list)
             else []
         ),
+        'ledger': ledger,
     }
     if run.error_message:
         payload['warning'] = run.error_message
@@ -2714,7 +2885,10 @@ def admin_statement_balance(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_statement_solve(request, discrepancy_id):
-    """Credit/debit the matched user wallet to resolve a statement discrepancy."""
+    """Credit/debit the matched user wallet to resolve a statement discrepancy.
+
+    Optional body overrides: adjustment_type, amount, reason — for manual correction.
+    """
     try:
         disc = (
             StatementDiscrepancy.objects
@@ -2739,82 +2913,53 @@ def admin_statement_solve(request, discrepancy_id):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
-    if not disc.suggested_adjustment_type or disc.suggested_amount is None:
+
+    override_type = (request.data.get('adjustment_type') or '').strip().lower()
+    override_amount = request.data.get('amount')
+    override_reason = (request.data.get('reason') or '').strip()
+
+    adjustment_type = override_type or disc.suggested_adjustment_type
+    if not adjustment_type:
         return Response(
-            {'error': 'No suggested wallet adjustment for this issue.'},
+            {'error': 'No suggested wallet adjustment for this issue. Provide adjustment_type.'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    magnitude = Decimal(str(disc.suggested_amount)).quantize(Decimal('0.01'))
-    if magnitude <= 0:
+    amount_raw = override_amount if override_amount not in (None, '') else disc.suggested_amount
+    if amount_raw is None:
         return Response(
-            {'error': 'Suggested adjustment amount must be positive.'},
+            {'error': 'No suggested amount for this issue. Provide amount.'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    adjustment_type = disc.suggested_adjustment_type
-    signed = magnitude if adjustment_type == 'credit' else -magnitude
-    reason = (
-        f'Statement reconcile #{disc.run_id}: {disc.issue_type} '
-        f'{disc.transaction_uuid or disc.merchant_txn_id}. {disc.reason}'
-    ).strip()
+    try:
+        magnitude = Decimal(str(amount_raw)).quantize(Decimal('0.01'))
+    except Exception:
+        return Response({'error': 'Invalid amount'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if override_reason:
+        reason = override_reason
+    else:
+        reason = (
+            f'Statement correction: {disc.get_issue_type_display()} for '
+            f'{disc.transaction_uuid or disc.merchant_txn_id}. {disc.reason}'
+        ).strip()
     reference = f'STMT-SOLVE-{disc.pk}'
 
     try:
-        with transaction.atomic():
-            locked_disc = (
-                StatementDiscrepancy.objects
-                .select_for_update()
-                .select_related('user')
-                .get(pk=disc.pk)
-            )
-            if locked_disc.status != StatementDiscrepancy.STATUS_OPEN:
-                return Response(
-                    {'error': 'Discrepancy was already resolved.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            wallet = (
-                Wallet.objects.select_for_update()
-                .select_related('user')
-                .get(user_id=locked_disc.user_id)
-            )
-            balance_before = wallet.balance
-            balance_after = balance_before + signed
-            if balance_after < 0:
-                return Response(
-                    {'error': 'Adjustment would make wallet balance negative.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            wallet.balance = balance_after
-            wallet.save(update_fields=['balance', 'updated_at'])
-            adj = WalletAdjustment.objects.create(
-                wallet=wallet,
-                user=wallet.user,
-                amount=signed,
-                adjustment_type=adjustment_type,
-                balance_before=balance_before,
-                balance_after=balance_after,
-                reason=reason[:2000],
-                created_by=request.user,
-                reference=reference,
-            )
-            locked_disc.status = StatementDiscrepancy.STATUS_RESOLVED
-            locked_disc.resolved_by = request.user
-            locked_disc.resolved_at = timezone.now()
-            locked_disc.resolution_adjustment = adj
-            locked_disc.save(update_fields=[
-                'status', 'resolved_by', 'resolved_at', 'resolution_adjustment', 'updated_at',
-            ])
-            from ..services.notifications import notify_wallet_adjustment
-            notify_wallet_adjustment(
-                wallet.user,
-                balance_before,
-                balance_after,
-                reason=reason,
-                ref=reference,
-            )
+        _apply_statement_wallet_correction(
+            user_id=disc.user_id,
+            adjustment_type=adjustment_type,
+            magnitude=magnitude,
+            reason=reason,
+            reference=reference,
+            created_by=request.user,
+            discrepancy=disc,
+        )
     except Wallet.DoesNotExist:
         return Response({'error': 'User wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     disc = StatementDiscrepancy.objects.select_related(
         'user', 'run', 'resolved_by', 'resolution_adjustment',
@@ -2823,6 +2968,100 @@ def admin_statement_solve(request, discrepancy_id):
         'message': 'Issue solved with wallet adjustment',
         'data': StatementDiscrepancySerializer(disc).data,
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_statement_correct(request):
+    """
+    Manually correct a ledger row: credit/debit the user wallet and email them.
+
+    Body: user_id, adjustment_type (credit|debit), amount, reason
+    Optional: discrepancy_id (resolves that open issue), transaction_uuid
+    """
+    user_id = request.data.get('user_id')
+    discrepancy_id = request.data.get('discrepancy_id')
+    adjustment_type = (request.data.get('adjustment_type') or '').strip().lower()
+    amount_raw = request.data.get('amount')
+    reason = (request.data.get('reason') or '').strip()
+    txn_uuid = (request.data.get('transaction_uuid') or '').strip()
+
+    disc = None
+    if discrepancy_id not in (None, ''):
+        try:
+            disc = StatementDiscrepancy.objects.select_related('user').get(pk=int(discrepancy_id))
+        except (StatementDiscrepancy.DoesNotExist, TypeError, ValueError):
+            return Response({'error': 'Discrepancy not found'}, status=status.HTTP_404_NOT_FOUND)
+        if disc.status != StatementDiscrepancy.STATUS_OPEN:
+            return Response(
+                {'error': 'Only open discrepancies can be corrected this way.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not user_id:
+            user_id = disc.user_id
+
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return Response(
+            {'error': 'user_id is required (or provide discrepancy_id with a matched user).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if adjustment_type not in ('credit', 'debit'):
+        return Response(
+            {'error': 'adjustment_type must be credit or debit'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        magnitude = Decimal(str(amount_raw)).quantize(Decimal('0.01'))
+    except Exception:
+        return Response({'error': 'Invalid amount'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not reason:
+        return Response(
+            {'error': 'Explain the correction in reason (sent to the user by email).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if 'statement' not in reason.lower():
+        prefix = 'Statement ledger correction'
+        if txn_uuid:
+            prefix = f'{prefix} ({txn_uuid})'
+        reason = f'{prefix}: {reason}'
+
+    ref_suffix = str(disc.pk if disc else user_id)
+    reference = f'STMT-CORRECT-{ref_suffix}-{int(timezone.now().timestamp())}'
+
+    try:
+        adj, locked_disc = _apply_statement_wallet_correction(
+            user_id=user_id,
+            adjustment_type=adjustment_type,
+            magnitude=magnitude,
+            reason=reason,
+            reference=reference,
+            created_by=request.user,
+            discrepancy=disc,
+        )
+    except Wallet.DoesNotExist:
+        return Response({'error': 'User wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    payload = {
+        'message': (
+            f'Wallet {adjustment_type} of Rs. {magnitude} applied; user notified by email.'
+        ),
+        'adjustment_id': adj.pk,
+        'balance_before': str(adj.balance_before),
+        'balance_after': str(adj.balance_after),
+    }
+    if locked_disc is not None:
+        refreshed = StatementDiscrepancy.objects.select_related(
+            'user', 'run', 'resolved_by', 'resolution_adjustment',
+        ).get(pk=locked_disc.pk)
+        payload['data'] = StatementDiscrepancySerializer(refreshed).data
+    return Response(payload)
 
 
 @api_view(['POST'])

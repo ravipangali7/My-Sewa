@@ -964,6 +964,48 @@ export interface StatementDiscrepancy {
   updated_at: string;
 }
 
+export interface StatementLedgerHpSide {
+  transaction_uuid: string;
+  created_at: string | null;
+  service: string;
+  direction: string;
+  status: string;
+  principal_amount: string;
+  net_amount: string;
+  charge: string;
+  cashback: string;
+  reference_id: string;
+}
+
+export interface StatementLedgerMySewaSide {
+  txn_type: string;
+  txn_type_display: string;
+  txn_id: number;
+  merchant_txn_id: string;
+  provider_txn_id: string;
+  status: string;
+  amount: string;
+  user_id: number | null;
+  user_phone: string | null;
+  user_name: string | null;
+  created_at: string | null;
+  wallet_applied: boolean;
+}
+
+export interface StatementLedgerRow {
+  key: string;
+  match_state: string;
+  himalpay: StatementLedgerHpSide | null;
+  mysewa: StatementLedgerMySewaSide | null;
+  discrepancy_id: number | null;
+  suggested_adjustment_type: string;
+  suggested_amount: string | null;
+  reason: string;
+  can_solve: boolean;
+  can_correct: boolean;
+  user_id: number | null;
+}
+
 export interface StatementListResponse {
   summary: {
     open_issues: number;
@@ -973,4 +1015,13 @@ export interface StatementListResponse {
   items: StatementDiscrepancy[];
   count: number;
   statement_logs?: Record<string, unknown>[];
+  ledger?: StatementLedgerRow[];
+}
+
+export interface StatementLedgerResponse {
+  run: StatementReconcileRun | null;
+  from_date: string | null;
+  to_date: string | null;
+  counts: { total: number; matched: number; issues: number };
+  items: StatementLedgerRow[];
 }
