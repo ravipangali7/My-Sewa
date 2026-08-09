@@ -43,13 +43,17 @@ class _WebViewScreenState extends State<WebViewScreen>
   bool _exitDialogOpen = false;
   bool _isHandlingDownload = false;
   bool _bridgeInstalled = false;
+  bool _isRecovering = false;
+  bool _offlineBlankLoaded = false;
+  int _reachabilitySeq = 0;
   final Set<String> _dispatchedPaymentOutcomeKeys = <String>{};
   DateTime? _splashStartedAt;
   DateTime? _lastResumeBridgeSyncAt;
 
   static const _minSplashDuration = Duration(milliseconds: 900);
   static const _resumeBridgeSyncMinGap = Duration(milliseconds: 700);
-  static const _connectivityDebounce = Duration(milliseconds: 250);
+  static const _connectivityDebounce = Duration(milliseconds: 800);
+  static const _probeTimeout = Duration(seconds: 4);
 
   /// Ask the embedded web app to refetch data (pull-to-refresh / live updates).
   static const _dispatchAppResumeJs = '''
@@ -246,21 +250,26 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed &&
-        _isOnline &&
-        _controller != null) {
-      final now = DateTime.now();
-      final last = _lastResumeBridgeSyncAt;
-      if (last == null || now.difference(last) >= _resumeBridgeSyncMinGap) {
-        _lastResumeBridgeSyncAt = now;
-        unawaited(_safeControllerCall((c) async {
-          await c.runJavaScript(_dispatchAppResumeJs);
-          if (!_bridgeInstalled) {
-            _bridgeInstalled = true;
-            await c.runJavaScript(_installNativeBridgeJs);
-          }
-        }));
-      }
+    if (state != AppLifecycleState.resumed) return;
+
+    if (!_isOnline) {
+      unawaited(_recoverIfReachable());
+      return;
+    }
+
+    if (_controller == null) return;
+
+    final now = DateTime.now();
+    final last = _lastResumeBridgeSyncAt;
+    if (last == null || now.difference(last) >= _resumeBridgeSyncMinGap) {
+      _lastResumeBridgeSyncAt = now;
+      unawaited(_safeControllerCall((c) async {
+        await c.runJavaScript(_dispatchAppResumeJs);
+        if (!_bridgeInstalled) {
+          _bridgeInstalled = true;
+          await c.runJavaScript(_installNativeBridgeJs);
+        }
+      }));
     }
   }
 
@@ -322,24 +331,36 @@ class _WebViewScreenState extends State<WebViewScreen>
           _pageReady = true;
           await _dismissSplashWhenReady();
         },
-        onPageStarted: (_) {},
+        onPageStarted: (url) {
+          // A real navigation means we are past the about:blank clear.
+          if (url.isNotEmpty && url != 'about:blank') {
+            _offlineBlankLoaded = false;
+          }
+        },
         onWebResourceError: (error) async {
           // Blob/data "downloads" must never leave the user on an error page.
           final failing = error.url ?? '';
           if (failing.startsWith('blob:') || failing.startsWith('data:')) {
             return;
           }
+          if (failing == 'about:blank') return;
           if (error.isForMainFrame != true) return;
-          final online = await _hasConnection();
-          if (!mounted) return;
-          if (!online) {
-            setState(() {
-              _isOnline = false;
-              _showSplash = false;
-            });
+
+          // DNS / connect / timeout failures must never show Chromium's
+          // "Web page not available" screen — stay on branded offline UI.
+          if (_isNetworkLoadError(error) || _isAppHostFailure(failing)) {
+            await _enterOfflineMode();
             return;
           }
-          // Main-frame failure with connectivity — reveal WebView (error/login).
+
+          final hasLink = await _hasLinkLayer();
+          if (!mounted) return;
+          if (!hasLink) {
+            await _enterOfflineMode();
+            return;
+          }
+
+          // Non-network main-frame failure — reveal WebView content.
           _pageReady = true;
           await _dismissSplashWhenReady();
         },
@@ -394,7 +415,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       await webkit.setAllowsBackForwardNavigationGestures(true);
     }
 
-    final online = await _hasConnection();
+    final online = await _probeReachability();
     if (!mounted) return;
 
     _controller = controller;
@@ -402,10 +423,13 @@ class _WebViewScreenState extends State<WebViewScreen>
     setState(() {
       _isReady = true;
       _isOnline = online;
+      if (!online) _showSplash = false;
     });
 
     if (online) {
       await controller.loadRequest(Uri.parse(AppConfig.webUrl));
+    } else {
+      await _clearWebViewToBlank(controller);
     }
   }
 
@@ -740,9 +764,175 @@ class _WebViewScreenState extends State<WebViewScreen>
 ''');
   }
 
-  Future<bool> _hasConnection() async {
+  Future<bool> _hasLinkLayer() async {
     final results = await _connectivity.checkConnectivity();
     return results.any((r) => r != ConnectivityResult.none);
+  }
+
+  /// True for main-frame failures that mean the site is unreachable
+  /// (covers `net::ERR_NAME_NOT_RESOLVED` even when Wi‑Fi appears up).
+  bool _isNetworkLoadError(WebResourceError error) {
+    switch (error.errorType) {
+      case WebResourceErrorType.hostLookup:
+      case WebResourceErrorType.connect:
+      case WebResourceErrorType.timeout:
+      case WebResourceErrorType.io:
+      case WebResourceErrorType.unknown:
+        return true;
+      case WebResourceErrorType.authentication:
+      case WebResourceErrorType.badUrl:
+      case WebResourceErrorType.failedSslHandshake:
+      case WebResourceErrorType.file:
+      case WebResourceErrorType.fileNotFound:
+      case WebResourceErrorType.proxyAuthentication:
+      case WebResourceErrorType.redirectLoop:
+      case WebResourceErrorType.tooManyRequests:
+      case WebResourceErrorType.unsafeResource:
+      case WebResourceErrorType.unsupportedAuthScheme:
+      case WebResourceErrorType.unsupportedScheme:
+      case WebResourceErrorType.webContentProcessTerminated:
+      case WebResourceErrorType.webViewInvalidated:
+      case WebResourceErrorType.javaScriptExceptionOccurred:
+      case WebResourceErrorType.javaScriptResultTypeIsUnsupported:
+      case null:
+        break;
+    }
+
+    final desc = error.description.toLowerCase();
+    const markers = <String>[
+      'err_name_not_resolved',
+      'err_internet_disconnected',
+      'err_address_unreachable',
+      'err_connection_timed_out',
+      'err_connection_refused',
+      'err_connection_reset',
+      'err_network_changed',
+      'err_timed_out',
+      'err_failed',
+      'name_not_resolved',
+      'host lookup',
+      'network is unreachable',
+      'failed to connect',
+      'net::err_',
+    ];
+    return markers.any(desc.contains);
+  }
+
+  bool _isAppHostFailure(String failingUrl) {
+    if (failingUrl.isEmpty) return true;
+    final uri = Uri.tryParse(failingUrl);
+    if (uri == null) return false;
+    return _isAppHost(uri);
+  }
+
+  /// Confirms the app host is actually reachable (DNS + HTTP).
+  /// Link-layer alone is not enough — Wi‑Fi can be up with no DNS.
+  Future<bool> _probeReachability() async {
+    if (!await _hasLinkLayer()) return false;
+
+    HttpClient? client;
+    try {
+      client = HttpClient()..connectionTimeout = _probeTimeout;
+      final uri = Uri.https(
+        AppConfig.host,
+        AppConfig.reachabilityProbePath,
+        <String, String>{'_online': '${DateTime.now().millisecondsSinceEpoch}'},
+      );
+      final request = await client.getUrl(uri).timeout(_probeTimeout);
+      request.followRedirects = true;
+      final response = await request.close().timeout(_probeTimeout);
+      // Any HTTP response means the network path works.
+      await response.drain<void>().timeout(_probeTimeout);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  Future<void> _clearWebViewToBlank([WebViewController? controller]) async {
+    if (_offlineBlankLoaded) return;
+    _offlineBlankLoaded = true;
+    final target = controller ?? _controller;
+    if (target == null) return;
+    try {
+      await target.loadRequest(Uri.parse('about:blank'));
+    } catch (_) {
+      _offlineBlankLoaded = false;
+    }
+  }
+
+  /// Sticky offline overlay. WebView stays mounted underneath; Chromium's
+  /// default error page is cleared so it never flashes through.
+  Future<void> _enterOfflineMode() async {
+    if (!mounted) return;
+    final alreadyOffline = !_isOnline && !_showSplash;
+    if (!alreadyOffline) {
+      setState(() {
+        _isOnline = false;
+        _showSplash = false;
+        _isChecking = false;
+        _isRecovering = false;
+      });
+    } else if (_isChecking || _isRecovering) {
+      setState(() {
+        _isChecking = false;
+        _isRecovering = false;
+      });
+    }
+    await _clearWebViewToBlank();
+  }
+
+  /// Probe then reload only when the host is truly reachable. Safe to call
+  /// repeatedly while offline for long periods — failed probes stay offline
+  /// without revealing the WebView error page.
+  Future<void> _recoverIfReachable({bool userInitiated = false}) async {
+    if (!mounted) return;
+    if (_isRecovering) {
+      // Keep the Try Again spinner visible if a background recover is running.
+      if (userInitiated && !_isChecking) {
+        setState(() => _isChecking = true);
+      }
+      return;
+    }
+
+    final seq = ++_reachabilitySeq;
+    _isRecovering = true;
+    if (userInitiated) {
+      setState(() => _isChecking = true);
+    }
+
+    final ok = await _probeReachability();
+    if (!mounted || seq != _reachabilitySeq) {
+      _isRecovering = false;
+      return;
+    }
+
+    if (!ok) {
+      _isRecovering = false;
+      setState(() {
+        _isOnline = false;
+        _showSplash = false;
+        _isChecking = false;
+      });
+      await _clearWebViewToBlank();
+      return;
+    }
+
+    setState(() {
+      _isOnline = true;
+      _isChecking = false;
+      _pageReady = false;
+      _showSplash = true;
+      _splashStartedAt = DateTime.now();
+      _offlineBlankLoaded = false;
+    });
+    _isRecovering = false;
+
+    await _safeControllerCall(
+      (c) => c.loadRequest(Uri.parse(AppConfig.webUrl)),
+    );
   }
 
   void _watchConnectivity() {
@@ -760,19 +950,22 @@ class _WebViewScreenState extends State<WebViewScreen>
           ),
         )
         .listen((results) async {
-          final online = results.any((r) => r != ConnectivityResult.none);
-          if (!mounted || online == _isOnline) return;
+          final hasLink = results.any((r) => r != ConnectivityResult.none);
+          if (!mounted) return;
 
-          if (!online) {
+          if (!hasLink) {
             // Keep WebView mounted under the offline overlay so Android
             // platform callbacks (e.g. onLoadResource) do not hit a disposed
             // InstanceManager entry and crash with a null check.
-            setState(() => _isOnline = false);
+            await _enterOfflineMode();
             return;
           }
 
-          setState(() => _isOnline = true);
-          await _safeControllerCall((c) => c.reload());
+          // Link restored — only recover while sticky-offline, and only after
+          // a real reachability probe (avoids flashing Chromium error pages).
+          if (!_isOnline) {
+            await _recoverIfReachable();
+          }
         });
   }
 
@@ -790,23 +983,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Future<void> _onRetry() async {
-    setState(() => _isChecking = true);
-    final online = await _hasConnection();
-    if (!mounted) return;
-    setState(() {
-      _isChecking = false;
-      _isOnline = online;
-      if (online) {
-        _pageReady = false;
-        _showSplash = true;
-        _splashStartedAt = DateTime.now();
-      }
-    });
-    if (online) {
-      await _safeControllerCall(
-        (c) => c.loadRequest(Uri.parse(AppConfig.webUrl)),
-      );
-    }
+    await _recoverIfReachable(userInitiated: true);
   }
 
   Future<void> _dismissSplashWhenReady() async {

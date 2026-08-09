@@ -2,6 +2,9 @@ class AppConfig {
   static const String appName = 'MySewa';
   static const String webUrl = 'https://mysewa.sewabyapar.com/';
   static const String host = 'mysewa.sewabyapar.com';
+  /// Lightweight same-origin asset used to confirm real reachability
+  /// (link-layer "online" alone can still fail DNS/HTTP).
+  static const String reachabilityProbePath = '/favicon.png';
 
   static const int brand = 0xFF0A7A4B;
   static const int brandDark = 0xFF065F3A;
