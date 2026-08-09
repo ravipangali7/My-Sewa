@@ -274,7 +274,7 @@ export function buildActivityStatement(
     pushDetail(details, t("history.serviceName"), t("notif.typeDeposit"));
     pushDetail(details, t("common.status"), translateStatus(d.status, t));
     pushDetail(details, t("common.amountNpr"), formatNPR(d.amount));
-    pushDetail(details, t("common.bank"), d.bank_name?.trim() || "—");
+    pushDetail(details, t("load.paymentMethod"), d.bank_name?.trim() || "—");
     pushDetail(details, t("common.remarks"), d.note?.trim() || "—");
     if (d.rejection_reason) {
       pushDetail(details, t("history.rejection"), d.rejection_reason, {

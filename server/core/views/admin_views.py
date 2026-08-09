@@ -9,7 +9,7 @@ from decimal import Decimal
 from io import StringIO
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import ProgrammingError, OperationalError, transaction
 from django.db.models import Count, Sum, Q
 from django.db.models.functions import TruncDate
 from django.http import HttpResponse
@@ -468,9 +468,13 @@ def admin_dashboard(request):
     pending_count = Deposit.objects.filter(status='pending').count()
     topups_today = TopupTransaction.objects.filter(created_at__date=today).count()
     transfers_today = BankTransferTransaction.objects.filter(created_at__date=today).count()
-    open_statement_issues = StatementDiscrepancy.objects.filter(
-        status=StatementDiscrepancy.STATUS_OPEN,
-    ).count()
+    try:
+        open_statement_issues = StatementDiscrepancy.objects.filter(
+            status=StatementDiscrepancy.STATUS_OPEN,
+        ).count()
+    except (ProgrammingError, OperationalError):
+        # Migration 0024 not applied yet — keep dashboard usable.
+        open_statement_issues = 0
 
     dep_approved = Deposit.objects.filter(status='approved')
     rem_success = RemittanceTransaction.objects.filter(status='success')
@@ -2483,65 +2487,96 @@ def admin_user_fees(request, user_id):
 # ---------------------------------------------------------------------------
 
 
+def _statement_tables_missing_response():
+    return Response(
+        {
+            'error': (
+                'Statement reconcile tables are missing. '
+                'Run: python manage.py migrate core 0024_statement_reconcile'
+            ),
+            'summary': {'open_issues': 0, 'by_issue_type': {}, 'latest_run': None},
+            'items': [],
+            'count': 0,
+        },
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_statement_list(request):
     """List statement discrepancies with filters + open-issue summary."""
-    qs = (
-        StatementDiscrepancy.objects
-        .select_related('user', 'run', 'resolved_by', 'resolution_adjustment')
-        .order_by('-created_at')
-    )
-    status_filter = (request.query_params.get('status') or 'open').strip()
-    if status_filter and status_filter != 'all':
-        qs = qs.filter(status=status_filter)
-    issue_type = (request.query_params.get('issue_type') or '').strip()
-    if issue_type:
-        qs = qs.filter(issue_type=issue_type)
-    start, end = _parse_date_range(request)
-    qs = _apply_created_range(qs, start, end)
-    q = (request.query_params.get('q') or '').strip()
-    if q:
-        qs = qs.filter(
-            Q(transaction_uuid__icontains=q)
-            | Q(merchant_txn_id__icontains=q)
-            | Q(wallet_service_name__icontains=q)
-            | Q(user__phone__icontains=q)
-            | Q(reason__icontains=q)
+    try:
+        qs = (
+            StatementDiscrepancy.objects
+            .select_related('user', 'run', 'resolved_by', 'resolution_adjustment')
+            .order_by('-created_at')
         )
+        status_filter = (request.query_params.get('status') or 'open').strip()
+        if status_filter and status_filter != 'all':
+            qs = qs.filter(status=status_filter)
+        issue_type = (request.query_params.get('issue_type') or '').strip()
+        if issue_type:
+            qs = qs.filter(issue_type=issue_type)
+        start, end = _parse_date_range(request)
+        qs = _apply_created_range(qs, start, end)
+        q = (request.query_params.get('q') or '').strip()
+        if q:
+            qs = qs.filter(
+                Q(transaction_uuid__icontains=q)
+                | Q(merchant_txn_id__icontains=q)
+                | Q(wallet_service_name__icontains=q)
+                | Q(user__phone__icontains=q)
+                | Q(reason__icontains=q)
+            )
 
-    open_count = StatementDiscrepancy.objects.filter(
-        status=StatementDiscrepancy.STATUS_OPEN,
-    ).count()
-    by_type = {
-        row['issue_type']: row['c']
-        for row in StatementDiscrepancy.objects.filter(
+        open_count = StatementDiscrepancy.objects.filter(
             status=StatementDiscrepancy.STATUS_OPEN,
-        ).values('issue_type').annotate(c=Count('id'))
-    }
-    latest_run = StatementReconcileRun.objects.order_by('-created_at').first()
+        ).count()
+        by_type = {
+            row['issue_type']: row['c']
+            for row in StatementDiscrepancy.objects.filter(
+                status=StatementDiscrepancy.STATUS_OPEN,
+            ).values('issue_type').annotate(c=Count('id'))
+        }
+        latest_run = StatementReconcileRun.objects.order_by('-created_at').first()
 
-    return Response({
-        'summary': {
-            'open_issues': open_count,
-            'by_issue_type': by_type,
-            'latest_run': (
-                StatementReconcileRunSerializer(latest_run).data if latest_run else None
-            ),
-        },
-        'items': StatementDiscrepancySerializer(qs[:500], many=True).data,
-        'count': qs.count(),
-    })
+        return Response({
+            'summary': {
+                'open_issues': open_count,
+                'by_issue_type': by_type,
+                'latest_run': (
+                    StatementReconcileRunSerializer(latest_run).data if latest_run else None
+                ),
+            },
+            'items': StatementDiscrepancySerializer(qs[:500], many=True).data,
+            'count': qs.count(),
+        })
+    except (ProgrammingError, OperationalError):
+        return _statement_tables_missing_response()
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_statement_runs(request):
-    qs = StatementReconcileRun.objects.select_related('triggered_by_user').order_by('-created_at')[:50]
-    return Response({
-        'items': StatementReconcileRunSerializer(qs, many=True).data,
-        'count': qs.count(),
-    })
+    try:
+        qs = StatementReconcileRun.objects.select_related('triggered_by_user').order_by('-created_at')[:50]
+        return Response({
+            'items': StatementReconcileRunSerializer(qs, many=True).data,
+            'count': qs.count(),
+        })
+    except (ProgrammingError, OperationalError):
+        return Response(
+            {
+                'error': (
+                    'Statement reconcile tables are missing. '
+                    'Run: python manage.py migrate core 0024_statement_reconcile'
+                ),
+                'items': [],
+                'count': 0,
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 @api_view(['POST'])
@@ -2569,6 +2604,8 @@ def admin_statement_run(request):
             {'error': str(exc.message if hasattr(exc, 'message') else exc)},
             status=status.HTTP_502_BAD_GATEWAY,
         )
+    except (ProgrammingError, OperationalError):
+        return _statement_tables_missing_response()
     except Exception as exc:
         return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -2582,13 +2619,26 @@ def admin_statement_run(request):
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_statement_balance(request):
     himalpay = HimalPayAPI()
+    # Keep balance probe snappy so nginx/gunicorn do not surface a blank 502.
+    original_timeout = getattr(himalpay, 'timeout', 60)
+    himalpay.timeout = min(int(original_timeout or 60), 20)
     try:
         data = himalpay.get_reseller_balance()
     except HimalPayError as exc:
         return Response(
-            {'error': str(exc.message if hasattr(exc, 'message') else exc)},
+            {
+                'error': str(exc.message if hasattr(exc, 'message') else exc),
+                'data': None,
+            },
             status=status.HTTP_502_BAD_GATEWAY,
         )
+    except Exception as exc:
+        return Response(
+            {'error': f'Could not load HimalPay balance: {exc}', 'data': None},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    finally:
+        himalpay.timeout = original_timeout
     return Response({'data': data})
 
 

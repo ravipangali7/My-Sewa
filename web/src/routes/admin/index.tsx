@@ -61,50 +61,51 @@ function AdminDashboard() {
     queryFn: () => apiClient.adminDashboard(),
   });
 
-  const kpis = dash.data
+  const dashKpis = dash.data?.kpis;
+  const kpis = dashKpis
     ? [
         {
           key: "users",
           label: "Total users",
-          value: String(dash.data.kpis.total_users),
+          value: String(dashKpis.total_users ?? 0),
           icon: Users,
           tone: "brand" as const,
         },
         {
           key: "float",
           label: "Wallet float",
-          value: formatNPR(dash.data.kpis.wallet_float),
+          value: formatNPR(dashKpis.wallet_float ?? 0),
           icon: Wallet,
           tone: "default" as const,
         },
         {
           key: "pending",
           label: "Pending deposits",
-          value: String(dash.data.kpis.pending_deposits),
+          value: String(dashKpis.pending_deposits ?? 0),
           icon: Inbox,
           tone: "warning" as const,
         },
         {
           key: "topups",
           label: "Top-ups today",
-          value: String(dash.data.kpis.topups_today),
+          value: String(dashKpis.topups_today ?? 0),
           icon: Smartphone,
           tone: "info" as const,
         },
         {
           key: "transfers",
           label: "Transfers today",
-          value: String(dash.data.kpis.transfers_today),
+          value: String(dashKpis.transfers_today ?? 0),
           icon: Banknote,
           tone: "debit" as const,
         },
         {
           key: "statement",
           label: "Statement issues",
-          value: String(dash.data.kpis.open_statement_issues ?? 0),
+          value: String(dashKpis.open_statement_issues ?? 0),
           icon: AlertTriangle,
           tone:
-            (dash.data.kpis.open_statement_issues ?? 0) > 0
+            (dashKpis.open_statement_issues ?? 0) > 0
               ? ("warning" as const)
               : ("default" as const),
         },
@@ -129,13 +130,13 @@ function AdminDashboard() {
       ) : (
         <>
           <StatsCards items={kpis} />
-          {(dash.data.kpis.open_statement_issues ?? 0) > 0 ? (
+          {(dashKpis?.open_statement_issues ?? 0) > 0 ? (
             <div className="mt-4 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-100">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p>
                   <span className="font-medium">
-                    {dash.data.kpis.open_statement_issues} HimalPay statement issue
-                    {dash.data.kpis.open_statement_issues === 1 ? "" : "s"}
+                    {dashKpis?.open_statement_issues} HimalPay statement issue
+                    {dashKpis?.open_statement_issues === 1 ? "" : "s"}
                   </span>{" "}
                   need review.
                 </p>

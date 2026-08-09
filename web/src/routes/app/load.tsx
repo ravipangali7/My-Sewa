@@ -19,11 +19,35 @@ import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
+import type { TranslateFn } from "@/lib/i18n";
 import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
 import { useListFilters, DEPOSIT_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
+import type { PaymentMethod } from "@/lib/types";
+
+const DEPOSIT_PAYMENT_METHODS: PaymentMethod[] = ["bank", "khalti", "esewa"];
+
+function paymentMethodLabel(method: PaymentMethod, t: TranslateFn): string {
+  if (method === "khalti") return t("load.methodKhalti");
+  if (method === "esewa") return t("load.methodEsewa");
+  return t("load.methodBank");
+}
+
+/** Value stored in Deposit.bank_name for admin review. */
+function depositSourceLabel(
+  method: PaymentMethod | "",
+  bankName: string,
+): string {
+  if (method === "khalti") return "Khalti";
+  if (method === "esewa") return "eSewa";
+  if (method === "bank") {
+    const name = bankName.trim();
+    return name || "Bank";
+  }
+  return "";
+}
 
 export const Route = createFileRoute("/app/load")({
   head: () => ({
@@ -70,6 +94,7 @@ function LoadWallet() {
   const [transactionId, setTransactionId] = useState("");
   const [amount, setAmount] = useState("");
   const [depositDate, setDepositDate] = useState(todayIsoDate);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | "">("");
   const [bankName, setBankName] = useState("");
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -99,6 +124,7 @@ function LoadWallet() {
     setTransactionId("");
     setAmount("");
     setDepositDate(todayIsoDate());
+    setPaymentMethod("");
     setBankName("");
     setNote("");
     setFile(null);
@@ -116,12 +142,14 @@ function LoadWallet() {
       if (maxDeposit > 0 && amt > maxDeposit)
         throw new Error(t("load.maxError", { max: maxDeposit }));
       if (!depositDate) throw new Error(t("load.depositDateRequired"));
+      if (!paymentMethod) throw new Error(t("load.paymentMethodRequired"));
       if (requireScreenshot && !file) throw new Error(t("load.screenshotRequired"));
       const fd = new FormData();
       fd.append("amount", amount);
       fd.append("transaction_id", tid);
       fd.append("deposit_date", depositDate);
-      if (bankName.trim()) fd.append("bank_name", bankName.trim());
+      const source = depositSourceLabel(paymentMethod, bankName);
+      if (source) fd.append("bank_name", source);
       if (note.trim()) fd.append("note", note.trim());
       if (file) fd.append("screenshot_proof", file);
       return apiClient.createDeposit(fd);
@@ -238,15 +266,53 @@ function LoadWallet() {
                     required
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="bank_name">{t("load.userBankOptional")}</Label>
-                  <Input
-                    id="bank_name"
-                    value={bankName}
-                    onChange={(e) => setBankName(e.target.value)}
-                    className="h-11 rounded-xl"
-                    placeholder={t("load.userBankPlaceholder")}
-                  />
+                <div className="space-y-2">
+                  <Label id="payment_method_label">{t("load.paymentMethod")}</Label>
+                  <div
+                    role="radiogroup"
+                    aria-labelledby="payment_method_label"
+                    className="grid grid-cols-3 gap-2"
+                  >
+                    {DEPOSIT_PAYMENT_METHODS.map((method) => {
+                      const selected = paymentMethod === method;
+                      return (
+                        <button
+                          key={method}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => {
+                            setPaymentMethod(method);
+                            if (method !== "bank") setBankName("");
+                          }}
+                          className={cn(
+                            "h-11 rounded-xl border text-[13px] font-medium transition-colors",
+                            selected
+                              ? "border-brand bg-brand/10 text-brand-dark"
+                              : "border-border bg-surface text-muted-foreground hover:border-brand/30",
+                          )}
+                        >
+                          {paymentMethodLabel(method, t)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[12px] text-muted-foreground">
+                    {t("load.paymentMethodHint")}
+                  </p>
+                  {paymentMethod === "bank" ? (
+                    <div className="space-y-1.5 pt-1">
+                      <Label htmlFor="bank_name">{t("load.userBankOptional")}</Label>
+                      <Input
+                        id="bank_name"
+                        value={bankName}
+                        onChange={(e) => setBankName(e.target.value)}
+                        className="h-11 rounded-xl"
+                        placeholder={t("load.userBankPlaceholder")}
+                        autoComplete="off"
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="note">{t("load.remarksOptional")}</Label>

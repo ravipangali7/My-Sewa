@@ -62,6 +62,7 @@ npm run build
 | Path | Role |
 |------|------|
 | `deploy/setup-server.sh` | venv, migrate, systemd `mysewa-api`, nginx patch |
+| `deploy/FIX_STATEMENT_500.sh` | Apply migration 0024 + restart API (fixes admin dashboard/statement 500) |
 | `deploy/patch-nginx-api.sh` | Inject `/api` proxy into existing SSL site config |
 | `deploy/nginx-api-locations.conf` | Snippet included by nginx |
 | `deploy/nginx-mysewa.conf` | Full example site (HTTP; certbot adds TLS) |

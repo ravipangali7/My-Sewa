@@ -399,7 +399,7 @@ class Deposit(models.Model):
         max_length=120,
         blank=True,
         default='',
-        help_text="Optional bank name used for the deposit",
+        help_text="Payment method / source used for the deposit (bank name, Khalti, or eSewa)",
     )
     screenshot_proof = models.ImageField(
         upload_to='deposits/',

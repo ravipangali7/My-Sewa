@@ -272,7 +272,7 @@ def _admin_alert_emails() -> List[str]:
     Resolve Super Admin inbox(es) for notification copies.
 
     Prefer Settings.config.notifications.admin_alert_email; if unset, fall back
-    to active superuser account emails.
+    to active superuser account emails, then active staff emails.
     """
     alert = (_notif_cfg().get('admin_alert_email') or '').strip()
     if alert:
@@ -288,6 +288,13 @@ def _admin_alert_emails() -> List[str]:
             .exclude(email='')
             .values_list('email', flat=True)
         )
+        if not emails:
+            emails = list(
+                User.objects.filter(is_staff=True, is_active=True)
+                .exclude(email__isnull=True)
+                .exclude(email='')
+                .values_list('email', flat=True)
+            )
     except Exception:
         logger.exception('Failed to resolve Super Admin emails')
         return []
@@ -301,6 +308,11 @@ def _admin_alert_emails() -> List[str]:
             continue
         seen.add(key)
         result.append(email)
+    if not result:
+        logger.warning(
+            'No Super Admin alert email configured '
+            '(set notifications.admin_alert_email or a superuser email)'
+        )
     return result
 
 
@@ -729,7 +741,7 @@ def notify_wallet_credit(
         ('Status', 'Success'),
     ]
 
-    if cfg.get('email_on_wallet_credit'):
+    if cfg.get('email_on_wallet_credit', True):
         if _user_email(user):
             _send_txn_email(
                 recipients=[user.email],
@@ -788,7 +800,7 @@ def notify_wallet_debit(
         ('Status', 'Success'),
     ]
 
-    if cfg.get('email_on_wallet_debit'):
+    if cfg.get('email_on_wallet_debit', True):
         if _user_email(user):
             _send_txn_email(
                 recipients=[user.email],
@@ -832,30 +844,59 @@ def notify_debit(user, amount, *, reason: str, ref: str = '') -> None:
 
 
 def notify_deposit_submitted(deposit) -> None:
+    """Email user + Super Admin when a deposit request is submitted."""
     cfg = _notif_cfg()
     site_name = _site_name()
-    admin_emails = _admin_alert_emails()
-    if cfg.get('email_on_deposit') and admin_emails:
-        rows: List[Row] = [
-            ('Deposit ID', str(deposit.id)),
-            ('User', getattr(deposit.user, 'phone', '-')),
-            ('Amount', _fmt_amount(deposit.amount)),
-            ('Note', deposit.note or '-'),
-            ('Status', deposit.status),
-            ('Date', _format_when(getattr(deposit, 'created_at', None))),
-        ]
+    if not cfg.get('email_on_deposit', True):
+        _push(
+            deposit.user,
+            f'{site_name}: Deposit submitted',
+            f'Your deposit request of {_fmt_amount(deposit.amount)} (#{deposit.id}) was submitted.',
+            event='deposit',
+            extra={'deposit_id': deposit.id, 'amount': deposit.amount},
+        )
+        return
+
+    rows: List[Row] = [
+        ('Deposit ID', str(deposit.id)),
+        ('User', getattr(deposit.user, 'phone', '-')),
+        ('Amount', _fmt_amount(deposit.amount)),
+        ('Payment method', getattr(deposit, 'bank_name', None) or '-'),
+        ('Transaction ID', getattr(deposit, 'transaction_id', None) or '-'),
+        ('Note', deposit.note or '-'),
+        ('Status', deposit.status),
+        ('Date', _format_when(getattr(deposit, 'created_at', None))),
+    ]
+    user_email = _user_email(deposit.user)
+    if user_email:
         _send_txn_email(
-            recipients=admin_emails,
-            subject=f'[{site_name}] New deposit request #{deposit.id}',
-            text_intro='A new deposit request was submitted.',
-            title='New deposit request',
-            subtitle='A customer submitted a wallet load request for review.',
+            recipients=[user_email],
+            subject=f'[{site_name}] Deposit request submitted #{deposit.id}',
+            text_intro='Your deposit request was submitted and is awaiting review.',
+            title='Deposit request submitted',
+            subtitle='We received your wallet load request. Super Admin will review it shortly.',
             amount_display=_fmt_amount(deposit.amount),
             status='pending',
             status_label=str(deposit.status or 'Pending').title(),
             rows=rows,
-            copy_admin=False,
+            greeting=f'Hi {getattr(deposit.user, "first_name", "") or "there"},',
+            copy_admin=True,
         )
+    else:
+        admin_emails = _admin_alert_emails()
+        if admin_emails:
+            _send_txn_email(
+                recipients=admin_emails,
+                subject=f'[{site_name}] New deposit request #{deposit.id}',
+                text_intro='A new deposit request was submitted.',
+                title='New deposit request',
+                subtitle='A customer submitted a wallet load request for review.',
+                amount_display=_fmt_amount(deposit.amount),
+                status='pending',
+                status_label=str(deposit.status or 'Pending').title(),
+                rows=rows,
+                copy_admin=False,
+            )
 
     _push(
         deposit.user,
@@ -885,13 +926,13 @@ def notify_deposit_approved(deposit, balance_after=None) -> None:
     if cfg.get('sms_on_deposit_approved'):
         _send_sms(deposit.user.phone, message)
 
-    send_email = cfg.get('email_on_wallet_credit') or cfg.get('sms_on_deposit_approved')
+    send_email = cfg.get('email_on_wallet_credit', True) or cfg.get('sms_on_deposit_approved')
     if send_email and _user_email(deposit.user):
         rows: List[Row] = [
             ('Type', 'Add fund / Manual load'),
             ('Deposit ID', str(deposit.id)),
             ('Amount', _fmt_amount(deposit.amount)),
-            ('Bank', getattr(deposit, 'bank_name', None) or '-'),
+            ('Payment method', getattr(deposit, 'bank_name', None) or '-'),
             ('Transaction ID', getattr(deposit, 'transaction_id', None) or '-'),
             ('New balance', _fmt_amount(balance_after) if balance_after is not None else '-'),
             ('Date', _format_when(getattr(deposit, 'updated_at', None) or getattr(deposit, 'created_at', None))),
@@ -910,7 +951,7 @@ def notify_deposit_approved(deposit, balance_after=None) -> None:
             greeting=f'Hi {getattr(deposit.user, "first_name", "") or "there"},',
             copy_admin=False,
         )
-    if cfg.get('email_on_wallet_credit'):
+    if cfg.get('email_on_wallet_credit', True):
         _send_admin_opposite_wallet_email(
             user=deposit.user,
             customer_direction='credit',
@@ -921,7 +962,7 @@ def notify_deposit_approved(deposit, balance_after=None) -> None:
             context_label='Deposit / wallet load',
             extra_rows=[
                 ('Deposit ID', str(deposit.id)),
-                ('Bank', getattr(deposit, 'bank_name', None) or '-'),
+                ('Payment method', getattr(deposit, 'bank_name', None) or '-'),
             ],
         )
 
@@ -966,7 +1007,7 @@ def notify_topup_success(topup, balance_after=None) -> None:
         ('Date', _format_when(getattr(topup, 'created_at', None))),
         ('Status', 'Success'),
     ]
-    if cfg.get('email_on_topup'):
+    if cfg.get('email_on_topup', True):
         if _user_email(topup.user):
             _send_txn_email(
                 recipients=[topup.user.email],
@@ -1053,7 +1094,7 @@ def notify_transfer_success(transfer, balance_after=None) -> None:
         ('Status', 'Success'),
     ]
 
-    if cfg.get('email_on_transfer') or cfg.get('email_on_wallet_debit'):
+    if cfg.get('email_on_transfer', True) or cfg.get('email_on_wallet_debit', True):
         if _user_email(transfer.user):
             _send_txn_email(
                 recipients=[transfer.user.email],
@@ -1119,7 +1160,7 @@ def notify_withdrawal(
         ('Date', _format_when()),
         ('Status', 'Success'),
     ]
-    if cfg.get('email_on_wallet_debit'):
+    if cfg.get('email_on_wallet_debit', True):
         if _user_email(user):
             _send_txn_email(
                 recipients=[user.email],
@@ -1213,7 +1254,7 @@ def notify_wallet_adjustment(
         ('Status', 'Success'),
     ]
 
-    if cfg.get('email_on_wallet_adjustment'):
+    if cfg.get('email_on_wallet_adjustment', True):
         if _user_email(user):
             _send_txn_email(
                 recipients=[user.email],
@@ -1276,7 +1317,7 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
     if cfg.get('sms_on_deposit_approved'):
         _send_sms(remittance.user.phone, message)
 
-    if cfg.get('email_on_wallet_credit'):
+    if cfg.get('email_on_wallet_credit', True):
         charge = getattr(remittance, 'charge', 0) or 0
         cashback = getattr(remittance, 'cashback', 0) or 0
         rows: List[Row] = [

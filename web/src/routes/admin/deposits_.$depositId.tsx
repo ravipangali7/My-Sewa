@@ -219,7 +219,7 @@ function DepositDetailPage() {
                   <StatementRow label="Deposit date">
                     {d.deposit_date ? formatDate(d.deposit_date) : "—"}
                   </StatementRow>
-                  <StatementRow label="User bank">{d.bank_name?.trim() || "—"}</StatementRow>
+                  <StatementRow label="Payment method">{d.bank_name?.trim() || "—"}</StatementRow>
                   <StatementRow label="Status">{d.status_display}</StatementRow>
                   <StatementRow label="Submitted">{formatDateTime(d.created_at)}</StatementRow>
                   <StatementRow label="Updated">{formatDateTime(d.updated_at)}</StatementRow>

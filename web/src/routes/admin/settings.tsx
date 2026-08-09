@@ -26,13 +26,6 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import {
@@ -43,6 +36,35 @@ import {
 } from "@/lib/payment-accounts";
 import type { AppConfig, PaymentAccount, PaymentMethod } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+const DEPOSIT_METHODS: {
+  method: PaymentMethod;
+  title: string;
+  description: string;
+  addLabel: string;
+}[] = [
+  {
+    method: "bank",
+    title: "Bank accounts",
+    description:
+      "Bank transfer destinations shown to customers for manual wallet load. Managed independently from Khalti and eSewa.",
+    addLabel: "Add bank account",
+  },
+  {
+    method: "khalti",
+    title: "Khalti accounts",
+    description:
+      "Khalti wallet IDs customers can pay into. Saving here does not change bank or eSewa accounts.",
+    addLabel: "Add Khalti account",
+  },
+  {
+    method: "esewa",
+    title: "eSewa accounts",
+    description:
+      "eSewa wallet IDs customers can pay into. Saving here does not change bank or Khalti accounts.",
+    addLabel: "Add eSewa account",
+  },
+];
 
 export const Route = createFileRoute("/admin/settings")({
   head: () => ({
@@ -236,9 +258,7 @@ function SettingsPage() {
       remote?.smtp?.from_email ||
       "",
     );
-  }, [settingsQuery.data]);
-
-  useEffect(() => {
+  }, [settingsQuery.data]);  useEffect(() => {
     if (!qrFile) {
       setQrPreview(null);
       return;
@@ -399,21 +419,43 @@ function SettingsPage() {
     setAccounts((list) => list.filter((a) => a.id !== id));
   };
 
-  const saveDepositAccount = () => {
+  /**
+   * Save one deposit method independently: replace that method's accounts on the server
+   * while keeping every other method as last saved (not the in-progress form values).
+   */
+  const saveMethodAccounts = (method: PaymentMethod) => {
+    const serverAccounts = normalizePaymentAccounts(settingsQuery.data?.bank_details);
+    const merged = [
+      ...serverAccounts.filter((a) => a.method !== method),
+      ...accounts.filter((a) => a.method === method),
+    ];
     const fd = new FormData();
-    fd.append("bank_details", JSON.stringify(paymentAccountsToBankDetails(accounts)));
-    fd.append(
-      "config",
-      JSON.stringify({
-        integrations: {
-          himalpay_api_key: config.integrations?.himalpay_api_key ?? "",
-          himalpay_base_url:
-            config.integrations?.himalpay_base_url ||
-            DEFAULT_CONFIG.integrations!.himalpay_base_url,
-        },
-      }),
-    );
-    if (qrFile) fd.append("qr_code", qrFile);
+    fd.append("bank_details", JSON.stringify(paymentAccountsToBankDetails(merged)));
+    saveMutation.mutate(fd);
+  };
+
+  const saveHimalpay = () => {
+    saveConfigSection("integrations", {
+      himalpay_api_key: config.integrations?.himalpay_api_key ?? "",
+      himalpay_base_url:
+        config.integrations?.himalpay_base_url ||
+        DEFAULT_CONFIG.integrations!.himalpay_base_url,
+    });
+  };
+
+  const saveQrCode = () => {
+    if (!qrFile) {
+      toast.error("Choose a QR image first");
+      return;
+    }
+    const fd = new FormData();
+    fd.append("qr_code", qrFile);
+    saveMutation.mutate(fd);
+  };
+
+  const clearQrCode = () => {
+    const fd = new FormData();
+    fd.append("clear_qr", "true");
     saveMutation.mutate(fd);
   };
 
@@ -982,320 +1024,279 @@ function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="deposit">
-            <div className="grid gap-4 lg:grid-cols-3">
-              <form
-                className="rounded-xl border border-border bg-surface p-5 lg:col-span-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  saveDepositAccount();
-                }}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-base font-semibold">Deposit payment accounts</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Bank, Khalti, and eSewa accounts shown to customers for manual wallet load.{" "}
-                      {updatedAt}
-                    </p>
-                  </div>
-                  <Button type="submit" disabled={saving} className="gap-1.5">
-                    <Save className="size-3.5" />
-                    {saving ? "Saving…" : "Save changes"}
-                  </Button>
-                </div>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Each deposit type has its own fields and Save action. Saving bank, Khalti, or
+                eSewa only updates that type — the others stay as last saved. HimalPay and QR
+                also save separately. {updatedAt}
+              </p>
 
-                <div className="mt-4 space-y-4">
-                  {accounts.length === 0 ? (
-                    <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                      No deposit accounts yet. Add a bank, Khalti, or eSewa account below.
-                    </p>
-                  ) : (
-                    accounts.map((acc, index) => (
-                      <div
-                        key={acc.id}
-                        className="rounded-xl border border-border bg-muted/20 p-4"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-semibold">
-                              {acc.label || methodLabel(acc.method)} #{index + 1}
-                            </span>
-                            <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                              {methodLabel(acc.method)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Switch
-                                checked={acc.enabled !== false}
-                                onCheckedChange={(checked) =>
-                                  updateAccount(acc.id, { enabled: checked })
-                                }
-                              />
-                              Visible
-                            </label>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="size-9 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                              onClick={() => removeAccount(acc.id)}
-                              aria-label="Remove account"
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                          <div className="space-y-1.5">
-                            <Label>Method</Label>
-                            <Select
-                              value={acc.method}
-                              onValueChange={(value) => {
-                                const method = value as PaymentMethod;
-                                updateAccount(acc.id, {
-                                  method,
-                                  label:
-                                    method === "khalti"
-                                      ? "Khalti"
-                                      : method === "esewa"
-                                        ? "eSewa"
-                                        : acc.bank_name || "Bank account",
-                                  bank_name: method === "bank" ? acc.bank_name || "" : "",
-                                  branch: method === "bank" ? acc.branch || "" : "",
-                                });
-                              }}
-                            >
-                              <SelectTrigger className="rounded-xl">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="bank">Bank</SelectItem>
-                                <SelectItem value="khalti">Khalti</SelectItem>
-                                <SelectItem value="esewa">eSewa</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`label-${acc.id}`}>Display label</Label>
-                            <Input
-                              id={`label-${acc.id}`}
-                              value={acc.label}
-                              onChange={(e) => updateAccount(acc.id, { label: e.target.value })}
-                              className="rounded-xl"
-                              placeholder={methodLabel(acc.method)}
-                            />
-                          </div>
-                          {acc.method === "bank" ? (
-                            <div className="space-y-1.5">
-                              <Label htmlFor={`bank_name-${acc.id}`}>Bank name</Label>
-                              <Input
-                                id={`bank_name-${acc.id}`}
-                                value={acc.bank_name || ""}
-                                onChange={(e) =>
-                                  updateAccount(acc.id, {
-                                    bank_name: e.target.value,
-                                    label: acc.label === "Bank account" || !acc.label
-                                      ? e.target.value || "Bank account"
-                                      : acc.label,
-                                  })
-                                }
-                                className="rounded-xl"
-                              />
-                            </div>
-                          ) : null}
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`account_name-${acc.id}`}>
-                              {acc.method === "bank" ? "Account name" : "Account holder"}
-                            </Label>
-                            <Input
-                              id={`account_name-${acc.id}`}
-                              value={acc.account_name || ""}
-                              onChange={(e) =>
-                                updateAccount(acc.id, { account_name: e.target.value })
-                              }
-                              className="rounded-xl"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`account_number-${acc.id}`}>
-                              {acc.method === "khalti"
-                                ? "Khalti ID / phone"
-                                : acc.method === "esewa"
-                                  ? "eSewa ID / phone"
-                                  : "Account number"}
-                            </Label>
-                            <Input
-                              id={`account_number-${acc.id}`}
-                              value={acc.account_number || ""}
-                              onChange={(e) =>
-                                updateAccount(acc.id, { account_number: e.target.value })
-                              }
-                              className="rounded-xl font-mono"
-                            />
-                          </div>
-                          {acc.method === "bank" ? (
-                            <div className="space-y-1.5">
-                              <Label htmlFor={`branch-${acc.id}`}>Branch</Label>
-                              <Input
-                                id={`branch-${acc.id}`}
-                                value={acc.branch || ""}
-                                onChange={(e) => updateAccount(acc.id, { branch: e.target.value })}
-                                className="rounded-xl"
-                              />
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1.5 rounded-xl"
-                    onClick={() => addAccount("bank")}
+              {DEPOSIT_METHODS.map(({ method, title, description, addLabel }) => {
+                const methodAccounts = accounts.filter((a) => a.method === method);
+                return (
+                  <SettingsPanel
+                    key={method}
+                    title={title}
+                    description={description}
+                    onSave={() => saveMethodAccounts(method)}
+                    saving={saving}
                   >
-                    <Plus className="size-3.5" />
-                    Add bank
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1.5 rounded-xl"
-                    onClick={() => addAccount("khalti")}
-                  >
-                    <Plus className="size-3.5" />
-                    Add Khalti
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1.5 rounded-xl"
-                    onClick={() => addAccount("esewa")}
-                  >
-                    <Plus className="size-3.5" />
-                    Add eSewa
-                  </Button>
-                </div>
-
-                <div className="mt-8 border-t border-border pt-6">
-                  <h2 className="text-base font-semibold">HimalPay reseller</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    API key used for top-ups, account verification, and bank transfers. Stored
-                    server-side only — never exposed to customers.
-                  </p>
-                  <div className="mt-4 grid gap-4">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="himalpay_api_key">HimalPay API key</Label>
-                      <PasswordInput
-                        id="himalpay_api_key"
-                        revealLabel="API key"
-                        autoComplete="off"
-                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                        value={config.integrations?.himalpay_api_key ?? ""}
-                        onChange={(e) =>
-                          setConfig((c) => ({
-                            ...c,
-                            integrations: {
-                              himalpay_base_url:
-                                c.integrations?.himalpay_base_url ||
-                                DEFAULT_CONFIG.integrations!.himalpay_base_url,
-                              himalpay_api_key: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        This UUID is your API key for the X-API-Key header — it is not an IP
-                        address and must not be pasted into the HimalPay IP Allowlist.
-                      </p>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="himalpay_base_url">HimalPay base URL</Label>
-                      <Input
-                        id="himalpay_base_url"
-                        type="url"
-                        placeholder="https://api.himalpay.com.np/api/v1"
-                        value={
-                          config.integrations?.himalpay_base_url ||
-                          DEFAULT_CONFIG.integrations!.himalpay_base_url
-                        }
-                        onChange={(e) =>
-                          setConfig((c) => ({
-                            ...c,
-                            integrations: {
-                              himalpay_api_key: c.integrations?.himalpay_api_key ?? "",
-                              himalpay_base_url: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        LIVE: https://api.himalpay.com.np/api/v1 — UAT:
-                        https://uatapi.himalpay.com.np/api/v1. Authenticate with header
-                        X-API-Key.
-                      </p>
-                    </div>
-
-                    <div
-                      className={cn(
-                        "rounded-xl border p-4",
-                        himalpayStatusQuery.data?.ok
-                          ? "border-success/30 bg-success/5"
-                          : himalpayStatusQuery.data
-                            ? "border-destructive/30 bg-destructive/5"
-                            : "border-border bg-muted/40",
-                      )}
-                    >
-                      <p className="text-sm font-medium">Server IP for HimalPay allowlist</p>
-                      <p className="mt-1 font-mono text-[15px] font-semibold tracking-tight">
-                        {himalpayStatusQuery.isLoading
-                          ? "Detecting…"
-                          : himalpayStatusQuery.data?.outbound_ip || "Unavailable"}
-                      </p>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Add this public IP in the HimalPay dashboard → IP Allowlist. Production
-                        VPS is typically <span className="font-mono">147.93.153.157</span>. Local
-                        development uses your current public IP (changes with network).
-                      </p>
-                      {himalpayStatusQuery.data?.message ? (
-                        <p
-                          className={cn(
-                            "mt-2 text-sm",
-                            himalpayStatusQuery.data.ok
-                              ? "text-success"
-                              : "text-destructive",
-                          )}
-                        >
-                          {himalpayStatusQuery.data.message}
+                    <div className="space-y-4">
+                      {methodAccounts.length === 0 ? (
+                        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                          No {methodLabel(method)} accounts yet. Add one below.
                         </p>
-                      ) : null}
+                      ) : (
+                        methodAccounts.map((acc, index) => (
+                          <div
+                            key={acc.id}
+                            className="rounded-xl border border-border bg-muted/20 p-4"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <span className="text-sm font-semibold">
+                                {acc.label || methodLabel(method)} #{index + 1}
+                              </span>
+                              <div className="flex items-center gap-3">
+                                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Switch
+                                    checked={acc.enabled !== false}
+                                    onCheckedChange={(checked) =>
+                                      updateAccount(acc.id, { enabled: checked })
+                                    }
+                                  />
+                                  Visible
+                                </label>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-9 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  onClick={() => removeAccount(acc.id)}
+                                  aria-label={`Remove ${methodLabel(method)} account`}
+                                >
+                                  <Trash2 className="size-4" />
+                                </Button>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`label-${acc.id}`}>Display label</Label>
+                                <Input
+                                  id={`label-${acc.id}`}
+                                  value={acc.label}
+                                  onChange={(e) =>
+                                    updateAccount(acc.id, { label: e.target.value })
+                                  }
+                                  className="rounded-xl"
+                                  placeholder={methodLabel(method)}
+                                />
+                              </div>
+                              {method === "bank" ? (
+                                <div className="space-y-1.5">
+                                  <Label htmlFor={`bank_name-${acc.id}`}>Bank name</Label>
+                                  <Input
+                                    id={`bank_name-${acc.id}`}
+                                    value={acc.bank_name || ""}
+                                    onChange={(e) =>
+                                      updateAccount(acc.id, {
+                                        bank_name: e.target.value,
+                                        label:
+                                          acc.label === "Bank account" || !acc.label
+                                            ? e.target.value || "Bank account"
+                                            : acc.label,
+                                      })
+                                    }
+                                    className="rounded-xl"
+                                  />
+                                </div>
+                              ) : null}
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`account_name-${acc.id}`}>
+                                  {method === "bank" ? "Account name" : "Account holder"}
+                                </Label>
+                                <Input
+                                  id={`account_name-${acc.id}`}
+                                  value={acc.account_name || ""}
+                                  onChange={(e) =>
+                                    updateAccount(acc.id, { account_name: e.target.value })
+                                  }
+                                  className="rounded-xl"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`account_number-${acc.id}`}>
+                                  {method === "khalti"
+                                    ? "Khalti ID / phone"
+                                    : method === "esewa"
+                                      ? "eSewa ID / phone"
+                                      : "Account number"}
+                                </Label>
+                                <Input
+                                  id={`account_number-${acc.id}`}
+                                  value={acc.account_number || ""}
+                                  onChange={(e) =>
+                                    updateAccount(acc.id, { account_number: e.target.value })
+                                  }
+                                  className="rounded-xl font-mono"
+                                />
+                              </div>
+                              {method === "bank" ? (
+                                <div className="space-y-1.5">
+                                  <Label htmlFor={`branch-${acc.id}`}>Branch</Label>
+                                  <Input
+                                    id={`branch-${acc.id}`}
+                                    value={acc.branch || ""}
+                                    onChange={(e) =>
+                                      updateAccount(acc.id, { branch: e.target.value })
+                                    }
+                                    className="rounded-xl"
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))
+                      )}
+
                       <Button
                         type="button"
-                        variant="secondary"
-                        className="mt-3 h-10 rounded-xl"
-                        disabled={testHimalpayMutation.isPending}
-                        onClick={() => testHimalpayMutation.mutate()}
+                        variant="outline"
+                        className="gap-1.5 rounded-xl"
+                        onClick={() => addAccount(method)}
                       >
-                        {testHimalpayMutation.isPending
-                          ? "Testing…"
-                          : "Test HimalPay connection"}
+                        <Plus className="size-3.5" />
+                        {addLabel}
                       </Button>
                     </div>
+                  </SettingsPanel>
+                );
+              })}
+
+              <SettingsPanel
+                title="HimalPay reseller"
+                description="API key used for top-ups, account verification, and bank transfers. Stored server-side only — never exposed to customers. Saved separately from deposit accounts."
+                onSave={saveHimalpay}
+                saving={saving}
+              >
+                <div className="grid gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="himalpay_api_key">HimalPay API key</Label>
+                    <PasswordInput
+                      id="himalpay_api_key"
+                      revealLabel="API key"
+                      autoComplete="off"
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      value={config.integrations?.himalpay_api_key ?? ""}
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          integrations: {
+                            himalpay_base_url:
+                              c.integrations?.himalpay_base_url ||
+                              DEFAULT_CONFIG.integrations!.himalpay_base_url,
+                            himalpay_api_key: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This UUID is your API key for the X-API-Key header — it is not an IP
+                      address and must not be pasted into the HimalPay IP Allowlist.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="himalpay_base_url">HimalPay base URL</Label>
+                    <Input
+                      id="himalpay_base_url"
+                      type="url"
+                      placeholder="https://api.himalpay.com.np/api/v1"
+                      value={
+                        config.integrations?.himalpay_base_url ||
+                        DEFAULT_CONFIG.integrations!.himalpay_base_url
+                      }
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          integrations: {
+                            himalpay_api_key: c.integrations?.himalpay_api_key ?? "",
+                            himalpay_base_url: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      LIVE: https://api.himalpay.com.np/api/v1 — UAT:
+                      https://uatapi.himalpay.com.np/api/v1. Authenticate with header X-API-Key.
+                    </p>
+                  </div>
+
+                  <div
+                    className={cn(
+                      "rounded-xl border p-4",
+                      himalpayStatusQuery.data?.ok
+                        ? "border-success/30 bg-success/5"
+                        : himalpayStatusQuery.data
+                          ? "border-destructive/30 bg-destructive/5"
+                          : "border-border bg-muted/40",
+                    )}
+                  >
+                    <p className="text-sm font-medium">Server IP for HimalPay allowlist</p>
+                    <p className="mt-1 font-mono text-[15px] font-semibold tracking-tight">
+                      {himalpayStatusQuery.isLoading
+                        ? "Detecting…"
+                        : himalpayStatusQuery.data?.outbound_ip || "Unavailable"}
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Add this public IP in the HimalPay dashboard → IP Allowlist. Production VPS
+                      is typically <span className="font-mono">147.93.153.157</span>. Local
+                      development uses your current public IP (changes with network).
+                    </p>
+                    {himalpayStatusQuery.data?.message ? (
+                      <p
+                        className={cn(
+                          "mt-2 text-sm",
+                          himalpayStatusQuery.data.ok ? "text-success" : "text-destructive",
+                        )}
+                      >
+                        {himalpayStatusQuery.data.message}
+                      </p>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="mt-3 h-10 rounded-xl"
+                      disabled={testHimalpayMutation.isPending}
+                      onClick={() => testHimalpayMutation.mutate()}
+                    >
+                      {testHimalpayMutation.isPending
+                        ? "Testing…"
+                        : "Test HimalPay connection"}
+                    </Button>
                   </div>
                 </div>
-              </form>
+              </SettingsPanel>
 
               <div className="rounded-xl border border-border bg-surface p-5">
-                <h2 className="text-base font-semibold">Deposit QR code</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Upload a QR image. Preview appears immediately; save to publish it to customers.
-                </p>
-                <div className="mt-4 flex aspect-square items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold">Deposit QR code</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Upload a QR image shown to customers. Saved independently from payment
+                      accounts.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    disabled={saving || !qrFile}
+                    className="gap-1.5"
+                    onClick={saveQrCode}
+                  >
+                    <Save className="size-3.5" />
+                    {saving ? "Saving…" : "Save QR"}
+                  </Button>
+                </div>
+                <div className="mt-4 flex aspect-square max-w-xs items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
                   {qrPreview || settingsQuery.data?.qr_code_url ? (
                     <img
                       src={qrPreview || settingsQuery.data?.qr_code_url || ""}
@@ -1318,7 +1319,7 @@ function SettingsPage() {
                     {settingsQuery.data?.qr_code || "No QR on file"}
                   </p>
                 )}
-                <label className="mt-3 block">
+                <label className="mt-3 block max-w-xs">
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/webp,image/gif"
@@ -1339,46 +1340,14 @@ function SettingsPage() {
                     {qrFile ? "Choose a different image" : "Upload QR image"}
                   </Button>
                 </label>
-                <div className="mt-2 flex flex-col gap-2">
-                  <Button
-                    type="button"
-                    className="w-full gap-1.5"
-                    disabled={saving || (!qrFile && accounts.length === 0)}
-                    onClick={saveDepositAccount}
-                  >
-                    <Save className="size-3.5" />
-                    {saving
-                      ? "Saving…"
-                      : qrFile
-                        ? "Save QR & deposit accounts"
-                        : "Save deposit accounts"}
-                  </Button>
+                <div className="mt-2 flex max-w-xs flex-col gap-2">
                   {settingsQuery.data?.qr_code_url && !qrFile ? (
                     <Button
                       type="button"
                       variant="outline"
                       className="w-full"
                       disabled={saving}
-                      onClick={() => {
-                        const fd = new FormData();
-                        fd.append(
-                          "bank_details",
-                          JSON.stringify(paymentAccountsToBankDetails(accounts)),
-                        );
-                        fd.append(
-                          "config",
-                          JSON.stringify({
-                            integrations: {
-                              himalpay_api_key: config.integrations?.himalpay_api_key ?? "",
-                              himalpay_base_url:
-                                config.integrations?.himalpay_base_url ||
-                                DEFAULT_CONFIG.integrations!.himalpay_base_url,
-                            },
-                          }),
-                        );
-                        fd.append("clear_qr", "true");
-                        saveMutation.mutate(fd);
-                      }}
+                      onClick={clearQrCode}
                     >
                       Remove QR code
                     </Button>
