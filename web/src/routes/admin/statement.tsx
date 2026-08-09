@@ -2,9 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, RefreshCw, Users, Wallet } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Coins, Gift, RefreshCw, Users, Wallet } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
-import { StatsCards } from "@/components/admin/StatsCards";
+import { StatsCards, type StatCardItem } from "@/components/admin/StatsCards";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,7 +46,7 @@ import {
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDateTime, formatNPR } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { StatementLedgerRow } from "@/lib/types";
+import type { HimalPayResellerBalance, StatementLedgerRow } from "@/lib/types";
 
 export const Route = createFileRoute("/admin/statement")({
   head: () => ({
@@ -73,6 +73,37 @@ function monthStartISO() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+}
+
+function asAmount(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/** Map HimalPay reseller-balance fields (docs §7) into rupee amounts. */
+function resolveHimalPayBalance(raw: HimalPayResellerBalance | null | undefined) {
+  if (!raw) {
+    return { main: null as number | null, bonus: null as number | null, total: null as number | null };
+  }
+  const mainFromRupees = asAmount(raw.balance_in_rupees);
+  const bonusFromRupees = asAmount(raw.bonus_balance_in_rupees);
+  const totalFromRupees = asAmount(raw.total_balance_in_rupees);
+  const mainFromPaisa = asAmount(raw.balance);
+  const bonusFromPaisa = asAmount(raw.bonus_balance);
+
+  const main =
+    mainFromRupees ?? (mainFromPaisa != null ? mainFromPaisa / 100 : null);
+  const bonus =
+    bonusFromRupees ?? (bonusFromPaisa != null ? bonusFromPaisa / 100 : null);
+  const total =
+    totalFromRupees ??
+    (main != null || bonus != null ? (main ?? 0) + (bonus ?? 0) : null);
+
+  return { main, bonus, total };
 }
 
 function txnDetailPath(row: StatementLedgerRow): string | null {
@@ -261,43 +292,79 @@ function StatementPage() {
   const summary = listQuery.data?.summary;
   const balance = balanceQuery.data?.data;
   const balanceUnavailable = Boolean(
-    balanceQuery.data?.unavailable || (balanceQuery.data?.error && !balance),
+    balanceQuery.data?.unavailable ||
+      (balanceQuery.isError && !balance) ||
+      (balanceQuery.data?.error && !balance),
   );
-  const balanceRupees =
-    typeof balance?.total_balance_in_rupees === "number"
-      ? balance.total_balance_in_rupees
-      : typeof balance?.balance_in_rupees === "number"
-        ? balance.balance_in_rupees
-        : null;
+  const { main: mainRupees, bonus: bonusRupees, total: totalRupees } =
+    resolveHimalPayBalance(balance);
+  const balanceUpdatedAt =
+    typeof balance?.updated_at === "string" ? balance.updated_at : null;
 
-  const cards = [
+  const amountOrDash = (value: number | null) => {
+    if (balanceQuery.isLoading) return "…";
+    if (value == null) return "—";
+    return formatNPR(value);
+  };
+
+  const balanceHint =
+    totalRupees != null
+      ? balanceUpdatedAt
+        ? `Updated ${formatDateTime(balanceUpdatedAt)}`
+        : "Current reseller wallet (main + bonus)"
+      : balanceQuery.isLoading
+        ? "Fetching reseller balance…"
+        : "Unavailable";
+
+  const balanceCards: StatCardItem[] = [
+    {
+      key: "hp-total",
+      label: "HimalPay balance",
+      value: amountOrDash(totalRupees),
+      hint: balanceHint,
+      icon: Wallet,
+      tone: "brand",
+    },
+    {
+      key: "hp-main",
+      label: "Main wallet",
+      value: amountOrDash(mainRupees),
+      hint: "Primary HimalPay float",
+      icon: Coins,
+      tone: "credit",
+    },
+    {
+      key: "hp-bonus",
+      label: "Bonus wallet",
+      value: amountOrDash(bonusRupees),
+      hint: "Bonus HimalPay float",
+      icon: Gift,
+      tone: "info",
+    },
+  ];
+
+  const ledgerCards: StatCardItem[] = [
     {
       key: "total",
       label: "Ledger rows",
       value: String(counts?.total ?? 0),
       icon: CheckCircle2,
-      tone: "default" as const,
+      tone: "default",
     },
     {
       key: "users",
       label: "Users",
       value: String(counts?.users ?? byUser.filter((g) => g.user_id).length),
       icon: Users,
-      tone: "brand" as const,
+      tone: "brand",
     },
     {
       key: "open",
       label: "Open issues",
       value: String(summary?.open_issues ?? counts?.issues ?? 0),
       icon: AlertTriangle,
-      tone: (summary?.open_issues ?? counts?.issues ?? 0) > 0 ? ("warning" as const) : ("default" as const),
-    },
-    {
-      key: "hp",
-      label: "HimalPay float",
-      value: balanceRupees != null ? formatNPR(balanceRupees) : "—",
-      icon: Wallet,
-      tone: "brand" as const,
+      tone:
+        (summary?.open_issues ?? counts?.issues ?? 0) > 0 ? "warning" : "default",
     },
   ];
 
@@ -319,14 +386,23 @@ function StatementPage() {
       title="Statement"
       description="HimalPay ↔ MySewa ledger by user — review, reconcile, and correct wallets"
     >
-      <StatsCards items={cards} />
+      <div className="space-y-3">
+        <StatsCards items={balanceCards} />
+        <StatsCards items={ledgerCards} />
+      </div>
 
       {balanceUnavailable ? (
         <div className="mt-4 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-foreground">
-          HimalPay float unavailable on LIVE API. Add portal login under{" "}
+          HimalPay balance unavailable on LIVE API. Add portal login under{" "}
           <span className="font-medium">Admin → Settings → HimalPay</span>.
-          {balanceQuery.data?.error ? (
-            <p className="mt-1 text-xs text-muted-foreground">{balanceQuery.data.error}</p>
+          {balanceQuery.data?.error ||
+          (balanceQuery.error instanceof ApiError ? balanceQuery.error.message : null) ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {balanceQuery.data?.error ||
+                (balanceQuery.error instanceof ApiError
+                  ? balanceQuery.error.message
+                  : null)}
+            </p>
           ) : null}
         </div>
       ) : null}

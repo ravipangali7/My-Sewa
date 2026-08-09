@@ -1090,7 +1090,7 @@ export const apiClient = {
 
   adminStatementBalance: () =>
     api<{
-      data: Record<string, unknown> | null;
+      data: import("./types").HimalPayResellerBalance | null;
       error?: string;
       unavailable?: boolean;
     }>("/api/admin/statement/balance/"),

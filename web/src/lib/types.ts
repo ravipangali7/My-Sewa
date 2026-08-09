@@ -907,6 +907,22 @@ export interface AdminListResponse<T> {
   summary?: AmountSummary;
 }
 
+/** HimalPay GET /wallet/reseller-balance (amounts: paisa + rupees fields). */
+export interface HimalPayResellerBalance {
+  id?: number;
+  user_id?: number;
+  /** Main wallet balance in paisa */
+  balance?: number | string | null;
+  /** Bonus wallet balance in paisa */
+  bonus_balance?: number | string | null;
+  balance_in_rupees?: number | string | null;
+  bonus_balance_in_rupees?: number | string | null;
+  total_balance_in_rupees?: number | string | null;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
 export interface StatementReconcileRun {
   id: number;
   from_date: string;

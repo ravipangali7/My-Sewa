@@ -651,12 +651,66 @@ class HimalPayAPI:
             page += 1
         return entries
 
+    @staticmethod
+    def _normalize_reseller_balance(raw: Any) -> Dict:
+        """
+        Normalize GET /wallet/reseller-balance (and portal wallet) into the
+        documented shape with both paisa and rupees fields.
+        """
+        data = raw
+        if isinstance(data, dict):
+            nested_wallet = data.get('wallet')
+            nested_data = data.get('data')
+            if isinstance(nested_wallet, dict):
+                data = nested_wallet
+            elif isinstance(nested_data, dict) and (
+                'balance' in nested_data
+                or 'balance_in_rupees' in nested_data
+                or 'total_balance_in_rupees' in nested_data
+            ):
+                data = nested_data
+        if not isinstance(data, dict):
+            return {}
+
+        out = dict(data)
+
+        def _num(value: Any):
+            if value is None or value == '':
+                return None
+            try:
+                return Decimal(str(value))
+            except (InvalidOperation, TypeError, ValueError):
+                return None
+
+        balance_paisa = _num(out.get('balance'))
+        bonus_paisa = _num(out.get('bonus_balance'))
+        balance_rupees = _num(out.get('balance_in_rupees'))
+        bonus_rupees = _num(out.get('bonus_balance_in_rupees'))
+        total_rupees = _num(out.get('total_balance_in_rupees'))
+
+        if balance_rupees is None and balance_paisa is not None:
+            balance_rupees = HimalPayAPI.to_rupees(int(balance_paisa))
+        if bonus_rupees is None and bonus_paisa is not None:
+            bonus_rupees = HimalPayAPI.to_rupees(int(bonus_paisa))
+        if total_rupees is None and (balance_rupees is not None or bonus_rupees is not None):
+            total_rupees = (balance_rupees or Decimal('0')) + (bonus_rupees or Decimal('0'))
+
+        if balance_paisa is not None:
+            out['balance'] = int(balance_paisa)
+        if bonus_paisa is not None:
+            out['bonus_balance'] = int(bonus_paisa)
+        if balance_rupees is not None:
+            out['balance_in_rupees'] = float(balance_rupees)
+        if bonus_rupees is not None:
+            out['bonus_balance_in_rupees'] = float(bonus_rupees)
+        if total_rupees is not None:
+            out['total_balance_in_rupees'] = float(total_rupees)
+        return out
+
     def _get_portal_wallet(self) -> Dict:
         """LIVE fallback: GET /users/me/wallet (Bearer portal JWT)."""
         data = self._request_bearer('GET', '/users/me/wallet')
-        if isinstance(data, dict) and isinstance(data.get('wallet'), dict):
-            return data['wallet']
-        return data if isinstance(data, dict) else {'data': data}
+        return self._normalize_reseller_balance(data)
 
     # ------------------------------------------------------------------
     # Core endpoints
@@ -870,17 +924,19 @@ class HimalPayAPI:
         LIVE fallback: GET /users/me/wallet (Bearer portal JWT) when reseller route 404s.
         """
         if self.bypass_api:
-            return {
-                'id': 1,
-                'user_id': 1,
-                'balance': 100_000_000,
-                'bonus_balance': 0,
-                'balance_in_rupees': 1_000_000.0,
-                'bonus_balance_in_rupees': 0.0,
-                'total_balance_in_rupees': 1_000_000.0,
-                'created_at': '2026-01-01T00:00:00Z',
-                'updated_at': '2026-08-09T00:00:00Z',
-            }
+            return self._normalize_reseller_balance(
+                {
+                    'id': 1,
+                    'user_id': 1,
+                    'balance': 100_000_000,
+                    'bonus_balance': 0,
+                    'balance_in_rupees': 1_000_000.0,
+                    'bonus_balance_in_rupees': 0.0,
+                    'total_balance_in_rupees': 1_000_000.0,
+                    'created_at': '2026-01-01T00:00:00Z',
+                    'updated_at': '2026-08-09T00:00:00Z',
+                }
+            )
 
         try:
             data = self._request('GET', '/wallet/reseller-balance')
@@ -898,7 +954,7 @@ class HimalPayAPI:
             except HimalPayError as portal_exc:
                 self._raise_ledger_unavailable(portal_exc)
 
-        return data if isinstance(data, dict) else {'data': data}
+        return self._normalize_reseller_balance(data)
 
     def _bypass_reseller_statement(
         self,
