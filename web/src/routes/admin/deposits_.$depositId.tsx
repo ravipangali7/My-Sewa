@@ -223,10 +223,10 @@ function DepositDetailPage() {
                   <StatementRow label="Status">{d.status_display}</StatementRow>
                   <StatementRow label="Submitted">{formatDateTime(d.created_at)}</StatementRow>
                   <StatementRow label="Updated">{formatDateTime(d.updated_at)}</StatementRow>
-                  <StatementRow label="Balance before">
+                  <StatementRow label="Before Wallet Balance">
                     {d.balance_before != null ? formatNPR(d.balance_before) : "—"}
                   </StatementRow>
-                  <StatementRow label="Balance after">
+                  <StatementRow label="After Wallet Balance">
                     {d.balance_after != null ? formatNPR(d.balance_after) : "—"}
                   </StatementRow>
                 </dl>

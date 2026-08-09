@@ -273,6 +273,8 @@ function ReportsPage() {
                     setPreset("custom");
                     setStartDate(e.target.value);
                   }}
+                  placeholder="Start date"
+                  title="Start date"
                   className="h-9 w-full sm:w-[150px]"
                 />
               </div>
@@ -290,6 +292,8 @@ function ReportsPage() {
                     setPreset("custom");
                     setEndDate(e.target.value);
                   }}
+                  placeholder="End date"
+                  title="End date"
                   className="h-9 w-full sm:w-[150px]"
                 />
               </div>

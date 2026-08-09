@@ -188,4 +188,10 @@ urlpatterns = [
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
     path('api/admin/settings/test-email/', admin_views.admin_test_smtp_email, name='admin_test_smtp_email'),
     path('api/admin/himalpay/status/', admin_views.admin_himalpay_status, name='admin_himalpay_status'),
+    path('api/admin/statement/', admin_views.admin_statement_list, name='admin_statement_list'),
+    path('api/admin/statement/run/', admin_views.admin_statement_run, name='admin_statement_run'),
+    path('api/admin/statement/runs/', admin_views.admin_statement_runs, name='admin_statement_runs'),
+    path('api/admin/statement/balance/', admin_views.admin_statement_balance, name='admin_statement_balance'),
+    path('api/admin/statement/discrepancies/<int:discrepancy_id>/solve/', admin_views.admin_statement_solve, name='admin_statement_solve'),
+    path('api/admin/statement/discrepancies/<int:discrepancy_id>/ignore/', admin_views.admin_statement_ignore, name='admin_statement_ignore'),
 ]

@@ -94,6 +94,17 @@ class RupeesPaisaConversionTests(SimpleTestCase):
         with self.assertRaises(HimalPayError):
             HimalPayAPI.to_paisa(None)
 
+    def test_reseller_statement_and_balance_bypass(self):
+        client = HimalPayAPI()
+        client.bypass_api = True
+        entries = client.get_reseller_statement(from_date='2026-08-01', to_date='2026-08-09')
+        self.assertIsInstance(entries, list)
+        self.assertTrue(entries)
+        self.assertEqual(entries[0]['direction'], 'debit')
+        balance = client.get_reseller_balance()
+        self.assertIn('balance', balance)
+        self.assertIn('total_balance_in_rupees', balance)
+
 
 class BankCodeResolveTests(SimpleTestCase):
     """Short tickers like CTZN must become HimalPay SWIFT codes."""
@@ -318,6 +329,34 @@ class RemittanceLookupParseTests(SimpleTestCase):
         parsed = HimalPayAPI.parse_remittance_lookup(raw)
         self.assertEqual(parsed['payout_amt'], Decimal('0.00'))
         self.assertEqual(HimalPayAPI.extract_provider_message(raw), 'Amount is locked')
+        self.assertFalse(HimalPayAPI.is_remittance_already_received('', raw))
+
+    def test_already_received_vendor_state_detected(self):
+        raw = {
+            'status': 'SUCCESS',
+            'data': {
+                'core_transaction_uuid': 'abc123',
+                'vendor_state': 'Already Received',
+                'vendor_status': '1',
+                'data': {
+                    'ref_no': 'S1001',
+                    'receiver_name': 'TEST',
+                    'payout_amt': '0.0000',
+                },
+            },
+        }
+        self.assertEqual(HimalPayAPI.extract_provider_message(raw), 'Already Received')
+        self.assertTrue(HimalPayAPI.is_remittance_already_received('', raw))
+        parsed = HimalPayAPI.parse_remittance_lookup(raw)
+        self.assertEqual(parsed['payout_amt'], Decimal('0.00'))
+
+    def test_already_paid_message_detected(self):
+        self.assertTrue(
+            HimalPayAPI.is_remittance_already_received('Remittance already paid')
+        )
+        self.assertFalse(
+            HimalPayAPI.is_remittance_already_received('Amount is locked')
+        )
 
 
 class ResetPasswordSerializerTests(SimpleTestCase):
@@ -692,3 +731,384 @@ class KycManualReviewWorkflowTests(TestCase):
         self.assertEqual(self.user.date_of_birth, date(1988, 12, 1))
         self.assertEqual(self.user.kyc_status, User.KYC_STATUS_APPROVED)
         self.assertTrue(self.user.is_kyc_verified)
+
+
+class RemittanceNetCreditTests(SimpleTestCase):
+    """Inbound loads credit amount - charge + cashback (never gross when charged)."""
+
+    def test_gross_100_charge_5_credits_95(self):
+        from .models import RemittanceTransaction
+        from .views.remittance_views import _apply_load_fields
+
+        txn = RemittanceTransaction(
+            amount=Decimal('100.00'),
+            total_credited=Decimal('100.00'),
+            charge=Decimal('0.00'),
+            cashback=Decimal('0.00'),
+            ref_no='S100TEST',
+        )
+        himalpay = HimalPayAPI()
+        # Provider echoed gross as total_credited while applying a charge.
+        _apply_load_fields(
+            txn,
+            himalpay,
+            {
+                'amount': 10000,  # paisa
+                'charge': 500,
+                'cashback': 0,
+                'total_credited': 10000,
+                'transaction_id': 'TXN1',
+                'reference_id': 'S100TEST',
+            },
+            persist=False,
+        )
+        self.assertEqual(txn.charge, Decimal('5.00'))
+        self.assertEqual(txn.total_credited, Decimal('95.00'))
+
+    def test_provider_net_total_credited_is_respected(self):
+        from .models import RemittanceTransaction
+        from .views.remittance_views import _apply_load_fields
+
+        txn = RemittanceTransaction(
+            amount=Decimal('100.00'),
+            total_credited=Decimal('100.00'),
+            ref_no='S100TEST2',
+        )
+        himalpay = HimalPayAPI()
+        _apply_load_fields(
+            txn,
+            himalpay,
+            {
+                'amount': 10000,
+                'charge': 500,
+                'cashback': 0,
+                'total_credited': 9500,
+            },
+            persist=False,
+        )
+        self.assertEqual(txn.total_credited, Decimal('95.00'))
+
+    def test_missing_total_credited_computes_net(self):
+        from .models import RemittanceTransaction
+        from .views.remittance_views import _apply_load_fields
+
+        txn = RemittanceTransaction(
+            amount=Decimal('100.00'),
+            total_credited=Decimal('100.00'),
+            ref_no='S100TEST3',
+        )
+        himalpay = HimalPayAPI()
+        _apply_load_fields(
+            txn,
+            himalpay,
+            {
+                'amount': 10000,
+                'charge': 500,
+                'cashback': 200,
+            },
+            persist=False,
+        )
+        self.assertEqual(txn.total_credited, Decimal('97.00'))
+
+
+class WalletEmailDirectionTests(TestCase):
+    """Customer credit/debit emails must reverse direction for Super Admin."""
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            phone='9800000099',
+            password='testpass123',
+            email='customer@example.com',
+            first_name='Cust',
+            last_name='Omer',
+        )
+        self.admin = User.objects.create_superuser(
+            phone='9800000001',
+            password='adminpass123',
+            email='admin@example.com',
+        )
+        from .models import Wallet, Settings
+
+        Wallet.objects.get_or_create(user=self.user, defaults={'balance': Decimal('500.00')})
+        settings = Settings.load()
+        cfg = settings.config if isinstance(settings.config, dict) else {}
+        notif = dict(cfg.get('notifications') or {})
+        notif.update(
+            {
+                'email_on_wallet_credit': True,
+                'email_on_wallet_debit': True,
+                'email_on_wallet_adjustment': True,
+                'admin_alert_email': 'admin@example.com',
+            }
+        )
+        cfg['notifications'] = notif
+        settings.config = cfg
+        settings.save()
+
+    def test_customer_credit_sends_admin_debit(self):
+        from unittest.mock import patch
+        from .services import notifications as notif
+
+        sent = []
+
+        def fake_send(subject, message, recipients, html_body=None, fail_silently=True):
+            sent.append(
+                {
+                    'subject': subject,
+                    'message': message,
+                    'recipients': list(recipients),
+                    'html': html_body or '',
+                }
+            )
+            return True
+
+        with patch.object(notif, 'send_smtp_email', side_effect=fake_send):
+            notif.notify_wallet_credit(
+                self.user,
+                Decimal('95.00'),
+                balance_after=Decimal('595.00'),
+                reason='Remittance net of charge',
+                ref='REF95',
+            )
+
+        self.assertEqual(len(sent), 2)
+        customer = next(m for m in sent if 'customer@example.com' in m['recipients'])
+        admin = next(m for m in sent if 'admin@example.com' in m['recipients'])
+        self.assertIn('credited', customer['subject'].lower())
+        self.assertIn('Rs. 95', customer['message'])
+        self.assertIn('debit', admin['subject'].lower())
+        self.assertIn('Rs. 95', admin['message'])
+        self.assertIn('admin wallet debit', admin['html'].lower())
+
+    def test_customer_debit_sends_admin_credit(self):
+        from unittest.mock import patch
+        from .services import notifications as notif
+
+        sent = []
+
+        def fake_send(subject, message, recipients, html_body=None, fail_silently=True):
+            sent.append(
+                {
+                    'subject': subject,
+                    'message': message,
+                    'recipients': list(recipients),
+                    'html': html_body or '',
+                }
+            )
+            return True
+
+        with patch.object(notif, 'send_smtp_email', side_effect=fake_send):
+            notif.notify_wallet_debit(
+                self.user,
+                Decimal('105.00'),
+                balance_after=Decimal('395.00'),
+                reason='Top-up with charge',
+                ref='TOP105',
+            )
+
+        self.assertEqual(len(sent), 2)
+        customer = next(m for m in sent if 'customer@example.com' in m['recipients'])
+        admin = next(m for m in sent if 'admin@example.com' in m['recipients'])
+        self.assertIn('debited', customer['subject'].lower())
+        self.assertIn('Rs. 105', customer['message'])
+        self.assertIn('credit', admin['subject'].lower())
+        self.assertIn('Rs. 105', admin['message'])
+
+
+class RemittanceWalletCreditIntegrationTests(TestCase):
+    """End-to-end: remittance with charge credits net amount and snapshots balances."""
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            phone='9800000088',
+            password='testpass123',
+            email='remit@example.com',
+        )
+        from .models import Wallet
+
+        self.wallet, _ = Wallet.objects.get_or_create(
+            user=self.user, defaults={'balance': Decimal('10.00')}
+        )
+        self.wallet.balance = Decimal('10.00')
+        self.wallet.save(update_fields=['balance'])
+
+    def test_inbound_credit_uses_net_of_charge(self):
+        from .models import RemittanceTransaction
+        from .services.txn_status import apply_inbound_status_change
+        from .views.remittance_views import _apply_load_fields
+
+        txn = RemittanceTransaction.objects.create(
+            user=self.user,
+            ref_no='S100NET95',
+            samsara_link_id='link-net-95',
+            amount=Decimal('100.00'),
+            total_credited=Decimal('100.00'),
+            status='pending',
+            merchant_txn_id='MYSEWA_REM_NET95',
+        )
+        himalpay = HimalPayAPI()
+        _apply_load_fields(
+            txn,
+            himalpay,
+            {
+                'amount': 10000,
+                'charge': 500,
+                'cashback': 0,
+                'total_credited': 10000,
+                'status': 'SUCCESS',
+            },
+        )
+        txn.refresh_from_db()
+        self.assertEqual(txn.total_credited, Decimal('95.00'))
+
+        ok, err = apply_inbound_status_change(txn, 'success')
+        self.assertTrue(ok, err)
+        txn.refresh_from_db()
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal('105.00'))
+        self.assertEqual(txn.balance_before, Decimal('10.00'))
+        self.assertEqual(txn.balance_after, Decimal('105.00'))
+
+
+class StatementReconcileTests(TestCase):
+    """HimalPay reseller statement vs MySewa top-up matching and solve."""
+
+    def setUp(self):
+        cache.clear()
+        self.admin = User.objects.create_user(
+            phone='9800000099',
+            password='testpass123',
+            email='admin-stmt@example.com',
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.user = User.objects.create_user(
+            phone='9800000077',
+            password='testpass123',
+            email='user-stmt@example.com',
+        )
+        from .models import Wallet, TopupTransaction
+
+        self.wallet, _ = Wallet.objects.get_or_create(
+            user=self.user, defaults={'balance': Decimal('500.00')},
+        )
+        self.wallet.balance = Decimal('500.00')
+        self.wallet.save(update_fields=['balance'])
+        self.TopupTransaction = TopupTransaction
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.admin)
+
+    def _mock_api(self, entries):
+        class FakeAPI:
+            def get_reseller_statement(self, **kwargs):
+                return entries
+
+            def get_reseller_balance(self):
+                return {
+                    'balance': 1000000,
+                    'bonus_balance': 0,
+                    'balance_in_rupees': 10000.0,
+                    'bonus_balance_in_rupees': 0.0,
+                    'total_balance_in_rupees': 10000.0,
+                }
+
+        return FakeAPI()
+
+    def test_matched_success_creates_no_issue(self):
+        from .models import StatementDiscrepancy
+        from .services.statement_reconcile import run_statement_reconcile
+
+        uuid = 'HP-MATCH-OK-001'
+        self.TopupTransaction.objects.create(
+            user=self.user,
+            mobile_number='9801112233',
+            amount=Decimal('100.00'),
+            product_id=1,
+            status='success',
+            merchant_txn_id='MYSEWA_NTC_MATCHOK',
+            service_hub_txn_id=uuid,
+            total_debited=Decimal('100.00'),
+            balance_before=Decimal('600.00'),
+            balance_after=Decimal('500.00'),
+        )
+        entries = [{
+            'direction': 'debit',
+            'amount': 10000,
+            'is_refund': False,
+            'is_cashback': False,
+            'is_charge': False,
+            'transaction_uuid': uuid,
+            'status': 'SUCCESS',
+            'wallet_service_name': 'NTC',
+            'transaction_cashback': 0,
+            'transaction_charge': 0,
+            'created_at': '2026-08-09T10:00:00Z',
+        }]
+        run = run_statement_reconcile(
+            from_date=date.today(),
+            to_date=date.today(),
+            himalpay=self._mock_api(entries),
+        )
+        self.assertEqual(run.status, 'success')
+        self.assertEqual(run.matched, 1)
+        self.assertEqual(
+            StatementDiscrepancy.objects.filter(status='open').count(),
+            0,
+        )
+
+    def test_status_mismatch_suggests_debit_and_solve_adjusts_wallet(self):
+        from .models import StatementDiscrepancy, WalletAdjustment
+        from .services.statement_reconcile import run_statement_reconcile
+
+        uuid = 'HP-MISMATCH-001'
+        self.TopupTransaction.objects.create(
+            user=self.user,
+            mobile_number='9801112233',
+            amount=Decimal('100.00'),
+            product_id=1,
+            status='pending',
+            merchant_txn_id='MYSEWA_NTC_MISMATCH',
+            service_hub_txn_id=uuid,
+            total_debited=Decimal('100.00'),
+        )
+        entries = [{
+            'direction': 'debit',
+            'amount': 10000,
+            'is_refund': False,
+            'is_cashback': False,
+            'is_charge': False,
+            'transaction_uuid': uuid,
+            'status': 'SUCCESS',
+            'wallet_service_name': 'NTC',
+            'transaction_cashback': 0,
+            'transaction_charge': 0,
+            'created_at': '2026-08-09T10:00:00Z',
+        }]
+        run = run_statement_reconcile(
+            from_date=date.today(),
+            to_date=date.today(),
+            himalpay=self._mock_api(entries),
+            triggered_by_user=self.admin,
+        )
+        self.assertEqual(run.issues_new, 1)
+        disc = StatementDiscrepancy.objects.get(status='open')
+        self.assertEqual(disc.issue_type, 'status_mismatch')
+        self.assertEqual(disc.suggested_adjustment_type, 'debit')
+        self.assertEqual(Decimal(disc.suggested_amount), Decimal('100.00'))
+
+        resp = self.client.post(
+            reverse('admin_statement_solve', args=[disc.pk]),
+            {},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        disc.refresh_from_db()
+        self.wallet.refresh_from_db()
+        self.assertEqual(disc.status, 'resolved')
+        self.assertEqual(self.wallet.balance, Decimal('400.00'))
+        adj = WalletAdjustment.objects.get(pk=disc.resolution_adjustment_id)
+        self.assertEqual(adj.adjustment_type, 'debit')
+        self.assertEqual(adj.amount, Decimal('-100.00'))
+

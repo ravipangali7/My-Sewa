@@ -238,6 +238,8 @@ function WalletTransactionsPage() {
                   <TableHead>Title</TableHead>
                   <TableHead>Detail</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Before Wallet Balance</TableHead>
+                  <TableHead className="text-right">After Wallet Balance</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Created at</TableHead>
                 </TableRow>
@@ -261,6 +263,16 @@ function WalletTransactionsPage() {
                     >
                       {item.credit ? "+" : "−"}
                       {formatNPR(item.amount)}
+                    </TableCell>
+                    <TableCell className="tabular text-right text-sm text-muted-foreground">
+                      {item.balance_before != null && item.balance_before !== ""
+                        ? formatNPR(item.balance_before)
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="tabular text-right text-sm font-medium">
+                      {item.balance_after != null && item.balance_after !== ""
+                        ? formatNPR(item.balance_after)
+                        : "—"}
                     </TableCell>
                     <TableCell>
                       <StatusChip status={item.status} compact />
@@ -299,6 +311,20 @@ function WalletTransactionsPage() {
                   <AdminMobileMeta
                     items={[
                       { label: "Status", value: <StatusChip status={item.status} compact /> },
+                      {
+                        label: "Before Wallet Balance",
+                        value:
+                          item.balance_before != null && item.balance_before !== ""
+                            ? formatNPR(item.balance_before)
+                            : "—",
+                      },
+                      {
+                        label: "After Wallet Balance",
+                        value:
+                          item.balance_after != null && item.balance_after !== ""
+                            ? formatNPR(item.balance_after)
+                            : "—",
+                      },
                       { label: "Created", value: formatDateTime(item.created_at) },
                     ]}
                   />

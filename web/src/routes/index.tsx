@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { AuthSessionLoader } from "@/components/AuthSessionLoader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,6 +45,11 @@ function LoginPage() {
       navigate({ to: isStaff ? "/admin" : "/app" });
     }
   }, [token, isLoading, user, isStaff, navigate]);
+
+  // Stored token: show loader until profile resolves and redirect, never flash login form.
+  if (token && (isLoading || user)) {
+    return <AuthSessionLoader />;
+  }
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">

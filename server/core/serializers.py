@@ -25,6 +25,8 @@ from .models import (
     KYCSubmission,
     KYCDocument,
     KYCAuditLog,
+    StatementReconcileRun,
+    StatementDiscrepancy,
 )
 
 User = get_user_model()
@@ -773,6 +775,7 @@ class SettingsSerializer(serializers.ModelSerializer):
     """Settings serializer"""
     qr_code_url = serializers.SerializerMethodField()
     logo_url = serializers.SerializerMethodField()
+    bank_details = serializers.SerializerMethodField()
     config = serializers.SerializerMethodField()
 
     class Meta:
@@ -796,6 +799,10 @@ class SettingsSerializer(serializers.ModelSerializer):
 
     def get_logo_url(self, obj):
         return self._absolute_media_url(obj.logo)
+
+    def get_bank_details(self, obj):
+        from .services.payment_accounts import normalize_bank_details
+        return normalize_bank_details(obj.bank_details)
 
     def get_config(self, obj):
         config = obj.get_config()
@@ -1715,4 +1722,79 @@ class KYCAuditLogSerializer(serializers.ModelSerializer):
             'details', 'created_at',
         )
         read_only_fields = fields
+
+
+class StatementReconcileRunSerializer(serializers.ModelSerializer):
+    triggered_by_display = serializers.CharField(
+        source='get_triggered_by_display', read_only=True,
+    )
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    triggered_by_user_phone = serializers.CharField(
+        source='triggered_by_user.phone', read_only=True, default=None,
+    )
+
+    class Meta:
+        model = StatementReconcileRun
+        fields = (
+            'id', 'from_date', 'to_date', 'triggered_by', 'triggered_by_display',
+            'triggered_by_user', 'triggered_by_user_phone', 'status', 'status_display',
+            'hp_entries', 'matched', 'issues_open', 'issues_new',
+            'himalpay_balance_paisa', 'himalpay_bonus_balance_paisa',
+            'himalpay_balance_rupees', 'error_message', 'created_at', 'finished_at',
+        )
+        read_only_fields = fields
+
+
+class StatementDiscrepancySerializer(serializers.ModelSerializer):
+    issue_type_display = serializers.CharField(
+        source='get_issue_type_display', read_only=True,
+    )
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    txn_type_display = serializers.CharField(
+        source='get_txn_type_display', read_only=True, default='',
+    )
+    user_phone = serializers.CharField(source='user.phone', read_only=True, default=None)
+    user_name = serializers.SerializerMethodField()
+    can_solve = serializers.SerializerMethodField()
+    suggested_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, coerce_to_string=True, allow_null=True,
+    )
+    hp_amount = serializers.DecimalField(
+        max_digits=14, decimal_places=2, coerce_to_string=True,
+    )
+    hp_net_amount = serializers.DecimalField(
+        max_digits=14, decimal_places=2, coerce_to_string=True,
+    )
+    local_amount = serializers.DecimalField(
+        max_digits=14, decimal_places=2, coerce_to_string=True, allow_null=True,
+    )
+
+    class Meta:
+        model = StatementDiscrepancy
+        fields = (
+            'id', 'run', 'issue_type', 'issue_type_display', 'status', 'status_display',
+            'transaction_uuid', 'merchant_txn_id', 'wallet_service_name', 'direction',
+            'hp_status', 'hp_amount', 'hp_net_amount', 'local_status', 'local_amount',
+            'txn_type', 'txn_type_display', 'txn_id', 'user', 'user_phone', 'user_name',
+            'himalpay_snapshot', 'suggested_adjustment_type', 'suggested_amount',
+            'reason', 'can_solve', 'resolved_by', 'resolved_at',
+            'resolution_adjustment', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+    def get_user_name(self, obj):
+        user = obj.user
+        if not user:
+            return None
+        name = f'{user.first_name or ""} {user.last_name or ""}'.strip()
+        return name or user.phone
+
+    def get_can_solve(self, obj):
+        return bool(
+            obj.status == StatementDiscrepancy.STATUS_OPEN
+            and obj.user_id
+            and obj.suggested_adjustment_type
+            and obj.suggested_amount is not None
+            and Decimal(str(obj.suggested_amount)) > 0
+        )
 

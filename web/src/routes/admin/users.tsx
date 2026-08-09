@@ -215,7 +215,7 @@ function UsersPage() {
           searchPlaceholder="Search phone, name, email…"
           exportLabel="Bulk download"
           statsLabels={{ total: "Total", success: "Active", pending: "Pending", failed: "Disabled" }}
-          statusOptions={[{ value: "all", label: "All" }]}
+          statusOptions={[{ value: "all", label: "All statuses" }]}
         />
       </div>
 

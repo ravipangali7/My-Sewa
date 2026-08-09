@@ -115,9 +115,12 @@ class _WebViewScreenState extends State<WebViewScreen>
 ''';
 
   /// Android/iOS WebView often traps touch scroll inside nested
-  /// overflow shells. Never set overflow-x:hidden here — CSS pairs it
-  /// to overflow-y:auto and gestures get swallowed on non-scrolling boxes.
-  /// Force document scrolling on the app shell only (not sheets/dialogs).
+  /// overflow shells. Never set overflow-x:hidden — CSS pairs it to
+  /// overflow-y:auto and gestures get swallowed on non-scrolling boxes.
+  ///
+  /// Only fix overflow traps. Do NOT force height/min-height inline:
+  /// that inflates document scrollHeight past real content and leaves
+  /// large blank overscroll on Profile and every other page.
   static const _unlockWebViewScrollJs = '''
 (function() {
   function ensureStyle() {
@@ -126,23 +129,37 @@ class _WebViewScreenState extends State<WebViewScreen>
     var style = document.createElement('style');
     style.id = styleId;
     style.textContent = [
-      'html.mysewa-native,html{height:auto!important;max-height:none!important;',
-      'overflow-x:clip!important;overflow-y:auto!important;',
-      '-webkit-overflow-scrolling:touch!important;touch-action:pan-x pan-y!important;}',
-      'html.mysewa-native body,body{height:auto!important;max-height:none!important;',
-      'overflow-x:clip!important;overflow-y:visible!important;',
-      '-webkit-overflow-scrolling:touch!important;touch-action:pan-x pan-y!important;}'
+      'html.mysewa-native,html{height:auto!important;min-height:0!important;',
+      'max-height:none!important;overflow-x:clip!important;overflow-y:auto!important;',
+      '-webkit-overflow-scrolling:touch!important;touch-action:pan-x pan-y!important;',
+      'overscroll-behavior-y:none!important;}',
+      'html.mysewa-native body,body{height:auto!important;min-height:0!important;',
+      'max-height:none!important;overflow-x:clip!important;overflow-y:visible!important;',
+      '-webkit-overflow-scrolling:touch!important;touch-action:pan-x pan-y!important;',
+      'overscroll-behavior-y:none!important;}'
     ].join('');
     document.head.appendChild(style);
   }
 
-  function releaseVertical(el) {
+  function releaseOverflowTrap(el) {
     if (!el || el.nodeType !== 1) return;
-    el.style.setProperty('height', 'auto', 'important');
-    el.style.setProperty('max-height', 'none', 'important');
-    // clip + visible does NOT pair to overflow-y:auto (unlike hidden).
+    var cs = window.getComputedStyle(el);
+    if (cs.position === 'fixed' || cs.position === 'absolute') return;
+    // Clear stale height locks from older unlock scripts (blank overscroll).
+    if (el.style.getPropertyValue('height') || el.style.getPropertyValue('min-height') || el.style.getPropertyValue('max-height')) {
+      el.style.removeProperty('height');
+      el.style.removeProperty('min-height');
+      el.style.removeProperty('max-height');
+    }
+    if (cs.overflowX !== 'hidden') return;
+    // clip does NOT pair to overflow-y:auto (unlike hidden).
     el.style.setProperty('overflow-x', 'clip', 'important');
-    el.style.setProperty('overflow-y', 'visible', 'important');
+    if (cs.overflowY === 'auto' || cs.overflowY === 'scroll') {
+      var maxH = cs.maxHeight;
+      if (!maxH || maxH === 'none' || maxH === 'auto') {
+        el.style.setProperty('overflow-y', 'visible', 'important');
+      }
+    }
   }
 
   function apply() {
@@ -152,30 +169,15 @@ class _WebViewScreenState extends State<WebViewScreen>
 
       var mains = document.getElementsByTagName('main');
       if (mains.length === 0) {
-        // Auth / marketing pages without <main>: still allow document scroll.
         var top = document.body && document.body.firstElementChild;
-        if (top) {
-          releaseVertical(top);
-          top.style.setProperty('min-height', '100dvh', 'important');
-        }
+        releaseOverflowTrap(top);
         return;
       }
 
       for (var m = 0; m < Math.min(mains.length, 4); m++) {
-        var mainEl = mains[m];
-        releaseVertical(mainEl);
-
-        // Walk up to the body-level shell wrapper (UserShell / AdminShell).
-        var node = mainEl.parentElement;
+        var node = mains[m];
         while (node && node !== document.body) {
-          var cs = window.getComputedStyle(node);
-          if (cs.position !== 'fixed' && cs.position !== 'absolute') {
-            releaseVertical(node);
-          }
-          if (node.parentElement === document.body) {
-            node.style.setProperty('min-height', '100dvh', 'important');
-            break;
-          }
+          releaseOverflowTrap(node);
           node = node.parentElement;
         }
       }

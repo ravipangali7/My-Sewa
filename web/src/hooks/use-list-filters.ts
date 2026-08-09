@@ -15,14 +15,14 @@ export type StatusOption = {
 };
 
 export const TXN_STATUS_OPTIONS: StatusOption[] = [
-  { value: "all", label: "All" },
+  { value: "all", label: "All statuses" },
   { value: "pending", label: "Pending" },
   { value: "success", label: "Success" },
   { value: "failed", label: "Failed" },
 ];
 
 export const DEPOSIT_STATUS_OPTIONS: StatusOption[] = [
-  { value: "all", label: "All" },
+  { value: "all", label: "All statuses" },
   { value: "pending", label: "Pending" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },

@@ -9,11 +9,13 @@ import {
   ArrowLeftRight,
   ImageIcon,
   Mail,
+  Plus,
   QrCode,
   Save,
   Shield,
   ArrowDownToLine,
   Send,
+  Trash2,
 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { useErrorPopup } from "@/components/ErrorPopup";
@@ -24,9 +26,22 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import type { AppConfig } from "@/lib/types";
+import {
+  emptyPaymentAccount,
+  methodLabel,
+  normalizePaymentAccounts,
+  paymentAccountsToBankDetails,
+} from "@/lib/payment-accounts";
+import type { AppConfig, PaymentAccount, PaymentMethod } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/settings")({
@@ -138,19 +153,12 @@ const DEFAULT_CONFIG: AppConfig = {
   },
 };
 
-type BankForm = {
-  bank_name: string;
-  account_name: string;
-  account_number: string;
-  branch: string;
-};
-
 const SECTIONS = [
   { id: "site", label: "General", icon: Building2 },
   { id: "payment", label: "Payments", icon: CreditCard },
   { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
   { id: "remittance", label: "Remittance agent", icon: ArrowDownToLine },
-  { id: "deposit", label: "Deposit account", icon: QrCode },
+  { id: "deposit", label: "Deposit accounts", icon: QrCode },
   { id: "smtp", label: "Email / SMTP", icon: Mail },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "security", label: "Security", icon: Shield },
@@ -174,12 +182,7 @@ function SettingsPage() {
   });
 
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
-  const [bank, setBank] = useState<BankForm>({
-    bank_name: "",
-    account_name: "",
-    account_number: "",
-    branch: "",
-  });
+  const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [qrPreview, setQrPreview] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -225,13 +228,7 @@ function SettingsPage() {
       },
     });
     setSmtpPasswordTouched(false);
-    const b = settingsQuery.data.bank_details ?? {};
-    setBank({
-      bank_name: b.bank_name || "",
-      account_name: b.account_name || "",
-      account_number: b.account_number || "",
-      branch: b.branch || "",
-    });
+    setAccounts(normalizePaymentAccounts(settingsQuery.data.bank_details));
     setSmtpTestEmail((prev) =>
       prev ||
       remote?.notifications?.admin_alert_email ||
@@ -390,12 +387,21 @@ function SettingsPage() {
     saveConfigSection("site", config.site);
   };
 
+  const updateAccount = (id: string, patch: Partial<PaymentAccount>) => {
+    setAccounts((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  };
+
+  const addAccount = (method: PaymentMethod) => {
+    setAccounts((list) => [...list, emptyPaymentAccount(method)]);
+  };
+
+  const removeAccount = (id: string) => {
+    setAccounts((list) => list.filter((a) => a.id !== id));
+  };
+
   const saveDepositAccount = () => {
     const fd = new FormData();
-    fd.append("bank_name", bank.bank_name);
-    fd.append("account_name", bank.account_name);
-    fd.append("account_number", bank.account_number);
-    fd.append("branch", bank.branch);
+    fd.append("bank_details", JSON.stringify(paymentAccountsToBankDetails(accounts)));
     fd.append(
       "config",
       JSON.stringify({
@@ -986,9 +992,10 @@ function SettingsPage() {
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-base font-semibold">Bank details</h2>
+                    <h2 className="text-base font-semibold">Deposit payment accounts</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Deposit account shown to customers when they load their wallet. {updatedAt}
+                      Bank, Khalti, and eSewa accounts shown to customers for manual wallet load.{" "}
+                      {updatedAt}
                     </p>
                   </div>
                   <Button type="submit" disabled={saving} className="gap-1.5">
@@ -996,24 +1003,183 @@ function SettingsPage() {
                     {saving ? "Saving…" : "Save changes"}
                   </Button>
                 </div>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  {(
-                    [
-                      ["bank_name", "Bank name"],
-                      ["account_name", "Account name"],
-                      ["account_number", "Account number"],
-                      ["branch", "Branch"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <div key={key} className="space-y-1.5">
-                      <Label htmlFor={key}>{label}</Label>
-                      <Input
-                        id={key}
-                        value={bank[key]}
-                        onChange={(e) => setBank((b) => ({ ...b, [key]: e.target.value }))}
-                      />
-                    </div>
-                  ))}
+
+                <div className="mt-4 space-y-4">
+                  {accounts.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                      No deposit accounts yet. Add a bank, Khalti, or eSewa account below.
+                    </p>
+                  ) : (
+                    accounts.map((acc, index) => (
+                      <div
+                        key={acc.id}
+                        className="rounded-xl border border-border bg-muted/20 p-4"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold">
+                              {acc.label || methodLabel(acc.method)} #{index + 1}
+                            </span>
+                            <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              {methodLabel(acc.method)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Switch
+                                checked={acc.enabled !== false}
+                                onCheckedChange={(checked) =>
+                                  updateAccount(acc.id, { enabled: checked })
+                                }
+                              />
+                              Visible
+                            </label>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-9 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => removeAccount(acc.id)}
+                              aria-label="Remove account"
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                          <div className="space-y-1.5">
+                            <Label>Method</Label>
+                            <Select
+                              value={acc.method}
+                              onValueChange={(value) => {
+                                const method = value as PaymentMethod;
+                                updateAccount(acc.id, {
+                                  method,
+                                  label:
+                                    method === "khalti"
+                                      ? "Khalti"
+                                      : method === "esewa"
+                                        ? "eSewa"
+                                        : acc.bank_name || "Bank account",
+                                  bank_name: method === "bank" ? acc.bank_name || "" : "",
+                                  branch: method === "bank" ? acc.branch || "" : "",
+                                });
+                              }}
+                            >
+                              <SelectTrigger className="rounded-xl">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="bank">Bank</SelectItem>
+                                <SelectItem value="khalti">Khalti</SelectItem>
+                                <SelectItem value="esewa">eSewa</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor={`label-${acc.id}`}>Display label</Label>
+                            <Input
+                              id={`label-${acc.id}`}
+                              value={acc.label}
+                              onChange={(e) => updateAccount(acc.id, { label: e.target.value })}
+                              className="rounded-xl"
+                              placeholder={methodLabel(acc.method)}
+                            />
+                          </div>
+                          {acc.method === "bank" ? (
+                            <div className="space-y-1.5">
+                              <Label htmlFor={`bank_name-${acc.id}`}>Bank name</Label>
+                              <Input
+                                id={`bank_name-${acc.id}`}
+                                value={acc.bank_name || ""}
+                                onChange={(e) =>
+                                  updateAccount(acc.id, {
+                                    bank_name: e.target.value,
+                                    label: acc.label === "Bank account" || !acc.label
+                                      ? e.target.value || "Bank account"
+                                      : acc.label,
+                                  })
+                                }
+                                className="rounded-xl"
+                              />
+                            </div>
+                          ) : null}
+                          <div className="space-y-1.5">
+                            <Label htmlFor={`account_name-${acc.id}`}>
+                              {acc.method === "bank" ? "Account name" : "Account holder"}
+                            </Label>
+                            <Input
+                              id={`account_name-${acc.id}`}
+                              value={acc.account_name || ""}
+                              onChange={(e) =>
+                                updateAccount(acc.id, { account_name: e.target.value })
+                              }
+                              className="rounded-xl"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor={`account_number-${acc.id}`}>
+                              {acc.method === "khalti"
+                                ? "Khalti ID / phone"
+                                : acc.method === "esewa"
+                                  ? "eSewa ID / phone"
+                                  : "Account number"}
+                            </Label>
+                            <Input
+                              id={`account_number-${acc.id}`}
+                              value={acc.account_number || ""}
+                              onChange={(e) =>
+                                updateAccount(acc.id, { account_number: e.target.value })
+                              }
+                              className="rounded-xl font-mono"
+                            />
+                          </div>
+                          {acc.method === "bank" ? (
+                            <div className="space-y-1.5">
+                              <Label htmlFor={`branch-${acc.id}`}>Branch</Label>
+                              <Input
+                                id={`branch-${acc.id}`}
+                                value={acc.branch || ""}
+                                onChange={(e) => updateAccount(acc.id, { branch: e.target.value })}
+                                className="rounded-xl"
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1.5 rounded-xl"
+                    onClick={() => addAccount("bank")}
+                  >
+                    <Plus className="size-3.5" />
+                    Add bank
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1.5 rounded-xl"
+                    onClick={() => addAccount("khalti")}
+                  >
+                    <Plus className="size-3.5" />
+                    Add Khalti
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1.5 rounded-xl"
+                    onClick={() => addAccount("esewa")}
+                  >
+                    <Plus className="size-3.5" />
+                    Add eSewa
+                  </Button>
                 </div>
 
                 <div className="mt-8 border-t border-border pt-6">
@@ -1177,11 +1343,15 @@ function SettingsPage() {
                   <Button
                     type="button"
                     className="w-full gap-1.5"
-                    disabled={saving || (!qrFile && !Object.values(bank).some(Boolean))}
+                    disabled={saving || (!qrFile && accounts.length === 0)}
                     onClick={saveDepositAccount}
                   >
                     <Save className="size-3.5" />
-                    {saving ? "Saving…" : qrFile ? "Save QR & bank details" : "Save bank details"}
+                    {saving
+                      ? "Saving…"
+                      : qrFile
+                        ? "Save QR & deposit accounts"
+                        : "Save deposit accounts"}
                   </Button>
                   {settingsQuery.data?.qr_code_url && !qrFile ? (
                     <Button
@@ -1191,10 +1361,10 @@ function SettingsPage() {
                       disabled={saving}
                       onClick={() => {
                         const fd = new FormData();
-                        fd.append("bank_name", bank.bank_name);
-                        fd.append("account_name", bank.account_name);
-                        fd.append("account_number", bank.account_number);
-                        fd.append("branch", bank.branch);
+                        fd.append(
+                          "bank_details",
+                          JSON.stringify(paymentAccountsToBankDetails(accounts)),
+                        );
                         fd.append(
                           "config",
                           JSON.stringify({

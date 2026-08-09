@@ -171,7 +171,7 @@ function WalletsPage() {
           searchPlaceholder="Search phone, name, wallet ID…"
           exportLabel="Bulk download"
           statsLabels={{ total: "Total", success: "Non-zero", pending: "Zero balance", failed: "Failed" }}
-          statusOptions={[{ value: "all", label: "All" }]}
+          statusOptions={[{ value: "all", label: "All statuses" }]}
         />
 
         <WalletCard

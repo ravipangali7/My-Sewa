@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.validators import MinValueValidator
+from decimal import Decimal
 import json
 
 
@@ -338,7 +339,10 @@ class Settings(models.Model):
         blank=True,
         help_text="Brand logo used across the app and as the favicon",
     )
-    bank_details = models.JSONField(default=dict, help_text="Bank account details in JSON format")
+    bank_details = models.JSONField(
+        default=dict,
+        help_text="Deposit payment accounts JSON: legacy bank_* fields plus accounts[] (bank/khalti/esewa)",
+    )
     config = models.JSONField(default=default_app_config, blank=True, help_text="Application-wide configuration")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1023,3 +1027,169 @@ class SecurityAuditLog(models.Model):
         verbose_name = 'Security Audit Log'
         verbose_name_plural = 'Security Audit Logs'
         ordering = ['-created_at']
+
+
+class StatementReconcileRun(models.Model):
+    """One HimalPay reseller-statement vs MySewa comparison run."""
+
+    TRIGGER_SCHEDULE = 'schedule'
+    TRIGGER_ADMIN = 'admin'
+    TRIGGER_CHOICES = [
+        (TRIGGER_SCHEDULE, 'Schedule'),
+        (TRIGGER_ADMIN, 'Admin'),
+    ]
+
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCESS = 'success'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, 'Running'),
+        (STATUS_SUCCESS, 'Success'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    from_date = models.DateField()
+    to_date = models.DateField()
+    triggered_by = models.CharField(max_length=20, choices=TRIGGER_CHOICES, default=TRIGGER_ADMIN)
+    triggered_by_user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='statement_reconcile_runs',
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_RUNNING)
+    hp_entries = models.PositiveIntegerField(default=0)
+    matched = models.PositiveIntegerField(default=0)
+    issues_open = models.PositiveIntegerField(default=0)
+    issues_new = models.PositiveIntegerField(default=0)
+    himalpay_balance_paisa = models.BigIntegerField(null=True, blank=True)
+    himalpay_bonus_balance_paisa = models.BigIntegerField(null=True, blank=True)
+    himalpay_balance_rupees = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True,
+    )
+    error_message = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'Statement run {self.from_date}→{self.to_date} ({self.status})'
+
+    class Meta:
+        verbose_name = 'Statement Reconcile Run'
+        verbose_name_plural = 'Statement Reconcile Runs'
+        ordering = ['-created_at']
+
+
+class StatementDiscrepancy(models.Model):
+    """A mismatch between HimalPay reseller statement and a MySewa transaction."""
+
+    ISSUE_STATUS_MISMATCH = 'status_mismatch'
+    ISSUE_AMOUNT_MISMATCH = 'amount_mismatch'
+    ISSUE_MISSING_LOCAL = 'missing_local'
+    ISSUE_MISSING_PROVIDER = 'missing_provider'
+    ISSUE_WALLET_NOT_APPLIED = 'wallet_not_applied'
+    ISSUE_TYPE_CHOICES = [
+        (ISSUE_STATUS_MISMATCH, 'Status mismatch'),
+        (ISSUE_AMOUNT_MISMATCH, 'Amount mismatch'),
+        (ISSUE_MISSING_LOCAL, 'Missing in MySewa'),
+        (ISSUE_MISSING_PROVIDER, 'Missing in HimalPay'),
+        (ISSUE_WALLET_NOT_APPLIED, 'Wallet not applied'),
+    ]
+
+    STATUS_OPEN = 'open'
+    STATUS_RESOLVED = 'resolved'
+    STATUS_IGNORED = 'ignored'
+    STATUS_CHOICES = [
+        (STATUS_OPEN, 'Open'),
+        (STATUS_RESOLVED, 'Resolved'),
+        (STATUS_IGNORED, 'Ignored'),
+    ]
+
+    TXN_TOPUP = 'topup'
+    TXN_DATA_PACK = 'data_pack'
+    TXN_INTERNET = 'internet'
+    TXN_WATER = 'water'
+    TXN_COMMUNITY_ELECTRICITY = 'community_electricity'
+    TXN_BANK_TRANSFER = 'bank_transfer'
+    TXN_REMITTANCE = 'remittance'
+    TXN_TYPE_CHOICES = [
+        (TXN_TOPUP, 'Top-up'),
+        (TXN_DATA_PACK, 'Data pack'),
+        (TXN_INTERNET, 'Internet'),
+        (TXN_WATER, 'Water'),
+        (TXN_COMMUNITY_ELECTRICITY, 'Community electricity'),
+        (TXN_BANK_TRANSFER, 'Bank transfer'),
+        (TXN_REMITTANCE, 'Remittance'),
+    ]
+
+    run = models.ForeignKey(
+        StatementReconcileRun,
+        on_delete=models.CASCADE,
+        related_name='discrepancies',
+    )
+    issue_type = models.CharField(max_length=40, choices=ISSUE_TYPE_CHOICES, db_index=True)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True,
+    )
+    transaction_uuid = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    merchant_txn_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    wallet_service_name = models.CharField(max_length=80, blank=True, default='')
+    direction = models.CharField(max_length=10, blank=True, default='')
+    hp_status = models.CharField(max_length=20, blank=True, default='')
+    hp_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    hp_net_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    local_status = models.CharField(max_length=20, blank=True, default='')
+    local_amount = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True,
+    )
+    txn_type = models.CharField(max_length=40, blank=True, default='', choices=TXN_TYPE_CHOICES)
+    txn_id = models.PositiveIntegerField(null=True, blank=True)
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='statement_discrepancies',
+    )
+    himalpay_snapshot = models.JSONField(default=dict, blank=True)
+    suggested_adjustment_type = models.CharField(
+        max_length=10,
+        blank=True,
+        default='',
+        choices=WalletAdjustment.ADJUSTMENT_TYPE_CHOICES,
+    )
+    suggested_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+    )
+    reason = models.TextField(blank=True, default='')
+    resolved_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='statement_discrepancies_resolved',
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_adjustment = models.ForeignKey(
+        WalletAdjustment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='statement_discrepancies',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        key = self.transaction_uuid or self.merchant_txn_id or self.pk
+        return f'{self.issue_type} ({key}) — {self.status}'
+
+    class Meta:
+        verbose_name = 'Statement Discrepancy'
+        verbose_name_plural = 'Statement Discrepancies'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'issue_type']),
+            models.Index(fields=['transaction_uuid', 'issue_type', 'status']),
+        ]

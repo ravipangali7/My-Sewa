@@ -1,7 +1,8 @@
 import { Loader2, Search } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { ListFilters, StatusOption } from "@/hooks/use-list-filters";
 
@@ -29,6 +30,9 @@ type ToolbarProps = {
   exportLabel?: string | undefined;
   statsLabels?: StatsLabels | undefined;
   statusOptions?: StatusOption[] | undefined;
+  statusPlaceholder?: string | undefined;
+  startDatePlaceholder?: string | undefined;
+  endDatePlaceholder?: string | undefined;
 };
 
 const DEFAULT_LABELS: StatsLabels = {
@@ -47,17 +51,65 @@ function NumberPill({ label, value }: { label: string; value?: number | undefine
   );
 }
 
+function DateFilterInput({
+  value,
+  onChange,
+  placeholder,
+  "aria-label": ariaLabel,
+  className,
+}: {
+  value: string;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  placeholder: string;
+  "aria-label": string;
+  className?: string | undefined;
+}) {
+  const empty = !value;
+  return (
+    <div className={cn("relative w-full sm:w-[160px]", className)}>
+      <Input
+        type="date"
+        value={value}
+        onChange={onChange}
+        aria-label={ariaLabel}
+        title={placeholder}
+        placeholder={placeholder}
+        className={cn(
+          "w-full",
+          empty &&
+            "text-transparent [&::-webkit-calendar-picker-indicator]:opacity-60 [&::-webkit-datetime-edit]:text-transparent",
+        )}
+      />
+      {empty ? (
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+          {placeholder}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export function ListPageToolbar({
   stats,
   filters,
   onFiltersChange,
   onExport,
   exporting = false,
-  searchPlaceholder = "Search",
+  searchPlaceholder,
   exportLabel = "Export CSV",
   statsLabels = DEFAULT_LABELS,
   statusOptions = [],
+  statusPlaceholder,
+  startDatePlaceholder,
+  endDatePlaceholder,
 }: ToolbarProps) {
+  const t = useT();
+  const resolvedSearchPlaceholder = searchPlaceholder ?? t("common.search");
+  const resolvedStatusPlaceholder = statusPlaceholder ?? t("list.allStatuses");
+  const resolvedStartDatePlaceholder = startDatePlaceholder ?? t("list.startDate");
+  const resolvedEndDatePlaceholder = endDatePlaceholder ?? t("list.endDate");
+  const statusIdle = filters.status === "all";
+
   return (
     <div className="min-w-0 space-y-3">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -66,35 +118,41 @@ export function ListPageToolbar({
           <Input
             value={filters.q}
             onChange={(e) => onFiltersChange({ q: e.target.value })}
-            placeholder={searchPlaceholder}
+            placeholder={resolvedSearchPlaceholder}
             className="pl-9"
           />
         </div>
         <select
           value={filters.status}
           onChange={(e) => onFiltersChange({ status: e.target.value as ListFilters["status"] })}
-          className="h-10 w-full shrink-0 rounded-md border border-input bg-background px-3 text-sm sm:w-auto"
-          aria-label="Filter by status"
+          className={cn(
+            "h-10 w-full shrink-0 rounded-md border border-input bg-background px-3 text-sm sm:w-auto",
+            statusIdle && "text-muted-foreground",
+          )}
+          aria-label={t("list.status")}
+          title={resolvedStatusPlaceholder}
         >
           {statusOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
+            <option
+              key={option.value}
+              value={option.value}
+              className="text-foreground"
+            >
+              {option.value === "all" ? resolvedStatusPlaceholder : option.label}
             </option>
           ))}
         </select>
-        <Input
-          type="date"
+        <DateFilterInput
           value={filters.startDate}
           onChange={(e) => onFiltersChange({ startDate: e.target.value })}
-          className="w-full sm:w-[160px]"
-          aria-label="Start date"
+          placeholder={resolvedStartDatePlaceholder}
+          aria-label={resolvedStartDatePlaceholder}
         />
-        <Input
-          type="date"
+        <DateFilterInput
           value={filters.endDate}
           onChange={(e) => onFiltersChange({ endDate: e.target.value })}
-          className="w-full sm:w-[160px]"
-          aria-label="End date"
+          placeholder={resolvedEndDatePlaceholder}
+          aria-label={resolvedEndDatePlaceholder}
         />
         {onExport ? (
           <Button

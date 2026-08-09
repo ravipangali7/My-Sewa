@@ -1031,6 +1031,51 @@ export const apiClient = {
       services_count: number;
     }>("/api/admin/himalpay/status/"),
 
+  adminStatement: (filters?: {
+    status?: string;
+    issue_type?: string;
+    start_date?: string;
+    end_date?: string;
+    q?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.issue_type) params.set("issue_type", filters.issue_type);
+    if (filters?.start_date) params.set("start_date", filters.start_date);
+    if (filters?.end_date) params.set("end_date", filters.end_date);
+    if (filters?.q) params.set("q", filters.q);
+    const query = params.toString();
+    return api<import("./types").StatementListResponse>(
+      `/api/admin/statement/${query ? `?${query}` : ""}`,
+    );
+  },
+
+  adminStatementRuns: () =>
+    api<{ items: import("./types").StatementReconcileRun[]; count: number }>(
+      "/api/admin/statement/runs/",
+    ),
+
+  adminStatementRun: (payload: { from_date: string; to_date: string }) =>
+    api<{ message: string; data: import("./types").StatementReconcileRun }>(
+      "/api/admin/statement/run/",
+      { method: "POST", body: payload },
+    ),
+
+  adminStatementBalance: () =>
+    api<{ data: Record<string, unknown> }>("/api/admin/statement/balance/"),
+
+  adminStatementSolve: (id: number) =>
+    api<{ message: string; data: import("./types").StatementDiscrepancy }>(
+      `/api/admin/statement/discrepancies/${id}/solve/`,
+      { method: "POST", body: {} },
+    ),
+
+  adminStatementIgnore: (id: number, reason?: string) =>
+    api<{ message: string; data: import("./types").StatementDiscrepancy }>(
+      `/api/admin/statement/discrepancies/${id}/ignore/`,
+      { method: "POST", body: { reason: reason || "" } },
+    ),
+
   adminTestSmtpEmail: (payload: {
     to_email: string;
     host?: string;

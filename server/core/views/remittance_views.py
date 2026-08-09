@@ -3,6 +3,7 @@ Remittance views: HimalPay Samsara SAMSARA_GET / SAMSARA_PAY (inbound credit).
 """
 import uuid
 import logging
+from decimal import Decimal
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -54,7 +55,8 @@ def _agent_defaults() -> dict:
     cfg = get_app_config().get('remittance') or {}
     site = get_app_config().get('site') or {}
     settings = Settings.load()
-    bank = settings.bank_details if isinstance(settings.bank_details, dict) else {}
+    from ..services.payment_accounts import normalize_bank_details
+    bank = normalize_bank_details(settings.bank_details)
     support_phone = str(site.get('support_phone') or '').strip()
     return {
         'payout_location_name': str(cfg.get('payout_location_name') or site.get('site_name') or 'MySewa'),
@@ -86,15 +88,46 @@ def _apply_load_fields(
 ):
     """Apply fee/credit/provider metadata from a HimalPay response.
 
+    Wallet credit is always the net amount after charge/cashback:
+    total_credited = amount - charge + cashback (never the gross amount when a
+    charge applies). Prefer provider total_credited when it already reflects netting.
+
     When persist=True (default), save immediately so a later
     apply_inbound_status_change + refresh_from_db cannot wipe these fields.
     """
     charge_paisa = response.get('charge', response.get('applied_charge', 0)) or 0
     cashback_paisa = response.get('cashback', response.get('applied_cashback', 0)) or 0
-    credited_paisa = response.get('total_credited', response.get('amount', 0)) or 0
+    amount_raw = response.get('amount')
+    credited_raw = response.get('total_credited')
+
     txn.charge = himalpay.to_rupees(charge_paisa)
     txn.cashback = himalpay.to_rupees(cashback_paisa)
-    txn.total_credited = himalpay.to_rupees(credited_paisa) or txn.amount
+
+    gross = (
+        himalpay.to_rupees(amount_raw)
+        if amount_raw is not None and str(amount_raw).strip() != ''
+        else Decimal(str(txn.amount or 0))
+    )
+    net = gross - txn.charge + txn.cashback
+    if net < 0:
+        net = Decimal('0.00')
+
+    provider_credited = None
+    if credited_raw is not None and str(credited_raw).strip() != '':
+        provider_credited = himalpay.to_rupees(credited_raw)
+
+    if provider_credited is not None and provider_credited > 0:
+        # If provider echoed the gross amount while a charge applies, use net.
+        if txn.charge > 0 and provider_credited == gross:
+            txn.total_credited = net
+        else:
+            txn.total_credited = provider_credited
+    else:
+        txn.total_credited = net if (txn.charge or txn.cashback) else gross
+
+    if txn.total_credited <= 0 and gross > 0 and txn.charge <= 0:
+        txn.total_credited = gross
+
     txn.provider_txn_id = himalpay.extract_transaction_id(response) or None
     txn.reference_id = himalpay.extract_reference_id(response) or txn.ref_no
     txn.provider_response = response
@@ -163,13 +196,25 @@ def lookup_remittance(request):
             status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
         )
 
+    provider_message = _provider_message(himalpay, raw, '')
+
+    # HimalPay/Samsara may return outer SUCCESS with zero/missing payout_amt and
+    # the real reason in vendor_state (already received / already paid / locked).
+    # Surface that reason instead of a misleading "Invalid amount" / amount 0.
+    if himalpay.is_remittance_already_received(provider_message, raw):
+        return Response(
+            {
+                'error': 'Already received',
+                'message': provider_message or (
+                    f'Remittance {ref_no} has already been received.'
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     provider_status = himalpay.normalize_status(raw)
     if provider_status == 'failed':
-        message = _provider_message(
-            himalpay,
-            raw,
-            'Remittance lookup failed.',
-        )
+        message = provider_message or 'Remittance lookup failed.'
         failure = himalpay.extract_failure_details(raw)
         return Response(
             {
@@ -190,10 +235,8 @@ def lookup_remittance(request):
         return Response(
             {
                 'error': 'Invalid remittance',
-                'message': _provider_message(
-                    himalpay,
-                    raw,
-                    'Remittance details could not be resolved. Check the reference number.',
+                'message': provider_message or (
+                    'Remittance details could not be resolved. Check the reference number.'
                 ),
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -207,14 +250,20 @@ def lookup_remittance(request):
             parsed.get('status'),
             parsed.get('raw') or raw,
         )
+        # Prefer the exact HimalPay/vendor reason (e.g. amount locked). Only fall
+        # back to the generic missing-amount copy when the provider sent nothing.
+        if provider_message:
+            return Response(
+                {
+                    'error': 'Remittance not available',
+                    'message': provider_message,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(
             {
                 'error': 'Invalid amount',
-                'message': _provider_message(
-                    himalpay,
-                    raw,
-                    'Remittance payout amount is missing or zero.',
-                ),
+                'message': 'Remittance payout amount is missing or zero.',
             },
             status=status.HTTP_400_BAD_REQUEST,
         )

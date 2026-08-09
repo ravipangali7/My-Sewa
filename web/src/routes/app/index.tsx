@@ -177,7 +177,7 @@ function WalletHome() {
 
   return (
     <UserShell title="MySewa" hideHeader>
-      <div className="relative flex min-h-0 min-w-0 max-w-full flex-col overflow-x-clip bg-[#F3F5F8] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
+      <div className="relative flex min-w-0 max-w-full flex-col overflow-x-clip bg-[#F3F5F8] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
         {/* Header band */}
         <section className="relative shrink-0 overflow-hidden bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_28%,#0C5F8A_55%,#0A8A6A_82%,#10B981_100%)] px-4 pb-[72px] pt-[max(12px,env(safe-area-inset-top))]">
           <MountainBackdrop className="pointer-events-none absolute inset-x-0 bottom-0 h-[58%] w-full opacity-90" />
@@ -240,7 +240,7 @@ function WalletHome() {
         </section>
 
         {/* Content overlapping header */}
-        <div className="relative z-20 -mt-10 flex min-h-0 flex-1 flex-col space-y-4 px-4 pb-4">
+        <div className="relative z-20 -mt-10 flex flex-col space-y-4 px-4 pb-4">
           {/* Wallet card → credit / debit history */}
           <Link
             to="/app/wallet-history"

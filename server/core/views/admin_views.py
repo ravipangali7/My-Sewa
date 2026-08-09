@@ -36,6 +36,8 @@ from ..models import (
     DataPackTransaction,
     UserFeeConfig,
     KYCSubmission,
+    StatementReconcileRun,
+    StatementDiscrepancy,
     merge_app_config,
 )
 from ..serializers import (
@@ -62,6 +64,8 @@ from ..serializers import (
     UserFeeConfigSerializer,
     KYCSubmissionSerializer,
     AdminKYCUpdateSerializer,
+    StatementReconcileRunSerializer,
+    StatementDiscrepancySerializer,
 )
 from ..services.kyc import mark_submission_reviewed, update_kyc_submission
 from ..services.himalpay import (
@@ -72,6 +76,7 @@ from ..services.himalpay import (
 )
 from ..services.app_config import get_app_config
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
+from ..services.statement_reconcile import run_statement_reconcile
 
 User = get_user_model()
 
@@ -463,6 +468,9 @@ def admin_dashboard(request):
     pending_count = Deposit.objects.filter(status='pending').count()
     topups_today = TopupTransaction.objects.filter(created_at__date=today).count()
     transfers_today = BankTransferTransaction.objects.filter(created_at__date=today).count()
+    open_statement_issues = StatementDiscrepancy.objects.filter(
+        status=StatementDiscrepancy.STATUS_OPEN,
+    ).count()
 
     dep_approved = Deposit.objects.filter(status='approved')
     rem_success = RemittanceTransaction.objects.filter(status='success')
@@ -551,6 +559,7 @@ def admin_dashboard(request):
             'pending_deposits': pending_count,
             'topups_today': topups_today,
             'transfers_today': transfers_today,
+            'open_statement_issues': open_statement_issues,
         },
         'summary': {
             'total_volume': total_credit + total_debit,
@@ -1109,6 +1118,8 @@ def admin_wallet_transactions(request, wallet_id):
         'bank_transfer': 'bank_transfers',
         'internet': 'internet_bills',
         'data_pack': 'data_packs',
+        'water': 'water_bills',
+        'community_electricity': 'community_electricity',
         'adjustment': 'wallet_adjustments',
         'wallet_adjustment': 'wallet_adjustments',
     }
@@ -1123,6 +1134,8 @@ def admin_wallet_transactions(request, wallet_id):
     transfers = _bucket(BankTransferTransaction.objects.filter(user=user))
     internet_bills = _bucket(InternetBillTransaction.objects.filter(user=user))
     data_packs = _bucket(DataPackTransaction.objects.filter(user=user))
+    water_bills = _bucket(WaterBillTransaction.objects.filter(user=user))
+    community_electricity = _bucket(CommunityElectricityTransaction.objects.filter(user=user))
     adjustments = _bucket(WalletAdjustment.objects.filter(user=user))
 
     payload = {
@@ -1132,6 +1145,10 @@ def admin_wallet_transactions(request, wallet_id):
         'bank_transfers': BankTransferTransactionSerializer(transfers, many=True).data,
         'internet_bills': InternetBillTransactionSerializer(internet_bills, many=True).data,
         'data_packs': DataPackTransactionSerializer(data_packs, many=True).data,
+        'water_bills': WaterBillTransactionSerializer(water_bills, many=True).data,
+        'community_electricity': CommunityElectricityTransactionSerializer(
+            community_electricity, many=True
+        ).data,
         'wallet_adjustments': WalletAdjustmentSerializer(adjustments, many=True).data,
         'wallet_id': wallet.id,
         'user_id': user.id,
@@ -1140,7 +1157,8 @@ def admin_wallet_transactions(request, wallet_id):
     if type_key:
         for key in (
             'deposits', 'remittances', 'topups', 'bank_transfers',
-            'internet_bills', 'data_packs', 'wallet_adjustments',
+            'internet_bills', 'data_packs', 'water_bills', 'community_electricity',
+            'wallet_adjustments',
         ):
             if key != type_key:
                 payload[key] = []
@@ -1938,15 +1956,15 @@ def admin_settings(request):
     if request.method == 'GET':
         return Response(SettingsSerializer(settings_obj, context={'request': request}).data)
 
+    from ..services.payment_accounts import normalize_bank_details
+
     bank_keys = ('bank_name', 'account_name', 'account_number', 'branch')
-    bank = dict(settings_obj.bank_details or {})
+    bank = dict(settings_obj.bank_details or {}) if isinstance(settings_obj.bank_details, dict) else {}
     updated_bank = False
     for k in bank_keys:
         if k in request.data and request.data.get(k) is not None:
             bank[k] = str(request.data.get(k))
             updated_bank = True
-    if updated_bank:
-        settings_obj.bank_details = bank
 
     if 'qr_code' in request.FILES:
         settings_obj.qr_code = request.FILES['qr_code']
@@ -1973,7 +1991,32 @@ def admin_settings(request):
     if 'bank_details' in request.data:
         parsed_bank = _parse_json_field(request.data.get('bank_details'))
         if parsed_bank is not None:
-            settings_obj.bank_details = parsed_bank
+            bank = parsed_bank if isinstance(parsed_bank, dict) else bank
+            updated_bank = True
+
+    if updated_bank:
+        # Flat bank_* fields from older clients merge into first bank account
+        if any(k in request.data for k in bank_keys) and 'bank_details' not in request.data:
+            accounts = list(bank.get('accounts') or []) if isinstance(bank.get('accounts'), list) else []
+            primary = next((a for a in accounts if isinstance(a, dict) and a.get('method', 'bank') == 'bank'), None)
+            if primary is None:
+                accounts.insert(0, {
+                    'id': '',
+                    'method': 'bank',
+                    'label': bank.get('bank_name') or 'Bank account',
+                    'bank_name': bank.get('bank_name') or '',
+                    'account_name': bank.get('account_name') or '',
+                    'account_number': bank.get('account_number') or '',
+                    'branch': bank.get('branch') or '',
+                    'enabled': True,
+                })
+            else:
+                for k in bank_keys:
+                    if k in request.data and request.data.get(k) is not None:
+                        primary[k] = str(request.data.get(k))
+                primary['label'] = primary.get('label') or primary.get('bank_name') or 'Bank account'
+            bank['accounts'] = accounts
+        settings_obj.bank_details = normalize_bank_details(bank)
 
     if 'config' in request.data:
         incoming = _parse_json_field(request.data.get('config'))
@@ -2433,5 +2476,258 @@ def admin_user_fees(request, user_id):
         'user_id': user.id,
         'fees': UserFeeConfigSerializer(fee_config).data,
         'defaults': defaults,
+    })
+
+# ---------------------------------------------------------------------------
+# HimalPay statement reconciliation
+# ---------------------------------------------------------------------------
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_statement_list(request):
+    """List statement discrepancies with filters + open-issue summary."""
+    qs = (
+        StatementDiscrepancy.objects
+        .select_related('user', 'run', 'resolved_by', 'resolution_adjustment')
+        .order_by('-created_at')
+    )
+    status_filter = (request.query_params.get('status') or 'open').strip()
+    if status_filter and status_filter != 'all':
+        qs = qs.filter(status=status_filter)
+    issue_type = (request.query_params.get('issue_type') or '').strip()
+    if issue_type:
+        qs = qs.filter(issue_type=issue_type)
+    start, end = _parse_date_range(request)
+    qs = _apply_created_range(qs, start, end)
+    q = (request.query_params.get('q') or '').strip()
+    if q:
+        qs = qs.filter(
+            Q(transaction_uuid__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(wallet_service_name__icontains=q)
+            | Q(user__phone__icontains=q)
+            | Q(reason__icontains=q)
+        )
+
+    open_count = StatementDiscrepancy.objects.filter(
+        status=StatementDiscrepancy.STATUS_OPEN,
+    ).count()
+    by_type = {
+        row['issue_type']: row['c']
+        for row in StatementDiscrepancy.objects.filter(
+            status=StatementDiscrepancy.STATUS_OPEN,
+        ).values('issue_type').annotate(c=Count('id'))
+    }
+    latest_run = StatementReconcileRun.objects.order_by('-created_at').first()
+
+    return Response({
+        'summary': {
+            'open_issues': open_count,
+            'by_issue_type': by_type,
+            'latest_run': (
+                StatementReconcileRunSerializer(latest_run).data if latest_run else None
+            ),
+        },
+        'items': StatementDiscrepancySerializer(qs[:500], many=True).data,
+        'count': qs.count(),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_statement_runs(request):
+    qs = StatementReconcileRun.objects.select_related('triggered_by_user').order_by('-created_at')[:50]
+    return Response({
+        'items': StatementReconcileRunSerializer(qs, many=True).data,
+        'count': qs.count(),
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_statement_run(request):
+    """Trigger a statement reconcile for a date range (max ~2 months)."""
+    from_raw = (request.data.get('from_date') or '').strip()
+    to_raw = (request.data.get('to_date') or '').strip()
+    from_date = parse_date(from_raw) if from_raw else timezone.localdate()
+    to_date = parse_date(to_raw) if to_raw else from_date
+    if not from_date or not to_date:
+        return Response(
+            {'error': 'from_date and to_date must be YYYY-MM-DD'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        run = run_statement_reconcile(
+            from_date=from_date,
+            to_date=to_date,
+            triggered_by=StatementReconcileRun.TRIGGER_ADMIN,
+            triggered_by_user=request.user,
+        )
+    except HimalPayError as exc:
+        return Response(
+            {'error': str(exc.message if hasattr(exc, 'message') else exc)},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({
+        'message': 'Statement reconcile completed',
+        'data': StatementReconcileRunSerializer(run).data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_statement_balance(request):
+    himalpay = HimalPayAPI()
+    try:
+        data = himalpay.get_reseller_balance()
+    except HimalPayError as exc:
+        return Response(
+            {'error': str(exc.message if hasattr(exc, 'message') else exc)},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    return Response({'data': data})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_statement_solve(request, discrepancy_id):
+    """Credit/debit the matched user wallet to resolve a statement discrepancy."""
+    try:
+        disc = (
+            StatementDiscrepancy.objects
+            .select_related('user', 'user__wallet')
+            .get(pk=discrepancy_id)
+        )
+    except StatementDiscrepancy.DoesNotExist:
+        return Response({'error': 'Discrepancy not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if disc.status != StatementDiscrepancy.STATUS_OPEN:
+        return Response(
+            {'error': 'Only open discrepancies can be solved.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not disc.user_id:
+        return Response(
+            {
+                'error': (
+                    'This issue has no matched MySewa user. '
+                    'Link or create the transaction manually, then re-run check.'
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not disc.suggested_adjustment_type or disc.suggested_amount is None:
+        return Response(
+            {'error': 'No suggested wallet adjustment for this issue.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    magnitude = Decimal(str(disc.suggested_amount)).quantize(Decimal('0.01'))
+    if magnitude <= 0:
+        return Response(
+            {'error': 'Suggested adjustment amount must be positive.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    adjustment_type = disc.suggested_adjustment_type
+    signed = magnitude if adjustment_type == 'credit' else -magnitude
+    reason = (
+        f'Statement reconcile #{disc.run_id}: {disc.issue_type} '
+        f'{disc.transaction_uuid or disc.merchant_txn_id}. {disc.reason}'
+    ).strip()
+    reference = f'STMT-SOLVE-{disc.pk}'
+
+    try:
+        with transaction.atomic():
+            locked_disc = (
+                StatementDiscrepancy.objects
+                .select_for_update()
+                .select_related('user')
+                .get(pk=disc.pk)
+            )
+            if locked_disc.status != StatementDiscrepancy.STATUS_OPEN:
+                return Response(
+                    {'error': 'Discrepancy was already resolved.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            wallet = (
+                Wallet.objects.select_for_update()
+                .select_related('user')
+                .get(user_id=locked_disc.user_id)
+            )
+            balance_before = wallet.balance
+            balance_after = balance_before + signed
+            if balance_after < 0:
+                return Response(
+                    {'error': 'Adjustment would make wallet balance negative.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            wallet.balance = balance_after
+            wallet.save(update_fields=['balance', 'updated_at'])
+            adj = WalletAdjustment.objects.create(
+                wallet=wallet,
+                user=wallet.user,
+                amount=signed,
+                adjustment_type=adjustment_type,
+                balance_before=balance_before,
+                balance_after=balance_after,
+                reason=reason[:2000],
+                created_by=request.user,
+                reference=reference,
+            )
+            locked_disc.status = StatementDiscrepancy.STATUS_RESOLVED
+            locked_disc.resolved_by = request.user
+            locked_disc.resolved_at = timezone.now()
+            locked_disc.resolution_adjustment = adj
+            locked_disc.save(update_fields=[
+                'status', 'resolved_by', 'resolved_at', 'resolution_adjustment', 'updated_at',
+            ])
+            from ..services.notifications import notify_wallet_adjustment
+            notify_wallet_adjustment(
+                wallet.user,
+                balance_before,
+                balance_after,
+                reason=reason,
+                ref=reference,
+            )
+    except Wallet.DoesNotExist:
+        return Response({'error': 'User wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    disc = StatementDiscrepancy.objects.select_related(
+        'user', 'run', 'resolved_by', 'resolution_adjustment',
+    ).get(pk=discrepancy_id)
+    return Response({
+        'message': 'Issue solved with wallet adjustment',
+        'data': StatementDiscrepancySerializer(disc).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_statement_ignore(request, discrepancy_id):
+    try:
+        disc = StatementDiscrepancy.objects.get(pk=discrepancy_id)
+    except StatementDiscrepancy.DoesNotExist:
+        return Response({'error': 'Discrepancy not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if disc.status != StatementDiscrepancy.STATUS_OPEN:
+        return Response(
+            {'error': 'Only open discrepancies can be ignored.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    note = (request.data.get('reason') or '').strip()
+    disc.status = StatementDiscrepancy.STATUS_IGNORED
+    disc.resolved_by = request.user
+    disc.resolved_at = timezone.now()
+    if note:
+        disc.reason = f'{disc.reason}\n[ignored] {note}'.strip()
+    disc.save(update_fields=['status', 'resolved_by', 'resolved_at', 'reason', 'updated_at'])
+    return Response({
+        'message': 'Issue ignored',
+        'data': StatementDiscrepancySerializer(disc).data,
     })
 

@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { AuthSessionLoader } from "@/components/AuthSessionLoader";
 import { DateOfBirthField } from "@/components/DateOfBirthField";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,10 @@ function RegisterPage() {
       navigate({ to: isStaff ? "/admin" : "/app" });
     }
   }, [token, isLoading, user, isStaff, navigate]);
+
+  if (token && (isLoading || user)) {
+    return <AuthSessionLoader />;
+  }
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">

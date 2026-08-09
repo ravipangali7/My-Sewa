@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Search, Upload, QrCode } from "lucide-react";
+import { Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
+import { DepositAccountsPanel } from "@/components/DepositAccountsPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -144,8 +145,6 @@ function LoadWallet() {
     },
   });
 
-  const bank = settingsQuery.data?.bank_details ?? {};
-
   return (
     <UserShell
       title={t("load.title")}
@@ -182,65 +181,14 @@ function LoadWallet() {
 
         {depositsEnabled ? (
           <>
-            <section className="inset-group min-w-0 max-w-full p-4">
-              <h2 className="text-[15px] font-semibold">{t("load.depositAccount")}</h2>
-              {instructions ? (
-                <p className="mt-2 break-words text-[13px] text-muted-foreground whitespace-pre-wrap">
-                  {instructions}
-                </p>
-              ) : null}
-              <div className="mt-3 flex min-w-0 flex-col gap-4 sm:flex-row">
-                <div className="mx-auto flex size-36 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-muted text-muted-foreground sm:mx-0">
-                  {settingsQuery.data?.qr_code_url ? (
-                    <img
-                      src={settingsQuery.data.qr_code_url}
-                      alt={t("load.qrAlt")}
-                      className="size-full object-contain"
-                    />
-                  ) : (
-                    <QrCode className="size-12" />
-                  )}
-                </div>
-                <dl className="min-w-0 flex-1 space-y-2 text-[14px]">
-                  {settingsQuery.isLoading ? (
-                    <p className="text-muted-foreground">{t("load.loadingBank")}</p>
-                  ) : !bank.bank_name && !bank.account_name && !bank.account_number ? (
-                    <p className="text-muted-foreground">{t("load.bankNotConfigured")}</p>
-                  ) : (
-                    <>
-                      {bank.bank_name ? (
-                        <div className="flex min-w-0 justify-between gap-3">
-                          <dt className="shrink-0 text-muted-foreground">{t("load.bankName")}</dt>
-                          <dd className="min-w-0 break-all text-right font-medium">{bank.bank_name}</dd>
-                        </div>
-                      ) : null}
-                      {bank.account_name ? (
-                        <div className="flex min-w-0 justify-between gap-3">
-                          <dt className="shrink-0 text-muted-foreground">{t("load.accountName")}</dt>
-                          <dd className="min-w-0 break-all text-right font-medium">
-                            {bank.account_name}
-                          </dd>
-                        </div>
-                      ) : null}
-                      {bank.account_number ? (
-                        <div className="flex min-w-0 justify-between gap-3">
-                          <dt className="shrink-0 text-muted-foreground">{t("load.accountNumber")}</dt>
-                          <dd className="min-w-0 break-all text-right font-medium tabular">
-                            {bank.account_number}
-                          </dd>
-                        </div>
-                      ) : null}
-                      {bank.branch ? (
-                        <div className="flex min-w-0 justify-between gap-3">
-                          <dt className="shrink-0 text-muted-foreground">{t("load.branch")}</dt>
-                          <dd className="min-w-0 break-all text-right font-medium">{bank.branch}</dd>
-                        </div>
-                      ) : null}
-                    </>
-                  )}
-                </dl>
-              </div>
-            </section>
+            <DepositAccountsPanel
+              bankDetails={settingsQuery.data?.bank_details ?? null}
+              loading={settingsQuery.isLoading}
+              qrUrl={settingsQuery.data?.qr_code_url ?? null}
+              qrAlt={t("load.qrAlt")}
+              instructions={instructions}
+              title={t("load.depositAccount")}
+            />
 
             <section className="inset-group min-w-0 max-w-full p-4">
               <h2 className="mb-3 text-[15px] font-semibold">{t("load.submitTitle")}</h2>
@@ -285,6 +233,8 @@ function LoadWallet() {
                     value={depositDate}
                     onChange={(e) => setDepositDate(e.target.value)}
                     className="h-11 rounded-xl"
+                    placeholder={t("load.depositDate")}
+                    title={t("load.depositDate")}
                     required
                   />
                 </div>

@@ -16,8 +16,12 @@ export function isEmbeddedWebView(): boolean {
 }
 
 /**
- * Mark the document for native CSS and release any leftover shell
- * overflow traps (overflow-x:hidden → overflow-y:auto pairing).
+ * Mark the document for native CSS and release leftover overflow traps
+ * (overflow-x:hidden → overflow-y:auto pairing) that freeze Android WebView.
+ *
+ * Do NOT force height/min-height inline — that inflates document scrollHeight
+ * past the real content and creates blank overscroll on every page.
+ * Also clears stale inline height locks left by older unlock scripts.
  * Safe to call on every route change.
  */
 export function ensureNativeDocumentScroll(): void {
@@ -26,39 +30,49 @@ export function ensureNativeDocumentScroll(): void {
 
   document.documentElement.classList.add("mysewa-native");
 
-  const release = (el: HTMLElement | null) => {
+  const clearStaleHeightLocks = (el: HTMLElement | null) => {
+    if (!el) return;
+    // Older unlock scripts set these with !important and left blank overscroll.
+    if (el.style.getPropertyValue("height") || el.style.getPropertyValue("min-height") || el.style.getPropertyValue("max-height")) {
+      el.style.removeProperty("height");
+      el.style.removeProperty("min-height");
+      el.style.removeProperty("max-height");
+    }
+  };
+
+  const releaseOverflowTrap = (el: HTMLElement | null) => {
     if (!el) return;
     const style = window.getComputedStyle(el);
     if (style.position === "fixed" || style.position === "absolute") return;
+    clearStaleHeightLocks(el);
     // Never leave overflow-x:hidden on expanding shells — it pairs to
     // overflow-y:auto and Android WebView swallows the gesture.
-    if (style.overflowX === "hidden" || style.overflowY === "auto" || style.overflowY === "scroll") {
+    if (style.overflowX === "hidden") {
       el.style.setProperty("overflow-x", "clip", "important");
-      el.style.setProperty("overflow-y", "visible", "important");
+      // Only clear a paired y-scroller when it was not intentionally scrollable
+      // via an explicit max-height / flex min-height trap on mobile shells.
+      if (style.overflowY === "auto" || style.overflowY === "scroll") {
+        const maxH = style.maxHeight;
+        const isBounded = maxH && maxH !== "none" && maxH !== "auto";
+        if (!isBounded) {
+          el.style.setProperty("overflow-y", "visible", "important");
+        }
+      }
     }
-    el.style.setProperty("height", "auto", "important");
-    el.style.setProperty("max-height", "none", "important");
   };
 
   const mains = document.getElementsByTagName("main");
   for (let i = 0; i < Math.min(mains.length, 4); i++) {
     let node: HTMLElement | null = mains[i] ?? null;
     while (node && node !== document.body) {
-      release(node);
-      if (node.parentElement === document.body) {
-        node.style.setProperty("min-height", "100dvh", "important");
-        break;
-      }
+      releaseOverflowTrap(node);
       node = node.parentElement;
     }
   }
 
   if (mains.length === 0) {
     const top = document.body?.firstElementChild as HTMLElement | null;
-    if (top) {
-      release(top);
-      top.style.setProperty("min-height", "100dvh", "important");
-    }
+    releaseOverflowTrap(top);
   }
 }
 

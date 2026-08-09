@@ -12,6 +12,7 @@ import {
   Zap,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
+import { DepositAccountsPanel } from "@/components/DepositAccountsPanel";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { isAccountPending } from "@/lib/account-status";
@@ -47,8 +48,6 @@ function Services() {
   });
 
   const payment = settingsQuery.data?.config?.payment;
-  const bank = settingsQuery.data?.bank_details ?? {};
-  const bankEntries = Object.entries(bank).filter(([, v]) => v);
 
   const services = [
     {
@@ -161,23 +160,11 @@ function Services() {
         </ul>
 
         {payment?.deposits_enabled !== false && !accountPending ? (
-          <section className="inset-group p-4">
-            <h2 className="text-[15px] font-semibold">{t("services.depositAccount")}</h2>
-            <dl className="mt-3 space-y-2 text-[15px]">
-              {settingsQuery.isLoading ? (
-                <p className="text-muted-foreground">{t("common.loading")}</p>
-              ) : bankEntries.length === 0 ? (
-                <p className="text-muted-foreground">{t("services.notConfigured")}</p>
-              ) : (
-                bankEntries.map(([k, v]) => (
-                  <div key={k} className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground capitalize">{k.replace(/_/g, " ")}</dt>
-                    <dd className="font-medium">{v}</dd>
-                  </div>
-                ))
-              )}
-            </dl>
-          </section>
+          <DepositAccountsPanel
+            bankDetails={settingsQuery.data?.bank_details ?? null}
+            loading={settingsQuery.isLoading}
+            title={t("services.depositAccount")}
+          />
         ) : null}
       </div>
     </UserShell>

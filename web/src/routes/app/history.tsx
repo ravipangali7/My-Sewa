@@ -354,15 +354,27 @@ function HistoryPage() {
                     status: e.target.value as ListStatus,
                   }))
                 }
-                className="h-12 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                className={cn(
+                  "h-12 w-full rounded-xl border border-input bg-background px-3 text-sm",
+                  filters.status === "all" && "text-muted-foreground",
+                )}
+                aria-label={t("list.status")}
               >
                 {TXN_STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
+                  <option
+                    key={option.value}
+                    value={option.value}
+                    className="text-foreground"
+                  >
+                    {option.value === "all" ? t("list.allStatuses") : option.label}
                   </option>
                 ))}
-                <option value="approved">{t("status.approved")}</option>
-                <option value="rejected">{t("status.rejected")}</option>
+                <option value="approved" className="text-foreground">
+                  {t("status.approved")}
+                </option>
+                <option value="rejected" className="text-foreground">
+                  {t("status.rejected")}
+                </option>
               </select>
             </div>
 
@@ -376,6 +388,8 @@ function HistoryPage() {
                   onChange={(e) =>
                     setFilters((prev) => ({ ...prev, startDate: e.target.value }))
                   }
+                  placeholder={t("list.startDate")}
+                  title={t("list.startDate")}
                   className="h-12 rounded-xl"
                 />
               </div>
@@ -388,6 +402,8 @@ function HistoryPage() {
                   onChange={(e) =>
                     setFilters((prev) => ({ ...prev, endDate: e.target.value }))
                   }
+                  placeholder={t("list.endDate")}
+                  title={t("list.endDate")}
                   className="h-12 rounded-xl"
                 />
               </div>

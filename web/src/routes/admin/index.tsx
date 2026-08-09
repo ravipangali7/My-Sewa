@@ -34,7 +34,7 @@ import {
 import { apiClient } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { COLORS } from "@/constants/colors";
-import { Users, Wallet, Inbox, Smartphone, Banknote } from "lucide-react";
+import { Users, Wallet, Inbox, Smartphone, Banknote, AlertTriangle } from "lucide-react";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({
@@ -98,6 +98,16 @@ function AdminDashboard() {
           icon: Banknote,
           tone: "debit" as const,
         },
+        {
+          key: "statement",
+          label: "Statement issues",
+          value: String(dash.data.kpis.open_statement_issues ?? 0),
+          icon: AlertTriangle,
+          tone:
+            (dash.data.kpis.open_statement_issues ?? 0) > 0
+              ? ("warning" as const)
+              : ("default" as const),
+        },
       ]
     : [];
 
@@ -119,6 +129,22 @@ function AdminDashboard() {
       ) : (
         <>
           <StatsCards items={kpis} />
+          {(dash.data.kpis.open_statement_issues ?? 0) > 0 ? (
+            <div className="mt-4 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-100">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p>
+                  <span className="font-medium">
+                    {dash.data.kpis.open_statement_issues} HimalPay statement issue
+                    {dash.data.kpis.open_statement_issues === 1 ? "" : "s"}
+                  </span>{" "}
+                  need review.
+                </p>
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/admin/statement">Check statement</Link>
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {amountCards.length > 0 ? (
             <div className="mt-4">
               <StatsCards items={amountCards} />

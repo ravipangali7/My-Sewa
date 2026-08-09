@@ -111,12 +111,27 @@ export interface Wallet {
   updated_at: string;
 }
 
+export type PaymentMethod = "bank" | "khalti" | "esewa";
+
+export interface PaymentAccount {
+  id: string;
+  method: PaymentMethod;
+  label: string;
+  bank_name?: string;
+  account_name?: string;
+  account_number?: string;
+  branch?: string;
+  enabled?: boolean;
+}
+
 export interface BankDetails {
   bank_name?: string;
   account_name?: string;
   account_number?: string;
   branch?: string;
-  [key: string]: string | undefined;
+  /** Multiple deposit destinations (bank / Khalti / eSewa). */
+  accounts?: PaymentAccount[];
+  [key: string]: string | PaymentAccount[] | undefined;
 }
 
 export interface SiteConfig {
@@ -726,6 +741,7 @@ export interface AdminDashboard {
     pending_deposits: number;
     topups_today: number;
     transfers_today: number;
+    open_statement_issues?: number;
   };
   summary?: AmountSummary;
   volume_series: Array<{
@@ -876,4 +892,70 @@ export interface AdminListResponse<T> {
   items: T[];
   stats: AdminListStats;
   summary?: AmountSummary;
+}
+
+export interface StatementReconcileRun {
+  id: number;
+  from_date: string;
+  to_date: string;
+  triggered_by: string;
+  triggered_by_display: string;
+  triggered_by_user: number | null;
+  triggered_by_user_phone: string | null;
+  status: string;
+  status_display: string;
+  hp_entries: number;
+  matched: number;
+  issues_open: number;
+  issues_new: number;
+  himalpay_balance_paisa: number | null;
+  himalpay_bonus_balance_paisa: number | null;
+  himalpay_balance_rupees: string | null;
+  error_message: string;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface StatementDiscrepancy {
+  id: number;
+  run: number;
+  issue_type: string;
+  issue_type_display: string;
+  status: string;
+  status_display: string;
+  transaction_uuid: string;
+  merchant_txn_id: string;
+  wallet_service_name: string;
+  direction: string;
+  hp_status: string;
+  hp_amount: string;
+  hp_net_amount: string;
+  local_status: string;
+  local_amount: string | null;
+  txn_type: string;
+  txn_type_display: string;
+  txn_id: number | null;
+  user: number | null;
+  user_phone: string | null;
+  user_name: string | null;
+  himalpay_snapshot: Record<string, unknown>;
+  suggested_adjustment_type: string;
+  suggested_amount: string | null;
+  reason: string;
+  can_solve: boolean;
+  resolved_by: number | null;
+  resolved_at: string | null;
+  resolution_adjustment: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StatementListResponse {
+  summary: {
+    open_issues: number;
+    by_issue_type: Record<string, number>;
+    latest_run: StatementReconcileRun | null;
+  };
+  items: StatementDiscrepancy[];
+  count: number;
 }

@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { AuthSessionLoader } from "@/components/AuthSessionLoader";
 import { BsDatePicker } from "@/components/BsDatePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,10 @@ function ForgotPasswordPage() {
       navigate({ to: isStaff ? "/admin" : "/app" });
     }
   }, [token, isLoading, user, isStaff, navigate]);
+
+  if (token && (isLoading || user)) {
+    return <AuthSessionLoader />;
+  }
 
   const title =
     step === "request"

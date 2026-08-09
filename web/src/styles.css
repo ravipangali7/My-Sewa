@@ -156,9 +156,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Clearance for fixed mobile bottom nav (elevated center FAB + safe area). */
+/* Clearance for fixed mobile bottom nav (elevated center FAB + safe area).
+ * Sized to the real tab bar (~56–64px content + padding), not an extra
+ * viewport chunk — excess here becomes blank overscroll on every page. */
 @utility pb-safe {
-  padding-bottom: calc(6rem + var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)));
+  padding-bottom: calc(5.25rem + var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)));
 }
 
 @layer base {
@@ -169,6 +171,7 @@
   html {
     width: 100%;
     height: auto;
+    min-height: 0;
     max-height: none;
     /* clip (not hidden): hidden forces overflow-y:auto and traps WebView scroll */
     overflow-x: clip;
@@ -184,7 +187,7 @@
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
     width: 100%;
-    min-height: 100%;
+    min-height: 0;
     height: auto;
     max-height: none;
     overflow-x: clip;
@@ -205,10 +208,13 @@
     max-width: 100%;
   }
 
-  /* Flutter WebView shell: hard-guarantee document scrolling. */
+  /* Flutter WebView shell: document height follows content only.
+   * Visual fill for short pages comes from .mysewa-app-shell min-h-dvh —
+   * never stack extra 100dvh min-heights on html/body (causes blank scroll). */
   html.mysewa-native,
   html.mysewa-native body {
     height: auto !important;
+    min-height: 0 !important;
     max-height: none !important;
     overflow-x: clip !important;
     -webkit-overflow-scrolling: touch !important;
@@ -222,5 +228,9 @@
 
   html.mysewa-native body {
     overflow-y: visible !important;
+  }
+
+  html.mysewa-native .mysewa-app-shell {
+    min-height: 100dvh;
   }
 }

@@ -390,6 +390,79 @@ def _mirror_email_to_admin(
         logger.exception('Failed to mirror email to Super Admin: %s', subject)
 
 
+def _opposite_direction(direction: str) -> str:
+    return 'debit' if direction == 'credit' else 'credit'
+
+
+def _send_admin_opposite_wallet_email(
+    *,
+    user,
+    customer_direction: str,
+    amount,
+    balance_after=None,
+    reason: str = None,
+    ref: str = None,
+    extra_rows: Optional[Sequence[Row]] = None,
+    context_label: str = 'Wallet movement',
+) -> None:
+    """
+    Notify Super Admin with the opposite ledger direction of the customer's wallet
+    movement (customer credit → admin debit email, and vice versa).
+    """
+    admin_emails = _admin_alert_emails()
+    if not admin_emails:
+        return
+
+    admin_direction = _opposite_direction(customer_direction)
+    site_name = _site_name()
+    amount_display = _fmt_amount(amount)
+    admin_status = 'Debited' if admin_direction == 'debit' else 'Credited'
+    customer_status = 'credited' if customer_direction == 'credit' else 'debited'
+    customer_phone = getattr(user, 'phone', None) or '-'
+    customer_name = (
+        f'{getattr(user, "first_name", "") or ""} {getattr(user, "last_name", "") or ""}'
+    ).strip() or '-'
+
+    rows: List[Row] = [
+        ('Type', f'Admin {admin_direction} · customer {customer_direction}'),
+        ('Context', context_label),
+        ('Customer', f'{customer_name} ({customer_phone})'),
+        ('Amount', amount_display),
+        (
+            'Customer new balance',
+            _fmt_amount(balance_after) if balance_after is not None else '-',
+        ),
+        ('Reason', reason or '-'),
+        ('Reference', ref or '-'),
+        ('Date', _format_when()),
+        ('Status', admin_status),
+    ]
+    if extra_rows:
+        # Insert extras before Status.
+        rows = rows[:-1] + list(extra_rows) + rows[-1:]
+
+    title = f'Admin wallet {admin_direction}'
+    subtitle = (
+        f'Customer wallet was {customer_status}; '
+        f'admin ledger records the corresponding {admin_direction} of {amount_display}.'
+    )
+    _send_txn_email(
+        recipients=admin_emails,
+        subject=f'[{site_name}] Admin wallet {admin_direction} · {customer_phone}',
+        text_intro=(
+            f'Customer {customer_phone} was {customer_status} {amount_display}. '
+            f'Admin side: {admin_direction} of {amount_display}.'
+        ),
+        title=title,
+        subtitle=subtitle,
+        amount_display=amount_display,
+        status='success',
+        status_label=admin_status,
+        rows=rows,
+        copy_admin=False,
+    )
+
+
 def _send_txn_email(
     *,
     recipients: list,
@@ -656,18 +729,29 @@ def notify_wallet_credit(
         ('Status', 'Success'),
     ]
 
-    if cfg.get('email_on_wallet_credit') and _user_email(user):
-        _send_txn_email(
-            recipients=[user.email],
-            subject=f'[{site_name}] Wallet credited',
-            text_intro='Your wallet has been credited.',
-            title='Wallet credited',
-            subtitle='Funds were added to your MySewa wallet.',
-            amount_display=_fmt_amount(amount),
-            status='success',
-            status_label='Credited',
-            rows=rows,
-            greeting=f'Hi {getattr(user, "first_name", "") or "there"},',
+    if cfg.get('email_on_wallet_credit'):
+        if _user_email(user):
+            _send_txn_email(
+                recipients=[user.email],
+                subject=f'[{site_name}] Wallet credited',
+                text_intro='Your wallet has been credited.',
+                title='Wallet credited',
+                subtitle='Funds were added to your MySewa wallet.',
+                amount_display=_fmt_amount(amount),
+                status='success',
+                status_label='Credited',
+                rows=rows,
+                greeting=f'Hi {getattr(user, "first_name", "") or "there"},',
+                copy_admin=False,
+            )
+        _send_admin_opposite_wallet_email(
+            user=user,
+            customer_direction='credit',
+            amount=amount,
+            balance_after=balance_after,
+            reason=reason,
+            ref=ref,
+            context_label='Wallet credit',
         )
 
     _push(
@@ -704,18 +788,29 @@ def notify_wallet_debit(
         ('Status', 'Success'),
     ]
 
-    if cfg.get('email_on_wallet_debit') and _user_email(user):
-        _send_txn_email(
-            recipients=[user.email],
-            subject=f'[{site_name}] Wallet debited',
-            text_intro='Your wallet has been debited.',
-            title='Wallet debited',
-            subtitle='An amount was deducted from your MySewa wallet.',
-            amount_display=_fmt_amount(amount),
-            status='success',
-            status_label='Debited',
-            rows=rows,
-            greeting=f'Hi {getattr(user, "first_name", "") or "there"},',
+    if cfg.get('email_on_wallet_debit'):
+        if _user_email(user):
+            _send_txn_email(
+                recipients=[user.email],
+                subject=f'[{site_name}] Wallet debited',
+                text_intro='Your wallet has been debited.',
+                title='Wallet debited',
+                subtitle='An amount was deducted from your MySewa wallet.',
+                amount_display=_fmt_amount(amount),
+                status='success',
+                status_label='Debited',
+                rows=rows,
+                greeting=f'Hi {getattr(user, "first_name", "") or "there"},',
+                copy_admin=False,
+            )
+        _send_admin_opposite_wallet_email(
+            user=user,
+            customer_direction='debit',
+            amount=amount,
+            balance_after=balance_after,
+            reason=reason,
+            ref=ref,
+            context_label='Wallet debit',
         )
 
     _push(
@@ -813,6 +908,21 @@ def notify_deposit_approved(deposit, balance_after=None) -> None:
             status_label='Approved',
             rows=rows,
             greeting=f'Hi {getattr(deposit.user, "first_name", "") or "there"},',
+            copy_admin=False,
+        )
+    if cfg.get('email_on_wallet_credit'):
+        _send_admin_opposite_wallet_email(
+            user=deposit.user,
+            customer_direction='credit',
+            amount=deposit.amount,
+            balance_after=balance_after,
+            reason='Deposit approved',
+            ref=str(deposit.id),
+            context_label='Deposit / wallet load',
+            extra_rows=[
+                ('Deposit ID', str(deposit.id)),
+                ('Bank', getattr(deposit, 'bank_name', None) or '-'),
+            ],
         )
 
     _push(
@@ -837,35 +947,57 @@ def notify_topup_success(topup, balance_after=None) -> None:
         balance_after = _wallet_balance(topup.user)
 
     product = 'NTC' if topup.product_id == 1 else 'NCELL'
+    # Wallet impact is net total debited (amount + charge - cashback).
+    debited = topup.total_debited or topup.amount
     push_body = (
         f'{product} top-up of {_fmt_amount(topup.amount)} to {topup.mobile_number} succeeded. '
-        f'Debited {_fmt_amount(topup.total_debited)}.'
+        f'Debited {_fmt_amount(debited)}.'
     )
     rows: List[Row] = [
         ('Type', 'Mobile top-up'),
         ('Operator', product),
         ('Mobile', topup.mobile_number),
-        ('Amount', _fmt_amount(topup.amount)),
+        ('Top-up amount', _fmt_amount(topup.amount)),
         ('Charge', _fmt_amount(getattr(topup, 'charge', 0) or 0)),
         ('Cashback', _fmt_amount(getattr(topup, 'cashback', 0) or 0)),
-        ('Total debited', _fmt_amount(topup.total_debited)),
+        ('Total debited', _fmt_amount(debited)),
         ('New balance', _fmt_amount(balance_after) if balance_after is not None else '-'),
         ('Reference', topup.merchant_txn_id or '-'),
         ('Date', _format_when(getattr(topup, 'created_at', None))),
         ('Status', 'Success'),
     ]
-    if cfg.get('email_on_topup') and _user_email(topup.user):
-        _send_txn_email(
-            recipients=[topup.user.email],
-            subject=f'[{site_name}] {product} top-up successful',
-            text_intro=f'Your {product} top-up was successful.',
-            title=f'{product} top-up successful',
-            subtitle=f'Recharge of {_fmt_amount(topup.amount)} to {topup.mobile_number} is complete.',
-            amount_display=_fmt_amount(topup.amount),
-            status='success',
-            status_label='Success',
-            rows=rows,
-            greeting=f'Hi {getattr(topup.user, "first_name", "") or "there"},',
+    if cfg.get('email_on_topup'):
+        if _user_email(topup.user):
+            _send_txn_email(
+                recipients=[topup.user.email],
+                subject=f'[{site_name}] {product} top-up successful',
+                text_intro=f'Your {product} top-up was successful.',
+                title=f'{product} top-up successful',
+                subtitle=(
+                    f'Recharge of {_fmt_amount(topup.amount)} to {topup.mobile_number} is complete. '
+                    f'Wallet debited {_fmt_amount(debited)}.'
+                ),
+                amount_display=_fmt_amount(debited),
+                amount_label='Wallet debit',
+                status='success',
+                status_label='Debited',
+                rows=rows,
+                greeting=f'Hi {getattr(topup.user, "first_name", "") or "there"},',
+                copy_admin=False,
+            )
+        _send_admin_opposite_wallet_email(
+            user=topup.user,
+            customer_direction='debit',
+            amount=debited,
+            balance_after=balance_after,
+            reason=f'{product} top-up',
+            ref=topup.merchant_txn_id or str(topup.id),
+            context_label='Mobile top-up',
+            extra_rows=[
+                ('Top-up amount', _fmt_amount(topup.amount)),
+                ('Charge', _fmt_amount(getattr(topup, 'charge', 0) or 0)),
+                ('Mobile', topup.mobile_number),
+            ],
         )
     _push(
         topup.user,
@@ -874,7 +1006,7 @@ def notify_topup_success(topup, balance_after=None) -> None:
         event='topup',
         extra={
             'amount': topup.amount,
-            'total_debited': topup.total_debited,
+            'total_debited': debited,
             'merchant_txn_id': topup.merchant_txn_id,
         },
     )
@@ -921,20 +1053,38 @@ def notify_transfer_success(transfer, balance_after=None) -> None:
         ('Status', 'Success'),
     ]
 
-    if (cfg.get('email_on_transfer') or cfg.get('email_on_wallet_debit')) and _user_email(
-        transfer.user
-    ):
-        _send_txn_email(
-            recipients=[transfer.user.email],
-            subject=f'[{site_name}] Bank transfer successful',
-            text_intro='Your bank transfer was successful.',
-            title='Bank transfer successful',
-            subtitle=f'Transfer of {_fmt_amount(transfer.amount)} was completed successfully.',
-            amount_display=_fmt_amount(transfer.amount),
-            status='success',
-            status_label='Success',
-            rows=rows,
-            greeting=f'Hi {getattr(transfer.user, "first_name", "") or "there"},',
+    if cfg.get('email_on_transfer') or cfg.get('email_on_wallet_debit'):
+        if _user_email(transfer.user):
+            _send_txn_email(
+                recipients=[transfer.user.email],
+                subject=f'[{site_name}] Bank transfer successful',
+                text_intro='Your bank transfer was successful.',
+                title='Bank transfer successful',
+                subtitle=(
+                    f'Transfer of {_fmt_amount(transfer.amount)} was completed successfully. '
+                    f'Wallet debited {_fmt_amount(debited)}.'
+                ),
+                amount_display=_fmt_amount(debited),
+                amount_label='Wallet debit',
+                status='success',
+                status_label='Debited',
+                rows=rows,
+                greeting=f'Hi {getattr(transfer.user, "first_name", "") or "there"},',
+                copy_admin=False,
+            )
+        _send_admin_opposite_wallet_email(
+            user=transfer.user,
+            customer_direction='debit',
+            amount=debited,
+            balance_after=balance_after,
+            reason='Bank transfer',
+            ref=transfer.merchant_txn_id or str(transfer.id),
+            context_label='Fund transfer',
+            extra_rows=[
+                ('Transfer amount', _fmt_amount(transfer.amount)),
+                ('Charge', _fmt_amount(getattr(transfer, 'charge', 0) or 0)),
+                ('Destination', f'{dest_name} · {dest}'),
+            ],
         )
 
     _push(
@@ -969,18 +1119,29 @@ def notify_withdrawal(
         ('Date', _format_when()),
         ('Status', 'Success'),
     ]
-    if cfg.get('email_on_wallet_debit') and _user_email(user):
-        _send_txn_email(
-            recipients=[user.email],
-            subject=f'[{site_name}] Withdrawal processed',
-            text_intro='Your withdrawal has been processed.',
-            title='Withdrawal processed',
-            subtitle='Your withdrawal request was completed.',
-            amount_display=_fmt_amount(amount),
-            status='success',
-            status_label='Processed',
-            rows=rows,
-            greeting=f'Hi {getattr(user, "first_name", "") or "there"},',
+    if cfg.get('email_on_wallet_debit'):
+        if _user_email(user):
+            _send_txn_email(
+                recipients=[user.email],
+                subject=f'[{site_name}] Withdrawal processed',
+                text_intro='Your withdrawal has been processed.',
+                title='Withdrawal processed',
+                subtitle='Your withdrawal request was completed.',
+                amount_display=_fmt_amount(amount),
+                status='success',
+                status_label='Debited',
+                rows=rows,
+                greeting=f'Hi {getattr(user, "first_name", "") or "there"},',
+                copy_admin=False,
+            )
+        _send_admin_opposite_wallet_email(
+            user=user,
+            customer_direction='debit',
+            amount=amount,
+            balance_after=balance_after,
+            reason=reason or 'Withdrawal',
+            ref=ref,
+            context_label='Withdrawal',
         )
     _push(
         user,
@@ -1052,18 +1213,35 @@ def notify_wallet_adjustment(
         ('Status', 'Success'),
     ]
 
-    if cfg.get('email_on_wallet_adjustment') and _user_email(user):
-        _send_txn_email(
-            recipients=[user.email],
-            subject=f'[{site_name}] Wallet balance adjusted',
-            text_intro='Your wallet balance was adjusted by an administrator.',
-            title=f'Wallet {adj_type}',
-            subtitle='An administrator updated your MySewa wallet balance.',
-            amount_display=f'{"+" if delta > 0 else ""}{_fmt_amount(delta)}',
-            status='success',
-            status_label=adj_type.title(),
-            rows=rows,
-            greeting=f'Hi {getattr(user, "first_name", "") or "there"},',
+    if cfg.get('email_on_wallet_adjustment'):
+        if _user_email(user):
+            _send_txn_email(
+                recipients=[user.email],
+                subject=f'[{site_name}] Wallet balance adjusted',
+                text_intro='Your wallet balance was adjusted by an administrator.',
+                title=f'Wallet {adj_type}',
+                subtitle='An administrator updated your MySewa wallet balance.',
+                amount_display=f'{"+" if delta > 0 else "−"}{_fmt_amount(abs(delta))}',
+                status='success',
+                status_label=adj_type.title(),
+                rows=rows,
+                greeting=f'Hi {getattr(user, "first_name", "") or "there"},',
+                copy_admin=False,
+            )
+        _send_admin_opposite_wallet_email(
+            user=user,
+            customer_direction=adj_type,
+            amount=abs(delta),
+            balance_after=after_val,
+            reason=reason or 'Admin balance update',
+            ref=ref,
+            context_label='Manual wallet adjustment',
+            extra_rows=[
+                (
+                    'Previous balance',
+                    _fmt_amount(before_val) if before_val is not None else '-',
+                ),
+            ],
         )
 
     _push(
@@ -1098,10 +1276,15 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
     if cfg.get('sms_on_deposit_approved'):
         _send_sms(remittance.user.phone, message)
 
-    if cfg.get('email_on_wallet_credit') and _user_email(remittance.user):
+    if cfg.get('email_on_wallet_credit'):
+        charge = getattr(remittance, 'charge', 0) or 0
+        cashback = getattr(remittance, 'cashback', 0) or 0
         rows: List[Row] = [
             ('Type', 'Remittance'),
             ('Reference no.', remittance.ref_no or '-'),
+            ('Gross amount', _fmt_amount(remittance.amount)),
+            ('Charge', _fmt_amount(charge)),
+            ('Cashback', _fmt_amount(cashback)),
             ('Amount credited', _fmt_amount(credited)),
             ('Sender', getattr(remittance, 'sender_name', None) or '-'),
             ('Receiver', getattr(remittance, 'receiver_name', None) or '-'),
@@ -1111,38 +1294,38 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
             ('Date', _format_when(getattr(remittance, 'created_at', None))),
             ('Status', 'Success'),
         ]
-        _send_txn_email(
-            recipients=[remittance.user.email],
-            subject=f'[{site_name}] Remittance credited',
-            text_intro='Your remittance has been credited to your wallet.',
-            title='Remittance credited',
-            subtitle=f'Remittance {remittance.ref_no} was credited to your wallet.',
-            amount_display=_fmt_amount(credited),
-            status='success',
-            status_label='Credited',
-            rows=rows,
-            greeting=f'Hi {getattr(remittance.user, "first_name", "") or "there"},',
-        )
-
-    admin_emails = _admin_alert_emails()
-    if admin_emails and cfg.get('email_on_deposit'):
-        _send_txn_email(
-            recipients=admin_emails,
-            subject=f'[{site_name}] Remittance received #{remittance.id}',
-            text_intro='Remittance payout completed.',
-            title='Remittance received',
-            subtitle='A remittance payout was credited to a customer wallet.',
-            amount_display=_fmt_amount(credited),
-            status='success',
-            status_label='Credited',
-            rows=[
-                ('ID', str(remittance.id)),
-                ('User', getattr(remittance.user, 'phone', '-')),
-                ('Ref', remittance.ref_no or '-'),
-                ('Amount', _fmt_amount(credited)),
-                ('Date', _format_when(getattr(remittance, 'created_at', None))),
+        if _user_email(remittance.user):
+            _send_txn_email(
+                recipients=[remittance.user.email],
+                subject=f'[{site_name}] Remittance credited',
+                text_intro='Your remittance has been credited to your wallet.',
+                title='Remittance credited',
+                subtitle=(
+                    f'Remittance {remittance.ref_no} was credited to your wallet '
+                    f'({_fmt_amount(credited)} after charges).'
+                ),
+                amount_display=_fmt_amount(credited),
+                amount_label='Amount credited',
+                status='success',
+                status_label='Credited',
+                rows=rows,
+                greeting=f'Hi {getattr(remittance.user, "first_name", "") or "there"},',
+                copy_admin=False,
+            )
+        _send_admin_opposite_wallet_email(
+            user=remittance.user,
+            customer_direction='credit',
+            amount=credited,
+            balance_after=balance_after,
+            reason=f'Remittance {remittance.ref_no}',
+            ref=getattr(remittance, 'merchant_txn_id', None) or str(remittance.id),
+            context_label='Remittance payout',
+            extra_rows=[
+                ('Gross amount', _fmt_amount(remittance.amount)),
+                ('Charge', _fmt_amount(charge)),
+                ('Cashback', _fmt_amount(cashback)),
+                ('Reference no.', remittance.ref_no or '-'),
             ],
-            copy_admin=False,
         )
 
     _push(
@@ -1155,6 +1338,39 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
             'ref_no': remittance.ref_no,
             'remittance_id': remittance.id,
         },
+    )
+
+
+def notify_statement_discrepancies(run, new_count: int) -> None:
+    """Alert admins when a reconcile run finds new open mismatches."""
+    admin_emails = _admin_alert_emails()
+    if not admin_emails or new_count <= 0:
+        return
+    site_name = _site_name()
+    _send_txn_email(
+        recipients=admin_emails,
+        subject=f'[{site_name}] HimalPay statement issues ({new_count} new)',
+        text_intro=(
+            f'Statement reconcile {run.from_date} → {run.to_date} found '
+            f'{new_count} new issue(s). Open total: {run.issues_open}.'
+        ),
+        title='Statement reconcile alert',
+        subtitle='HimalPay reseller statement does not fully match MySewa.',
+        amount_display=str(new_count),
+        amount_label='New issues',
+        status='pending',
+        status_label='Needs review',
+        rows=[
+            ('From', str(run.from_date)),
+            ('To', str(run.to_date)),
+            ('HP entries', str(run.hp_entries)),
+            ('Matched', str(run.matched)),
+            ('Open issues', str(run.issues_open)),
+            ('New issues', str(new_count)),
+            ('Triggered by', run.get_triggered_by_display()),
+            ('Date', _format_when(getattr(run, 'finished_at', None) or timezone.now())),
+        ],
+        copy_admin=False,
     )
 
 

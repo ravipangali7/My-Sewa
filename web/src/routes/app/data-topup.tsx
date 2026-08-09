@@ -615,7 +615,7 @@ function DataTopUp() {
                 }
               }}
               exporting={exporting}
-              searchPlaceholder="Search"
+              searchPlaceholder={t("dataTopup.searchPlaceholder")}
               exportLabel={t("list.exportCsv")}
               statsLabels={{
                 total: t("list.statsTotal"),
@@ -752,7 +752,7 @@ function DataTopUp() {
               }
             }}
             exporting={exporting}
-            searchPlaceholder="Search"
+            searchPlaceholder={t("dataTopup.searchPlaceholder")}
             exportLabel={t("list.exportCsv")}
             statsLabels={{
               total: t("list.statsTotal"),

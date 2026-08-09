@@ -332,9 +332,16 @@ class HimalPayAPI:
         method: str,
         endpoint: str,
         payload: Optional[Dict] = None,
+        params: Optional[Dict] = None,
     ) -> Any:
         url = f'{self.base_url}{endpoint}'
-        logger.info('HimalPay %s %s payload=%s', method, endpoint, payload)
+        logger.info(
+            'HimalPay %s %s params=%s payload=%s',
+            method,
+            endpoint,
+            params,
+            payload,
+        )
 
         try:
             response = requests.request(
@@ -342,6 +349,7 @@ class HimalPayAPI:
                 url=url,
                 headers=self._headers(),
                 json=payload,
+                params=params,
                 timeout=self.timeout,
             )
         except requests.Timeout as exc:
@@ -536,6 +544,89 @@ class HimalPayAPI:
             '/transactions/wallet-service-reseller-status',
             {'merchant_transaction_id': merchant_transaction_id},
         )
+
+    def get_reseller_statement(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        transaction_id: Optional[str] = None,
+    ) -> List[Dict]:
+        """
+        Fetch reseller ledger statement entries.
+
+        GET /statement/reseller-statement
+        Date range (from_date + to_date) must not exceed 2 months.
+        When only transaction_id is supplied, lookup is not date-bound.
+        """
+        params: Dict[str, str] = {}
+        if transaction_id:
+            params['transaction_id'] = str(transaction_id).strip()
+        if from_date:
+            params['from_date'] = str(from_date).strip()
+        if to_date:
+            params['to_date'] = str(to_date).strip()
+
+        if self.bypass_api:
+            return self._bypass_reseller_statement(
+                from_date=from_date,
+                to_date=to_date,
+                transaction_id=transaction_id,
+            )
+
+        data = self._request('GET', '/statement/reseller-statement', params=params or None)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            entries = data.get('data', [])
+            return entries if isinstance(entries, list) else []
+        return []
+
+    def get_reseller_balance(self) -> Dict:
+        """GET /wallet/reseller-balance — current HimalPay reseller wallet balances."""
+        if self.bypass_api:
+            return {
+                'id': 1,
+                'user_id': 1,
+                'balance': 100_000_000,
+                'bonus_balance': 0,
+                'balance_in_rupees': 1_000_000.0,
+                'bonus_balance_in_rupees': 0.0,
+                'total_balance_in_rupees': 1_000_000.0,
+                'created_at': '2026-01-01T00:00:00Z',
+                'updated_at': '2026-08-09T00:00:00Z',
+            }
+
+        data = self._request('GET', '/wallet/reseller-balance')
+        return data if isinstance(data, dict) else {'data': data}
+
+    def _bypass_reseller_statement(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        transaction_id: Optional[str] = None,
+    ) -> List[Dict]:
+        txn_uuid = (transaction_id or '').strip() or 'BYPASS-STMT-001'
+        return [
+            {
+                'direction': 'debit',
+                'amount': 10000,
+                'balance_before': 100_010_000,
+                'balance_after': 100_000_000,
+                'bonus_balance_before': 0,
+                'bonus_balance_after': 0,
+                'is_refund': False,
+                'is_cashback': False,
+                'is_charge': False,
+                'reference_id': 'BYPASS-REF',
+                'created_at': '2026-08-09T10:00:00Z',
+                'transaction_uuid': txn_uuid,
+                'status': 'SUCCESS',
+                'wallet_service_name': self.SERVICE_NTC,
+                'wallet_service_logo_url': None,
+                'transaction_cashback': 0,
+                'transaction_charge': 0,
+            },
+        ]
 
     # ------------------------------------------------------------------
     # Convenience methods
@@ -903,12 +994,67 @@ class HimalPayAPI:
         return 'pending'
 
     @staticmethod
+    def is_remittance_already_received(
+        message: str = '',
+        response: Any = None,
+    ) -> bool:
+        """
+        True when HimalPay/Samsara indicates the remittance was already paid out.
+
+        SAMSARA_GET often still returns HTTP/outer SUCCESS with empty/zero
+        ``payout_amt`` and the real reason in ``vendor_state`` (e.g. already
+        received / already paid). Treat that as already-received, not as a
+        missing-amount parse failure.
+        """
+        candidates = [message or '']
+        if response is not None:
+            candidates.append(HimalPayAPI.extract_provider_message(response))
+            for layer in HimalPayAPI._iter_nested_dicts(response):
+                for key in (
+                    'vendor_state',
+                    'message',
+                    'error',
+                    'detail',
+                    'reason',
+                    'status_message',
+                    'ms_status',
+                    'status',
+                ):
+                    value = layer.get(key)
+                    if value is not None:
+                        candidates.append(str(value))
+
+        blob = ' '.join(c for c in candidates if c).casefold()
+        if not blob:
+            return False
+
+        patterns = (
+            'already received',
+            'already paid',
+            'already processed',
+            'already cashed',
+            'already collected',
+            'already paid out',
+            'already payout',
+            'remittance already',
+            'transaction already paid',
+            'txn already paid',
+            'paid already',
+            'received already',
+            'duplicate payout',
+            'payment already made',
+            'payout already',
+        )
+        return any(p in blob for p in patterns)
+
+    @staticmethod
     def extract_provider_message(response: Any) -> str:
         """
         Raw HimalPay / vendor message without MySewa rewriting.
 
         Walks nested SAMSARA_GET payloads and prefers explicit error text, then
-        vendor_state (e.g. "amount is locked"), then other provider hints.
+        vendor_state (e.g. "amount is locked" / "already received"), then other
+        provider hints.
         """
         root = response if isinstance(response, dict) else {}
         nested = root.get('data') if isinstance(root.get('data'), dict) else {}
@@ -937,13 +1083,15 @@ class HimalPayAPI:
             root.get('vendor_state'),
         )
 
+        # Prefer vendor_state when it carries the actionable Samsara reason
+        # (already received / amount locked) even if outer status is SUCCESS.
         return _text(
+            vendor_state,
             nested_data_text,
             root.get('error'),
             nested.get('error'),
             deeper.get('error'),
             deepest.get('error'),
-            vendor_state,
             root.get('message'),
             nested.get('message'),
             deeper.get('message'),

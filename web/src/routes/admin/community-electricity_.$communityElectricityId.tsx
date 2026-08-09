@@ -204,10 +204,10 @@ function CommunityElectricityDetailPage() {
                     {formatNPR(t.total_debited)}
                   </span>
                 </StatementRow>
-                <StatementRow label="Balance before">
+                <StatementRow label="Before Wallet Balance">
                   {t.balance_before != null ? formatNPR(t.balance_before) : "—"}
                 </StatementRow>
-                <StatementRow label="Balance after">
+                <StatementRow label="After Wallet Balance">
                   {t.balance_after != null ? formatNPR(t.balance_after) : "—"}
                 </StatementRow>
               </dl>

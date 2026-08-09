@@ -174,7 +174,7 @@ function Profile() {
           </div>
         </section>
 
-        <div className="space-y-5 px-4 pb-8 pt-4">
+        <div className="space-y-5 px-4 pb-4 pt-4">
           <div className="space-y-2.5">
             <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
               <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">

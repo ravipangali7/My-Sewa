@@ -18,6 +18,8 @@ from .models import (
     KYCDocument,
     KYCAuditLog,
     SecurityAuditLog,
+    StatementReconcileRun,
+    StatementDiscrepancy,
 )
 
 User = get_user_model()
@@ -493,4 +495,43 @@ class SecurityAuditLogAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(StatementReconcileRun)
+class StatementReconcileRunAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'from_date', 'to_date', 'status', 'triggered_by',
+        'hp_entries', 'matched', 'issues_open', 'issues_new', 'created_at',
+    )
+    list_filter = ('status', 'triggered_by', 'created_at')
+    readonly_fields = (
+        'from_date', 'to_date', 'triggered_by', 'triggered_by_user', 'status',
+        'hp_entries', 'matched', 'issues_open', 'issues_new',
+        'himalpay_balance_paisa', 'himalpay_bonus_balance_paisa',
+        'himalpay_balance_rupees', 'error_message', 'created_at', 'finished_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(StatementDiscrepancy)
+class StatementDiscrepancyAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'issue_type', 'status', 'transaction_uuid', 'wallet_service_name',
+        'user', 'suggested_adjustment_type', 'suggested_amount', 'created_at',
+    )
+    list_filter = ('status', 'issue_type', 'created_at')
+    search_fields = ('transaction_uuid', 'merchant_txn_id', 'user__phone', 'reason')
+    readonly_fields = (
+        'run', 'issue_type', 'status', 'transaction_uuid', 'merchant_txn_id',
+        'wallet_service_name', 'direction', 'hp_status', 'hp_amount', 'hp_net_amount',
+        'local_status', 'local_amount', 'txn_type', 'txn_id', 'user',
+        'himalpay_snapshot', 'suggested_adjustment_type', 'suggested_amount',
+        'reason', 'resolved_by', 'resolved_at', 'resolution_adjustment',
+        'created_at', 'updated_at',
+    )
+
+    def has_add_permission(self, request):
         return False
