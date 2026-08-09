@@ -78,6 +78,7 @@ from ..services.app_config import get_app_config
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
 from ..services.statement_reconcile import (
     build_statement_ledger,
+    group_ledger_by_user,
     ledger_from_latest_run,
     run_statement_reconcile,
 )
@@ -2677,6 +2678,7 @@ def admin_statement_list(request):
         )
         statement_logs = []
         ledger = []
+        ledger_by_user = []
         if latest_run is not None:
             logs = latest_run.himalpay_statement_logs
             if isinstance(logs, list):
@@ -2686,6 +2688,7 @@ def admin_statement_list(request):
                 to_date=latest_run.to_date,
                 run=latest_run,
             )
+            ledger_by_user = group_ledger_by_user(ledger)
 
         return Response({
             'summary': {
@@ -2697,6 +2700,7 @@ def admin_statement_list(request):
             'count': qs.count(),
             'statement_logs': statement_logs,
             'ledger': ledger,
+            'ledger_by_user': ledger_by_user,
         })
     except (ProgrammingError, OperationalError):
         return _statement_tables_missing_response()
@@ -2705,7 +2709,7 @@ def admin_statement_list(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_statement_ledger(request):
-    """Dual-sided HimalPay ↔ MySewa ledger for a date range (from latest run)."""
+    """Dual-sided HimalPay ↔ MySewa ledger for a date range, grouped by user."""
     from_raw = (
         request.query_params.get('from_date')
         or request.query_params.get('start_date')
@@ -2718,13 +2722,31 @@ def admin_statement_ledger(request):
     ).strip()
     from_date = parse_date(from_raw) if from_raw else None
     to_date = parse_date(to_raw) if to_raw else None
+    # Default window: start of month → today so “up to present” is covered.
+    if not from_date and not to_date:
+        today = timezone.localdate()
+        from_date = today.replace(day=1)
+        to_date = today
+    elif from_date and not to_date:
+        to_date = timezone.localdate()
+    elif to_date and not from_date:
+        from_date = to_date.replace(day=1)
+
     match_filter = (request.query_params.get('match_state') or 'all').strip()
+    user_q = (request.query_params.get('user') or '').strip().lower()
     q = (request.query_params.get('q') or '').strip().lower()
 
     try:
         run, rows = ledger_from_latest_run(from_date=from_date, to_date=to_date)
         if match_filter and match_filter != 'all':
             rows = [r for r in rows if r.get('match_state') == match_filter]
+        if user_q:
+            rows = [
+                r for r in rows
+                if user_q in str(r.get('user_phone') or '').lower()
+                or user_q in str(r.get('user_name') or '').lower()
+                or user_q == str(r.get('user_id') or '')
+            ]
         if q:
             def _row_matches(row):
                 hp = row.get('himalpay') or {}
@@ -2738,22 +2760,30 @@ def admin_statement_ledger(request):
                     str(ms.get('user_phone') or ''),
                     str(ms.get('user_name') or ''),
                     str(ms.get('txn_type') or ''),
+                    str(row.get('user_phone') or ''),
                     str(row.get('reason') or ''),
                 ]).lower()
                 return q in hay
             rows = [r for r in rows if _row_matches(r)]
 
+        by_user = group_ledger_by_user(rows)
         counts = {
             'total': len(rows),
             'matched': sum(1 for r in rows if r.get('match_state') == 'matched'),
-            'issues': sum(1 for r in rows if r.get('match_state') != 'matched'),
+            'local_only': sum(1 for r in rows if r.get('match_state') == 'local_only'),
+            'issues': sum(
+                1 for r in rows
+                if r.get('match_state') not in ('matched', 'local_only')
+            ),
+            'users': len([g for g in by_user if g.get('user_id')]),
         }
         return Response({
             'run': StatementReconcileRunSerializer(run).data if run else None,
-            'from_date': (from_date or (run.from_date if run else None)),
-            'to_date': (to_date or (run.to_date if run else None)),
+            'from_date': from_date,
+            'to_date': to_date,
             'counts': counts,
-            'items': rows[:1000],
+            'items': rows[:2000],
+            'by_user': by_user,
         })
     except (ProgrammingError, OperationalError):
         return Response(
@@ -2764,11 +2794,13 @@ def admin_statement_ledger(request):
                 ),
                 'run': None,
                 'items': [],
-                'counts': {'total': 0, 'matched': 0, 'issues': 0},
+                'by_user': [],
+                'counts': {
+                    'total': 0, 'matched': 0, 'local_only': 0, 'issues': 0, 'users': 0,
+                },
             },
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_statement_runs(request):
@@ -2836,6 +2868,7 @@ def admin_statement_run(request):
             else []
         ),
         'ledger': ledger,
+        'ledger_by_user': group_ledger_by_user(ledger),
     }
     if run.error_message:
         payload['warning'] = run.error_message

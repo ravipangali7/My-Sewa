@@ -1234,3 +1234,108 @@ class StatementReconcileTests(TestCase):
         self.assertEqual(adj.adjustment_type, 'debit')
         self.assertEqual(adj.amount, Decimal('-100.00'))
 
+    def test_ledger_includes_all_user_txns_and_groups_by_user(self):
+        from .models import Deposit, StatementDiscrepancy
+        from .services.statement_reconcile import (
+            build_statement_ledger,
+            group_ledger_by_user,
+            run_statement_reconcile,
+        )
+
+        uuid = 'HP-LEDGER-OK-001'
+        self.TopupTransaction.objects.create(
+            user=self.user,
+            mobile_number='9801112233',
+            amount=Decimal('50.00'),
+            product_id=1,
+            status='success',
+            merchant_txn_id='MYSEWA_NTC_LEDGER',
+            service_hub_txn_id=uuid,
+            total_debited=Decimal('50.00'),
+            balance_before=Decimal('550.00'),
+            balance_after=Decimal('500.00'),
+        )
+        # Pending top-up without provider UUID must still appear on MySewa side
+        self.TopupTransaction.objects.create(
+            user=self.user,
+            mobile_number='9801112233',
+            amount=Decimal('25.00'),
+            product_id=1,
+            status='pending',
+            merchant_txn_id='MYSEWA_NTC_PENDING',
+            service_hub_txn_id='',
+            total_debited=Decimal('25.00'),
+        )
+        Deposit.objects.create(
+            user=self.user,
+            amount=Decimal('200.00'),
+            status='approved',
+            transaction_id='DEP-LEDGER-1',
+        )
+        entries = [{
+            'direction': 'debit',
+            'amount': 5000,
+            'is_refund': False,
+            'is_cashback': False,
+            'is_charge': False,
+            'transaction_uuid': uuid,
+            'status': 'SUCCESS',
+            'wallet_service_name': 'NTC',
+            'transaction_cashback': 0,
+            'transaction_charge': 0,
+            'created_at': '2026-08-09T10:00:00Z',
+        }]
+        run = run_statement_reconcile(
+            from_date=date.today(),
+            to_date=date.today(),
+            himalpay=self._mock_api(entries),
+        )
+        rows = build_statement_ledger(
+            from_date=date.today(),
+            to_date=date.today(),
+            run=run,
+        )
+        keys = {r['key'] for r in rows}
+        self.assertIn(f'hp:{uuid}', keys)
+        self.assertTrue(any(k.startswith('local:topup:') for k in keys))
+        self.assertTrue(any(k.startswith('deposit:') for k in keys))
+        self.assertEqual(
+            StatementDiscrepancy.objects.filter(status='open').count(),
+            0,
+        )
+
+        by_user = group_ledger_by_user(rows)
+        self.assertTrue(any(g['user_id'] == self.user.pk for g in by_user))
+        user_group = next(g for g in by_user if g['user_id'] == self.user.pk)
+        self.assertGreaterEqual(user_group['row_count'], 3)
+
+        ledger_resp = self.client.get(
+            reverse('admin_statement_ledger'),
+            {'from_date': date.today().isoformat(), 'to_date': date.today().isoformat()},
+        )
+        self.assertEqual(ledger_resp.status_code, status.HTTP_200_OK, ledger_resp.content)
+        self.assertGreaterEqual(ledger_resp.data['counts']['total'], 3)
+        self.assertTrue(ledger_resp.data.get('by_user'))
+
+    def test_statement_correct_credits_wallet(self):
+        from .models import WalletAdjustment
+
+        before = self.wallet.balance
+        resp = self.client.post(
+            reverse('admin_statement_correct'),
+            {
+                'user_id': self.user.pk,
+                'adjustment_type': 'credit',
+                'amount': '15.50',
+                'reason': 'Missed remittance top-up correction',
+                'transaction_uuid': 'HP-MANUAL-1',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, before + Decimal('15.50'))
+        adj = WalletAdjustment.objects.get(pk=resp.data['adjustment_id'])
+        self.assertEqual(adj.adjustment_type, 'credit')
+        self.assertIn('Statement ledger correction', adj.reason)
+

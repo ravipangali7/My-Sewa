@@ -1004,6 +1004,17 @@ export interface StatementLedgerRow {
   can_solve: boolean;
   can_correct: boolean;
   user_id: number | null;
+  user_phone?: string | null;
+  user_name?: string | null;
+}
+
+export interface StatementLedgerUserGroup {
+  user_id: number | null;
+  user_phone: string | null;
+  user_name: string | null;
+  row_count: number;
+  issue_count: number;
+  rows: StatementLedgerRow[];
 }
 
 export interface StatementListResponse {
@@ -1016,12 +1027,20 @@ export interface StatementListResponse {
   count: number;
   statement_logs?: Record<string, unknown>[];
   ledger?: StatementLedgerRow[];
+  ledger_by_user?: StatementLedgerUserGroup[];
 }
 
 export interface StatementLedgerResponse {
   run: StatementReconcileRun | null;
   from_date: string | null;
   to_date: string | null;
-  counts: { total: number; matched: number; issues: number };
+  counts: {
+    total: number;
+    matched: number;
+    local_only?: number;
+    issues: number;
+    users?: number;
+  };
   items: StatementLedgerRow[];
+  by_user?: StatementLedgerUserGroup[];
 }

@@ -17,11 +17,13 @@ from ..models import (
     BankTransferTransaction,
     CommunityElectricityTransaction,
     DataPackTransaction,
+    Deposit,
     InternetBillTransaction,
     RemittanceTransaction,
     StatementDiscrepancy,
     StatementReconcileRun,
     TopupTransaction,
+    WalletAdjustment,
     WaterBillTransaction,
 )
 from .himalpay import HimalPayAPI, HimalPayError, is_route_not_found_error
@@ -155,6 +157,11 @@ def _index_local_txns(
     to_date: date,
     provider_ids: Iterable[str],
 ) -> Dict[str, LocalTxn]:
+    """
+    Index all MySewa HimalPay-linked transactions in range (and any matching
+    provider ids). Rows without a provider UUID are kept under a synthetic key
+    so they still appear on the ledger and are not silently dropped.
+    """
     ids = {str(x).strip() for x in provider_ids if str(x).strip()}
     indexed: Dict[str, LocalTxn] = {}
 
@@ -165,9 +172,50 @@ def _index_local_txns(
         for obj in qs:
             provider_id = str(getattr(obj, provider_field, None) or '').strip()
             if not provider_id:
+                provider_id = f'local:{txn_type}:{obj.pk}'
+            # Prefer a real provider id if we already indexed a synthetic key for
+            # the same object (should not happen); real UUID wins on collision.
+            if provider_id in indexed and provider_id.startswith('local:'):
                 continue
-            indexed[provider_id] = LocalTxn(txn_type=txn_type, obj=obj, provider_id=provider_id)
+            indexed[provider_id] = LocalTxn(
+                txn_type=txn_type, obj=obj, provider_id=provider_id,
+            )
     return indexed
+
+
+def _collect_hp_entries_for_range(from_date: date, to_date: date) -> List[Dict[str, Any]]:
+    """Merge HimalPay statement logs from all successful runs overlapping the range."""
+    runs = (
+        StatementReconcileRun.objects
+        .filter(
+            status=StatementReconcileRun.STATUS_SUCCESS,
+            from_date__lte=to_date,
+            to_date__gte=from_date,
+        )
+        .order_by('-created_at')
+    )
+    seen: set = set()
+    entries: List[Dict[str, Any]] = []
+    for run in runs:
+        logs = run.himalpay_statement_logs
+        if not isinstance(logs, list):
+            continue
+        for row in logs:
+            if not isinstance(row, dict):
+                continue
+            key = (
+                str(row.get('transaction_uuid') or ''),
+                str(row.get('created_at') or ''),
+                str(row.get('amount') or ''),
+                str(row.get('direction') or ''),
+                bool(row.get('is_charge')),
+                bool(row.get('is_cashback')),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append(row)
+    return entries
 
 
 def _local_net_amount(local: LocalTxn) -> Decimal:
@@ -721,13 +769,44 @@ def build_statement_ledger(
     """
     Build a dual-sided ledger: HimalPay on one side, MySewa on the other.
 
-    Prefer `entries` from a reconcile run; otherwise use `run.himalpay_statement_logs`.
-    Local transactions are always loaded from MySewa for the date range.
+    Includes every MySewa transaction in the date range (HimalPay-linked services,
+    deposits, and wallet adjustments) so nothing is dropped. When `entries` is
+    omitted, HimalPay rows are merged from all successful runs overlapping the
+    range (plus `run` if given).
     """
     from_date, to_date = clamp_date_range(from_date, to_date)
-    if entries is None and run is not None:
-        logs = run.himalpay_statement_logs
-        entries = logs if isinstance(logs, list) else []
+    if entries is None:
+        entries = _collect_hp_entries_for_range(from_date, to_date)
+        if run is not None and isinstance(run.himalpay_statement_logs, list):
+            # Ensure the explicit run's logs are included even if status/dates differ
+            extra = [
+                row for row in run.himalpay_statement_logs
+                if isinstance(row, dict)
+            ]
+            if extra:
+                seen = {
+                    (
+                        str(r.get('transaction_uuid') or ''),
+                        str(r.get('created_at') or ''),
+                        str(r.get('amount') or ''),
+                        str(r.get('direction') or ''),
+                        bool(r.get('is_charge')),
+                        bool(r.get('is_cashback')),
+                    )
+                    for r in entries
+                }
+                for row in extra:
+                    key = (
+                        str(row.get('transaction_uuid') or ''),
+                        str(row.get('created_at') or ''),
+                        str(row.get('amount') or ''),
+                        str(row.get('direction') or ''),
+                        bool(row.get('is_charge')),
+                        bool(row.get('is_cashback')),
+                    )
+                    if key not in seen:
+                        entries.append(row)
+                        seen.add(key)
     entries = entries or []
 
     grouped = _group_statement_entries(entries)
@@ -739,7 +818,6 @@ def build_statement_ledger(
             status=StatementDiscrepancy.STATUS_OPEN,
         ).select_related('user', 'resolution_adjustment')
     }
-    # Also index by provider id alone for missing_provider rows
     open_by_uuid: Dict[str, StatementDiscrepancy] = {}
     for d in StatementDiscrepancy.objects.filter(
         status=StatementDiscrepancy.STATUS_OPEN,
@@ -751,23 +829,35 @@ def build_statement_ledger(
     rows: List[Dict[str, Any]] = []
     seen_local: set = set()
 
-    for uuid, hp in grouped.items():
-        local = local_index.get(uuid)
+    def _append_row(
+        *,
+        key: str,
+        match_state: str,
+        hp: Optional[GroupedHpTxn],
+        local: Optional[LocalTxn],
+        mysewa_override: Optional[Dict[str, Any]] = None,
+        disc: Optional[StatementDiscrepancy] = None,
+        reason_fallback: str = '',
+    ):
+        suggested_type, suggested_amount, suggested_reason = ('', None, '')
+        if match_state not in ('matched', 'local_only') and local and hp:
+            suggested_type, suggested_amount, suggested_reason = _suggest_for_issue(
+                match_state, hp, local,
+            )
+        user = None
         if local:
-            seen_local.add(uuid)
-        match_state = _match_state_for_pair(hp, local)
-        disc = open_discs.get((uuid, match_state)) or open_by_uuid.get(uuid)
-        suggested_type, suggested_amount, suggested_reason = _suggest_for_issue(
-            match_state if match_state != 'matched' else '',
-            hp,
-            local,
-        )
-        if match_state == 'matched':
-            suggested_type, suggested_amount, suggested_reason = '', None, ''
+            user = getattr(local.obj, 'user', None)
+        elif mysewa_override:
+            # user fields already on override
+            pass
+        elif disc:
+            user = disc.user
+        user_id, user_phone, user_name = _user_display(user)
+        if mysewa_override and mysewa_override.get('user_id'):
+            user_id = mysewa_override.get('user_id')
+            user_phone = mysewa_override.get('user_phone')
+            user_name = mysewa_override.get('user_name')
 
-        user = getattr(local.obj, 'user', None) if local else (disc.user if disc else None)
-        user_id, _, _ = _user_display(user)
-        can_correct = bool(user_id)
         can_solve = bool(
             disc
             and disc.status == StatementDiscrepancy.STATUS_OPEN
@@ -776,12 +866,13 @@ def build_statement_ledger(
             and disc.suggested_amount is not None
             and Decimal(str(disc.suggested_amount)) > 0
         )
-
         rows.append({
-            'key': f'hp:{uuid}',
+            'key': key,
             'match_state': match_state,
-            'himalpay': _hp_side(hp),
-            'mysewa': _local_side(local) if local else None,
+            'himalpay': _hp_side(hp) if hp else None,
+            'mysewa': mysewa_override if mysewa_override is not None else (
+                _local_side(local) if local else None
+            ),
             'discrepancy_id': disc.pk if disc else None,
             'suggested_adjustment_type': (
                 disc.suggested_adjustment_type if disc else suggested_type
@@ -791,11 +882,27 @@ def build_statement_ledger(
                 if disc and disc.suggested_amount is not None
                 else (str(suggested_amount) if suggested_amount is not None else None)
             ),
-            'reason': (disc.reason if disc else suggested_reason) or '',
+            'reason': (disc.reason if disc else (suggested_reason or reason_fallback)) or '',
             'can_solve': can_solve,
-            'can_correct': can_correct,
+            'can_correct': bool(user_id),
             'user_id': user_id,
+            'user_phone': user_phone,
+            'user_name': user_name,
         })
+
+    for uuid, hp in grouped.items():
+        local = local_index.get(uuid)
+        if local:
+            seen_local.add(uuid)
+        match_state = _match_state_for_pair(hp, local)
+        disc = open_discs.get((uuid, match_state)) or open_by_uuid.get(uuid)
+        _append_row(
+            key=f'hp:{uuid}',
+            match_state=match_state,
+            hp=hp,
+            local=local,
+            disc=disc,
+        )
 
     for provider_id, local in local_index.items():
         if provider_id in seen_local or provider_id in grouped:
@@ -809,44 +916,142 @@ def build_statement_ledger(
             )
             if local_day < from_date or local_day > to_date:
                 continue
-        match_state = StatementDiscrepancy.ISSUE_MISSING_PROVIDER
+        is_synthetic = provider_id.startswith('local:')
+        local_status = str(getattr(local.obj, 'status', '') or '')
+        if is_synthetic and local_status != 'success':
+            match_state = 'local_only'
+        else:
+            match_state = StatementDiscrepancy.ISSUE_MISSING_PROVIDER
         disc = open_discs.get((provider_id, match_state)) or open_by_uuid.get(provider_id)
-        user = getattr(local.obj, 'user', None)
-        user_id, _, _ = _user_display(user)
-        rows.append({
-            'key': f'local:{local.txn_type}:{local.obj.pk}',
-            'match_state': match_state,
-            'himalpay': None,
-            'mysewa': _local_side(local),
-            'discrepancy_id': disc.pk if disc else None,
-            'suggested_adjustment_type': disc.suggested_adjustment_type if disc else '',
-            'suggested_amount': (
-                str(disc.suggested_amount)
-                if disc and disc.suggested_amount is not None
-                else None
-            ),
-            'reason': (disc.reason if disc else (
+        _append_row(
+            key=f'local:{local.txn_type}:{local.obj.pk}',
+            match_state=match_state,
+            hp=None,
+            local=local,
+            disc=disc,
+            reason_fallback=(
                 f'MySewa {local.txn_type} #{local.obj.pk} has no HimalPay statement entry.'
-            )),
-            'can_solve': bool(
-                disc
-                and disc.user_id
-                and disc.suggested_adjustment_type
-                and disc.suggested_amount is not None
-                and Decimal(str(disc.suggested_amount)) > 0
+                if match_state == StatementDiscrepancy.ISSUE_MISSING_PROVIDER
+                else ''
             ),
-            'can_correct': bool(user_id),
-            'user_id': user_id,
-        })
+        )
 
-    def _sort_key(row: Dict[str, Any]):
-        hp = row.get('himalpay') or {}
-        ms = row.get('mysewa') or {}
-        when = hp.get('created_at') or ms.get('created_at') or ''
-        return (when, row.get('key') or '')
+    # Deposits and wallet adjustments (MySewa-only; never on HimalPay reseller ledger)
+    for dep in Deposit.objects.select_related('user').filter(
+        created_at__date__gte=from_date,
+        created_at__date__lte=to_date,
+    ):
+        user_id, user_phone, user_name = _user_display(dep.user)
+        created = dep.created_at
+        created_at = (
+            timezone.localtime(created).isoformat()
+            if created and timezone.is_aware(created)
+            else (created.isoformat() if created else None)
+        )
+        _append_row(
+            key=f'deposit:{dep.pk}',
+            match_state='local_only',
+            hp=None,
+            local=None,
+            mysewa_override={
+                'txn_type': 'deposit',
+                'txn_type_display': 'Deposit',
+                'txn_id': dep.pk,
+                'merchant_txn_id': str(dep.transaction_id or ''),
+                'provider_txn_id': '',
+                'status': dep.status,
+                'amount': str(_money(dep.amount)),
+                'user_id': user_id,
+                'user_phone': user_phone,
+                'user_name': user_name,
+                'created_at': created_at,
+                'wallet_applied': dep.status == 'approved',
+            },
+        )
 
-    rows.sort(key=_sort_key, reverse=True)
-    return rows
+    for adj in WalletAdjustment.objects.select_related('user').filter(
+        created_at__date__gte=from_date,
+        created_at__date__lte=to_date,
+    ):
+        user_id, user_phone, user_name = _user_display(adj.user)
+        created = adj.created_at
+        created_at = (
+            timezone.localtime(created).isoformat()
+            if created and timezone.is_aware(created)
+            else (created.isoformat() if created else None)
+        )
+        _append_row(
+            key=f'adjustment:{adj.pk}',
+            match_state='local_only',
+            hp=None,
+            local=None,
+            mysewa_override={
+                'txn_type': 'wallet_adjustment',
+                'txn_type_display': (
+                    'Wallet credit' if adj.adjustment_type == 'credit' else 'Wallet debit'
+                ),
+                'txn_id': adj.pk,
+                'merchant_txn_id': str(adj.reference or ''),
+                'provider_txn_id': '',
+                'status': 'success',
+                'amount': str(_money(abs(adj.amount))),
+                'user_id': user_id,
+                'user_phone': user_phone,
+                'user_name': user_name,
+                'created_at': created_at,
+                'wallet_applied': True,
+            },
+        )
+
+    # Stable: sort by user then by date desc
+    by_user: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        bucket = row.get('user_phone') or '__unmatched__'
+        by_user.setdefault(bucket, []).append(row)
+    ordered: List[Dict[str, Any]] = []
+    for phone in sorted(by_user.keys(), key=lambda p: (p == '__unmatched__', p.lower())):
+        bucket_rows = by_user[phone]
+        bucket_rows.sort(
+            key=lambda r: (
+                (r.get('himalpay') or {}).get('created_at')
+                or (r.get('mysewa') or {}).get('created_at')
+                or ''
+            ),
+            reverse=True,
+        )
+        ordered.extend(bucket_rows)
+    return ordered
+
+
+def group_ledger_by_user(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Collapse flat ledger rows into per-user groups for the admin UI."""
+    groups: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+    for row in rows:
+        user_id = row.get('user_id')
+        phone = row.get('user_phone') or (
+            (row.get('mysewa') or {}).get('user_phone')
+        )
+        key = str(user_id) if user_id else (phone or '__unmatched__')
+        if key not in groups:
+            order.append(key)
+            groups[key] = {
+                'user_id': user_id,
+                'user_phone': phone or row.get('user_phone'),
+                'user_name': row.get('user_name') or (
+                    (row.get('mysewa') or {}).get('user_name')
+                ),
+                'row_count': 0,
+                'issue_count': 0,
+                'rows': [],
+            }
+        groups[key]['rows'].append(row)
+        groups[key]['row_count'] += 1
+        if row.get('match_state') not in ('matched', 'local_only'):
+            groups[key]['issue_count'] += 1
+    # Unmatched HimalPay-only last
+    order.sort(key=lambda k: (k == '__unmatched__', k))
+    return [groups[k] for k in order]
 
 
 def ledger_from_latest_run(
@@ -854,19 +1059,25 @@ def ledger_from_latest_run(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
 ) -> Tuple[Optional[StatementReconcileRun], List[Dict[str, Any]]]:
-    """Load ledger rows from the latest successful reconcile run (optionally date-filtered)."""
+    """
+    Load a full ledger for the requested window (defaults to latest run's dates,
+    or today when no run exists yet — still returns MySewa-side rows).
+    """
     qs = StatementReconcileRun.objects.filter(
         status=StatementReconcileRun.STATUS_SUCCESS,
     ).order_by('-created_at')
+    today = timezone.localdate()
     if from_date and to_date:
         from_date, to_date = clamp_date_range(from_date, to_date)
-        # Prefer a run that covers the requested window
-        covering = qs.filter(from_date__lte=from_date, to_date__gte=to_date).first()
-        run = covering or qs.filter(from_date=from_date, to_date=to_date).first() or qs.first()
+    elif qs.exists():
+        latest = qs.first()
+        from_date = from_date or latest.from_date
+        to_date = to_date or latest.to_date
     else:
-        run = qs.first()
-    if not run:
-        return None, []
-    start = from_date or run.from_date
-    end = to_date or run.to_date
-    return run, build_statement_ledger(from_date=start, to_date=end, run=run)
+        from_date = from_date or today
+        to_date = to_date or today
+
+    covering = qs.filter(from_date__lte=from_date, to_date__gte=to_date).first()
+    run = covering or qs.filter(from_date=from_date, to_date=to_date).first() or qs.first()
+    rows = build_statement_ledger(from_date=from_date, to_date=to_date, run=run)
+    return run, rows

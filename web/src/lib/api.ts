@@ -1099,12 +1099,14 @@ export const apiClient = {
     from_date?: string;
     to_date?: string;
     match_state?: string;
+    user?: string;
     q?: string;
   }) => {
     const params = new URLSearchParams();
     if (filters?.from_date) params.set("from_date", filters.from_date);
     if (filters?.to_date) params.set("to_date", filters.to_date);
     if (filters?.match_state) params.set("match_state", filters.match_state);
+    if (filters?.user) params.set("user", filters.user);
     if (filters?.q) params.set("q", filters.q);
     const query = params.toString();
     return api<import("./types").StatementLedgerResponse>(

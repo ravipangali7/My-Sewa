@@ -175,15 +175,22 @@ export function buildActivity(
 /** True when the item should appear in wallet Credit History. */
 export function isWalletCredit(item: ActivityItem): boolean {
   if (!item.credit) return false;
-  if (item.kind === "deposit") return item.status === "approved";
-  if (item.kind === "remittance") return item.status === "success";
-  if (item.kind === "wallet_adjustment") return true;
+  // Include every credit-side record (pending/failed/approved) so users never
+  // miss their own history — status chips still show the outcome.
+  if (
+    item.kind === "deposit" ||
+    item.kind === "remittance" ||
+    item.kind === "wallet_adjustment"
+  ) {
+    return true;
+  }
   return false;
 }
 
 /** True when the item should appear in wallet Debit History. */
 export function isWalletDebit(item: ActivityItem): boolean {
   if (item.credit) return false;
+  // Include pending/failed/success debits — do not drop any user-owned records.
   return DEBIT_KINDS.has(item.kind);
 }
 
