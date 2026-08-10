@@ -37,10 +37,6 @@ export const Route = createFileRoute("/")({
   component: LoginPage,
 });
 
-function isEmailIdentifier(value: string) {
-  return value.trim().includes("@");
-}
-
 function isPhoneLoginChallenge(challenge: LoginOtpChallenge) {
   return (
     challenge.login_via === "phone" ||
@@ -130,7 +126,6 @@ function LoginPage() {
   };
 
   const canResend = otpExpired || resendWaitSeconds <= 0;
-  const identifierLooksLikeEmail = isEmailIdentifier(identifier);
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
@@ -198,8 +193,8 @@ function LoginPage() {
                 <Label htmlFor="identifier">{t("auth.emailOrPhone")}</Label>
                 <Input
                   id="identifier"
-                  type={identifierLooksLikeEmail ? "email" : "text"}
-                  inputMode={identifierLooksLikeEmail ? "email" : "tel"}
+                  type="text"
+                  inputMode="text"
                   autoComplete="username"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
