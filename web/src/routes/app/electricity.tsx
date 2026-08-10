@@ -61,8 +61,11 @@ export const Route = createFileRoute("/app/electricity")({
 
 type Step = "list" | "details" | "review" | "pay";
 
-/** App primary brand for electricity header + accents */
+/** Accents that are not header/CTA (pay summary tint, etc.) */
 const NEA_GREEN = COLORS.brand;
+/** Home page header gradient — used for electricity header + primary buttons */
+const HOME_GRADIENT =
+  "linear-gradient(105deg, #04275C 0%, #0A3D7A 28%, #0C5F8A 55%, #0A8A6A 82%, #10B981 100%)";
 const PAGE_BG = "#EEF2F6";
 
 function cleanCounterLabel(option: CounterOption) {
@@ -366,10 +369,10 @@ function ElectricityBillPayment() {
         className="-mx-3 min-h-[calc(100dvh-5.5rem)] sm:-mx-4"
         style={{ backgroundColor: PAGE_BG }}
       >
-        {/* Curved green header — matches reference screenshots */}
+        {/* Curved header — home page gradient */}
         <header
           className="relative px-4 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-7"
-          style={{ backgroundColor: NEA_GREEN }}
+          style={{ background: HOME_GRADIENT }}
         >
           <div className="flex items-center gap-2">
             {step === "list" ? (
@@ -406,7 +409,7 @@ function ElectricityBillPayment() {
           <div
             className="pointer-events-none absolute inset-x-0 -bottom-4 h-8"
             style={{
-              backgroundColor: NEA_GREEN,
+              background: HOME_GRADIENT,
               borderBottomLeftRadius: "50% 100%",
               borderBottomRightRadius: "50% 100%",
             }}
@@ -500,7 +503,7 @@ function ElectricityBillPayment() {
                 disabled={!enabled}
                 onClick={onListProceed}
                 className="flex h-[52px] w-full items-center justify-center rounded-full text-[16px] font-bold tracking-[0.08em] text-white shadow-sm disabled:opacity-50"
-                style={{ backgroundColor: NEA_GREEN }}
+                style={{ background: HOME_GRADIENT }}
               >
                 {t("electricity.proceed")}
               </button>
@@ -605,7 +608,7 @@ function ElectricityBillPayment() {
                 disabled={inquiryMutation.isPending || !enabled}
                 onClick={() => inquiryMutation.mutate()}
                 className="flex h-[52px] w-full items-center justify-center rounded-full text-[16px] font-bold tracking-[0.08em] text-white shadow-sm disabled:opacity-50"
-                style={{ backgroundColor: NEA_GREEN }}
+                style={{ background: HOME_GRADIENT }}
               >
                 {inquiryMutation.isPending
                   ? t("electricity.liveInquiry")
@@ -654,7 +657,7 @@ function ElectricityBillPayment() {
                 disabled={!enabled || payAmount <= 0}
                 onClick={() => setStep("pay")}
                 className="flex h-[52px] w-full items-center justify-center gap-1 rounded-full text-[16px] font-bold tracking-wide text-white disabled:opacity-50"
-                style={{ backgroundColor: NEA_GREEN }}
+                style={{ background: HOME_GRADIENT }}
               >
                 {t("electricity.continuePay")}
                 <ChevronRight className="size-5" />
@@ -716,7 +719,7 @@ function ElectricityBillPayment() {
                   setPinOpen(true);
                 }}
                 className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold text-white disabled:opacity-50"
-                style={{ backgroundColor: NEA_GREEN }}
+                style={{ background: HOME_GRADIENT }}
               >
                 <Check className="size-5" />
                 {payMutation.isPending
@@ -839,7 +842,7 @@ function ElectricityBillPayment() {
           <Button
             type="button"
             className="mt-4 h-11 w-full rounded-xl"
-            style={{ backgroundColor: NEA_GREEN }}
+            style={{ background: HOME_GRADIENT }}
             onClick={() => setSearchOpen(false)}
           >
             {t("history.applyFilters")}

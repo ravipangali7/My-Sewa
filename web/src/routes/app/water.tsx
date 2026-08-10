@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   Search,
@@ -9,8 +9,6 @@ import {
   Check,
   RefreshCw,
   Wallet,
-  Info,
-  LayoutGrid,
 } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
@@ -117,7 +115,6 @@ function WaterBillPayment() {
   const accountPending = isAccountPending(user);
 
   const [step, setStep] = useState<Step>("provider");
-  const [providerQuery, setProviderQuery] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<WaterProvider | null>(null);
   const [counters, setCounters] = useState<CounterOption[]>([]);
   const [selectedCounter, setSelectedCounter] = useState<CounterOption | null>(null);
@@ -167,12 +164,6 @@ function WaterBillPayment() {
     refetchInterval: LIVE_REFETCH_MS,
   });
   const waterStats = historyQuery.data?.stats;
-
-  const filteredProviders = useMemo(() => {
-    const q = providerQuery.trim().toLowerCase();
-    if (!q) return WATER_PROVIDERS;
-    return WATER_PROVIDERS.filter((p) => p.name.toLowerCase().includes(q));
-  }, [providerQuery]);
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
   const payAmount = Number(amount) || 0;
@@ -373,26 +364,22 @@ function WaterBillPayment() {
       title={shellTitle}
       {...(step === "provider" ? { back: "/app" } : {})}
       {...(shellOnBack ? { onBack: shellOnBack } : {})}
-      {...(step !== "provider"
-        ? {
-            headerTrailing: (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "size-10 shrink-0 rounded-full border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
-                  "hover:bg-white/25",
-                  "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
-                )}
-                onClick={() => setSearchOpen(true)}
-                aria-label={t("water.searchTitle")}
-              >
-                <Info className="size-4" />
-              </Button>
-            ),
-          }
-        : {})}
+      headerTrailing={
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
+            "hover:bg-white/25",
+            "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+          )}
+          onClick={() => setSearchOpen(true)}
+          aria-label={t("water.searchTitle")}
+        >
+          <Search className="size-4" />
+        </Button>
+      }
     >
       <div className="min-w-0 max-w-full space-y-4 overflow-x-clip">
         {accountPending ? <AccountPendingBanner /> : null}
@@ -405,55 +392,28 @@ function WaterBillPayment() {
 
         {step === "provider" ? (
           <section className="-mx-3 overflow-hidden bg-surface sm:-mx-4 lg:mx-0 lg:rounded-2xl lg:border lg:border-border lg:shadow-card">
-            <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
-              <div className="relative min-w-0 flex-1">
-                <Input
-                  value={providerQuery}
-                  onChange={(e) => setProviderQuery(e.target.value)}
-                  placeholder={t("water.providerSearchPlaceholder")}
-                  className="h-11 rounded-full border border-border bg-surface pr-10 shadow-none"
-                  disabled={!enabled}
-                  autoComplete="off"
-                />
-                <Search className="pointer-events-none absolute top-1/2 right-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              </div>
-              <button
-                type="button"
-                className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label={t("water.gridView")}
-              >
-                <LayoutGrid className="size-5" />
-              </button>
-            </div>
-
-            {!filteredProviders.length ? (
-              <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-                {t("water.noProviders")}
-              </p>
-            ) : (
-              <ul className="divide-y divide-border">
-                {filteredProviders.map((provider) => (
-                  <li key={provider.id}>
-                    <button
-                      type="button"
-                      disabled={!enabled}
-                      onClick={() => selectProvider(provider)}
-                      className={cn(
-                        "flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors",
-                        "hover:bg-muted/40 active:bg-muted/60 disabled:opacity-50",
-                      )}
-                    >
-                      <span className="flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-border bg-surface shadow-sm">
-                        <Droplets className="size-5 text-brand" strokeWidth={1.75} />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#0F172A]">
-                        {provider.name}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ul className="divide-y divide-border">
+              {WATER_PROVIDERS.map((provider) => (
+                <li key={provider.id}>
+                  <button
+                    type="button"
+                    disabled={!enabled}
+                    onClick={() => selectProvider(provider)}
+                    className={cn(
+                      "flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors",
+                      "hover:bg-muted/40 active:bg-muted/60 disabled:opacity-50",
+                    )}
+                  >
+                    <span className="flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-border bg-surface shadow-sm">
+                      <Droplets className="size-5 text-brand" strokeWidth={1.75} />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#0F172A]">
+                      {provider.name}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           </section>
         ) : null}
 
