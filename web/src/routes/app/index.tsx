@@ -89,12 +89,6 @@ const ACTIONS = [
     iconBg: "bg-[#EAB308]",
   },
   {
-    to: "/app/community-electricity",
-    labelKey: "home.communityElectricity" as const satisfies MessageKey,
-    icon: Zap,
-    iconBg: "bg-[#F97316]",
-  },
-  {
     to: "/app/remittance",
     labelKey: "home.receiveRemittance" as const satisfies MessageKey,
     icon: ArrowDownToLine,
@@ -347,7 +341,6 @@ function WalletHome() {
                   a.to === "/app/internet" ||
                   a.to === "/app/water" ||
                   a.to === "/app/electricity" ||
-                  a.to === "/app/community-electricity" ||
                   a.to === "/app/remittance");
               if (blocked) {
                 return (
