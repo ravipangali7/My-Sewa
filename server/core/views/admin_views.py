@@ -699,8 +699,21 @@ def admin_user_detail(request, user_id):
                 {'error': 'You cannot delete your own account.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        user.delete()
-        return Response({'message': 'User deleted successfully'}, status=status.HTTP_200_OK)
+        # Soft-delete: deactivate and retain data (do not hard-delete from DB).
+        from .auth_views import _deactivate_user_account
+
+        if not user.is_active:
+            return Response(
+                {'message': 'User account is already deactivated.'},
+                status=status.HTTP_200_OK,
+            )
+        _deactivate_user_account(user)
+        return Response(
+            {
+                'message': 'User account deactivated successfully. Data has been retained.',
+            },
+            status=status.HTTP_200_OK,
+        )
 
     serializer = AdminUserWriteSerializer(
         user, data=request.data, partial=(request.method == 'PATCH'),

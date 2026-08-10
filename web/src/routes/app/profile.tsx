@@ -10,6 +10,7 @@ import {
   Mail,
   Phone,
   ShieldCheck,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +23,8 @@ import { isAccountActive } from "@/lib/account-status";
 import { isIdentityLocked } from "@/lib/kyc-lock";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
+import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,6 +60,9 @@ function Profile() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   if (!user) {
     return (
@@ -108,6 +114,27 @@ function Profile() {
       navigate({ to: "/" });
     } finally {
       setLoggingOut(false);
+    }
+  };
+
+  const confirmDeleteAccount = async () => {
+    if (!user) return;
+    if (!deletePassword.trim()) {
+      toast.error(t("profile.deletePasswordRequired"));
+      return;
+    }
+    setDeletingAccount(true);
+    try {
+      await apiClient.deleteAccount(user.phone, deletePassword);
+      toast.success(t("profile.deleteSuccess"));
+      setDeleteDialogOpen(false);
+      setDeletePassword("");
+      await logout();
+      navigate({ to: "/" });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : t("profile.deleteFailed"));
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -333,6 +360,55 @@ function Profile() {
               />
             </div>
           </section>
+
+          <AlertDialog
+            open={deleteDialogOpen}
+            onOpenChange={(open) => {
+              setDeleteDialogOpen(open);
+              if (!open) setDeletePassword("");
+            }}
+          >
+            <AlertDialogTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#F87171]/70 bg-white px-4 py-3.5 text-[16px] font-semibold text-[#EF4444] transition-colors hover:bg-[#FEF2F2]"
+              >
+                <Trash2 className="size-[18px]" strokeWidth={2} />
+                {t("profile.deleteAccount")}
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t("profile.deleteConfirmTitle")}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("profile.deleteConfirmBody")}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <div className="space-y-1.5 py-1">
+                <Label htmlFor="delete_account_password">{t("profile.deletePasswordLabel")}</Label>
+                <PasswordInput
+                  id="delete_account_password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  autoComplete="current-password"
+                  className="h-11 rounded-xl"
+                />
+              </div>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deletingAccount}>{t("common.cancel")}</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={deletingAccount}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmDeleteAccount();
+                  }}
+                >
+                  {deletingAccount ? t("profile.deletingAccount") : t("profile.deleteAccount")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           <AlertDialog>
             <AlertDialogTrigger asChild>

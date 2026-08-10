@@ -62,12 +62,12 @@ function UserDetailPage() {
   const deleteMutation = useMutation({
     mutationFn: () => apiClient.adminDeleteUser(id),
     onSuccess: () => {
-      toast.success("User deleted");
+      toast.success("User account deactivated");
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
       navigate({ to: "/admin/users" });
     },
     onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : "Could not delete user");
+      toast.error(err instanceof ApiError ? err.message : "Could not deactivate user");
     },
   });
 
@@ -95,17 +95,21 @@ function UserDetailPage() {
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button size="sm" variant="outline" disabled={isSelf || deleteMutation.isPending}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isSelf || deleteMutation.isPending || !u.is_active}
+                >
                   <Trash2 className="size-3.5" />
-                  Delete
+                  {u.is_active ? "Deactivate" : "Deactivated"}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this user?</AlertDialogTitle>
+                  <AlertDialogTitle>Deactivate this user?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This permanently removes {u.phone} and related wallet data. This cannot be
-                    undone.
+                    This disables {u.phone} and keeps their data. They will not be able to
+                    log in until an admin re-enables the account.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -114,7 +118,7 @@ function UserDetailPage() {
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     onClick={() => deleteMutation.mutate()}
                   >
-                    Delete
+                    Deactivate
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

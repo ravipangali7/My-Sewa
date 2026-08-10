@@ -200,6 +200,8 @@ export interface SecurityConfig {
   maintenance_mode: boolean;
   maintenance_message: string;
   allow_new_registrations: boolean;
+  /** When true, users must verify OTP after password login. */
+  otp_login_enabled: boolean;
 }
 
 export interface IntegrationsConfig {

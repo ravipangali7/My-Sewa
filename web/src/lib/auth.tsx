@@ -29,6 +29,11 @@ export type LoginOtpChallenge = {
   preferred_channel?: "email" | "sms" | string | null;
 };
 
+/** Result of password login — either OTP challenge or an established session. */
+export type LoginResult =
+  | { status: "otp_required"; challenge: LoginOtpChallenge }
+  | { status: "authenticated"; user: UserProfile };
+
 type AuthContextValue = {
   token: string | null;
   user: UserProfile | null;
@@ -36,8 +41,8 @@ type AuthContextValue = {
   isLoading: boolean;
   isAuthenticated: boolean;
   isStaff: boolean;
-  /** Step 1: verify credentials and receive OTP challenge (no session yet). */
-  beginLogin: (identifier: string, password: string) => Promise<LoginOtpChallenge>;
+  /** Step 1: verify credentials. May return OTP challenge or complete login when OTP is disabled. */
+  beginLogin: (identifier: string, password: string) => Promise<LoginResult>;
   /** Step 2: verify OTP and establish session. */
   verifyLoginOtp: (challengeId: string, otp: string) => Promise<UserProfile>;
   resendLoginOtp: (challengeId: string) => Promise<LoginOtpChallenge>;
@@ -143,10 +148,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient],
   );
 
-  const beginLogin = useCallback(async (identifier: string, password: string) => {
-    const res = await apiClient.login(identifier, password);
-    return toChallenge(res);
-  }, []);
+  const beginLogin = useCallback(
+    async (identifier: string, password: string): Promise<LoginResult> => {
+      const res = await apiClient.login(identifier, password);
+      if (!res.requires_otp && res.token) {
+        const profile = await establishSession(res.token);
+        return { status: "authenticated", user: profile };
+      }
+      if (!res.challenge_id) {
+        throw new ApiError(
+          "Login did not return a verification challenge. Please try again.",
+          500,
+        );
+      }
+      return {
+        status: "otp_required",
+        challenge: toChallenge({
+          challenge_id: res.challenge_id,
+          expires_in: res.expires_in ?? 300,
+          channels: res.channels || [],
+          email_hint: res.email_hint,
+          phone_hint: res.phone_hint,
+          message: res.message,
+          login_via: res.login_via,
+          preferred_channel: res.preferred_channel,
+        }),
+      };
+    },
+    [establishSession],
+  );
 
   const verifyLoginOtp = useCallback(
     async (challengeId: string, otp: string) => {

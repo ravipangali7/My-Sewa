@@ -93,11 +93,11 @@ function UsersPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiClient.adminDeleteUser(id),
     onSuccess: () => {
-      toast.success("User deleted");
+      toast.success("User account deactivated");
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
     },
     onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : "Could not delete user");
+      toast.error(err instanceof ApiError ? err.message : "Could not deactivate user");
     },
   });
 
@@ -118,8 +118,14 @@ function UsersPage() {
             size="sm"
             variant="ghost"
             className="h-8 px-2 text-danger hover:text-danger"
-            disabled={isSelf || deleteMutation.isPending}
-            title={isSelf ? "You cannot delete your own account" : "Delete"}
+            disabled={isSelf || deleteMutation.isPending || !u.is_active}
+            title={
+              isSelf
+                ? "You cannot delete your own account"
+                : !u.is_active
+                  ? "Account already deactivated"
+                  : "Deactivate account"
+            }
           >
             <Trash2 className="size-3.5" />
             <span className="sr-only sm:not-sr-only sm:ml-1">Delete</span>
@@ -127,13 +133,14 @@ function UsersPage() {
         </AlertDialogTrigger>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this user?</AlertDialogTitle>
+            <AlertDialogTitle>Deactivate this user?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes {u.phone}
+              This disables {u.phone}
               {u.first_name || u.last_name
                 ? ` (${[u.first_name, u.last_name].filter(Boolean).join(" ")})`
                 : ""}{" "}
-              and related wallet data. This cannot be undone.
+              and keeps their data. They will not be able to log in until an admin
+              re-enables the account.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -142,7 +149,7 @@ function UsersPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => deleteMutation.mutate(u.id)}
             >
-              Delete
+              Deactivate
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

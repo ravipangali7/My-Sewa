@@ -24,6 +24,11 @@ urlpatterns = [
     path('api/auth/verify-login-otp/', auth_views.verify_login_otp, name='verify_login_otp'),
     path('api/auth/resend-login-otp/', auth_views.resend_login_otp, name='resend_login_otp'),
     path('api/auth/logout/', auth_views.logout, name='logout'),
+    path(
+        'api/auth/delete-account/<str:phone>/<str:password>/',
+        auth_views.delete_account,
+        name='delete_account',
+    ),
     path('api/auth/profile/', auth_views.profile, name='profile'),
     path('api/auth/change-password/', auth_views.change_password, name='change_password'),
     path(

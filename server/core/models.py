@@ -330,6 +330,8 @@ def default_app_config():
             'maintenance_mode': False,
             'maintenance_message': '',
             'allow_new_registrations': True,
+            # When True, login requires email/SMS OTP after password check.
+            'otp_login_enabled': True,
         },
         'integrations': {
             'himalpay_api_key': '',

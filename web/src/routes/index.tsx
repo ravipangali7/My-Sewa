@@ -176,9 +176,16 @@ function LoginPage() {
                 }
                 setSubmitting(true);
                 try {
-                  const next = await beginLogin(trimmed, password);
-                  applyChallenge(next);
-                  notifyOtpSent(next, { resent: false });
+                  const result = await beginLogin(trimmed, password);
+                  if (result.status === "authenticated") {
+                    const staff =
+                      result.user.is_staff || result.user.is_superuser;
+                    toast.success(t("auth.loginSuccess"));
+                    navigate({ to: staff ? "/admin" : "/app" });
+                    return;
+                  }
+                  applyChallenge(result.challenge);
+                  notifyOtpSent(result.challenge, { resent: false });
                 } catch (err) {
                   const msg = err instanceof ApiError ? err.message : t("auth.loginFailed");
                   toast.error(msg);

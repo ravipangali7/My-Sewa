@@ -248,15 +248,26 @@ export const apiClient = {
     const isEmail = trimmed.includes("@");
     return api<{
       message: string;
-      requires_otp: true;
-      challenge_id: string;
-      expires_in: number;
-      channels: Array<"email" | "sms" | string>;
+      requires_otp: boolean;
+      challenge_id?: string;
+      expires_in?: number;
+      channels?: Array<"email" | "sms" | string>;
       email_hint?: string | null;
       phone_hint?: string | null;
       login_via?: "email" | "phone" | string | null;
       preferred_channel?: "email" | "sms" | string | null;
       debug_otp?: string;
+      token?: string;
+      user?: {
+        id: number;
+        phone: string;
+        email: string;
+        first_name: string;
+        last_name: string;
+        is_staff?: boolean;
+        is_superuser?: boolean;
+        account_status?: import("./types").AccountStatus;
+      };
     }>("/api/auth/login/", {
       method: "POST",
       body: isEmail
@@ -942,6 +953,12 @@ export const apiClient = {
     }),
   adminDeleteUser: (id: number) =>
     api<{ message: string }>(`/api/admin/users/${id}/`, { method: "DELETE" }),
+  /** Soft-delete account via GET /api/auth/delete-account/<phone>/<password>/ */
+  deleteAccount: (phone: string, password: string) =>
+    api<{ message: string; detail?: string }>(
+      `/api/auth/delete-account/${encodeURIComponent(phone.trim())}/${encodeURIComponent(password)}/`,
+      { method: "GET", auth: false },
+    ),
   adminGetUserFees: (id: number) =>
     api<import("./types").AdminUserFeesResponse>(`/api/admin/users/${id}/fees/`),
   adminUpdateUserFees: (id: number, body: import("./types").UserFeeConfigPayload) =>

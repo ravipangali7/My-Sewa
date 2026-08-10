@@ -341,6 +341,9 @@ def public_config(config: Optional[Dict] = None) -> Dict[str, Any]:
             'allow_new_registrations': bool(
                 (cfg.get('security') or {}).get('allow_new_registrations', True)
             ),
+            'otp_login_enabled': bool(
+                (cfg.get('security') or {}).get('otp_login_enabled', True)
+            ),
             'session_timeout_minutes': (cfg.get('security') or {}).get(
                 'session_timeout_minutes', 60
             ),

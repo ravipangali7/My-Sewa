@@ -127,6 +127,32 @@ def _looks_like_email(value: str) -> bool:
     return '@' in (value or '')
 
 
+ACCOUNT_DEACTIVATED_MESSAGE = (
+    'Your account has been deleted/deactivated. Please contact support.'
+)
+
+
+def _account_deactivated_response():
+    return Response({
+        'error': 'account_deactivated',
+        'message': ACCOUNT_DEACTIVATED_MESSAGE,
+        'detail': ACCOUNT_DEACTIVATED_MESSAGE,
+    }, status=status.HTTP_401_UNAUTHORIZED)
+
+
+def _deactivate_user_account(user) -> None:
+    """Soft-delete: disable the account and revoke sessions, keep all data."""
+    from django.core.cache import cache
+
+    user.is_active = False
+    user.save(update_fields=['is_active'])
+    old_keys = list(Token.objects.filter(user=user).values_list('key', flat=True))
+    Token.objects.filter(user=user).delete()
+    for old_key in old_keys:
+        cache.delete(f'session_activity:{old_key}')
+    _invalidate_login_otp_for_user(user.pk)
+
+
 def _find_user_by_login_identifier(identifier: str):
     """Look up a user by email or phone for login error messaging."""
     if _looks_like_email(identifier):
@@ -138,10 +164,10 @@ def _find_user_by_login_identifier(identifier: str):
 @permission_classes([AllowAny])
 def login(request):
     """
-    Step 1 of login: verify email/phone + password, then send a one-time code.
-    Email login → OTP emailed. Phone login → OTP via SMS (code is not returned
-    to the client). A full auth token is issued only after
-    POST /api/auth/verify-login-otp/.
+    Step 1 of login: verify email/phone + password.
+    When security.otp_login_enabled is True, send a one-time code and require
+    POST /api/auth/verify-login-otp/ before issuing a token.
+    When disabled, issue the auth token immediately after password check.
     """
     from django.core.cache import cache
     from ..services.app_config import get_app_config
@@ -203,6 +229,16 @@ def login(request):
                     'code': 'maintenance_mode',
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+            otp_login_enabled = security.get('otp_login_enabled', True)
+            if not otp_login_enabled:
+                logger.info(
+                    'OTP login disabled — issuing token for user_id=%s',
+                    user.id,
+                )
+                return _issue_login_token_response(
+                    request, user, otp_verified=False
+                )
+
             return _start_login_otp_challenge(
                 request,
                 user,
@@ -233,11 +269,7 @@ def login(request):
                     }, status=status.HTTP_401_UNAUTHORIZED)
                 if not existing.is_active:
                     logger.warning(f"Login failed: User {existing.id} is inactive")
-                    return Response({
-                        'error': 'Account is inactive',
-                        'message': 'Your account has been deactivated',
-                        'detail': 'Your account has been deactivated. Please contact support.',
-                    }, status=status.HTTP_401_UNAUTHORIZED)
+                    return _account_deactivated_response()
                 logger.warning(f"Login failed: Incorrect password for user {existing.id}")
                 return Response({
                     'error': 'Invalid credentials',
@@ -432,8 +464,8 @@ def _start_login_otp_challenge(
     return Response(payload, status=status.HTTP_200_OK)
 
 
-def _issue_login_token_response(request, user):
-    """Issue DRF token after successful OTP verification (shared by Admin + User)."""
+def _issue_login_token_response(request, user, *, otp_verified: bool = True):
+    """Issue DRF token after successful login (shared by Admin + User)."""
     import time
 
     from django.core.cache import cache
@@ -443,7 +475,7 @@ def _issue_login_token_response(request, user):
     from ..services.security import log_security_event
 
     # Always rotate so a token restored from backup/old installs cannot stay valid
-    # after a fresh credential + OTP login on this (or another) device.
+    # after a fresh credential (+ OTP when enabled) login on this (or another) device.
     old_keys = list(Token.objects.filter(user=user).values_list('key', flat=True))
     Token.objects.filter(user=user).delete()
     for old_key in old_keys:
@@ -460,12 +492,13 @@ def _issue_login_token_response(request, user):
             timeout=timeout_minutes * 60 + 300,
         )
 
-    log_security_event(
-        user=user,
-        action=SecurityAuditLog.ACTION_LOGIN_OTP_VERIFIED,
-        request=request,
-        details={'is_staff': bool(user.is_staff or user.is_superuser)},
-    )
+    if otp_verified:
+        log_security_event(
+            user=user,
+            action=SecurityAuditLog.ACTION_LOGIN_OTP_VERIFIED,
+            request=request,
+            details={'is_staff': bool(user.is_staff or user.is_superuser)},
+        )
 
     return Response({
         'message': 'Login successful',
@@ -550,11 +583,7 @@ def verify_login_otp(request):
 
     if not user.is_active:
         _invalidate_login_otp_for_user(user_id)
-        return Response({
-            'error': 'Account is inactive',
-            'message': 'Your account has been deactivated',
-            'detail': 'Your account has been deactivated. Please contact support.'
-        }, status=status.HTTP_401_UNAUTHORIZED)
+        return _account_deactivated_response()
 
     _invalidate_login_otp_for_user(user.pk)
     logger.info('Login OTP verified for user_id=%s', user.pk)
@@ -592,10 +621,7 @@ def resend_login_otp(request):
 
     if not user.is_active:
         _invalidate_login_otp_for_user(user.pk)
-        return Response({
-            'error': 'Account is inactive',
-            'message': 'Your account has been deactivated',
-        }, status=status.HTTP_401_UNAUTHORIZED)
+        return _account_deactivated_response()
 
     # Simple resend throttle: one resend per 30 seconds per challenge
     throttle_key = f'login_otp_resend:{challenge_id}'
@@ -630,6 +656,46 @@ def logout(request):
         return Response({
             'error': 'Logout failed'
         }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def delete_account(request, phone, password):
+    """
+    Soft-delete (deactivate) an account via GET /api/auth/delete-account/<phone>/<password>/.
+    Retains all user data; the account can no longer log in.
+    """
+    from urllib.parse import unquote
+
+    phone = unquote(phone or '').strip()
+    password = unquote(password or '')
+
+    if not phone or not password:
+        return Response({
+            'error': 'phone_and_password_required',
+            'message': 'Phone number and password are required to delete an account.',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    user = User.objects.filter(phone=phone).first()
+    if user is None or not user.check_password(password):
+        return Response({
+            'error': 'invalid_credentials',
+            'message': 'Invalid phone number or password.',
+            'detail': 'Could not delete account. Please check your phone number and password.',
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    if not user.is_active:
+        return Response({
+            'message': ACCOUNT_DEACTIVATED_MESSAGE,
+            'detail': 'Account is already deactivated.',
+        }, status=status.HTTP_200_OK)
+
+    _deactivate_user_account(user)
+    logger.info('Account soft-deleted (deactivated) for user_id=%s phone=%s***', user.pk, phone[:3])
+    return Response({
+        'message': 'Your account has been deleted/deactivated successfully.',
+        'detail': 'Your account data has been retained but the account is no longer active.',
+    }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET', 'PUT', 'PATCH'])
@@ -1174,8 +1240,8 @@ def reset_password(request):
 
     if not user.is_active:
         return Response({
-            'message': 'Your account has been deactivated. Please contact support.',
-            'errors': {'phone': ['Your account has been deactivated. Please contact support.']},
+            'message': ACCOUNT_DEACTIVATED_MESSAGE,
+            'errors': {'phone': [ACCOUNT_DEACTIVATED_MESSAGE]},
         }, status=status.HTTP_400_BAD_REQUEST)
 
     # Exact AD date match; missing DOB on account fails generically (no leak).

@@ -145,6 +145,7 @@ const DEFAULT_CONFIG: AppConfig = {
     maintenance_mode: false,
     maintenance_message: "",
     allow_new_registrations: true,
+    otp_login_enabled: true,
   },
   integrations: {
     himalpay_api_key: "",
@@ -2189,6 +2190,17 @@ function SettingsPage() {
                     setConfig((c) => ({
                       ...c,
                       security: { ...c.security, allow_new_registrations: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="OTP login verification"
+                  description="Require email/SMS OTP after password login. When off, users sign in with password only."
+                  checked={config.security.otp_login_enabled !== false}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      security: { ...c.security, otp_login_enabled: v },
                     }))
                   }
                 />
