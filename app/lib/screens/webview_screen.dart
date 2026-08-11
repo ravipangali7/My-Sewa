@@ -308,6 +308,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await controller.setBackgroundColor(const Color(AppConfig.brandSoft));
     await controller.enableZoom(false);
+    await controller.clearCache();
     _splashStartedAt ??= DateTime.now();
 
     final defaultUa = await controller.getUserAgent() ?? '';

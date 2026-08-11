@@ -1,4 +1,4 @@
-package com.example.mysewa
+package com.infelogroup.mysewa
 
 import android.content.Intent
 import android.net.Uri

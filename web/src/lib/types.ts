@@ -391,6 +391,47 @@ export interface RemittanceLookup {
   status: string;
 }
 
+export type CitizenshipFieldMatchStatus = "match" | "partial" | "mismatch" | "missing";
+export type CitizenshipOverallMatch = "MATCH" | "PARTIAL MATCH" | "MISMATCH";
+
+export interface CitizenshipFieldComparison {
+  field: string;
+  form_value: string;
+  ocr_value: string;
+  status: CitizenshipFieldMatchStatus;
+  score: number;
+  normalized_form?: string;
+  normalized_ocr?: string;
+}
+
+export interface CitizenshipVerificationResult {
+  match_status: CitizenshipOverallMatch;
+  confidence_score: number;
+  fields: CitizenshipFieldComparison[];
+  form: {
+    name: string;
+    citizenship_number: string;
+    dob: string;
+    issue_date: string;
+    issue_place: string;
+  };
+  ocr: {
+    name: string;
+    citizenship_number: string;
+    dob: string;
+    issue_date: string;
+    issue_place: string;
+  };
+  ocr_detail?: {
+    front?: Record<string, unknown>;
+    back?: Record<string, unknown>;
+    confidence?: number;
+    errors?: string[];
+  };
+  ocr_errors: string[];
+  ocr_confidence: number;
+}
+
 export interface RemittanceTransaction {
   id: number;
   user: string;

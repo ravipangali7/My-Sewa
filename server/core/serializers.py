@@ -1167,6 +1167,7 @@ class RemittanceReceiveSerializer(serializers.Serializer):
     beneficiary_mobile_no = serializers.CharField(max_length=50, required=True)
     beneficiary_dob = serializers.CharField(max_length=30, required=True)
     remittance_purpose = serializers.CharField(max_length=80, required=False, default='FAMILY_SUPPORT')
+    citizenship_verification = serializers.DictField(required=False, allow_empty=True)
 
     def validate_ref_no(self, value):
         value = (value or '').strip()
@@ -1232,6 +1233,21 @@ class RemittanceReceiveSerializer(serializers.Serializer):
 
     def validate_beneficiary_dob(self, value):
         return self._require_text(value, 'Date of birth')
+
+
+class CitizenshipVerifySerializer(serializers.Serializer):
+    """Form-side citizenship fields compared against OCR of front/back images."""
+    name = serializers.CharField(max_length=200, required=False, allow_blank=True, default='')
+    citizenship_number = serializers.CharField(max_length=100, required=True)
+    dob = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
+    issue_date = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
+    issue_place = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+
+    def validate_citizenship_number(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('Citizenship number is required.')
+        return value
 
 
 class InternetBillTransactionSerializer(serializers.ModelSerializer):

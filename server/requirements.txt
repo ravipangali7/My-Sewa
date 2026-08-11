@@ -11,3 +11,4 @@ requests==2.31.0
 cryptography==42.0.5
 python-dotenv==1.0.1
 gunicorn==23.0.0
+pytesseract==0.3.13

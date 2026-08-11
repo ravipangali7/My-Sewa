@@ -193,9 +193,14 @@ function LoginPage() {
                 <Label htmlFor="identifier">{t("auth.emailOrPhone")}</Label>
                 <Input
                   id="identifier"
+                  name="username"
                   type="text"
-                  inputMode="text"
+                  inputMode="email"
                   autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="next"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   className="h-12 rounded-xl"

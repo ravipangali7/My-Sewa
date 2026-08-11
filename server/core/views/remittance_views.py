@@ -6,7 +6,8 @@ import logging
 from decimal import Decimal
 
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -15,6 +16,7 @@ from ..serializers import (
     RemittanceTransactionSerializer,
     RemittanceLookupSerializer,
     RemittanceReceiveSerializer,
+    CitizenshipVerifySerializer,
     TransactionStatusSerializer,
 )
 from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_response
@@ -25,6 +27,7 @@ from ..services.app_config import (
 )
 from ..services.notifications import notify_remittance_success
 from ..services.txn_status import apply_inbound_status_change
+from ..services.citizenship_verify import verify_citizenship_images
 
 logger = logging.getLogger(__name__)
 
@@ -360,6 +363,70 @@ def lookup_remittance(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def verify_citizenship(request):
+    """
+    OCR citizenship front + back images and compare against form fields.
+
+    Multipart fields:
+    - front / citizenship_front (required image)
+    - back / citizenship_back (required image)
+    - name, citizenship_number, dob, issue_date, issue_place
+    """
+    blocked = require_feature_enabled('remittances')
+    if blocked:
+        return blocked
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
+
+    front = request.FILES.get('front') or request.FILES.get('citizenship_front')
+    back = request.FILES.get('back') or request.FILES.get('citizenship_back')
+    if not front or not back:
+        return Response(
+            {
+                'error': 'Citizenship images required',
+                'message': 'Upload both citizenship Front and Back images.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    serializer = CitizenshipVerifySerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    data = serializer.validated_data
+    try:
+        result = verify_citizenship_images(
+            front=front,
+            back=back,
+            name=data.get('name') or '',
+            citizenship_number=data.get('citizenship_number') or '',
+            dob=data.get('dob') or '',
+            issue_date=data.get('issue_date') or '',
+            issue_place=data.get('issue_place') or '',
+        )
+    except Exception as exc:
+        logger.exception('Citizenship verification failed')
+        return Response(
+            {
+                'error': 'Verification failed',
+                'message': str(exc) or 'Citizenship OCR verification failed.',
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(
+        {
+            'message': f"Citizenship verification: {result['match_status']}",
+            'data': result,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def receive_remittance(request):
     """Step 2: Confirm remittance payout via SAMSARA_PAY and credit wallet."""
     blocked = require_feature_enabled('remittances')
@@ -434,6 +501,8 @@ def receive_remittance(request):
     if not beneficiary['beneficiary_mobile_no']:
         beneficiary['beneficiary_mobile_no'] = request.user.phone
 
+    citizenship_verification = data.pop('citizenship_verification', None) or {}
+
     txn = RemittanceTransaction.objects.create(
         user=request.user,
         ref_no=ref_no,
@@ -452,6 +521,11 @@ def receive_remittance(request):
         status='pending',
         merchant_txn_id=merchant_txn_id,
         total_credited=amount,
+        lookup_response=(
+            {'citizenship_verification': citizenship_verification}
+            if citizenship_verification
+            else {}
+        ),
         **beneficiary,
     )
 

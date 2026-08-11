@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type ReactNode } from "react";
-import { ArrowLeft, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, Search, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { BsDatePicker } from "@/components/BsDatePicker";
 import { UserShell } from "@/components/layout/UserShell";
@@ -25,14 +25,14 @@ import { LIVE_REFETCH_MS } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { cn } from "@/lib/utils";
-import type { RemittanceLookup } from "@/lib/types";
+import type { CitizenshipVerificationResult, RemittanceLookup } from "@/lib/types";
 
 export const Route = createFileRoute("/app/remittance")({
   head: () => ({
@@ -143,6 +143,60 @@ function ReceiveRemittance() {
   const [refNo, setRefNo] = useState("");
   const [lookup, setLookup] = useState<RemittanceLookup | null>(null);
   const [kyc, setKyc] = useState<KycForm>(() => emptyKyc(user?.phone ?? ""));
+  const [citizenshipFront, setCitizenshipFront] = useState<File | null>(null);
+  const [citizenshipBack, setCitizenshipBack] = useState<File | null>(null);
+  const [frontPreview, setFrontPreview] = useState<string | null>(null);
+  const [backPreview, setBackPreview] = useState<string | null>(null);
+  const [verification, setVerification] = useState<CitizenshipVerificationResult | null>(null);
+  const previewUrlsRef = useRef<string[]>([]);
+
+  const trackPreview = (url: string | null | undefined) => {
+    if (url) previewUrlsRef.current.push(url);
+  };
+
+  useEffect(() => {
+    return () => {
+      for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
+      previewUrlsRef.current = [];
+    };
+  }, []);
+
+  const setCitizenshipFile = (side: "front" | "back", file: File | null) => {
+    setVerification(null);
+    if (side === "front") {
+      setCitizenshipFront(file);
+      setFrontPreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        if (!file) return null;
+        const url = URL.createObjectURL(file);
+        trackPreview(url);
+        return url;
+      });
+    } else {
+      setCitizenshipBack(file);
+      setBackPreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        if (!file) return null;
+        const url = URL.createObjectURL(file);
+        trackPreview(url);
+        return url;
+      });
+    }
+  };
+
+  const resetCitizenshipScan = () => {
+    setCitizenshipFront(null);
+    setCitizenshipBack(null);
+    setFrontPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setBackPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setVerification(null);
+  };
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -163,6 +217,17 @@ function ReceiveRemittance() {
 
   const setField = <K extends keyof KycForm>(key: K, value: KycForm[K]) => {
     setKyc((prev) => ({ ...prev, [key]: value }));
+    const citizenshipKeys: Array<keyof KycForm> = [
+      "beneficiary_citizenship_number",
+      "beneficiary_citizenship_issuing_district",
+      "beneficiary_id_number",
+      "beneficiary_id_issue_date",
+      "beneficiary_id_issue_by",
+      "beneficiary_dob",
+    ];
+    if (citizenshipKeys.includes(key)) {
+      setVerification(null);
+    }
   };
 
   const lookupMutation = useMutation({
@@ -175,6 +240,7 @@ function ReceiveRemittance() {
     },
     onSuccess: (res) => {
       setLookup(res.data);
+      resetCitizenshipScan();
       setKyc((prev) => ({
         ...prev,
         beneficiary_mobile_no:
@@ -197,11 +263,111 @@ function ReceiveRemittance() {
     },
   });
 
+  const verifyMutation = useMutation({
+    mutationFn: async () => {
+      if (accountPending) throw new Error(t("account.pending"));
+      if (!remittancesEnabled) throw new Error(t("remittance.disabledError"));
+      if (!citizenshipFront || !citizenshipBack) {
+        throw new Error(t("remittance.citizenshipBothRequired"));
+      }
+      if (!String(kyc.beneficiary_citizenship_number || "").trim()) {
+        throw new Error(
+          t("remittance.fieldRequired", { field: t("remittance.citizenshipNo") }),
+        );
+      }
+
+      const buildFormData = (fields: {
+        name: string;
+        citizenship_number: string;
+        dob: string;
+        issue_date: string;
+        issue_place: string;
+      }) => {
+        const fd = new FormData();
+        fd.append("front", citizenshipFront);
+        fd.append("back", citizenshipBack);
+        fd.append("name", fields.name);
+        fd.append("citizenship_number", fields.citizenship_number);
+        fd.append("dob", fields.dob);
+        fd.append("issue_date", fields.issue_date);
+        fd.append("issue_place", fields.issue_place);
+        return fd;
+      };
+
+      const initial = {
+        name: lookup?.receiver_name || "",
+        citizenship_number: kyc.beneficiary_citizenship_number.trim(),
+        dob: kyc.beneficiary_dob.trim(),
+        issue_date: kyc.beneficiary_id_issue_date.trim(),
+        issue_place: (
+          kyc.beneficiary_citizenship_issuing_district ||
+          kyc.beneficiary_id_issue_by ||
+          ""
+        ).trim(),
+      };
+
+      const first = await apiClient.verifyRemittanceCitizenship(buildFormData(initial));
+      const ocr = first.data.ocr;
+      const patched = {
+        name: initial.name,
+        citizenship_number: initial.citizenship_number || ocr.citizenship_number || "",
+        dob: initial.dob || ocr.dob || "",
+        issue_date: initial.issue_date || ocr.issue_date || "",
+        issue_place: initial.issue_place || ocr.issue_place || "",
+      };
+      const didAutofill =
+        patched.citizenship_number !== initial.citizenship_number ||
+        patched.dob !== initial.dob ||
+        patched.issue_date !== initial.issue_date ||
+        patched.issue_place !== initial.issue_place;
+
+      const final = didAutofill
+        ? await apiClient.verifyRemittanceCitizenship(buildFormData(patched))
+        : first;
+
+      return { response: final, patched, didAutofill };
+    },
+    onSuccess: ({ response, patched, didAutofill }) => {
+      const data = response.data;
+      setVerification(data);
+      setKyc((prev) => ({
+        ...prev,
+        beneficiary_citizenship_number:
+          prev.beneficiary_citizenship_number.trim() || patched.citizenship_number,
+        beneficiary_id_number:
+          prev.beneficiary_id_number.trim() ||
+          patched.citizenship_number ||
+          prev.beneficiary_id_number,
+        beneficiary_dob: prev.beneficiary_dob.trim() || patched.dob,
+        beneficiary_id_issue_date:
+          prev.beneficiary_id_issue_date.trim() || patched.issue_date,
+        beneficiary_citizenship_issuing_district:
+          prev.beneficiary_citizenship_issuing_district.trim() || patched.issue_place,
+        beneficiary_id_issue_by:
+          prev.beneficiary_id_issue_by.trim() || patched.issue_place,
+      }));
+      toast.success(
+        response.message || t("remittance.verifySuccess", { status: data.match_status }),
+      );
+      if (didAutofill) toast.message(t("remittance.autofilledFromOcr"));
+    },
+    onError: (err) => {
+      toastApiError(err, { fallback: t("remittance.verifyFailed") });
+    },
+  });
+
   const receiveMutation = useMutation({
     mutationFn: async (transaction_pin: string) => {
       if (!lookup) throw new Error(t("remittance.lookupFirst"));
       if (accountPending) throw new Error(t("account.pending"));
       if (!remittancesEnabled) throw new Error(t("remittance.disabledError"));
+      if (!citizenshipFront || !citizenshipBack) {
+        throw new Error(t("remittance.citizenshipBothRequired"));
+      }
+      if (!verification) throw new Error(t("remittance.verifyRequired"));
+      if (verification.match_status === "MISMATCH") {
+        throw new Error(t("remittance.verifyMismatch"));
+      }
 
       const required: Array<[keyof KycForm, string]> = [
         ["beneficiary_gender", t("remittance.gender")],
@@ -244,6 +410,16 @@ function ReceiveRemittance() {
         ...kyc,
         beneficiary_id_number:
           kyc.beneficiary_id_number || kyc.beneficiary_citizenship_number,
+        citizenship_verification: verification
+          ? {
+              match_status: verification.match_status,
+              confidence_score: verification.confidence_score,
+              ocr_confidence: verification.ocr_confidence,
+              fields: verification.fields,
+              ocr: verification.ocr,
+              ocr_errors: verification.ocr_errors,
+            }
+          : undefined,
         transaction_pin,
       });
     },
@@ -260,6 +436,7 @@ function ReceiveRemittance() {
       setRefNo("");
       setLookup(null);
       setKyc(emptyKyc(user?.phone ?? ""));
+      resetCitizenshipScan();
       if (res.data?.id != null) {
         setLastReceiptId(activityIdForKind("remittance", res.data.id));
       }
@@ -407,6 +584,18 @@ function ReceiveRemittance() {
               className="space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
+                if (!citizenshipFront || !citizenshipBack) {
+                  toast.error(t("remittance.citizenshipBothRequired"));
+                  return;
+                }
+                if (!verification) {
+                  toast.error(t("remittance.verifyRequired"));
+                  return;
+                }
+                if (verification.match_status === "MISMATCH") {
+                  toast.error(t("remittance.verifyMismatch"));
+                  return;
+                }
                 setPinError(null);
                 setPinOpen(true);
               }}
@@ -417,6 +606,52 @@ function ReceiveRemittance() {
                   ref: lookup.ref_no,
                 })}
               </p>
+
+              <div className="space-y-3 rounded-xl border border-border/70 bg-muted/30 p-3">
+                <div>
+                  <p className="text-[14px] font-semibold">
+                    {t("remittance.citizenshipVerifyTitle")}
+                  </p>
+                  <p className="mt-1 text-[12px] text-muted-foreground">
+                    {t("remittance.citizenshipVerifyHelp")}
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <CitizenshipUploadSlot
+                    label={t("remittance.citizenshipFront")}
+                    hint={t("remittance.citizenshipUploadHint")}
+                    preview={frontPreview}
+                    file={citizenshipFront}
+                    onChange={(file) => setCitizenshipFile("front", file)}
+                  />
+                  <CitizenshipUploadSlot
+                    label={t("remittance.citizenshipBack")}
+                    hint={t("remittance.citizenshipUploadHint")}
+                    preview={backPreview}
+                    file={citizenshipBack}
+                    onChange={(file) => setCitizenshipFile("back", file)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-11 w-full rounded-xl"
+                  disabled={
+                    verifyMutation.isPending ||
+                    !citizenshipFront ||
+                    !citizenshipBack ||
+                    !remittancesEnabled
+                  }
+                  onClick={() => verifyMutation.mutate()}
+                >
+                  {verifyMutation.isPending
+                    ? t("remittance.verifyingCitizenship")
+                    : t("remittance.verifyCitizenship")}
+                </Button>
+                {verification ? (
+                  <CitizenshipVerificationPanel verification={verification} t={t} />
+                ) : null}
+              </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label={t("remittance.gender")}>
@@ -627,7 +862,12 @@ function ReceiveRemittance() {
 
               <Button
                 type="submit"
-                disabled={receiveMutation.isPending || !remittancesEnabled}
+                disabled={
+                  receiveMutation.isPending ||
+                  !remittancesEnabled ||
+                  !verification ||
+                  verification.match_status === "MISMATCH"
+                }
                 className="h-12 w-full rounded-xl text-[17px]"
               >
                 {receiveMutation.isPending
@@ -796,6 +1036,144 @@ function Row({
       >
         {value}
       </dd>
+    </div>
+  );
+}
+
+function CitizenshipUploadSlot({
+  label,
+  hint,
+  preview,
+  file,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  preview: string | null;
+  file: File | null;
+  onChange: (file: File | null) => void;
+}) {
+  const inputId = `citizenship-${label.replace(/\s+/g, "-").toLowerCase()}`;
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={inputId} className="text-[13px]">
+        {label}
+      </Label>
+      {preview ? (
+        <div className="relative overflow-hidden rounded-xl border border-border bg-background">
+          <img src={preview} alt={label} className="h-36 w-full object-cover" />
+          <button
+            type="button"
+            className="absolute right-2 top-2 inline-flex size-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow"
+            onClick={() => onChange(null)}
+            aria-label="Remove"
+          >
+            <X className="size-4" />
+          </button>
+          <p className="truncate px-2 py-1.5 text-[11px] text-muted-foreground">
+            {file?.name}
+          </p>
+        </div>
+      ) : (
+        <label
+          htmlFor={inputId}
+          className="flex h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-background px-3 text-center"
+        >
+          <Upload className="size-5 text-muted-foreground" />
+          <span className="text-[12px] text-muted-foreground">{hint}</span>
+        </label>
+      )}
+      <input
+        id={inputId}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/*"
+        className="sr-only"
+        onChange={(e) => {
+          const next = e.target.files?.[0] ?? null;
+          onChange(next);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+function CitizenshipVerificationPanel({
+  verification,
+  t,
+}: {
+  verification: CitizenshipVerificationResult;
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string;
+}) {
+  const tone =
+    verification.match_status === "MATCH"
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+      : verification.match_status === "PARTIAL MATCH"
+        ? "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-100"
+        : "border-destructive/30 bg-destructive/10 text-destructive";
+
+  const fieldLabel = (field: string): string => {
+    const key = `remittance.field.${field}` as MessageKey;
+    try {
+      return t(key);
+    } catch {
+      return field;
+    }
+  };
+
+  const statusLabel = (status: string): string => {
+    const key = `remittance.match.${status}` as MessageKey;
+    try {
+      return t(key);
+    } catch {
+      return status;
+    }
+  };
+
+  return (
+    <div className={cn("space-y-2 rounded-xl border p-3 text-[13px]", tone)}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-semibold">
+          {t("remittance.matchStatus")}: {verification.match_status}
+        </p>
+        <p className="tabular">
+          {t("remittance.confidence")}: {Math.round(verification.confidence_score * 100)}%
+        </p>
+      </div>
+      <p className="text-[12px] opacity-80">
+        {t("remittance.ocrConfidence")}: {Math.round(verification.ocr_confidence * 100)}%
+      </p>
+      <div className="space-y-1.5">
+        <p className="text-[12px] font-medium opacity-80">{t("remittance.fieldMatch")}</p>
+        <ul className="space-y-1">
+          {verification.fields.map((f) => (
+            <li
+              key={f.field}
+              className="flex items-start justify-between gap-2 rounded-lg bg-background/50 px-2 py-1.5"
+            >
+              <span className="min-w-0">
+                <span className="font-medium">{fieldLabel(f.field)}</span>
+                <span className="mt-0.5 block truncate text-[11px] opacity-70">
+                  {f.form_value || "—"} → {f.ocr_value || "—"}
+                </span>
+              </span>
+              <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide">
+                {statusLabel(f.status)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {verification.ocr_errors?.length ? (
+        <div className="space-y-1">
+          <p className="text-[12px] font-medium opacity-80">{t("remittance.ocrErrors")}</p>
+          <ul className="list-disc space-y-0.5 pl-4 text-[11px] opacity-80">
+            {verification.ocr_errors.slice(0, 4).map((err) => (
+              <li key={err}>{err}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }
