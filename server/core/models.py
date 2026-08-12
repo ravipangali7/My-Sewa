@@ -263,6 +263,9 @@ def default_app_config():
             'topups_enabled': True,
             'transfers_enabled': True,
             'remittances_enabled': True,
+            # When False, remittance KYC skips citizenship image upload/OCR matching
+            # and uses the old direct form → HimalPay receive flow.
+            'citizenship_matching_enabled': False,
             'internet_bills_enabled': True,
             'data_packs_enabled': True,
             'water_bills_enabled': True,

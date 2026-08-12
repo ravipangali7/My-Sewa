@@ -102,6 +102,7 @@ const DEFAULT_CONFIG: AppConfig = {
     topups_enabled: true,
     transfers_enabled: true,
     remittances_enabled: true,
+    citizenship_matching_enabled: false,
     internet_bills_enabled: true,
     data_packs_enabled: true,
     water_bills_enabled: true,
@@ -840,6 +841,17 @@ function SettingsPage() {
                     setConfig((c) => ({
                       ...c,
                       payment: { ...c.payment, remittances_enabled: v },
+                    }))
+                  }
+                />
+                <ToggleRow
+                  label="Citizenship image matching"
+                  description="Require citizenship front/back upload and OCR matching before remittance payout. When off, users fill the KYC form and hit HimalPay directly."
+                  checked={config.payment.citizenship_matching_enabled === true}
+                  onCheckedChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      payment: { ...c.payment, citizenship_matching_enabled: v },
                     }))
                   }
                 />

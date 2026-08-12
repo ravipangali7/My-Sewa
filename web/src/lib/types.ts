@@ -154,6 +154,8 @@ export interface PaymentConfig {
   topups_enabled: boolean;
   transfers_enabled: boolean;
   remittances_enabled: boolean;
+  /** When true, remittance KYC requires citizenship image upload/OCR matching. */
+  citizenship_matching_enabled: boolean;
   internet_bills_enabled: boolean;
   data_packs_enabled: boolean;
   water_bills_enabled: boolean;
