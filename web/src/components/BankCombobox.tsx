@@ -14,6 +14,45 @@ import type { BankOption } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 
+/** Word-based relevance score (higher = better). 0 hides the item. */
+function bankSearchScore(value: string, search: string): number {
+  const query = search.trim().toLowerCase();
+  if (!query) return 1;
+
+  const haystack = value.toLowerCase();
+  const tokens = query.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return 1;
+
+  // Every token must appear as a contiguous substring (not character-fuzzy).
+  if (!tokens.every((token) => haystack.includes(token))) return 0;
+
+  let score = 0;
+
+  // Full phrase match (ignoring extra spaces in the item text)
+  const compactHaystack = haystack.replace(/\s+/g, " ");
+  if (compactHaystack.includes(query)) score += 80;
+  if (compactHaystack.startsWith(query)) score += 40;
+
+  for (const token of tokens) {
+    if (haystack.startsWith(token)) score += 30;
+    else if (haystack.includes(` ${token}`)) score += 20;
+    else score += 8;
+
+    // Prefer token at a word boundary over mid-word noise
+    const wordBoundary = new RegExp(`(?:^|\\s)${escapeRegExp(token)}`);
+    if (wordBoundary.test(haystack)) score += 12;
+  }
+
+  // Prefer shorter / more specific names when scores are close
+  score += Math.max(0, 40 - haystack.length / 8);
+
+  return score;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function BankCombobox({
   banks,
   value,
@@ -67,7 +106,7 @@ export function BankCombobox({
         className="w-(--radix-popover-trigger-width) max-h-[70dvh] overflow-hidden p-0"
         align="start"
       >
-        <Command>
+        <Command filter={bankSearchScore}>
           <CommandInput
             placeholder={t("transfer.searchBank")}
             className="sticky top-0 z-10 bg-popover"
