@@ -66,6 +66,24 @@ class _WebViewScreenState extends State<WebViewScreen>
 })();
 ''';
 
+  /// Unregister service workers + wipe Cache Storage so SPA assets refresh.
+  static const _bustWebCachesJs = '''
+(function() {
+  try {
+    if (window.caches && caches.keys) {
+      caches.keys().then(function(keys) {
+        return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+      }).catch(function() {});
+    }
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      navigator.serviceWorker.getRegistrations().then(function(regs) {
+        regs.forEach(function(r) { try { r.unregister(); } catch (e) {} });
+      }).catch(function() {});
+    }
+  } catch (e) {}
+})();
+''';
+
   /// Exposes download + push-token bridges the web app can call from JS.
   ///
   /// Push flow (production):
@@ -278,6 +296,8 @@ class _WebViewScreenState extends State<WebViewScreen>
   Future<void> _bootstrap() async {
     // Wipe restored WebView auth storage before the site can hydrate a token.
     await SessionLifecycle.prepareFreshInstallSession();
+    // Always clear HTTP / SW caches on cold start so site updates show fresh.
+    await SessionLifecycle.clearWebResourceCache();
     if (!mounted) return;
     await _initWebView();
     _watchConnectivity();
@@ -300,6 +320,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await controller.setBackgroundColor(const Color(AppConfig.brandSoft));
     await controller.enableZoom(false);
+    // Plugin-level HTTP / Cache API wipe (login storage is left alone).
     await controller.clearCache();
     _splashStartedAt ??= DateTime.now();
 
@@ -325,6 +346,7 @@ class _WebViewScreenState extends State<WebViewScreen>
           }
           await controller.runJavaScript(_disableZoomJs);
           await controller.runJavaScript(_unlockWebViewScrollJs);
+          await controller.runJavaScript(_bustWebCachesJs);
           if (!_bridgeInstalled) {
             _bridgeInstalled = true;
             await controller.runJavaScript(_installNativeBridgeJs);
@@ -433,10 +455,26 @@ class _WebViewScreenState extends State<WebViewScreen>
     });
 
     if (online) {
-      await controller.loadRequest(Uri.parse(AppConfig.webUrl));
+      await controller.loadRequest(
+        _freshWebUri(),
+        headers: const <String, String>{
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      );
     } else {
       await _clearWebViewToBlank(controller);
     }
+  }
+
+  /// Cache-busts the shell document so WebView cannot reuse a stale index.html.
+  Uri _freshWebUri() {
+    final base = Uri.parse(AppConfig.webUrl);
+    final params = Map<String, String>.from(base.queryParameters);
+    params['_app_cache_bust'] =
+        DateTime.now().millisecondsSinceEpoch.toString();
+    return base.replace(queryParameters: params);
   }
 
   Future<List<String>> _androidFileSelector(FileSelectorParams params) async {
@@ -937,7 +975,14 @@ class _WebViewScreenState extends State<WebViewScreen>
     _isRecovering = false;
 
     await _safeControllerCall(
-      (c) => c.loadRequest(Uri.parse(AppConfig.webUrl)),
+      (c) => c.loadRequest(
+        _freshWebUri(),
+        headers: const <String, String>{
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      ),
     );
   }
 

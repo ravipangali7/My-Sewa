@@ -1,7 +1,9 @@
 package com.infelogroup.mysewa
 
 import android.webkit.CookieManager
+import android.webkit.WebSettings
 import android.webkit.WebStorage
+import android.webkit.WebView
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -22,6 +24,18 @@ class MainActivity : FlutterActivity() {
                     } catch (error: Exception) {
                         result.error(
                             "session_prep_failed",
+                            error.message,
+                            null,
+                        )
+                    }
+                }
+                "clearWebResourceCache" -> {
+                    try {
+                        clearWebResourceCache()
+                        result.success(null)
+                    } catch (error: Exception) {
+                        result.error(
+                            "cache_clear_failed",
                             error.message,
                             null,
                         )
@@ -53,6 +67,46 @@ class MainActivity : FlutterActivity() {
         marker.parentFile?.mkdirs()
         marker.writeText(System.currentTimeMillis().toString())
         return true
+    }
+
+    /**
+     * Wipes HTTP / disk / service-worker caches so the embedded site always
+     * loads the latest CSS/JS/HTML. Leaves cookies + localStorage intact.
+     */
+    private fun clearWebResourceCache() {
+        try {
+            WebView(applicationContext).apply {
+                settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                clearCache(true)
+                destroy()
+            }
+        } catch (_: Exception) {
+            // WebView may be unavailable in some environments — fall through
+            // to directory cleanup below.
+        }
+
+        val dataDir = applicationContext.dataDir
+        val cacheRoots = listOf(
+            File(cacheDir, "WebView"),
+            File(cacheDir, "org.chromium.android_webview"),
+            File(dataDir, "app_webview/Default/Cache"),
+            File(dataDir, "app_webview/Default/Code Cache"),
+            File(dataDir, "app_webview/Default/GPUCache"),
+            File(dataDir, "app_webview/Default/Service Worker"),
+            File(dataDir, "app_webview/Default/HTTP Cache"),
+        )
+        for (root in cacheRoots) {
+            deleteRecursivelyQuiet(root)
+        }
+    }
+
+    private fun deleteRecursivelyQuiet(file: File) {
+        if (!file.exists()) return
+        try {
+            file.deleteRecursively()
+        } catch (_: Exception) {
+            // Best-effort cleanup; ignore locked / in-use files.
+        }
     }
 
     companion object {

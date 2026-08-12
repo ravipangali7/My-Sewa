@@ -28,4 +28,18 @@ class SessionLifecycle {
       return false;
     }
   }
+
+  /// Clears WebView HTTP / disk / service-worker caches on every cold start
+  /// so site CSS/JS/HTML updates (e.g. brand color) show immediately.
+  ///
+  /// Does **not** clear cookies or `localStorage`, so login sessions survive.
+  static Future<void> clearWebResourceCache() async {
+    try {
+      await _channel.invokeMethod<void>('clearWebResourceCache');
+    } on MissingPluginException {
+      // Desktop / tests without the native channel — no-op.
+    } on PlatformException catch (error) {
+      debugPrint('SessionLifecycle.clearWebResourceCache failed: $error');
+    }
+  }
 }

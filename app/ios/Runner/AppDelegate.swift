@@ -19,11 +19,14 @@ import WebKit
       binaryMessenger: engineBridge.applicationRegistrar.messenger()
     )
     channel.setMethodCallHandler { call, result in
-      guard call.method == "prepareFreshInstallSession" else {
+      switch call.method {
+      case "prepareFreshInstallSession":
+        Self.prepareFreshInstallSession(result: result)
+      case "clearWebResourceCache":
+        Self.clearWebResourceCache(result: result)
+      default:
         result(FlutterMethodNotImplemented)
-        return
       }
-      Self.prepareFreshInstallSession(result: result)
     }
   }
 
@@ -81,6 +84,25 @@ import WebKit
           )
         )
       }
+    }
+  }
+
+  /// Clears HTTP / disk / service-worker caches without removing login storage.
+  private static func clearWebResourceCache(result: @escaping FlutterResult) {
+    var types: Set<String> = [
+      WKWebsiteDataTypeDiskCache,
+      WKWebsiteDataTypeMemoryCache,
+      WKWebsiteDataTypeOfflineWebApplicationCache,
+    ]
+    types.insert(WKWebsiteDataTypeFetchCache)
+    types.insert(WKWebsiteDataTypeServiceWorkerRegistrations)
+
+    let epoch = Date(timeIntervalSince1970: 0)
+    WKWebsiteDataStore.default().removeData(
+      ofTypes: types,
+      modifiedSince: epoch
+    ) {
+      result(nil)
     }
   }
 }
