@@ -46,7 +46,7 @@ export function BankCombobox({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          className="h-auto min-h-12 w-full justify-between gap-2 rounded-xl px-3 py-2.5 font-normal"
+          className="h-auto min-h-12 w-full items-start justify-between gap-2 whitespace-normal rounded-xl px-3 py-2.5 font-normal"
         >
           <span
             className={cn(
