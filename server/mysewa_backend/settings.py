@@ -234,7 +234,7 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Allow APK uploads from Admin → Settings (typical release builds are 30–80 MB).
+# Multipart upload limits (override via env if needed for large media).
 DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('DATA_UPLOAD_MAX_MEMORY_SIZE', 100 * 1024 * 1024))
 FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('FILE_UPLOAD_MAX_MEMORY_SIZE', 100 * 1024 * 1024))
 

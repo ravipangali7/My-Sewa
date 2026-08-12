@@ -1,33 +1,8 @@
 from django.db import connection, models
-from django.db.utils import OperationalError
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 import json
-
-
-def _ensure_settings_app_update_columns():
-    """Add Settings.app_version / apk if deploy skipped migrate 0029 (SQLite)."""
-    if connection.vendor != 'sqlite':
-        return
-    with connection.cursor() as cursor:
-        cursor.execute('PRAGMA table_info(core_settings)')
-        cols = {row[1] for row in cursor.fetchall()}
-        if 'app_version' not in cols:
-            cursor.execute(
-                "ALTER TABLE core_settings ADD COLUMN app_version varchar(32) NOT NULL DEFAULT ''"
-            )
-        if 'apk' not in cols:
-            cursor.execute(
-                "ALTER TABLE core_settings ADD COLUMN apk varchar(100) NULL"
-            )
-    from django.db.migrations.recorder import MigrationRecorder
-
-    recorder = MigrationRecorder(connection)
-    if not recorder.migration_qs.filter(
-        app='core', name='0029_settings_app_version_apk'
-    ).exists():
-        recorder.record_applied('core', '0029_settings_app_version_apk')
 
 
 def _ensure_electricity_bill_table():
@@ -415,18 +390,6 @@ class Settings(models.Model):
         blank=True,
         help_text="Brand logo used across the app and as the favicon",
     )
-    app_version = models.CharField(
-        max_length=32,
-        blank=True,
-        default='',
-        help_text="Latest Android app version string compared with Flutter appVersion",
-    )
-    apk = models.FileField(
-        upload_to='settings/apk/',
-        null=True,
-        blank=True,
-        help_text="Latest Android APK used for in-app updates",
-    )
     bank_details = models.JSONField(
         default=dict,
         help_text="Deposit payment accounts JSON: legacy bank_* fields plus accounts[] (bank/khalti/esewa)",
@@ -447,16 +410,8 @@ class Settings(models.Model):
 
     @classmethod
     def load(cls):
-        try:
-            obj, created = cls.objects.get_or_create(pk=1)
-            return obj
-        except OperationalError as exc:
-            msg = str(exc)
-            if 'app_version' not in msg and 'core_settings.apk' not in msg:
-                raise
-            _ensure_settings_app_update_columns()
-            obj, created = cls.objects.get_or_create(pk=1)
-            return obj
+        obj, created = cls.objects.get_or_create(pk=1)
+        return obj
 
     def get_config(self):
         return merge_app_config(self.config)

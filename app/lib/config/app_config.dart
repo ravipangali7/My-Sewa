@@ -2,8 +2,6 @@ class AppConfig {
   static const String appName = 'MySewa';
   static const String webUrl = 'https://mysewa.sewabyapar.com/';
   static const String host = 'mysewa.sewabyapar.com';
-  /// Public settings endpoint used for version / APK update checks.
-  static const String settingsApiUrl = 'https://mysewa.sewabyapar.com/api/settings/';
   /// Lightweight same-origin asset used to confirm real reachability
   /// (link-layer "online" alone can still fail DNS/HTTP).
   static const String reachabilityProbePath = '/favicon.png';

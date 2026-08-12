@@ -158,16 +158,6 @@ class SettingsAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Branding', {'fields': ('logo',)}),
         (
-            'Mobile app update',
-            {
-                'fields': ('app_version', 'apk'),
-                'description': (
-                    'Flutter compares app_version with its local appVersion. '
-                    'When they differ, the app offers this APK for download/install.'
-                ),
-            },
-        ),
-        (
             'Deposit QR codes',
             {'fields': ('qr_code', 'khalti_qr_code', 'esewa_qr_code')},
         ),

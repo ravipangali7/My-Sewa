@@ -50,27 +50,35 @@ BANK_VERIFY_SERVICE_UNAVAILABLE = (
     'Please try again later or contact MySewa support.'
 )
 
+# Prefer HimalPay live list fields (InstrumentCode / InstitutionName) before
+# generic keys like ``code`` — envelope payloads often look like ``{code: "0", data: [...]}``.
 _BANK_CODE_KEYS = (
+    'InstrumentCode',
     'bank_code',
-    'code',
     'BankCode',
     'bankCode',
+    'BankSwiftCode',
     'swift_code',
     'SwiftCode',
     'swiftCode',
     'destination_bank',
     'bic',
     'BIC',
+    'code',
 )
 _BANK_NAME_KEYS = (
+    'InstitutionName',
     'bank_name',
-    'name',
     'BankName',
     'bankName',
+    'name',
     'bank',
     'title',
     'label',
 )
+_INVALID_BANK_CODES = frozenset({
+    '0', '00', '000', 'N/A', 'NA', 'NULL', 'NONE', '-', '--',
+})
 
 
 def _get_or_create_wallet(user):
@@ -78,6 +86,14 @@ def _get_or_create_wallet(user):
         return Wallet.objects.get(user=user)
     except Wallet.DoesNotExist:
         return Wallet.objects.create(user=user, balance=Decimal('0.00'))
+
+
+def _is_valid_bank_code(code: str) -> bool:
+    """Reject HimalPay status/envelope codes that are not real bank identifiers."""
+    if not code or code in _INVALID_BANK_CODES:
+        return False
+    # Live InstrumentCode values are SWIFT-like (e.g. LXBLNPKA); skip tiny junk.
+    return len(code) >= 3
 
 
 def _bank_item_from_mapping(item: dict) -> dict | None:
@@ -90,7 +106,7 @@ def _bank_item_from_mapping(item: dict) -> dict | None:
         if text:
             code = text.upper()
             break
-    if not code:
+    if not _is_valid_bank_code(code):
         return None
     name = ''
     for key in _BANK_NAME_KEYS:
@@ -108,6 +124,16 @@ def _bank_item_from_mapping(item: dict) -> dict | None:
     }
 
 
+def _looks_like_bank_row(node: dict) -> bool:
+    """True when a dict is a bank row, not a list/status envelope."""
+    if any(key in node for key in ('InstrumentCode', 'InstitutionName', 'bank_code', 'BankCode')):
+        return True
+    # Generic ``code`` alone usually means an API envelope (code + data/message).
+    if 'code' in node and any(k in node for k in ('data', 'Data', 'banks', 'Banks', 'message')):
+        return False
+    return any(key in node for key in _BANK_CODE_KEYS)
+
+
 def _walk_bank_candidates(node, depth: int = 0):
     """Yield dict nodes that look like bank rows from nested HimalPay payloads."""
     if depth > 8 or node is None:
@@ -119,7 +145,7 @@ def _walk_bank_candidates(node, depth: int = 0):
     if not isinstance(node, dict):
         return
 
-    if any(key in node for key in _BANK_CODE_KEYS):
+    if _looks_like_bank_row(node):
         yield node
 
     for key in (
@@ -135,6 +161,7 @@ def _walk_bank_candidates(node, depth: int = 0):
         'Result',
         'payload',
         'response',
+        'raw',  # recover when a prior bad normalize wrapped the HimalPay envelope
     ):
         nested = node.get(key)
         if nested is None or nested is node:

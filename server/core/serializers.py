@@ -779,7 +779,6 @@ class SettingsSerializer(serializers.ModelSerializer):
     khalti_qr_code_url = serializers.SerializerMethodField()
     esewa_qr_code_url = serializers.SerializerMethodField()
     logo_url = serializers.SerializerMethodField()
-    apk_url = serializers.SerializerMethodField()
     bank_details = serializers.SerializerMethodField()
     config = serializers.SerializerMethodField()
 
@@ -791,7 +790,6 @@ class SettingsSerializer(serializers.ModelSerializer):
             'khalti_qr_code', 'khalti_qr_code_url',
             'esewa_qr_code', 'esewa_qr_code_url',
             'logo', 'logo_url',
-            'app_version', 'apk', 'apk_url',
             'bank_details', 'config',
             'created_at', 'updated_at',
         )
@@ -816,9 +814,6 @@ class SettingsSerializer(serializers.ModelSerializer):
 
     def get_logo_url(self, obj):
         return self._absolute_media_url(obj.logo)
-
-    def get_apk_url(self, obj):
-        return self._absolute_media_url(obj.apk)
 
     def get_bank_details(self, obj):
         from .services.payment_accounts import enrich_bank_details_qr_urls

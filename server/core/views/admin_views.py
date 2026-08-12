@@ -2154,27 +2154,6 @@ def admin_settings(request):
     elif request.data.get('logo') in ('', 'null', None) and 'logo' in request.data:
         pass  # ignore empty
 
-    if 'app_version' in request.data and request.data.get('app_version') is not None:
-        settings_obj.app_version = str(request.data.get('app_version') or '').strip()
-
-    if 'apk' in request.FILES:
-        uploaded = request.FILES['apk']
-        name = (getattr(uploaded, 'name', '') or '').lower()
-        if not name.endswith('.apk'):
-            return Response(
-                {'detail': 'Only .apk files are allowed for the mobile app update package.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if settings_obj.apk:
-            settings_obj.apk.delete(save=False)
-        settings_obj.apk = uploaded
-    elif 'clear_apk' in request.data and str(request.data.get('clear_apk')).lower() in (
-        '1', 'true', 'yes',
-    ):
-        if settings_obj.apk:
-            settings_obj.apk.delete(save=False)
-        settings_obj.apk = None
-
     if 'bank_details' in request.data:
         parsed_bank = _parse_json_field(request.data.get('bank_details'))
         if parsed_bank is not None:
