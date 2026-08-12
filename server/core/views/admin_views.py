@@ -65,6 +65,7 @@ from ..serializers import (
     DataPackTransactionSerializer,
     AdminDataPackSerializer,
     SettingsSerializer,
+    SetTransactionPinSerializer,
     UserFeeConfigSerializer,
     KYCSubmissionSerializer,
     AdminKYCUpdateSerializer,
@@ -2708,6 +2709,55 @@ def admin_user_fees(request, user_id):
         'fees': UserFeeConfigSerializer(fee_config).data,
         'defaults': defaults,
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_set_user_transaction_pin(request, user_id):
+    """
+    Staff/superuser override: set or replace a user's transaction PIN.
+    Does not require the user's current PIN — only new PIN + confirm.
+    """
+    from django.contrib.auth.hashers import make_password
+    from ..models import SecurityAuditLog
+    from ..services.security import log_security_event
+
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    serializer = SetTransactionPinSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Validation failed', 'errors': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    had_pin = bool(user.transaction_pin)
+    user.transaction_pin = make_password(serializer.validated_data['transaction_pin'])
+    user.save(update_fields=['transaction_pin'])
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_TRANSACTION_PIN_ADMIN_SET,
+        request=request,
+        details={
+            'method': 'admin',
+            'admin_id': request.user.pk,
+            'replaced_existing': had_pin,
+        },
+    )
+
+    return Response({
+        'message': (
+            'Transaction PIN updated successfully'
+            if had_pin
+            else 'Transaction PIN set successfully'
+        ),
+        'user_id': user.id,
+        'has_transaction_pin': True,
+    })
+
 
 # ---------------------------------------------------------------------------
 # HimalPay statement reconciliation

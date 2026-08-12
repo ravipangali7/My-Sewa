@@ -22,6 +22,7 @@ import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { UserFeesForm } from "@/components/admin/UserFeesForm";
+import { UserTransactionPinForm } from "@/components/admin/UserTransactionPinForm";
 
 export const Route = createFileRoute("/admin/users_/$userId")({
   head: () => ({
@@ -165,6 +166,11 @@ function UserDetailPage() {
               <DetailRow label="Wallet balance">
                 <span className="tabular">{formatNPR(u.wallet_balance ?? "0.00")}</span>
               </DetailRow>
+              <DetailRow label="Transaction PIN">
+                <Badge variant={u.has_transaction_pin ? "default" : "secondary"}>
+                  {u.has_transaction_pin ? "Set" : "Not set"}
+                </Badge>
+              </DetailRow>
               <DetailRow label="Date joined">{formatDateTime(u.date_joined)}</DetailRow>
               <DetailRow label="Last login">
                 {u.last_login ? formatDateTime(u.last_login) : "Never"}
@@ -180,6 +186,10 @@ function UserDetailPage() {
               )}
             </dl>
           </div>
+          <UserTransactionPinForm
+            userId={u.id}
+            hasPin={Boolean(u.has_transaction_pin)}
+          />
           <UserFeesForm userId={u.id} />
         </div>
       )}

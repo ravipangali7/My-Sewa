@@ -1091,6 +1091,7 @@ class SecurityAuditLog(models.Model):
     ACTION_TRANSACTION_PIN_CHANGED = 'transaction_pin_changed'
     ACTION_TRANSACTION_PIN_RESET = 'transaction_pin_reset'
     ACTION_TRANSACTION_PIN_RESET_OTP_SENT = 'transaction_pin_reset_otp_sent'
+    ACTION_TRANSACTION_PIN_ADMIN_SET = 'transaction_pin_admin_set'
     ACTION_PHONE_CHANGE_OTP_SENT = 'phone_change_otp_sent'
     ACTION_PHONE_CHANGED = 'phone_changed'
     ACTION_EMAIL_CHANGE_OTP_SENT = 'email_change_otp_sent'
@@ -1102,6 +1103,7 @@ class SecurityAuditLog(models.Model):
         (ACTION_TRANSACTION_PIN_CHANGED, 'Transaction PIN Changed'),
         (ACTION_TRANSACTION_PIN_RESET, 'Transaction PIN Reset'),
         (ACTION_TRANSACTION_PIN_RESET_OTP_SENT, 'Transaction PIN Reset OTP Sent'),
+        (ACTION_TRANSACTION_PIN_ADMIN_SET, 'Transaction PIN Admin Set'),
         (ACTION_PHONE_CHANGE_OTP_SENT, 'Phone Change OTP Sent'),
         (ACTION_PHONE_CHANGED, 'Phone Changed'),
         (ACTION_EMAIL_CHANGE_OTP_SENT, 'Email Change OTP Sent'),

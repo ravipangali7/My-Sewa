@@ -975,6 +975,14 @@ export const apiClient = {
       method: "PUT",
       body,
     }),
+  adminSetUserTransactionPin: (
+    id: number,
+    body: { transaction_pin: string; confirm_pin: string },
+  ) =>
+    api<{ message: string; user_id: number; has_transaction_pin: boolean }>(
+      `/api/admin/users/${id}/set-transaction-pin/`,
+      { method: "POST", body },
+    ),
   adminWallets: (filters?: AdminListFilters) =>
     api<
       import("./types").AdminListResponse<import("./types").AdminWallet> & {

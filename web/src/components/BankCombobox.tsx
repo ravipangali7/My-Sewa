@@ -46,16 +46,21 @@ export function BankCombobox({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          className="h-12 w-full justify-between rounded-xl px-3 font-normal"
+          className="h-auto min-h-12 w-full justify-between gap-2 rounded-xl px-3 py-2.5 font-normal"
         >
-          <span className={cn("truncate", !selected && "text-muted-foreground")}>
+          <span
+            className={cn(
+              "min-w-0 flex-1 whitespace-normal break-words text-left leading-snug",
+              !selected && "text-muted-foreground",
+            )}
+          >
             {loading
               ? t("transfer.loadingBanks")
               : selected
                 ? `${selected.bank_name} (${selected.bank_code})`
                 : resolvedPlaceholder}
           </span>
-          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+          <ChevronsUpDown className="mt-0.5 size-4 shrink-0 self-start opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -74,6 +79,7 @@ export function BankCombobox({
                 <CommandItem
                   key={b.bank_code}
                   value={`${b.bank_name} ${b.bank_code}`}
+                  className="items-start py-2"
                   onSelect={() => {
                     onChange(b.bank_code);
                     setOpen(false);
@@ -81,11 +87,11 @@ export function BankCombobox({
                 >
                   <Check
                     className={cn(
-                      "mr-2 size-4",
+                      "mt-0.5 size-4 shrink-0",
                       value === b.bank_code ? "opacity-100" : "opacity-0",
                     )}
                   />
-                  <span className="truncate">
+                  <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug">
                     {b.bank_name}{" "}
                     <span className="text-muted-foreground">({b.bank_code})</span>
                   </span>

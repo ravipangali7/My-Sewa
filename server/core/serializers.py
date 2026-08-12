@@ -164,6 +164,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
     avatar_url = serializers.SerializerMethodField()
     wallet_balance = serializers.SerializerMethodField()
     wallet_id = serializers.SerializerMethodField()
+    has_transaction_pin = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -172,12 +173,16 @@ class AdminUserSerializer(serializers.ModelSerializer):
             'is_active', 'is_staff', 'is_superuser', 'account_status',
             'kyc_status', 'citizenship_number',
             'date_joined', 'last_login',
-            'wallet_id', 'wallet_balance',
+            'wallet_id', 'wallet_balance', 'has_transaction_pin',
         )
         read_only_fields = (
             'id', 'kyc_status', 'citizenship_number',
             'date_joined', 'last_login', 'avatar_url', 'wallet_id', 'wallet_balance',
+            'has_transaction_pin',
         )
+
+    def get_has_transaction_pin(self, obj):
+        return bool(obj.transaction_pin)
 
     def get_avatar_url(self, obj):
         if not obj.avatar:

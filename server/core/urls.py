@@ -179,6 +179,11 @@ urlpatterns = [
     path('api/admin/users/<int:user_id>/report/', admin_views.admin_user_report, name='admin_user_report'),
     path('api/admin/users/<int:user_id>/', admin_views.admin_user_detail, name='admin_user_detail'),
     path('api/admin/users/<int:user_id>/fees/', admin_views.admin_user_fees, name='admin_user_fees'),
+    path(
+        'api/admin/users/<int:user_id>/set-transaction-pin/',
+        admin_views.admin_set_user_transaction_pin,
+        name='admin_set_user_transaction_pin',
+    ),
     path('api/admin/wallets/', admin_views.admin_list_wallets, name='admin_list_wallets'),
     path('api/admin/wallets/<int:wallet_id>/transactions/', admin_views.admin_wallet_transactions, name='admin_wallet_transactions'),
     path('api/admin/wallets/<int:wallet_id>/', admin_views.admin_wallet_detail, name='admin_wallet_detail'),
