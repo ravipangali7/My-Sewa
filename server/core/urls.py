@@ -221,6 +221,7 @@ urlpatterns = [
     path('api/admin/remittances/<int:remittance_id>/status/', admin_views.admin_update_remittance_status, name='admin_update_remittance_status'),
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
     path('api/admin/settings/export/', admin_views.admin_export_data, name='admin_export_data'),
+    path('api/admin/export/', admin_views.admin_export_data, name='admin_export_data_alt'),
     path('api/admin/settings/test-email/', admin_views.admin_test_smtp_email, name='admin_test_smtp_email'),
     path('api/admin/popups/', admin_views.admin_popups, name='admin_popups'),
     path('api/admin/popups/<int:popup_id>/', admin_views.admin_popup_detail, name='admin_popup_detail'),

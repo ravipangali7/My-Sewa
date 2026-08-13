@@ -20,7 +20,9 @@ from rest_framework.decorators import api_view, permission_classes, parser_class
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from ..models import (
     Wallet,
@@ -2349,43 +2351,64 @@ def admin_settings(request):
     })
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated, IsStaffUser])
-def admin_export_data(request):
+class AdminExportDataView(APIView):
     """
     Download every database table as Excel (.xlsx), a ZIP of CSVs, or a
     phpMyAdmin-compatible MySQL dump (.sql).
-    """
-    fmt = (request.query_params.get('format') or 'sql').strip().lower()
-    from ..services.data_export import EXPORT_FORMATS, build_export
 
-    aliases = {
-        'excel': 'xlsx',
-        'xls': 'xlsx',
-        'mysql': 'sql',
-        'phpmyadmin': 'sql',
-        'dump': 'sql',
-        'csvs': 'csv',
-        'zip': 'csv',
-    }
-    fmt = aliases.get(fmt, fmt)
-    if fmt not in EXPORT_FORMATS:
-        return Response(
-            {'error': 'format must be xlsx, csv, or sql'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    try:
-        payload, filename, content_type = build_export(fmt)
-    except Exception as exc:
-        return Response(
-            {'error': f'Export failed: {exc}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-    response = HttpResponse(payload, content_type=content_type)
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    response['Cache-Control'] = 'no-store'
-    response['Access-Control-Expose-Headers'] = 'Content-Disposition'
-    return response
+    DRF uses ?format= to pick a renderer (json, api, …). This endpoint uses
+    the same query param for the file type, so content negotiation must not
+    treat sql/xlsx/csv as missing renderers (that 404s with {"detail":"Not found."}).
+    """
+
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    renderer_classes = [JSONRenderer]
+    http_method_names = ['get', 'head', 'options']
+
+    def perform_content_negotiation(self, request, force=True):
+        renderer = JSONRenderer()
+        return renderer, renderer.media_type
+
+    def get(self, request, *args, **kwargs):
+        params = request.query_params
+        fmt = (
+            params.get('export_format')
+            or params.get('file')
+            or params.get('format')
+            or 'sql'
+        ).strip().lower()
+        from ..services.data_export import EXPORT_FORMATS, build_export
+
+        aliases = {
+            'excel': 'xlsx',
+            'xls': 'xlsx',
+            'mysql': 'sql',
+            'phpmyadmin': 'sql',
+            'dump': 'sql',
+            'csvs': 'csv',
+            'zip': 'csv',
+        }
+        fmt = aliases.get(fmt, fmt)
+        if fmt not in EXPORT_FORMATS:
+            return Response(
+                {'error': 'format must be xlsx, csv, or sql'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            payload, filename, content_type = build_export(fmt)
+        except Exception as exc:
+            return Response(
+                {'error': f'Export failed: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        response = HttpResponse(payload, content_type=content_type)
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Cache-Control'] = 'no-store'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        return response
+
+
+admin_export_data = AdminExportDataView.as_view()
 
 
 @api_view(['POST'])
@@ -3956,6 +3979,14 @@ def admin_push_send(request):
     }
     User = get_user_model()
 
+    def _push_response(result, *, target_count, message):
+        payload = {
+            **result,
+            'message': message,
+            'target_count': target_count,
+        }
+        return Response(payload)
+
     if audience == 'user':
         user_id = request.data.get('user_id')
         phone = str(request.data.get('phone') or '').strip()
@@ -3977,28 +4008,41 @@ def admin_push_send(request):
         )
         result = send_push_to_tokens(tokens, title, body, extra)
         target_label = getattr(user, 'phone', str(user.pk))
+        issue = result.get('issue')
         if result['sent'] == 0 and result['failed'] == 0:
-            return Response(
-                {
-                    'message': f'No app device token registered for {target_label}.',
-                    'sent': 0,
-                    'failed': 0,
-                    'skipped': result['skipped'],
-                    'target_count': len(tokens),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+            message = f'No usable FCM token for {target_label}.'
+            if issue:
+                message = f'{message} {issue}'
+            return _push_response(
+                result,
+                target_count=len(tokens),
+                message=message,
             )
-        return Response({
-            'message': f'Push sent to {target_label}.',
-            **result,
-            'target_count': len(tokens),
-        })
+        message = f'Push sent to {target_label} ({result["sent"]} device(s)).'
+        if result['failed'] or result['skipped']:
+            message = (
+                f'{message} Failed {result["failed"]}, skipped {result["skipped"]}.'
+            )
+        if issue and result['sent'] == 0:
+            message = f'{message} {issue}'
+        return _push_response(result, target_count=len(tokens), message=message)
 
     result = send_push_to_all(title, body, extra)
-    return Response({
-        'message': f"Push sent to {result['sent']} device(s).",
-        **result,
-        'target_count': result['sent'] + result['failed'] + result['skipped'],
-    })
+    issue = result.get('issue')
+    message = f"Push sent to {result['sent']} device(s)."
+    extras = []
+    if result['failed']:
+        extras.append(f"{result['failed']} failed")
+    if result['skipped']:
+        extras.append(f"{result['skipped']} skipped")
+    if extras:
+        message = f"{message} {', '.join(extras)}."
+    if issue and result['sent'] == 0:
+        message = f'{message} {issue}'
+    return _push_response(
+        result,
+        target_count=result['sent'] + result['failed'] + result['skipped'],
+        message=message,
+    )
 
 

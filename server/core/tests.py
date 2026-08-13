@@ -1544,3 +1544,53 @@ class HomePopupFrequencyTests(TestCase):
         state = HomePopupImpression.objects.get(popup=self.popup, user=self.user)
         self.assertEqual(state.view_count, 1)
 
+
+class AdminDataExportTests(TestCase):
+    """Full DB export must honor ?format=sql|xlsx|csv (not DRF renderer suffixes)."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            phone='9800000088',
+            password='testpass123',
+            email='admin-export@example.com',
+            is_staff=True,
+        )
+        self.user = User.objects.create_user(
+            phone='9800000089',
+            password='testpass123',
+            email='user-export@example.com',
+        )
+        self.client = APIClient()
+
+    def test_sql_format_query_param_downloads_dump(self):
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.get(reverse('admin_export_data'), {'format': 'sql'})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content[:500])
+        self.assertIn('.sql', resp['Content-Disposition'])
+        body = resp.content.decode('utf-8')
+        self.assertIn('phpMyAdmin SQL Dump', body)
+        self.assertIn('CREATE TABLE', body)
+
+    def test_xlsx_and_csv_exports(self):
+        self.client.force_authenticate(user=self.staff)
+        xlsx = self.client.get('/api/admin/settings/export/', {'format': 'xlsx'})
+        self.assertEqual(xlsx.status_code, status.HTTP_200_OK, xlsx.content[:500])
+        self.assertIn('.xlsx', xlsx['Content-Disposition'])
+        self.assertTrue(xlsx.content.startswith(b'PK'))
+
+        csv_zip = self.client.get('/api/admin/export/', {'format': 'csv'})
+        self.assertEqual(csv_zip.status_code, status.HTTP_200_OK, csv_zip.content[:500])
+        self.assertIn('.zip', csv_zip['Content-Disposition'])
+        self.assertTrue(csv_zip.content.startswith(b'PK'))
+
+    def test_unknown_format_is_400_not_404(self):
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.get(reverse('admin_export_data'), {'format': 'pdf'})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_non_staff_forbidden(self):
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(reverse('admin_export_data'), {'format': 'sql'})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
