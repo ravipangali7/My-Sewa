@@ -1501,5 +1501,5 @@ class HomePopupImpression(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=['popup', 'user']),
+            models.Index(fields=['popup', 'user'], name='core_homepo_popup_i_c3de12_idx'),
         ]
