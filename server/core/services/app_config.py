@@ -233,6 +233,50 @@ def require_feature_enabled(feature: str) -> Optional[Response]:
     return None
 
 
+_USER_FEATURE_MESSAGES = {
+    'fund_transfer': (
+        'can_fund_transfer',
+        'Fund transfer is disabled for this account.',
+        'fund_transfer_forbidden',
+    ),
+    'wallet_adjustment': (
+        'can_wallet_adjust',
+        'Wallet adjustment is disabled for this account.',
+        'wallet_adjustment_forbidden',
+    ),
+}
+
+
+def require_user_feature(user, feature: str) -> Optional[Response]:
+    """
+    Per-user feature access. feature: 'fund_transfer' | 'wallet_adjustment'.
+    Returns a 403 Response when the user is not allowed, else None.
+    """
+    spec = _USER_FEATURE_MESSAGES.get(feature)
+    if spec is None:
+        return None
+    field, message, code = spec
+    if user is None:
+        return Response(
+            {
+                'error': 'authentication_required',
+                'message': 'Authentication required.',
+                'code': 'authentication_required',
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+    if getattr(user, field, True):
+        return None
+    return Response(
+        {
+            'error': message,
+            'message': message,
+            'code': code,
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 def require_account_approved(user) -> Optional[Response]:
     """
     Block business transactions for accounts that are still pending approval.

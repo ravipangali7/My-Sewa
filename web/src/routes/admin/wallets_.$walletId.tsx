@@ -20,6 +20,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDateTime, formatNPR } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
+import { canWalletAdjust } from "@/lib/account-status";
 
 export const Route = createFileRoute("/admin/wallets_/$walletId")({
   head: () => ({
@@ -50,6 +52,8 @@ function WalletDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const { user } = useAuth();
+  const allowAdjust = canWalletAdjust(user);
   const walletQuery = useQuery({
     queryKey: ["admin", "wallets", id],
     queryFn: () => apiClient.adminGetWallet(id),
@@ -84,12 +88,14 @@ function WalletDetailPage() {
                 View Transaction History
               </Link>
             </Button>
+            {allowAdjust ? (
             <Button asChild size="sm" variant="outline">
               <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
                 <Pencil className="size-3.5" />
                 Add Fund / Adjust
               </Link>
             </Button>
+            ) : null}
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button size="sm" variant="outline" disabled={deleteMutation.isPending}>

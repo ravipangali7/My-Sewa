@@ -1594,3 +1594,80 @@ class AdminDataExportTests(TestCase):
         resp = self.client.get(reverse('admin_export_data'), {'format': 'sql'})
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
+
+class UserFeatureAccessTests(TestCase):
+    """Per-user Fund Transfer and Wallet Adjustment toggles."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            phone='9800000101',
+            password='testpass123',
+            email='staff-access@example.com',
+            is_staff=True,
+        )
+        self.user = User.objects.create_user(
+            phone='9800000102',
+            password='testpass123',
+            email='user-access@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        self.client = APIClient()
+
+    def test_new_users_have_both_features_enabled(self):
+        self.assertTrue(self.user.can_fund_transfer)
+        self.assertTrue(self.user.can_wallet_adjust)
+
+    def test_admin_can_toggle_access_flags(self):
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.patch(
+            reverse('admin_user_detail', args=[self.user.pk]),
+            {'can_fund_transfer': False, 'can_wallet_adjust': False},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        data = resp.json().get('data') or {}
+        self.assertFalse(data.get('can_fund_transfer'))
+        self.assertFalse(data.get('can_wallet_adjust'))
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.can_fund_transfer)
+        self.assertFalse(self.user.can_wallet_adjust)
+
+    def test_disabled_fund_transfer_is_forbidden(self):
+        self.user.can_fund_transfer = False
+        self.user.save(update_fields=['can_fund_transfer'])
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.post(
+            reverse('bank_transfer_create'),
+            {
+                'amount': '100',
+                'destination_bank': 'LXBLNPKA',
+                'destination_acc_no': '1845008000023',
+                'destination_acc_name': 'Test User',
+                'transaction_pin': '1234',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.json().get('code'), 'fund_transfer_forbidden')
+
+    def test_disabled_wallet_adjustment_is_forbidden(self):
+        from .models import Wallet
+
+        self.staff.can_wallet_adjust = False
+        self.staff.save(update_fields=['can_wallet_adjust'])
+        wallet, _ = Wallet.objects.get_or_create(
+            user=self.user, defaults={'balance': Decimal('100.00')},
+        )
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.patch(
+            reverse('admin_wallet_detail', args=[wallet.pk]),
+            {
+                'amount': '10.00',
+                'adjustment_type': 'credit',
+                'reason': 'Test load',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.json().get('code'), 'wallet_adjustment_forbidden')
+

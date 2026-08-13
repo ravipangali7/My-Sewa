@@ -49,15 +49,6 @@ class PushMessaging {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
       final messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission(
-        alert: true,
-        announcement: false,
-        badge: true,
-        carPlay: false,
-        criticalAlert: false,
-        provisional: false,
-        sound: true,
-      );
       await messaging.setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
@@ -65,10 +56,36 @@ class PushMessaging {
       );
 
       if (Platform.isIOS) {
+        // iOS requires permission + an APNs token before FCM getToken works.
+        await messaging.requestPermission(
+          alert: true,
+          announcement: false,
+          badge: true,
+          carPlay: false,
+          criticalAlert: false,
+          provisional: false,
+          sound: true,
+        );
         await _waitForApnsToken(messaging);
       }
 
+      // Fetch the token before the notification-permission prompt on Android
+      // so login can register it even if the user has not answered yet.
       await refreshToken();
+
+      if (!Platform.isIOS) {
+        unawaited(
+          messaging.requestPermission(
+            alert: true,
+            announcement: false,
+            badge: true,
+            carPlay: false,
+            criticalAlert: false,
+            provisional: false,
+            sound: true,
+          ),
+        );
+      }
 
       await _refreshSub?.cancel();
       _refreshSub = messaging.onTokenRefresh.listen((value) {
@@ -103,20 +120,24 @@ class PushMessaging {
   }
 
   Future<String?> refreshToken() async {
-    try {
-      final messaging = FirebaseMessaging.instance;
-      if (Platform.isIOS) {
-        await _waitForApnsToken(messaging);
+    for (var i = 0; i < 6; i++) {
+      try {
+        final messaging = FirebaseMessaging.instance;
+        if (Platform.isIOS) {
+          await _waitForApnsToken(messaging);
+        }
+        final value = (await messaging.getToken())?.trim();
+        if (value != null && value.isNotEmpty) {
+          token = value;
+          if (!_tokenController.isClosed) _tokenController.add(value);
+          return value;
+        }
+      } catch (e) {
+        debugPrint('PushMessaging.refreshToken attempt ${i + 1} failed: $e');
       }
-      final value = (await messaging.getToken())?.trim();
-      if (value == null || value.isEmpty) return token;
-      token = value;
-      if (!_tokenController.isClosed) _tokenController.add(value);
-      return value;
-    } catch (e) {
-      debugPrint('PushMessaging.refreshToken failed: $e');
-      return token;
+      await Future<void>.delayed(Duration(milliseconds: 400 * (i + 1)));
     }
+    return token;
   }
 
   Future<void> dispose() async {

@@ -84,7 +84,7 @@ from ..services.himalpay import (
     admin_himalpay_ip_hint,
     get_outbound_public_ip,
 )
-from ..services.app_config import get_app_config
+from ..services.app_config import get_app_config, require_user_feature
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
 from ..services.statement_reconcile import (
     build_himalpay_history_items,
@@ -656,6 +656,7 @@ def admin_list_users(request):
             [
                 'id', 'phone', 'first_name', 'last_name', 'email',
                 'account_status', 'is_active', 'is_staff', 'is_superuser',
+                'can_fund_transfer', 'can_wallet_adjust',
                 'wallet_balance', 'date_joined', 'last_login',
             ],
             [
@@ -669,6 +670,8 @@ def admin_list_users(request):
                     u.is_active,
                     u.is_staff,
                     u.is_superuser,
+                    u.can_fund_transfer,
+                    u.can_wallet_adjust,
                     (u.wallet.balance if hasattr(u, 'wallet') and u.wallet else Decimal('0.00')),
                     u.date_joined.isoformat() if u.date_joined else '',
                     u.last_login.isoformat() if u.last_login else '',
@@ -1070,6 +1073,10 @@ def admin_wallet_detail(request, wallet_id):
         wallet.delete()
         return Response({'message': 'Wallet deleted successfully'}, status=status.HTTP_200_OK)
 
+    blocked = require_user_feature(request.user, 'wallet_adjustment')
+    if blocked:
+        return blocked
+
     # Manual load / adjust: prefer {amount, adjustment_type, reason}
     # (credit = add fund / manual load, debit = subtract). Still accept {balance, reason}.
     write = WalletAdjustmentWriteSerializer(data=request.data)
@@ -1239,6 +1246,432 @@ def admin_wallet_transactions(request, wallet_id):
                 payload[key] = []
 
     return Response(payload, status=status.HTTP_200_OK)
+
+
+_TXN_KIND_ALIASES = {
+    'deposit': 'deposit',
+    'deposits': 'deposit',
+    'remittance': 'remittance',
+    'remittances': 'remittance',
+    'topup': 'topup',
+    'topups': 'topup',
+    'transfer': 'transfer',
+    'bank_transfer': 'transfer',
+    'bank_transfers': 'transfer',
+    'internet': 'internet',
+    'internet_bills': 'internet',
+    'data_pack': 'data_pack',
+    'data_packs': 'data_pack',
+    'water': 'water',
+    'water_bills': 'water',
+    'electricity': 'electricity',
+    'electricity_bills': 'electricity',
+    'community_electricity': 'community_electricity',
+    'adjustment': 'wallet_adjustment',
+    'wallet_adjustment': 'wallet_adjustment',
+    'wallet_adjustments': 'wallet_adjustment',
+}
+
+
+def _money_str(value):
+    if value is None:
+        return None
+    return f'{Decimal(value):.2f}'
+
+
+def _iso_dt(value):
+    return value.isoformat() if value else None
+
+
+def _user_ledger_fields(user):
+    wallet_id = None
+    try:
+        wallet_id = user.wallet.id
+    except Wallet.DoesNotExist:
+        pass
+    return {
+        'user_id': user.id,
+        'phone': user.phone or '',
+        'first_name': user.first_name or '',
+        'last_name': user.last_name or '',
+        'wallet_id': wallet_id,
+    }
+
+
+def _safe_ledger_qs(model, start, end):
+    """Query a transaction model with date range; tolerate missing optional tables."""
+    try:
+        qs = model.objects.select_related('user', 'user__wallet').order_by('-created_at')
+        qs.exists()
+        return _apply_created_range(qs, start, end)
+    except (OperationalError, ProgrammingError):
+        if model is ElectricityBillTransaction:
+            try:
+                from ..models import _ensure_electricity_bill_table
+                _ensure_electricity_bill_table()
+                qs = model.objects.select_related('user', 'user__wallet').order_by('-created_at')
+                qs.exists()
+                return _apply_created_range(qs, start, end)
+            except Exception:
+                pass
+        return model.objects.none()
+
+
+def _apply_mixed_status(qs, status_filter, *, kind):
+    """Filter status across deposit (approved/rejected), adjustments (always success), and provider txns."""
+    if not status_filter or status_filter == 'all':
+        return qs
+    if kind == 'wallet_adjustment':
+        if status_filter in ('success', 'approved'):
+            return qs
+        return qs.none()
+    if kind == 'deposit':
+        if status_filter == 'success':
+            return qs.filter(status='approved')
+        if status_filter == 'failed':
+            return qs.filter(status='rejected')
+        if status_filter in ('pending', 'approved', 'rejected'):
+            return qs.filter(status=status_filter)
+        return qs.none()
+    if status_filter == 'approved':
+        return qs.none()
+    if status_filter == 'rejected':
+        return qs.none()
+    if status_filter in ('pending', 'success', 'failed'):
+        return qs.filter(status=status_filter)
+    return qs.none()
+
+
+def _ledger_row(*, kind, obj, amount, credit, status, reference, detail):
+    return {
+        'id': f'{kind}-{obj.id}',
+        'record_id': obj.id,
+        'kind': kind,
+        'amount': _money_str(amount) or '0.00',
+        'credit': credit,
+        'status': status,
+        'reference': (reference or '').strip(),
+        'detail': (detail or '').strip(),
+        'balance_before': _money_str(getattr(obj, 'balance_before', None)),
+        'balance_after': _money_str(getattr(obj, 'balance_after', None)),
+        'created_at': _iso_dt(obj.created_at),
+        **_user_ledger_fields(obj.user),
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_transaction_history(request):
+    """
+    Unified ledger of every wallet-moving transaction across all users.
+    Includes before/after wallet balances, type, user, amount, status, and reference.
+    Optional filters: type, status, q, start_date, end_date. export=csv for download.
+    """
+    start, end = _parse_date_range(request)
+    q = (request.query_params.get('q') or '').strip()
+    status_filter = (request.query_params.get('status') or '').strip().lower()
+    type_raw = (request.query_params.get('type') or '').strip().lower()
+    type_key = _TXN_KIND_ALIASES.get(type_raw) if type_raw and type_raw != 'all' else None
+
+    def _qs(model, kind, extra_q=None):
+        qs = _safe_ledger_qs(model, start, end)
+        qs = _apply_mixed_status(qs, status_filter, kind=kind)
+        if q:
+            user_q = (
+                Q(user__phone__icontains=q)
+                | Q(user__first_name__icontains=q)
+                | Q(user__last_name__icontains=q)
+                | _maybe_id_query(q, 'id')
+            )
+            qs = qs.filter(user_q | extra_q) if extra_q is not None else qs.filter(user_q)
+        return qs
+
+    sources = []
+
+    if type_key in (None, 'deposit'):
+        extra = (
+            Q(transaction_id__icontains=q) | Q(bank_name__icontains=q) | Q(note__icontains=q)
+        ) if q else None
+        sources.append(('deposit', _qs(Deposit, 'deposit', extra), lambda d: _ledger_row(
+            kind='deposit',
+            obj=d,
+            amount=d.amount,
+            credit=True,
+            status=d.status,
+            reference=d.transaction_id or f'#{d.id}',
+            detail=d.note or d.bank_name or '',
+        )))
+
+    if type_key in (None, 'remittance'):
+        extra = (
+            Q(ref_no__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(provider_txn_id__icontains=q)
+            | Q(reference_id__icontains=q)
+            | Q(sender_name__icontains=q)
+            | Q(receiver_name__icontains=q)
+        ) if q else None
+        sources.append(('remittance', _qs(RemittanceTransaction, 'remittance', extra), lambda r: _ledger_row(
+            kind='remittance',
+            obj=r,
+            amount=r.total_credited if r.total_credited else r.amount,
+            credit=True,
+            status=r.status,
+            reference=r.ref_no or r.merchant_txn_id or r.reference_id or f'#{r.id}',
+            detail=' · '.join(p for p in (r.sender_name, r.receiver_name) if p) or r.ref_no or '',
+        )))
+
+    if type_key in (None, 'topup'):
+        extra = (
+            Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | Q(reference_id__icontains=q)
+            | Q(mobile_number__icontains=q)
+        ) if q else None
+        sources.append(('topup', _qs(TopupTransaction, 'topup', extra), lambda t: _ledger_row(
+            kind='topup',
+            obj=t,
+            amount=t.total_debited if t.total_debited else t.amount,
+            credit=False,
+            status=t.status,
+            reference=t.merchant_txn_id or t.reference_id or t.service_hub_txn_id or f'#{t.id}',
+            detail=t.mobile_number or t.get_product_id_display(),
+        )))
+
+    if type_key in (None, 'transfer'):
+        extra = (
+            Q(merchant_txn_id__icontains=q)
+            | Q(provider_txn_id__icontains=q)
+            | Q(reference_id__icontains=q)
+            | Q(destination_acc_no__icontains=q)
+            | Q(destination_acc_name__icontains=q)
+            | Q(destination_bank_name__icontains=q)
+        ) if q else None
+        sources.append(('transfer', _qs(BankTransferTransaction, 'transfer', extra), lambda b: _ledger_row(
+            kind='transfer',
+            obj=b,
+            amount=b.total_debited if b.total_debited else b.amount,
+            credit=False,
+            status=b.status,
+            reference=b.merchant_txn_id or b.reference_id or b.provider_txn_id or f'#{b.id}',
+            detail=' · '.join(
+                p for p in (b.destination_acc_name, b.destination_bank_name or b.destination_bank) if p
+            ),
+        )))
+
+    if type_key in (None, 'internet'):
+        extra = (
+            Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | Q(reference_id__icontains=q)
+            | Q(customer_id__icontains=q)
+            | Q(customer_name__icontains=q)
+            | Q(isp_name__icontains=q)
+        ) if q else None
+        sources.append(('internet', _qs(InternetBillTransaction, 'internet', extra), lambda bill: _ledger_row(
+            kind='internet',
+            obj=bill,
+            amount=bill.total_debited if bill.total_debited else bill.amount,
+            credit=False,
+            status=bill.status,
+            reference=bill.merchant_txn_id or bill.reference_id or bill.service_hub_txn_id or f'#{bill.id}',
+            detail=' · '.join(p for p in (bill.isp_name, bill.customer_id) if p),
+        )))
+
+    if type_key in (None, 'data_pack'):
+        extra = (
+            Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | Q(reference_id__icontains=q)
+            | Q(mobile_number__icontains=q)
+            | Q(operator__icontains=q)
+        ) if q else None
+        sources.append(('data_pack', _qs(DataPackTransaction, 'data_pack', extra), lambda dp: _ledger_row(
+            kind='data_pack',
+            obj=dp,
+            amount=dp.total_debited if dp.total_debited else dp.amount,
+            credit=False,
+            status=dp.status,
+            reference=dp.merchant_txn_id or dp.reference_id or dp.service_hub_txn_id or f'#{dp.id}',
+            detail=' · '.join(p for p in (dp.operator, dp.mobile_number) if p),
+        )))
+
+    if type_key in (None, 'water'):
+        extra = (
+            Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | Q(reference_id__icontains=q)
+            | Q(connection_no__icontains=q)
+            | Q(customer_code__icontains=q)
+            | Q(customer_name__icontains=q)
+        ) if q else None
+        sources.append(('water', _qs(WaterBillTransaction, 'water', extra), lambda bill: _ledger_row(
+            kind='water',
+            obj=bill,
+            amount=bill.total_debited if bill.total_debited else bill.amount,
+            credit=False,
+            status=bill.status,
+            reference=bill.merchant_txn_id or bill.reference_id or bill.service_hub_txn_id or f'#{bill.id}',
+            detail=' · '.join(p for p in (bill.connection_no, bill.customer_code) if p),
+        )))
+
+    if type_key in (None, 'electricity'):
+        extra = (
+            Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | Q(reference_id__icontains=q)
+            | Q(sc_no__icontains=q)
+            | Q(consumer_id__icontains=q)
+            | Q(customer_name__icontains=q)
+        ) if q else None
+        sources.append(('electricity', _qs(ElectricityBillTransaction, 'electricity', extra), lambda bill: _ledger_row(
+            kind='electricity',
+            obj=bill,
+            amount=bill.total_debited if bill.total_debited else bill.amount,
+            credit=False,
+            status=bill.status,
+            reference=bill.merchant_txn_id or bill.reference_id or bill.service_hub_txn_id or f'#{bill.id}',
+            detail=' · '.join(p for p in (bill.sc_no, bill.consumer_id) if p),
+        )))
+
+    if type_key in (None, 'community_electricity'):
+        extra = (
+            Q(merchant_txn_id__icontains=q)
+            | Q(service_hub_txn_id__icontains=q)
+            | Q(reference_id__icontains=q)
+            | Q(customer_ref__icontains=q)
+            | Q(customer_name__icontains=q)
+            | Q(platform_name__icontains=q)
+        ) if q else None
+        sources.append((
+            'community_electricity',
+            _qs(CommunityElectricityTransaction, 'community_electricity', extra),
+            lambda bill: _ledger_row(
+                kind='community_electricity',
+                obj=bill,
+                amount=bill.total_debited if bill.total_debited else bill.amount,
+                credit=False,
+                status=bill.status,
+                reference=bill.merchant_txn_id or bill.reference_id or bill.service_hub_txn_id or f'#{bill.id}',
+                detail=' · '.join(p for p in (bill.platform_name, bill.customer_ref) if p),
+            ),
+        ))
+
+    if type_key in (None, 'wallet_adjustment'):
+        extra = (Q(reference__icontains=q) | Q(reason__icontains=q)) if q else None
+        sources.append((
+            'wallet_adjustment',
+            _qs(WalletAdjustment, 'wallet_adjustment', extra),
+            lambda a: _ledger_row(
+                kind='wallet_adjustment',
+                obj=a,
+                amount=abs(a.amount),
+                credit=a.adjustment_type == 'credit',
+                status='success',
+                reference=a.reference or f'#{a.id}',
+                detail=a.reason or a.reference or '',
+            ),
+        ))
+
+    rows = []
+    type_counts = {
+        'all': 0,
+        'deposit': 0,
+        'remittance': 0,
+        'topup': 0,
+        'transfer': 0,
+        'internet': 0,
+        'data_pack': 0,
+        'water': 0,
+        'electricity': 0,
+        'community_electricity': 0,
+        'wallet_adjustment': 0,
+    }
+    for kind, qs, mapper in sources:
+        for obj in qs:
+            row = mapper(obj)
+            rows.append(row)
+            type_counts[kind] += 1
+            type_counts['all'] += 1
+
+    rows.sort(key=lambda r: r['created_at'] or '', reverse=True)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-transaction-history.csv',
+            [
+                'id', 'created_at', 'kind', 'phone', 'first_name', 'last_name',
+                'amount', 'credit', 'balance_before', 'balance_after',
+                'status', 'reference', 'detail',
+            ],
+            [
+                [
+                    r['id'],
+                    r['created_at'] or '',
+                    r['kind'],
+                    r['phone'],
+                    r['first_name'],
+                    r['last_name'],
+                    r['amount'],
+                    'credit' if r['credit'] else 'debit',
+                    r['balance_before'] or '',
+                    r['balance_after'] or '',
+                    r['status'],
+                    r['reference'],
+                    r['detail'],
+                ]
+                for r in rows
+            ],
+        )
+
+    success_n = sum(1 for r in rows if r['status'] in ('success', 'approved'))
+    pending_n = sum(1 for r in rows if r['status'] == 'pending')
+    failed_n = sum(1 for r in rows if r['status'] in ('failed', 'rejected'))
+
+    today = timezone.localdate()
+    month_start = today.replace(day=1)
+    total_volume = Decimal('0')
+    total_credit = Decimal('0')
+    total_debit = Decimal('0')
+    today_amount = Decimal('0')
+    monthly_amount = Decimal('0')
+    for r in rows:
+        amt = Decimal(r['amount'] or '0')
+        total_volume += amt
+        settled = r['status'] in ('success', 'approved')
+        if settled and r['credit']:
+            total_credit += amt
+        elif settled and not r['credit']:
+            total_debit += amt
+        created = r['created_at']
+        if settled and created:
+            try:
+                day = parse_date(created[:10])
+            except (TypeError, ValueError):
+                day = None
+            if day == today:
+                today_amount += amt
+            if day and day >= month_start:
+                monthly_amount += amt
+
+    return Response({
+        'items': rows,
+        'stats': {
+            'total': len(rows),
+            'success': success_n,
+            'pending': pending_n,
+            'failed': failed_n,
+        },
+        'type_counts': type_counts,
+        'summary': {
+            'total_volume': _money(total_volume),
+            'total_amount': _money(total_credit + total_debit),
+            'today_amount': _money(today_amount),
+            'monthly_amount': _money(monthly_amount),
+            'total_credit': _money(total_credit),
+            'total_debit': _money(total_debit),
+        },
+    })
 
 
 @api_view(['GET'])
@@ -3587,6 +4020,9 @@ def admin_statement_solve(request, discrepancy_id):
 
     Optional body overrides: adjustment_type, amount, reason — for manual correction.
     """
+    blocked = require_user_feature(request.user, 'wallet_adjustment')
+    if blocked:
+        return blocked
     try:
         disc = (
             StatementDiscrepancy.objects
@@ -3677,6 +4113,9 @@ def admin_statement_correct(request):
     Body: user_id, adjustment_type (credit|debit), amount, reason
     Optional: discrepancy_id (resolves that open issue), transaction_uuid
     """
+    blocked = require_user_feature(request.user, 'wallet_adjustment')
+    if blocked:
+        return blocked
     user_id = request.data.get('user_id')
     discrepancy_id = request.data.get('discrepancy_id')
     adjustment_type = (request.data.get('adjustment_type') or '').strip().lower()

@@ -186,6 +186,7 @@ urlpatterns = [
     ),
     path('api/admin/wallets/', admin_views.admin_list_wallets, name='admin_list_wallets'),
     path('api/admin/wallets/<int:wallet_id>/transactions/', admin_views.admin_wallet_transactions, name='admin_wallet_transactions'),
+    path('api/admin/transactions/', admin_views.admin_transaction_history, name='admin_transaction_history'),
     path('api/admin/wallets/<int:wallet_id>/', admin_views.admin_wallet_detail, name='admin_wallet_detail'),
     path('api/admin/deposits/', admin_views.admin_list_deposits, name='admin_list_deposits'),
     path('api/admin/deposits/<int:deposit_id>/', admin_views.admin_get_deposit, name='admin_get_deposit'),

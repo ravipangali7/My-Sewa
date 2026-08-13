@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Coins,
   Bell,
+  History,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,7 @@ const NAV = [
   { to: "/admin/statement", label: "Statement", icon: FileSearch },
   { to: "/admin/users", label: "Users", icon: Users },
   { to: "/admin/wallets", label: "Wallets", icon: Wallet },
+  { to: "/admin/transaction-history", label: "Transaction History", icon: History },
   { to: "/admin/deposits", label: "Manual Deposit", icon: Inbox },
   { to: "/admin/kyc", label: "KYC", icon: ShieldCheck },
   { to: "/admin/remittances", label: "Remittances", icon: ArrowDownToLine },

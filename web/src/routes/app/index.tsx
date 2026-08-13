@@ -31,7 +31,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
-import { isAccountPending } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer } from "@/lib/account-status";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { toast } from "sonner";
 
@@ -333,21 +333,29 @@ function WalletHome() {
           {/* Quick actions */}
           <section className="grid shrink-0 grid-cols-3 gap-2.5">
             {ACTIONS.map((a) => {
+              const transferBlocked = a.to === "/app/transfer" && !canFundTransfer(user);
               const blocked =
-                accountPending &&
-                (a.to === "/app/transfer" ||
-                  a.to === "/app/topup" ||
-                  a.to === "/app/data-topup" ||
-                  a.to === "/app/internet" ||
-                  a.to === "/app/water" ||
-                  a.to === "/app/electricity" ||
-                  a.to === "/app/remittance");
+                (accountPending &&
+                  (a.to === "/app/transfer" ||
+                    a.to === "/app/topup" ||
+                    a.to === "/app/data-topup" ||
+                    a.to === "/app/internet" ||
+                    a.to === "/app/water" ||
+                    a.to === "/app/electricity" ||
+                    a.to === "/app/remittance")) ||
+                transferBlocked;
               if (blocked) {
                 return (
                   <button
                     key={a.to}
                     type="button"
-                    onClick={() => toast.error(t("account.pending"))}
+                    onClick={() =>
+                      toast.error(
+                        transferBlocked && !accountPending
+                          ? t("transfer.disabledError")
+                          : t("account.pending"),
+                      )
+                    }
                     className="flex flex-col items-center gap-2 rounded-2xl bg-white px-1.5 py-3.5 opacity-70 shadow-[0_4px_16px_-6px_rgba(16,24,40,0.14)] transition-transform active:scale-[0.97]"
                   >
                     <span

@@ -19,7 +19,7 @@ import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { LIVE_REFETCH_MS } from "@/lib/refresh";
-import { isAccountPending } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -105,7 +105,9 @@ function Transfer() {
     queryFn: () => apiClient.settings(),
   });
   const transfersEnabled =
-    settingsQuery.data?.config?.payment?.transfers_enabled !== false && !accountPending;
+    settingsQuery.data?.config?.payment?.transfers_enabled !== false &&
+    !accountPending &&
+    canFundTransfer(user);
   const depositsEnabled =
     settingsQuery.data?.config?.payment?.deposits_enabled !== false && !accountPending;
   const minTransfer = settingsQuery.data?.config?.transactions?.min_transfer ?? 10;

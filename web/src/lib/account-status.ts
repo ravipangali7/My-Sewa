@@ -15,5 +15,17 @@ export function isAccountPending(user: UserProfile | null | undefined): boolean 
   return (user.account_status ?? "approved") === "pending";
 }
 
+/** Per-user fund transfer access. Missing field is treated as allowed. */
+export function canFundTransfer(user: UserProfile | null | undefined): boolean {
+  if (!user) return false;
+  return user.can_fund_transfer !== false;
+}
+
+/** Per-user wallet adjustment access. Missing field is treated as allowed. */
+export function canWalletAdjust(user: UserProfile | null | undefined): boolean {
+  if (!user) return false;
+  return user.can_wallet_adjust !== false;
+}
+
 export const ACCOUNT_PENDING_MESSAGE =
   "Your account is pending approval. You can browse the app, but remittance, top-up, fund transfer and other transactions stay disabled until an admin activates your account.";
