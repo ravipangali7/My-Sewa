@@ -360,8 +360,8 @@ SMTP_FROM_NAME = EMAIL_FROM_NAME
 
 # FCM / Firebase push (HTTP v1 service account preferred)
 FCM_SERVER_KEY = os.environ.get('FCM_SERVER_KEY', '').strip()
-FIREBASE_CREDENTIALS_JSON = os.environ.get('FIREBASE_CREDENTIALS_JSON', '').strip()
-_firebase_cred_path = os.environ.get('FIREBASE_CREDENTIALS_PATH', '').strip()
+FIREBASE_CREDENTIALS_JSON = os.environ.get('FIREBASE_CREDENTIALS_JSON', 'firebase-service.json').strip()
+_firebase_cred_path = os.environ.get('FIREBASE_CREDENTIALS_PATH', 'firebase-service.json').strip()
 if _firebase_cred_path and not os.path.isabs(_firebase_cred_path):
     _firebase_cred_path = str(BASE_DIR / _firebase_cred_path)
 FIREBASE_CREDENTIALS_PATH = _firebase_cred_path
