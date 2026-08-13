@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
+import { canWalletAdjust } from "@/lib/account-status";
 
 export const Route = createFileRoute("/admin/wallets_/$walletId_/edit")({
   head: () => ({
@@ -55,6 +57,8 @@ function EditWalletPage() {
   const id = Number(walletId);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const allowAdjust = canWalletAdjust(user);
   const [mode, setMode] = useState<Mode>("adjust");
   const [balance, setBalance] = useState("");
   const [amount, setAmount] = useState("");
@@ -130,6 +134,10 @@ function EditWalletPage() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (!allowAdjust) {
+      toast.error("Wallet adjustment is disabled for your account.");
+      return;
+    }
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
       toast.error("Reason is required for audit trail");
@@ -206,6 +214,12 @@ function EditWalletPage() {
             className="min-w-0 max-w-full space-y-5 rounded-xl border border-border bg-surface p-4 sm:p-5"
             onSubmit={handleSubmit}
           >
+            {!allowAdjust ? (
+              <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                Wallet adjustment is disabled for your account. Ask a Super Admin to enable it on
+                the Users page.
+              </p>
+            ) : null}
             <div className="space-y-1.5">
               <Label>Adjustment mode</Label>
               <Select value={mode} onValueChange={(v) => setMode(v as Mode)}>
@@ -302,7 +316,7 @@ function EditWalletPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" disabled={updateMutation.isPending}>
+              <Button type="submit" disabled={updateMutation.isPending || !allowAdjust}>
                 {updateMutation.isPending ? "Saving…" : actionLabel}
               </Button>
               <Button asChild type="button" variant="ghost">

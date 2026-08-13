@@ -136,16 +136,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     listenForNativePushToken();
   }, []);
 
-  // Register FCM device token once authenticated. Same token is stored once.
+  // Register FCM device token as soon as an auth token exists — do not wait
+  // for the profile query, or a slow/failed profile fetch would skip save.
   useEffect(() => {
-    if (!token || !profileQuery.data) return;
+    if (!token) return;
     void setupPushNotifications();
-  }, [token, profileQuery.data?.id]);
+  }, [token]);
 
   const establishSession = useCallback(
     async (sessionToken: string) => {
       setToken(sessionToken);
       setTokenState(sessionToken);
+      void setupPushNotifications();
       const profile = await apiClient.profile();
       queryClient.setQueryData(["auth", "profile"], profile);
       await queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });

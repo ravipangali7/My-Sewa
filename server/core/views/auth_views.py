@@ -1618,6 +1618,12 @@ def device_token(request):
             formatted = format_validation_errors(serializer.errors)
             return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
         obj = serializer.save()
+        logger.info(
+            'Device token registered user_id=%s platform=%s token=…%s',
+            getattr(request.user, 'pk', None),
+            obj.platform,
+            obj.token[-8:] if obj.token else '',
+        )
         return Response({
             'message': 'Device token registered',
             'token': obj.token,

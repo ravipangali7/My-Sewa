@@ -97,6 +97,10 @@ export interface UserProfile {
   is_superuser: boolean;
   /** `pending` = Pending (yellow), `approved` = Active (green) */
   account_status?: AccountStatus;
+  /** When false, this user cannot perform fund transfers. Defaults to true. */
+  can_fund_transfer?: boolean;
+  /** When false, this user cannot perform wallet adjustments. Defaults to true. */
+  can_wallet_adjust?: boolean;
   /** Whether a transaction PIN is set (never the raw PIN). */
   has_transaction_pin?: boolean;
   date_joined: string;
@@ -850,6 +854,8 @@ export interface AdminUserWritePayload {
   is_staff?: boolean;
   is_superuser?: boolean;
   account_status?: AccountStatus;
+  can_fund_transfer?: boolean;
+  can_wallet_adjust?: boolean;
   password?: string;
   password2?: string;
 }
@@ -1101,6 +1107,35 @@ export interface CommissionHistoryResponse {
   items: CommissionHistoryItem[];
   stats: AdminListStats;
   earnings: CommissionEarnings;
+  summary?: AmountSummary;
+}
+
+/** Unified Super Admin ledger row for every wallet-moving transaction. */
+export interface AdminSystemTransaction {
+  id: string;
+  record_id: number;
+  kind: ActivityKind;
+  amount: string;
+  credit: boolean;
+  status: DepositStatus | TxnStatus;
+  reference: string;
+  detail: string;
+  balance_before: string | null;
+  balance_after: string | null;
+  created_at: string;
+  user_id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  wallet_id: number | null;
+}
+
+export type AdminTransactionKindCounts = { all: number } & Record<ActivityKind, number>;
+
+export interface AdminTransactionHistoryResponse {
+  items: AdminSystemTransaction[];
+  stats: AdminListStats;
+  type_counts: AdminTransactionKindCounts;
   summary?: AmountSummary;
 }
 

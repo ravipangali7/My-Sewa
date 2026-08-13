@@ -162,6 +162,16 @@ function UserDetailPage() {
               </DetailRow>
               <DetailRow label="Staff">{u.is_staff ? "Yes" : "No"}</DetailRow>
               <DetailRow label="Superuser">{u.is_superuser ? "Yes" : "No"}</DetailRow>
+              <DetailRow label="Fund Transfer">
+                <Badge variant={u.can_fund_transfer !== false ? "default" : "secondary"}>
+                  {u.can_fund_transfer !== false ? "Enabled" : "Disabled"}
+                </Badge>
+              </DetailRow>
+              <DetailRow label="Wallet Adjustment">
+                <Badge variant={u.can_wallet_adjust !== false ? "default" : "secondary"}>
+                  {u.can_wallet_adjust !== false ? "Enabled" : "Disabled"}
+                </Badge>
+              </DetailRow>
               <DetailRow label="Wallet ID">{u.wallet_id ?? "—"}</DetailRow>
               <DetailRow label="Wallet balance">
                 <span className="tabular">{formatNPR(u.wallet_balance ?? "0.00")}</span>

@@ -203,6 +203,16 @@ class CustomUser(AbstractUser):
         db_index=True,
         help_text="Pending users can log in but cannot perform transactions until set to Active.",
     )
+    can_fund_transfer = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="When enabled, this user can perform fund transfers.",
+    )
+    can_wallet_adjust = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="When enabled, this user can perform wallet adjustments (manual load / debit).",
+    )
     transaction_pin = models.CharField(
         max_length=128,
         blank=True,

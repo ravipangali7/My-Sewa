@@ -10,6 +10,14 @@ const API_BASE =
       ? "http://127.0.0.1:8000"
       : "";
 
+export function getApiBase(): string {
+  return API_BASE;
+}
+
+if (typeof window !== "undefined") {
+  (window as Window & { __mysewaApiBase?: string }).__mysewaApiBase = API_BASE;
+}
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -1107,6 +1115,15 @@ export const apiClient = {
     return api<
       import("./types").WalletTransactions & { wallet_id?: number; user_id?: number }
     >(`/api/admin/wallets/${id}/transactions/${query ? `?${query}` : ""}`);
+  },
+  adminTransactionHistory: (filters?: AdminListFilters & { type?: string }) => {
+    const params = new URLSearchParams(buildAdminListQuery(filters).replace(/^\?/, ""));
+    const type = filters?.type?.trim();
+    if (type && type !== "all") params.set("type", type);
+    const query = params.toString();
+    return api<import("./types").AdminTransactionHistoryResponse>(
+      `/api/admin/transactions/${query ? `?${query}` : ""}`,
+    );
   },
   adminDeposits: (filters?: AdminListFilters) =>
     api<import("./types").AdminListResponse<import("./types").Deposit>>(

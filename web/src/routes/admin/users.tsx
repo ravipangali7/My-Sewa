@@ -14,6 +14,7 @@ import {
 import { StatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -90,6 +91,33 @@ function UsersPage() {
     },
   });
 
+  const accessMutation = useMutation({
+    mutationFn: ({
+      id,
+      field,
+      value,
+    }: {
+      id: number;
+      field: "can_fund_transfer" | "can_wallet_adjust";
+      value: boolean;
+    }) => {
+      const existing = usersQuery.data?.items?.find((u) => u.id === id);
+      if (!existing) throw new Error("User not found");
+      return apiClient.adminUpdateUser(id, {
+        phone: existing.phone,
+        [field]: value,
+      });
+    },
+    onSuccess: (_data, vars) => {
+      const label = vars.field === "can_fund_transfer" ? "Fund Transfer" : "Wallet Adjustment";
+      toast.success(vars.value ? `${label} enabled` : `${label} disabled`);
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not update access");
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiClient.adminDeleteUser(id),
     onSuccess: () => {
@@ -154,6 +182,28 @@ function UsersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    );
+  };
+
+  const accessToggle = (
+    u: AdminUser,
+    field: "can_fund_transfer" | "can_wallet_adjust",
+    label: string,
+  ) => {
+    const checked = u[field] !== false;
+    const pending =
+      accessMutation.isPending &&
+      accessMutation.variables?.id === u.id &&
+      accessMutation.variables?.field === field;
+    return (
+      <div className="flex items-center gap-2">
+        <Switch
+          checked={checked}
+          disabled={pending}
+          aria-label={`${label} for ${u.phone}`}
+          onCheckedChange={(value) => accessMutation.mutate({ id: u.id, field, value })}
+        />
+      </div>
     );
   };
 
@@ -241,6 +291,8 @@ function UsersPage() {
                 <TableHead>Staff</TableHead>
                 <TableHead>Account</TableHead>
                 <TableHead>Login</TableHead>
+                <TableHead>Fund Transfer</TableHead>
+                <TableHead>Wallet Adjustment</TableHead>
                 <TableHead>Date joined</TableHead>
                 <TableHead>Last login</TableHead>
                 <TableHead className="text-right">Wallet balance</TableHead>
@@ -272,6 +324,8 @@ function UsersPage() {
                       {u.is_active ? "Enabled" : "Disabled"}
                     </Badge>
                   </TableCell>
+                  <TableCell>{accessToggle(u, "can_fund_transfer", "Fund Transfer")}</TableCell>
+                  <TableCell>{accessToggle(u, "can_wallet_adjust", "Wallet Adjustment")}</TableCell>
                   <TableCell className="text-sm">{formatDate(u.date_joined)}</TableCell>
                   <TableCell className="text-sm">
                     {u.last_login ? formatDate(u.last_login) : "—"}
@@ -326,6 +380,14 @@ function UsersPage() {
                             {u.is_active ? "Enabled" : "Disabled"}
                           </Badge>
                         ),
+                      },
+                      {
+                        label: "Fund Transfer",
+                        value: accessToggle(u, "can_fund_transfer", "Fund Transfer"),
+                      },
+                      {
+                        label: "Wallet Adjustment",
+                        value: accessToggle(u, "can_wallet_adjust", "Wallet Adjustment"),
                       },
                     ]}
                   />

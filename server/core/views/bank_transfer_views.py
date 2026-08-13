@@ -34,6 +34,7 @@ from ..services.app_config import (
     get_app_config,
     resolve_transfer_fees,
     require_feature_enabled,
+    require_user_feature,
     require_account_approved,
     is_auto_status_verified,
 )
@@ -316,6 +317,9 @@ def list_banks(request):
     blocked = require_feature_enabled('transfers')
     if blocked:
         return blocked
+    blocked = require_user_feature(request.user, 'fund_transfer')
+    if blocked:
+        return blocked
 
     himalpay = HimalPayAPI()
     try:
@@ -386,6 +390,9 @@ def list_banks(request):
 def verify_account(request):
     """Verify destination bank account before transfer."""
     blocked = require_feature_enabled('transfers')
+    if blocked:
+        return blocked
+    blocked = require_user_feature(request.user, 'fund_transfer')
     if blocked:
         return blocked
 
@@ -520,6 +527,9 @@ def calculate_transfer_charge(request):
     blocked = require_feature_enabled('transfers')
     if blocked:
         return blocked
+    blocked = require_user_feature(request.user, 'fund_transfer')
+    if blocked:
+        return blocked
 
     payload = {
         'wallet_service_name': 'BANK_TRANSFER',
@@ -609,6 +619,9 @@ def calculate_transfer_charge(request):
 def create_bank_transfer(request):
     """Process an outbound bank transfer via HimalPay."""
     blocked = require_feature_enabled('transfers')
+    if blocked:
+        return blocked
+    blocked = require_user_feature(request.user, 'fund_transfer')
     if blocked:
         return blocked
 

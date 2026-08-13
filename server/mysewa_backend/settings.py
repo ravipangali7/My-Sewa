@@ -15,6 +15,10 @@ from urllib.parse import urlparse
 import os
 import tempfile
 
+import pymysql
+
+pymysql.install_as_MySQLdb()
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -167,65 +171,17 @@ WSGI_APPLICATION = 'mysewa_backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-def _sqlite_table_names(path: Path) -> set[str]:
-    """Read sqlite_master without going through Django (settings import time)."""
-    import sqlite3
-
-    if not path.is_file() or path.stat().st_size < 100:
-        return set()
-    try:
-        con = sqlite3.connect(str(path))
-        try:
-            rows = con.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-            ).fetchall()
-            return {r[0] for r in rows}
-        finally:
-            con.close()
-    except Exception:
-        return set()
-
-
-def _resolve_sqlite_path() -> Path:
-    """
-    Use the SQLite file that actually has app tables.
-
-    A misnamed `db .sqlite3` (space in the name) has been deployed before.
-    Django's default `db.sqlite3` is then auto-created empty, which 500s
-    /api/settings/, /api/auth/profile/, and wallet endpoints with
-    `no such table: core_settings`.
-    """
-    override = os.environ.get('SQLITE_PATH', '').strip()
-    if override:
-        return Path(override)
-
-    canonical = BASE_DIR / 'db.sqlite3'
-    spaced = BASE_DIR / 'db .sqlite3'
-    candidates = [p for p in (canonical, spaced) if p.is_file()]
-    if not candidates:
-        return canonical
-
-    def score(path: Path) -> tuple[int, int, int]:
-        tables = _sqlite_table_names(path)
-        return (
-            1 if 'core_settings' in tables else 0,
-            1 if 'core_customuser' in tables else 0,
-            len(tables),
-        )
-
-    best = max(candidates, key=score)
-    best_tables = _sqlite_table_names(best)
-    if 'core_settings' in best_tables or len(best_tables) > 0:
-        return best
-    return canonical
-
-
-SQLITE_PATH = _resolve_sqlite_path()
-
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': SQLITE_PATH,
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'mysewa',
+        'USER': 'root',
+        'PASSWORD': '06517349bd1633ec',
+        'HOST': '127.0.0.1',
+        'PORT': '3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+        },
     }
 }
 

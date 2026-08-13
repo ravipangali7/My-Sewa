@@ -36,6 +36,7 @@ class CustomUserAdminForm(forms.ModelForm):
         fields = (
             'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
             'date_of_birth', 'account_status',
+            'can_fund_transfer', 'can_wallet_adjust',
             'is_active', 'is_staff',
         )
 
@@ -59,9 +60,13 @@ class CustomUserAdmin(admin.ModelAdmin):
     form = CustomUserAdminForm
     list_display = (
         'phone', 'email', 'first_name', 'last_name', 'nickname',
-        'account_status', 'kyc_status', 'is_active', 'date_joined',
+        'account_status', 'kyc_status', 'can_fund_transfer', 'can_wallet_adjust',
+        'is_active', 'date_joined',
     )
-    list_filter = ('account_status', 'kyc_status', 'is_active', 'is_staff', 'date_joined')
+    list_filter = (
+        'account_status', 'kyc_status', 'can_fund_transfer', 'can_wallet_adjust',
+        'is_active', 'is_staff', 'date_joined',
+    )
     search_fields = (
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name',
         'citizenship_number',
@@ -74,6 +79,7 @@ class CustomUserAdmin(admin.ModelAdmin):
     fields = (
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
         'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
+        'can_fund_transfer', 'can_wallet_adjust',
         'is_active', 'is_staff',
         'date_joined', 'last_login',
     )

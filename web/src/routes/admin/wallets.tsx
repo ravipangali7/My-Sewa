@@ -46,6 +46,8 @@ import { serialNumber } from "@/lib/serial";
 import type { AdminWallet } from "@/lib/types";
 import { useListFilters } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
+import { useAuth } from "@/lib/auth";
+import { canWalletAdjust } from "@/lib/account-status";
 
 const LIST_PAGE = 1;
 const LIST_PAGE_SIZE = 50;
@@ -71,6 +73,8 @@ function WalletsPage() {
   const [exporting, setExporting] = useState(false);
   const { filters, setFilters, debounced } = useListFilters();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const allowAdjust = canWalletAdjust(user);
 
   const walletsQuery = useQuery({
     queryKey: ["admin", "wallets", debounced],
@@ -122,12 +126,14 @@ function WalletsPage() {
               View
             </Link>
           </DropdownMenuItem>
+          {allowAdjust ? (
           <DropdownMenuItem asChild>
             <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
               <Pencil className="size-3.5" />
               Add Fund / Adjust
             </Link>
           </DropdownMenuItem>
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             className="text-danger focus:text-danger"
@@ -261,11 +267,13 @@ function WalletsPage() {
                           View
                         </Link>
                       </Button>
+                      {allowAdjust ? (
                       <Button asChild size="sm" variant="secondary" className="flex-1">
                         <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
                           Add Fund
                         </Link>
                       </Button>
+                      ) : null}
                     </div>
                   </AdminMobileCard>
                 );

@@ -15,7 +15,7 @@ import { UserShell } from "@/components/layout/UserShell";
 import { DepositAccountsPanel } from "@/components/DepositAccountsPanel";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { isAccountPending } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useT } from "@/lib/i18n";
 
@@ -129,7 +129,7 @@ function Services() {
         ? t("services.unavailablePending")
         : t("services.transferDesc"),
       icon: Send,
-      enabled: payment?.transfers_enabled !== false && !accountPending,
+      enabled: payment?.transfers_enabled !== false && !accountPending && canFundTransfer(user),
     },
   ];
 

@@ -50,6 +50,8 @@ import { formatDateTime, formatNPR } from "@/lib/format";
 import { downloadCsvWithQuery } from "@/lib/list-query";
 import { cn } from "@/lib/utils";
 import type { StatementDiscrepancy, StatementLedgerRow } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import { canWalletAdjust } from "@/lib/account-status";
 
 type StatementTab = "ledger" | "issues" | "runs";
 
@@ -170,6 +172,8 @@ function StatementPage() {
   const navigate = useNavigate({ from: "/admin/statement" });
   const routeSearch = Route.useSearch();
   const tab: StatementTab = routeSearch.tab ?? "ledger";
+  const { user } = useAuth();
+  const allowAdjust = canWalletAdjust(user);
 
   const [fromDate, setFromDate] = useState(monthStartISO);
   const [toDate, setToDate] = useState(todayISO);
@@ -658,7 +662,7 @@ function StatementPage() {
                               </TableCell>
                               <TableCell className="align-top text-right">
                                 <div className="flex flex-col items-end gap-1.5">
-                                  {row.can_solve ? (
+                                  {row.can_solve && allowAdjust ? (
                                     <Button
                                       size="sm"
                                       disabled={solveMutation.isPending || !row.discrepancy_id}
@@ -672,7 +676,7 @@ function StatementPage() {
                                         : ""}
                                     </Button>
                                   ) : null}
-                                  {row.can_correct ? (
+                                  {row.can_correct && allowAdjust ? (
                                     <Button
                                       size="sm"
                                       variant="outline"
@@ -834,7 +838,7 @@ function StatementPage() {
                         <TableCell className="align-top text-right">
                           {isOpen ? (
                             <div className="flex flex-col items-end gap-1.5">
-                              {item.can_solve ? (
+                              {item.can_solve && allowAdjust ? (
                                 <Button
                                   size="sm"
                                   disabled={solveMutation.isPending}
@@ -846,7 +850,7 @@ function StatementPage() {
                                     : ""}
                                 </Button>
                               ) : null}
-                              {item.can_correct || item.user ? (
+                              {(item.can_correct || item.user) && allowAdjust ? (
                                 <Button
                                   size="sm"
                                   variant="outline"

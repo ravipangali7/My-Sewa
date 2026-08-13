@@ -2,6 +2,8 @@ class AppConfig {
   static const String appName = 'MySewa';
   static const String webUrl = 'https://mysewa.sewabyapar.com/';
   static const String host = 'mysewa.sewabyapar.com';
+  /// Django API origin used by the production SPA (`VITE_API_BASE_URL`).
+  static const String apiUrl = 'https://mysewaserver.sewabyapar.com';
   /// Lightweight same-origin asset used to confirm real reachability
   /// (link-layer "online" alone can still fail DNS/HTTP).
   static const String reachabilityProbePath = '/favicon.png';

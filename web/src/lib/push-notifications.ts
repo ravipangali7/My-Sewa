@@ -5,12 +5,14 @@
  *   - window.__mysewaFcmToken (set as soon as the native shell has it)
  *   - CustomEvent `mysewa-fcm-token`
  *
- * React POSTs that token to /api/auth/device-token/. The API stores each
- * token only once (unique). Stub / placeholder tokens are never sent.
+ * After login, React POSTs that token to /api/auth/device-token/ and also
+ * tells Flutter (`auth_ready`) so the native shell can POST it as a backup.
+ * Stub / placeholder tokens are never sent.
  */
 import { toast } from "sonner";
-import { apiClient, getToken } from "./api";
+import { apiClient, getApiBase, getToken } from "./api";
 import {
+  hasNativePushBridge,
   isMySewaNativeApp,
   requestNativePushToken,
   waitForNativePushBridge,
@@ -21,6 +23,8 @@ const PENDING_TOKEN_KEY = "mysewa_pending_fcm_token";
 const PENDING_PLATFORM_KEY = "mysewa_pending_fcm_platform";
 
 let listenerAttached = false;
+let setupInFlight: Promise<void> | null = null;
+let lastRegisteredForAuth: string | null = null;
 
 function isRealFcmToken(token: string): boolean {
   const value = token.trim();
@@ -45,10 +49,32 @@ function detectPlatform(explicit?: string): "android" | "ios" | "web" | "unknown
   return "web";
 }
 
+function storageGet(key: string): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return (localStorage.getItem(key) || sessionStorage.getItem(key) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function storageSet(key: string, value: string) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode */
+  }
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    /* private mode */
+  }
+}
+
 function cachePendingToken(token: string, platform?: string) {
-  if (typeof sessionStorage === "undefined") return;
-  sessionStorage.setItem(PENDING_TOKEN_KEY, token);
-  if (platform) sessionStorage.setItem(PENDING_PLATFORM_KEY, platform);
+  storageSet(PENDING_TOKEN_KEY, token);
+  if (platform) storageSet(PENDING_PLATFORM_KEY, platform);
 }
 
 function readPendingToken(): { token: string; platform?: string } | null {
@@ -59,18 +85,45 @@ function readPendingToken(): { token: string; platform?: string } | null {
   const injectedPlatform = String(
     (window as Window & { __mysewaFcmPlatform?: string }).__mysewaFcmPlatform || "",
   ).trim();
-  const stored =
-    typeof sessionStorage !== "undefined"
-      ? (sessionStorage.getItem(PENDING_TOKEN_KEY) || "").trim()
-      : "";
+  const stored = storageGet(PENDING_TOKEN_KEY);
   const token = injected || stored;
   if (!token || !isRealFcmToken(token)) return null;
-  const platform =
-    injectedPlatform ||
-    (typeof sessionStorage !== "undefined"
-      ? sessionStorage.getItem(PENDING_PLATFORM_KEY) || undefined
-      : undefined);
+  const platform = injectedPlatform || storageGet(PENDING_PLATFORM_KEY) || undefined;
   return { token, ...(platform ? { platform } : {}) };
+}
+
+function notifyNativeAuthReady() {
+  if (typeof window === "undefined") return;
+  const payload = JSON.stringify({
+    type: "auth_ready",
+    apiBase: getApiBase(),
+  });
+  try {
+    window.MySewaBridge?.postMessage(payload);
+  } catch {
+    /* native channel may not exist in the browser */
+  }
+}
+
+async function waitForPendingToken(timeoutMs: number): Promise<{
+  token: string;
+  platform?: string;
+} | null> {
+  const started = Date.now();
+  let pending = readPendingToken();
+  if (pending) return pending;
+
+  requestNativePushToken();
+  while (Date.now() - started < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 250));
+    pending = readPendingToken();
+    if (pending) return pending;
+    const elapsed = Date.now() - started;
+    if (elapsed >= 1500 && elapsed < 1800) {
+      requestNativePushToken();
+    }
+  }
+  return readPendingToken();
 }
 
 export async function registerPushDeviceToken(opts?: {
@@ -84,20 +137,30 @@ export async function registerPushDeviceToken(opts?: {
     return false;
   }
   const platform = detectPlatform(opts?.platform);
-  try {
-    await apiClient.registerDeviceToken({ token, platform });
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(LAST_REGISTERED_KEY, token);
+  const authKey = `${getToken()}::${token}`;
+  cachePendingToken(token, platform);
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await apiClient.registerDeviceToken({ token, platform });
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(LAST_REGISTERED_KEY, token);
+      }
+      lastRegisteredForAuth = authKey;
+      return true;
+    } catch (err) {
+      if (attempt === 2) {
+        console.warn("[push] device token registration failed", err);
+        return false;
+      }
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
     }
-    return true;
-  } catch (err) {
-    console.warn("[push] device token registration failed", err);
-    cachePendingToken(token, platform);
-    return false;
   }
+  return false;
 }
 
 export async function unregisterStoredDeviceToken(): Promise<void> {
+  lastRegisteredForAuth = null;
   if (typeof localStorage === "undefined") return;
   const token = localStorage.getItem(LAST_REGISTERED_KEY);
   if (!token) return;
@@ -153,7 +216,7 @@ export function listenForNativePushToken(): void {
   if (pending) {
     void registerPushDeviceToken(pending);
   }
-  if (isMySewaNativeApp()) {
+  if (isMySewaNativeApp() || hasNativePushBridge()) {
     void waitForNativePushBridge(2500).then((ok) => {
       if (ok) requestNativePushToken();
     });
@@ -163,20 +226,34 @@ export function listenForNativePushToken(): void {
 /**
  * Call once after the user is authenticated.
  * Safe to call repeatedly; registration is idempotent on the server.
+ * Waits for the native FCM token instead of giving up if it is not
+ * already sitting on window from the first page load.
  */
 export async function setupPushNotifications(): Promise<void> {
   if (typeof window === "undefined") return;
-  listenForNativePushToken();
+  if (setupInFlight) return setupInFlight;
 
-  if (isMySewaNativeApp()) {
-    await waitForNativePushBridge(2000);
-    requestNativePushToken();
-    const pending = readPendingToken();
-    if (pending) {
-      await registerPushDeviceToken(pending);
+  setupInFlight = (async () => {
+    listenForNativePushToken();
+    if (!getToken()) return;
+
+    notifyNativeAuthReady();
+
+    const native = isMySewaNativeApp() || hasNativePushBridge();
+    if (native) {
+      await waitForNativePushBridge(2500);
+      requestNativePushToken();
     }
-    return;
-  }
 
-  // Browser sessions do not receive Firebase app pushes. Native FCM only.
+    const pending = await waitForPendingToken(native ? 8000 : 400);
+    if (!pending) return;
+
+    const authKey = `${getToken()}::${pending.token}`;
+    if (lastRegisteredForAuth === authKey) return;
+    await registerPushDeviceToken(pending);
+  })().finally(() => {
+    setupInFlight = null;
+  });
+
+  return setupInFlight;
 }

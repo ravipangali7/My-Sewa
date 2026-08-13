@@ -4,6 +4,7 @@ DRF Serializers for all models
 import re
 from datetime import date
 from decimal import Decimal
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.hashers import make_password
@@ -130,13 +131,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'date_of_birth',
             'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
+            'can_fund_transfer', 'can_wallet_adjust',
             'kyc_status', 'citizenship_number', 'kyc_verified', 'profile_locked',
             'has_transaction_pin',
             'date_joined', 'last_login',
         )
         read_only_fields = (
             'id', 'phone', 'avatar', 'is_active', 'is_staff', 'is_superuser',
-            'account_status', 'kyc_status', 'citizenship_number',
+            'account_status', 'can_fund_transfer', 'can_wallet_adjust',
+            'kyc_status', 'citizenship_number',
             'kyc_verified', 'profile_locked',
             'has_transaction_pin', 'date_joined', 'last_login',
         )
@@ -171,6 +174,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
+            'can_fund_transfer', 'can_wallet_adjust',
             'kyc_status', 'citizenship_number',
             'date_joined', 'last_login',
             'wallet_id', 'wallet_balance', 'has_transaction_pin',
@@ -217,6 +221,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'phone', 'email', 'first_name', 'last_name',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
+            'can_fund_transfer', 'can_wallet_adjust',
             'password', 'password2',
         )
         extra_kwargs = {
@@ -229,6 +234,8 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'is_staff': {'required': False},
             'is_superuser': {'required': False},
             'account_status': {'required': False},
+            'can_fund_transfer': {'required': False},
+            'can_wallet_adjust': {'required': False},
         }
 
     def validate_phone(self, value):
@@ -1758,11 +1765,19 @@ class DeviceTokenSerializer(serializers.Serializer):
         token = validated_data['token']
         platform = validated_data.get('platform') or DeviceToken.PLATFORM_UNKNOWN
         # Unique on token: same FCM token is stored once and reassigned to this user.
-        obj, _created = DeviceToken.objects.update_or_create(
-            token=token,
-            defaults={'user': user, 'platform': platform},
-        )
-        return obj
+        try:
+            with transaction.atomic():
+                obj, _created = DeviceToken.objects.update_or_create(
+                    token=token,
+                    defaults={'user': user, 'platform': platform},
+                )
+                return obj
+        except IntegrityError:
+            obj = DeviceToken.objects.get(token=token)
+            obj.user = user
+            obj.platform = platform
+            obj.save(update_fields=['user', 'platform', 'updated_at'])
+            return obj
 
 
 class KYCDocumentSerializer(serializers.ModelSerializer):

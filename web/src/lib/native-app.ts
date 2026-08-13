@@ -90,6 +90,7 @@ declare global {
     };
     __mysewaFcmToken?: string;
     __mysewaFcmPlatform?: string;
+    __mysewaApiBase?: string;
   }
 }
 

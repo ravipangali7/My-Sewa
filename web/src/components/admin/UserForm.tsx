@@ -22,6 +22,8 @@ export type UserFormValues = {
   is_staff: boolean;
   is_superuser: boolean;
   account_status: AccountStatus;
+  can_fund_transfer: boolean;
+  can_wallet_adjust: boolean;
   password: string;
   password2: string;
 };
@@ -36,6 +38,8 @@ function fromUser(user?: AdminUser | null): UserFormValues {
     is_staff: user?.is_staff ?? false,
     is_superuser: user?.is_superuser ?? false,
     account_status: user?.account_status ?? "approved",
+    can_fund_transfer: user?.can_fund_transfer ?? true,
+    can_wallet_adjust: user?.can_wallet_adjust ?? true,
     password: "",
     password2: "",
   };
@@ -75,6 +79,8 @@ export function UserForm({
       is_staff: values.is_staff,
       is_superuser: values.is_superuser,
       account_status: values.account_status,
+      can_fund_transfer: values.can_fund_transfer,
+      can_wallet_adjust: values.can_wallet_adjust,
     };
     if (values.password || mode === "create") {
       payload.password = values.password;
@@ -218,6 +224,39 @@ export function UserForm({
             id="is_superuser"
             checked={values.is_superuser}
             onCheckedChange={(checked) => set("is_superuser", checked)}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border p-4">
+        <p className="text-sm font-medium">Feature access</p>
+        <p className="text-xs text-muted-foreground">
+          Grant or revoke this user's ability to perform fund transfers and wallet adjustments.
+        </p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Label htmlFor="can_fund_transfer" className="font-normal">
+              Fund Transfer
+            </Label>
+            <p className="text-xs text-muted-foreground">Send money to bank accounts</p>
+          </div>
+          <Switch
+            id="can_fund_transfer"
+            checked={values.can_fund_transfer}
+            onCheckedChange={(checked) => set("can_fund_transfer", checked)}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Label htmlFor="can_wallet_adjust" className="font-normal">
+              Wallet Adjustment
+            </Label>
+            <p className="text-xs text-muted-foreground">Manual load or debit wallets</p>
+          </div>
+          <Switch
+            id="can_wallet_adjust"
+            checked={values.can_wallet_adjust}
+            onCheckedChange={(checked) => set("can_wallet_adjust", checked)}
           />
         </div>
       </div>
