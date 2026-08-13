@@ -41,3 +41,18 @@ export async function downloadCsvExport(
   const csv = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
   saveTextAsFile(csv, filename);
 }
+
+export async function downloadCsvWithQuery(
+  path: string,
+  params: Record<string, string | undefined>,
+  filename: string,
+) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) search.set(key, value);
+  }
+  search.set("export", "csv");
+  const payload = await api<unknown>(`${path}?${search.toString()}`);
+  const csv = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+  saveTextAsFile(csv, filename);
+}

@@ -1115,3 +1115,74 @@ def ledger_from_latest_run(
     run = covering or qs.filter(from_date=from_date, to_date=to_date).first() or qs.first()
     rows = build_statement_ledger(from_date=from_date, to_date=to_date, run=run)
     return run, rows
+
+
+def _optional_paisa_rupees(value: Any) -> Optional[str]:
+    if value is None or value == '':
+        return None
+    try:
+        return str(HimalPayAPI.to_rupees(value))
+    except Exception:
+        try:
+            return str(_money(value))
+        except Exception:
+            return None
+
+
+def build_himalpay_history_items(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Group raw HimalPay statement line items into wallet-history style rows.
+
+    Principal / charge / cashback rows for the same UUID become one movement
+    with before/after HimalPay float (rupees).
+    """
+    grouped = _group_statement_entries(entries)
+    items: List[Dict[str, Any]] = []
+    for uuid, hp in grouped.items():
+        principal = next(
+            (
+                row for row in hp.entries
+                if not row.get('is_charge')
+                and not row.get('is_cashback')
+                and not row.get('is_refund')
+            ),
+            hp.entries[0] if hp.entries else {},
+        )
+        if bool(principal.get('is_refund')):
+            kind = 'refund'
+        elif bool(principal.get('is_cashback')):
+            kind = 'cashback'
+        elif bool(principal.get('is_charge')):
+            kind = 'charge'
+        else:
+            kind = 'transaction'
+        items.append({
+            'key': f'hp:{uuid}',
+            'transaction_uuid': hp.transaction_uuid,
+            'created_at': hp.created_at,
+            'service': hp.wallet_service_name,
+            'direction': hp.direction or 'debit',
+            'status': hp.status,
+            'kind': kind,
+            'principal_amount': str(hp.principal_amount),
+            'net_amount': str(hp.net_amount),
+            'charge': str(hp.charge),
+            'cashback': str(hp.cashback),
+            'reference_id': hp.reference_id,
+            'balance_before': _optional_paisa_rupees(principal.get('balance_before')),
+            'balance_after': _optional_paisa_rupees(principal.get('balance_after')),
+            'bonus_before': _optional_paisa_rupees(principal.get('bonus_balance_before')),
+            'bonus_after': _optional_paisa_rupees(principal.get('bonus_balance_after')),
+            'entry_count': len(hp.entries),
+        })
+
+    def _ts(item: Dict[str, Any]) -> str:
+        return str(item.get('created_at') or '')
+
+    items.sort(key=_ts, reverse=True)
+    return items
+
+
+def collect_himalpay_entries_for_range(from_date: date, to_date: date) -> List[Dict[str, Any]]:
+    """Public wrapper used by the HimalPay history API when live fetch is unavailable."""
+    return _collect_hp_entries_for_range(from_date, to_date)

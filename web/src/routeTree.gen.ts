@@ -16,6 +16,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminCommunityElectricityRouteImport } from './routes/admin/community-electricity'
 import { Route as AdminDataTopupsRouteImport } from './routes/admin/data-topups'
 import { Route as AdminDepositsRouteImport } from './routes/admin/deposits'
+import { Route as AdminHimalpayHistoryRouteImport } from './routes/admin/himalpay-history'
 import { Route as AdminInternetRouteImport } from './routes/admin/internet'
 import { Route as AdminKycRouteImport } from './routes/admin/kyc'
 import { Route as AdminPopupsRouteImport } from './routes/admin/popups'
@@ -101,6 +102,11 @@ const AdminDataTopupsRoute = AdminDataTopupsRouteImport.update({
 const AdminDepositsRoute = AdminDepositsRouteImport.update({
   id: '/admin/deposits',
   path: '/admin/deposits',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminHimalpayHistoryRoute = AdminHimalpayHistoryRouteImport.update({
+  id: '/admin/himalpay-history',
+  path: '/admin/himalpay-history',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminInternetRoute = AdminInternetRouteImport.update({
@@ -366,6 +372,7 @@ export interface FileRoutesByFullPath {
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/popups': typeof AdminPopupsRoute
@@ -425,6 +432,7 @@ export interface FileRoutesByTo {
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/popups': typeof AdminPopupsRoute
@@ -485,6 +493,7 @@ export interface FileRoutesById {
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/popups': typeof AdminPopupsRoute
@@ -546,6 +555,7 @@ export interface FileRouteTypes {
     | '/admin/community-electricity'
     | '/admin/data-topups'
     | '/admin/deposits'
+    | '/admin/himalpay-history'
     | '/admin/internet'
     | '/admin/kyc'
     | '/admin/popups'
@@ -605,6 +615,7 @@ export interface FileRouteTypes {
     | '/admin/community-electricity'
     | '/admin/data-topups'
     | '/admin/deposits'
+    | '/admin/himalpay-history'
     | '/admin/internet'
     | '/admin/kyc'
     | '/admin/popups'
@@ -664,6 +675,7 @@ export interface FileRouteTypes {
     | '/admin/community-electricity'
     | '/admin/data-topups'
     | '/admin/deposits'
+    | '/admin/himalpay-history'
     | '/admin/internet'
     | '/admin/kyc'
     | '/admin/popups'
@@ -724,6 +736,7 @@ export interface RootRouteChildren {
   AdminCommunityElectricityRoute: typeof AdminCommunityElectricityRoute
   AdminDataTopupsRoute: typeof AdminDataTopupsRoute
   AdminDepositsRoute: typeof AdminDepositsRoute
+  AdminHimalpayHistoryRoute: typeof AdminHimalpayHistoryRoute
   AdminInternetRoute: typeof AdminInternetRoute
   AdminKycRoute: typeof AdminKycRoute
   AdminPopupsRoute: typeof AdminPopupsRoute
@@ -826,6 +839,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/deposits'
       fullPath: '/admin/deposits'
       preLoaderRoute: typeof AdminDepositsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/himalpay-history': {
+      id: '/admin/himalpay-history'
+      path: '/admin/himalpay-history'
+      fullPath: '/admin/himalpay-history'
+      preLoaderRoute: typeof AdminHimalpayHistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/internet': {
@@ -1188,6 +1208,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminCommunityElectricityRoute: AdminCommunityElectricityRoute,
   AdminDataTopupsRoute: AdminDataTopupsRoute,
   AdminDepositsRoute: AdminDepositsRoute,
+  AdminHimalpayHistoryRoute: AdminHimalpayHistoryRoute,
   AdminInternetRoute: AdminInternetRoute,
   AdminKycRoute: AdminKycRoute,
   AdminPopupsRoute: AdminPopupsRoute,

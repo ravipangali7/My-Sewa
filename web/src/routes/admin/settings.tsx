@@ -7,6 +7,10 @@ import {
   Building2,
   CreditCard,
   ArrowLeftRight,
+  Database,
+  FileArchive,
+  FileCode2,
+  FileSpreadsheet,
   ImageIcon,
   Mail,
   Plus,
@@ -75,7 +79,7 @@ export const Route = createFileRoute("/admin/settings")({
       {
         name: "description",
         content:
-          "Manage MySewa global configuration: general info, branding, payments, transaction rules, SMTP email, notifications, security, and deposit account details.",
+          "Manage MySewa global configuration: general info, branding, payments, transaction rules, SMTP email, notifications, security, deposit accounts, and full data export.",
       },
       { property: "og:title", content: "App Settings — MySewa Admin" },
       {
@@ -191,6 +195,7 @@ const SECTIONS = [
   { id: "smtp", label: "Email / SMTP", icon: Mail },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "security", label: "Security", icon: Shield },
+  { id: "export", label: "Data export", icon: Database },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -335,7 +340,6 @@ function SettingsPage() {
       setQrFiles({});
       setAccountQrFiles({});
       setLogoFile(null);
-      setApkFile(null);
       invalidate();
     },
     onError: (err) => {
@@ -407,6 +411,19 @@ function SettingsPage() {
       errorPopup.showError(err, {
         title: "SMTP test failed",
         fallback: message,
+      });
+    },
+  });
+
+  const exportMutation = useMutation({
+    mutationFn: (format: "xlsx" | "csv" | "sql") => apiClient.adminExportAllData(format),
+    onSuccess: (data) => {
+      toast.success(`Download started: ${data.filename}`);
+    },
+    onError: (err) => {
+      errorPopup.showError(err, {
+        title: "Export failed",
+        fallback: "Could not export data",
       });
     },
   });
@@ -2137,6 +2154,83 @@ function SettingsPage() {
                 />
               </div>
             </SettingsPanel>
+          </TabsContent>
+
+          <TabsContent value="export">
+            <div className="space-y-4">
+              <div className="rounded-xl border border-border bg-surface p-5">
+                <h2 className="text-base font-semibold">Export all data</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Download every database table (users, wallets, deposits, bills, settings, and
+                  Django system tables). Files include password hashes, API tokens, and SMTP
+                  secrets — store them privately. {updatedAt}
+                </p>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-3">
+                {(
+                  [
+                    {
+                      format: "xlsx" as const,
+                      title: "Excel (.xlsx)",
+                      description:
+                        "One workbook with a sheet per table. Opens in Microsoft Excel, Google Sheets, and LibreOffice.",
+                      icon: FileSpreadsheet,
+                      button: "Download Excel",
+                    },
+                    {
+                      format: "csv" as const,
+                      title: "CSV (.zip)",
+                      description:
+                        "A zip of UTF-8 CSV files, one per table. Import each file into Excel or another tool.",
+                      icon: FileArchive,
+                      button: "Download CSV zip",
+                    },
+                    {
+                      format: "sql" as const,
+                      title: "MySQL / phpMyAdmin (.sql)",
+                      description:
+                        "Full SQL dump for phpMyAdmin Import (format: SQL). Includes CREATE TABLE and INSERT statements.",
+                      icon: FileCode2,
+                      button: "Download SQL dump",
+                    },
+                  ] as const
+                ).map(({ format, title, description, icon: Icon, button }) => {
+                  const busy = exportMutation.isPending && exportMutation.variables === format;
+                  return (
+                    <div
+                      key={format}
+                      className="flex flex-col rounded-xl border border-border bg-surface p-5"
+                    >
+                      <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
+                        <Icon className="size-5 text-foreground" />
+                      </div>
+                      <h3 className="mt-3 text-sm font-semibold">{title}</h3>
+                      <p className="mt-1 flex-1 text-sm text-muted-foreground">{description}</p>
+                      <Button
+                        type="button"
+                        className="mt-4 w-full gap-1.5"
+                        disabled={exportMutation.isPending}
+                        onClick={() => exportMutation.mutate(format)}
+                      >
+                        <Icon className="size-3.5" />
+                        {busy ? "Preparing…" : button}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/30 p-5 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">phpMyAdmin import</p>
+                <ol className="mt-2 list-decimal space-y-1 pl-5">
+                  <li>Download the MySQL / phpMyAdmin (.sql) file.</li>
+                  <li>Open phpMyAdmin and select the destination database.</li>
+                  <li>Go to the Import tab, choose the .sql file, and keep format as SQL.</li>
+                  <li>Click Go. The dump uses utf8mb4 and turns foreign key checks off during import.</li>
+                </ol>
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
       )}

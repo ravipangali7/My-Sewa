@@ -3,10 +3,12 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   CalendarDays,
+  ChevronRight,
   Coins,
   TrendingUp,
   Wallet,
 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { formatNPR } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { AmountSummary } from "@/lib/types";
@@ -20,6 +22,8 @@ export type StatCardItem = {
   hint?: string;
   tone?: StatCardTone;
   icon?: LucideIcon;
+  /** When set, the card navigates like the wallet-balance → history pattern. */
+  to?: string;
 };
 
 const TONE_ICON_WRAP: Record<StatCardTone, string> = {
@@ -76,17 +80,9 @@ export function StatsCards({ items, className, variant = "admin" }: StatsCardsPr
         const tone = card.tone ?? "default";
         const Icon = card.icon;
         const isUser = variant === "user";
-        return (
-          <div
-            key={card.key}
-            className={cn(
-              "group relative overflow-hidden rounded-2xl border border-border/80 bg-surface",
-              "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.12)]",
-              "transition-[box-shadow,transform,border-color] duration-200",
-              "hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[0_2px_4px_rgba(15,23,42,0.05),0_16px_32px_-14px_rgba(10,122,75,0.22)]",
-              isUser ? "p-3.5" : "p-4 sm:p-5",
-            )}
-          >
+        const clickable = Boolean(card.to);
+        const body = (
+          <>
             <div
               aria-hidden
               className={cn(
@@ -119,19 +115,41 @@ export function StatsCards({ items, className, variant = "admin" }: StatsCardsPr
                   </p>
                 ) : null}
               </div>
-              {Icon ? (
-                <span
-                  className={cn(
-                    "inline-flex shrink-0 items-center justify-center rounded-xl",
-                    "ring-1 ring-inset ring-black/5",
-                    isUser ? "size-9" : "size-10 sm:size-11",
-                    TONE_ICON_WRAP[tone],
-                  )}
-                >
-                  <Icon className={cn(isUser ? "size-4" : "size-5")} aria-hidden />
-                </span>
-              ) : null}
+              <span className="flex shrink-0 items-center gap-1">
+                {Icon ? (
+                  <span
+                    className={cn(
+                      "inline-flex shrink-0 items-center justify-center rounded-xl",
+                      "ring-1 ring-inset ring-black/5",
+                      isUser ? "size-9" : "size-10 sm:size-11",
+                      TONE_ICON_WRAP[tone],
+                    )}
+                  >
+                    <Icon className={cn(isUser ? "size-4" : "size-5")} aria-hidden />
+                  </span>
+                ) : null}
+                {clickable ? (
+                  <ChevronRight className="size-4 text-muted-foreground/70" aria-hidden />
+                ) : null}
+              </span>
             </div>
+          </>
+        );
+        const classNameCard = cn(
+          "group relative overflow-hidden rounded-2xl border border-border/80 bg-surface text-left",
+          "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.12)]",
+          "transition-[box-shadow,transform,border-color] duration-200",
+          "hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[0_2px_4px_rgba(15,23,42,0.05),0_16px_32px_-14px_rgba(10,122,75,0.22)]",
+          isUser ? "p-3.5" : "p-4 sm:p-5",
+          clickable && "cursor-pointer",
+        );
+        return card.to ? (
+          <Link key={card.key} to={card.to as "/admin/himalpay-history"} className={classNameCard}>
+            {body}
+          </Link>
+        ) : (
+          <div key={card.key} className={classNameCard}>
+            {body}
           </div>
         );
       })}

@@ -1876,6 +1876,7 @@ class StatementDiscrepancySerializer(serializers.ModelSerializer):
     user_phone = serializers.CharField(source='user.phone', read_only=True, default=None)
     user_name = serializers.SerializerMethodField()
     can_solve = serializers.SerializerMethodField()
+    can_correct = serializers.SerializerMethodField()
     suggested_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, coerce_to_string=True, allow_null=True,
     )
@@ -1897,7 +1898,7 @@ class StatementDiscrepancySerializer(serializers.ModelSerializer):
             'hp_status', 'hp_amount', 'hp_net_amount', 'local_status', 'local_amount',
             'txn_type', 'txn_type_display', 'txn_id', 'user', 'user_phone', 'user_name',
             'himalpay_snapshot', 'suggested_adjustment_type', 'suggested_amount',
-            'reason', 'can_solve', 'resolved_by', 'resolved_at',
+            'reason', 'can_solve', 'can_correct', 'resolved_by', 'resolved_at',
             'resolution_adjustment', 'created_at', 'updated_at',
         )
         read_only_fields = fields
@@ -1917,6 +1918,9 @@ class StatementDiscrepancySerializer(serializers.ModelSerializer):
             and obj.suggested_amount is not None
             and Decimal(str(obj.suggested_amount)) > 0
         )
+
+    def get_can_correct(self, obj):
+        return bool(obj.user_id)
 
 
 class HomePopupSerializer(serializers.ModelSerializer):

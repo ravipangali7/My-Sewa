@@ -83,7 +83,10 @@ from ..services.himalpay import (
 from ..services.app_config import get_app_config
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
 from ..services.statement_reconcile import (
+    build_himalpay_history_items,
     build_statement_ledger,
+    clamp_date_range,
+    collect_himalpay_entries_for_range,
     group_ledger_by_user,
     ledger_from_latest_run,
     run_statement_reconcile,
@@ -2232,6 +2235,45 @@ def admin_settings(request):
     })
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_export_data(request):
+    """
+    Download every database table as Excel (.xlsx), a ZIP of CSVs, or a
+    phpMyAdmin-compatible MySQL dump (.sql).
+    """
+    fmt = (request.query_params.get('format') or 'sql').strip().lower()
+    from ..services.data_export import EXPORT_FORMATS, build_export
+
+    aliases = {
+        'excel': 'xlsx',
+        'xls': 'xlsx',
+        'mysql': 'sql',
+        'phpmyadmin': 'sql',
+        'dump': 'sql',
+        'csvs': 'csv',
+        'zip': 'csv',
+    }
+    fmt = aliases.get(fmt, fmt)
+    if fmt not in EXPORT_FORMATS:
+        return Response(
+            {'error': 'format must be xlsx, csv, or sql'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        payload, filename, content_type = build_export(fmt)
+    except Exception as exc:
+        return Response(
+            {'error': f'Export failed: {exc}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    response = HttpResponse(payload, content_type=content_type)
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Cache-Control'] = 'no-store'
+    response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+    return response
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_test_smtp_email(request):
@@ -2895,6 +2937,37 @@ def admin_statement_list(request):
                 | Q(reason__icontains=q)
             )
 
+        if _is_csv_export(request):
+            rows = []
+            for item in qs[:2000]:
+                rows.append([
+                    item.id,
+                    item.status,
+                    item.get_issue_type_display(),
+                    getattr(item.user, 'phone', '') if item.user_id else '',
+                    item.transaction_uuid,
+                    item.merchant_txn_id,
+                    item.wallet_service_name,
+                    item.direction,
+                    item.hp_status,
+                    item.hp_net_amount,
+                    item.local_status,
+                    item.local_amount if item.local_amount is not None else '',
+                    item.reason,
+                    item.created_at.isoformat() if item.created_at else '',
+                    item.resolved_at.isoformat() if item.resolved_at else '',
+                ])
+            return _csv_response(
+                'statement-issues.csv',
+                [
+                    'id', 'status', 'issue_type', 'user_phone', 'transaction_uuid',
+                    'merchant_txn_id', 'service', 'direction', 'hp_status',
+                    'hp_net_amount', 'local_status', 'local_amount', 'reason',
+                    'created_at', 'resolved_at',
+                ],
+                rows,
+            )
+
         open_count = StatementDiscrepancy.objects.filter(
             status=StatementDiscrepancy.STATUS_OPEN,
         ).count()
@@ -3009,6 +3082,36 @@ def admin_statement_ledger(request):
             ),
             'users': len([g for g in by_user if g.get('user_id')]),
         }
+        if _is_csv_export(request):
+            csv_rows = []
+            for row in rows[:2000]:
+                hp = row.get('himalpay') or {}
+                ms = row.get('mysewa') or {}
+                csv_rows.append([
+                    row.get('user_name') or '',
+                    row.get('user_phone') or '',
+                    row.get('match_state') or '',
+                    hp.get('service') or '',
+                    hp.get('direction') or '',
+                    hp.get('status') or '',
+                    hp.get('net_amount') or '',
+                    hp.get('transaction_uuid') or '',
+                    ms.get('txn_type_display') or ms.get('txn_type') or '',
+                    ms.get('status') or '',
+                    ms.get('amount') or '',
+                    ms.get('merchant_txn_id') or ms.get('provider_txn_id') or '',
+                    row.get('reason') or '',
+                ])
+            return _csv_response(
+                'statement-ledger.csv',
+                [
+                    'user_name', 'user_phone', 'match_state', 'hp_service',
+                    'hp_direction', 'hp_status', 'hp_net_amount', 'hp_uuid',
+                    'mysewa_type', 'mysewa_status', 'mysewa_amount',
+                    'mysewa_ref', 'reason',
+                ],
+                csv_rows,
+            )
         return Response({
             'run': StatementReconcileRunSerializer(run).data if run else None,
             'from_date': from_date,
@@ -3033,6 +3136,163 @@ def admin_statement_ledger(request):
             },
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
+
+
+def _statement_window(request):
+    from_raw = (
+        request.query_params.get('from_date')
+        or request.query_params.get('start_date')
+        or ''
+    ).strip()
+    to_raw = (
+        request.query_params.get('to_date')
+        or request.query_params.get('end_date')
+        or ''
+    ).strip()
+    from_date = parse_date(from_raw) if from_raw else None
+    to_date = parse_date(to_raw) if to_raw else None
+    today = timezone.localdate()
+    if not from_date and not to_date:
+        from_date = today.replace(day=1)
+        to_date = today
+    elif from_date and not to_date:
+        to_date = today
+    elif to_date and not from_date:
+        from_date = to_date.replace(day=1)
+    from_date, to_date = clamp_date_range(from_date, to_date)
+    return from_date, to_date
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_statement_history(request):
+    """HimalPay reseller wallet history (credit/debit), live with stored fallback."""
+    from_date, to_date = _statement_window(request)
+    direction = (request.query_params.get('direction') or 'all').strip().lower()
+    q = (request.query_params.get('q') or '').strip().lower()
+    live_raw = (request.query_params.get('live') or '1').strip().lower()
+    live = live_raw not in ('0', 'false', 'no')
+
+    entries: list = []
+    source = 'stored'
+    warning = None
+    if live:
+        himalpay = HimalPayAPI()
+        original_timeout = getattr(himalpay, 'timeout', 60)
+        himalpay.timeout = min(int(original_timeout or 60), 25)
+        try:
+            fetched = himalpay.get_reseller_statement(
+                from_date=from_date.isoformat(),
+                to_date=to_date.isoformat(),
+            )
+            if isinstance(fetched, list):
+                entries = [row for row in fetched if isinstance(row, dict)]
+            source = 'live'
+        except HimalPayError as exc:
+            warning = str(exc.message if hasattr(exc, 'message') else exc)
+            try:
+                entries = collect_himalpay_entries_for_range(from_date, to_date)
+            except (ProgrammingError, OperationalError):
+                entries = []
+            source = 'stored'
+        except Exception as exc:
+            warning = str(exc)
+            try:
+                entries = collect_himalpay_entries_for_range(from_date, to_date)
+            except (ProgrammingError, OperationalError):
+                entries = []
+            source = 'stored'
+        finally:
+            himalpay.timeout = original_timeout
+    else:
+        try:
+            entries = collect_himalpay_entries_for_range(from_date, to_date)
+        except (ProgrammingError, OperationalError):
+            entries = []
+
+    try:
+        items = build_himalpay_history_items(entries)
+    except (ProgrammingError, OperationalError):
+        return Response(
+            {
+                'error': (
+                    'Statement reconcile tables are missing. '
+                    'Run: python manage.py migrate core 0024_statement_reconcile'
+                ),
+                'items': [],
+                'counts': {
+                    'total': 0, 'credit': 0, 'debit': 0,
+                    'credit_amount': '0.00', 'debit_amount': '0.00',
+                },
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    if direction in ('credit', 'debit'):
+        items = [row for row in items if str(row.get('direction') or '').lower() == direction]
+    if q:
+        def _hist_match(row):
+            hay = ' '.join([
+                str(row.get('transaction_uuid') or ''),
+                str(row.get('service') or ''),
+                str(row.get('status') or ''),
+                str(row.get('reference_id') or ''),
+                str(row.get('direction') or ''),
+                str(row.get('kind') or ''),
+            ]).lower()
+            return q in hay
+        items = [row for row in items if _hist_match(row)]
+
+    credit_rows = [row for row in items if str(row.get('direction') or '').lower() == 'credit']
+    debit_rows = [row for row in items if str(row.get('direction') or '').lower() != 'credit']
+    credit_amount = sum((Decimal(str(row.get('net_amount') or 0)) for row in credit_rows), Decimal('0.00'))
+    debit_amount = sum((Decimal(str(row.get('net_amount') or 0)) for row in debit_rows), Decimal('0.00'))
+    counts = {
+        'total': len(items),
+        'credit': len(credit_rows),
+        'debit': len(debit_rows),
+        'credit_amount': str(credit_amount.quantize(Decimal('0.01'))),
+        'debit_amount': str(debit_amount.quantize(Decimal('0.01'))),
+    }
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'himalpay-history.csv',
+            [
+                'created_at', 'service', 'direction', 'kind', 'status',
+                'principal_amount', 'charge', 'cashback', 'net_amount',
+                'transaction_uuid', 'reference_id', 'balance_before', 'balance_after',
+            ],
+            [
+                [
+                    row.get('created_at') or '',
+                    row.get('service') or '',
+                    row.get('direction') or '',
+                    row.get('kind') or '',
+                    row.get('status') or '',
+                    row.get('principal_amount') or '',
+                    row.get('charge') or '',
+                    row.get('cashback') or '',
+                    row.get('net_amount') or '',
+                    row.get('transaction_uuid') or '',
+                    row.get('reference_id') or '',
+                    row.get('balance_before') or '',
+                    row.get('balance_after') or '',
+                ]
+                for row in items[:2000]
+            ],
+        )
+
+    return Response({
+        'from_date': from_date,
+        'to_date': to_date,
+        'source': source,
+        'warning': warning,
+        'counts': counts,
+        'items': items[:2000],
+    })
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_statement_runs(request):

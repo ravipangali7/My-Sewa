@@ -5,6 +5,7 @@ import { ChevronRight, Download, FileDown, Loader2, Search, Send, Smartphone } f
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
+import { TxnBeforeAfter } from "@/components/TxnBeforeAfter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -240,43 +241,50 @@ function HistoryPage() {
                   <Link
                     to="/app/history/$activityId"
                     params={{ activityId: item.id }}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 transition-colors active:bg-muted/60"
+                    className="flex min-w-0 flex-1 flex-col gap-2 px-4 py-3.5 text-left transition-colors active:bg-muted/60"
                   >
-                    <span className="tabular w-5 shrink-0 text-center text-[12px] text-muted-foreground">
-                      {sn}
-                    </span>
-                    <span
-                      className={cn(
-                        "flex size-10 shrink-0 items-center justify-center rounded-full",
-                        item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
-                      )}
-                    >
-                      {item.kind === "deposit" ? (
-                        <Download className="size-[18px]" />
-                      ) : item.kind === "topup" ? (
-                        <Smartphone className="size-[18px]" />
-                      ) : (
-                        <Send className="size-[18px]" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[15px] font-medium">{item.title}</p>
-                      <p className="truncate text-[13px] text-muted-foreground">
-                        {item.subtitle} · {formatDateTime(item.created_at)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p
+                    <span className="flex w-full items-center gap-3">
+                      <span className="tabular w-5 shrink-0 text-center text-[12px] text-muted-foreground">
+                        {sn}
+                      </span>
+                      <span
                         className={cn(
-                          "tabular text-[15px] font-semibold",
-                          item.credit ? "text-success" : "text-label",
+                          "flex size-10 shrink-0 items-center justify-center rounded-full",
+                          item.credit ? "bg-success/12 text-success" : "bg-ocean/10 text-ocean",
                         )}
                       >
-                        {item.credit ? "+" : "−"} {formatNPR(item.amount)}
-                      </p>
-                      <StatusChip status={item.status} compact className="mt-1" />
-                    </div>
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+                        {item.kind === "deposit" ? (
+                          <Download className="size-[18px]" />
+                        ) : item.kind === "topup" ? (
+                          <Smartphone className="size-[18px]" />
+                        ) : (
+                          <Send className="size-[18px]" />
+                        )}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[15px] font-medium">{item.title}</p>
+                        <p className="truncate text-[13px] text-muted-foreground">
+                          {item.subtitle} · {formatDateTime(item.created_at)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p
+                          className={cn(
+                            "tabular text-[15px] font-semibold",
+                            item.credit ? "text-success" : "text-label",
+                          )}
+                        >
+                          {item.credit ? "+" : "−"} {formatNPR(item.amount)}
+                        </p>
+                        <StatusChip status={item.status} compact className="mt-1" />
+                      </div>
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+                    </span>
+                    <TxnBeforeAfter
+                      before={item.balance_before}
+                      after={item.balance_after}
+                      className="ml-8 mr-1 sm:ml-[4.5rem] sm:mr-7"
+                    />
                   </Link>
                   <button
                     type="button"

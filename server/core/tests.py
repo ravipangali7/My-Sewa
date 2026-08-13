@@ -1376,6 +1376,61 @@ class StatementReconcileTests(TestCase):
         self.assertEqual(adj.adjustment_type, 'credit')
         self.assertIn('Statement ledger correction', adj.reason)
 
+    def test_himalpay_history_from_stored_logs(self):
+        from .services.statement_reconcile import run_statement_reconcile
+
+        uuid = 'HP-HIST-001'
+        entries = [{
+            'direction': 'debit',
+            'amount': 10000,
+            'balance_before': 500000,
+            'balance_after': 490000,
+            'bonus_balance_before': 0,
+            'bonus_balance_after': 0,
+            'is_refund': False,
+            'is_cashback': False,
+            'is_charge': False,
+            'transaction_uuid': uuid,
+            'status': 'SUCCESS',
+            'wallet_service_name': 'NTC',
+            'transaction_cashback': 0,
+            'transaction_charge': 0,
+            'created_at': '2026-08-09T10:00:00Z',
+            'reference_id': 'REF-HIST',
+        }]
+        run_statement_reconcile(
+            from_date=date.today(),
+            to_date=date.today(),
+            himalpay=self._mock_api(entries),
+        )
+        resp = self.client.get(
+            reverse('admin_statement_history'),
+            {
+                'from_date': date.today().isoformat(),
+                'to_date': date.today().isoformat(),
+                'live': '0',
+            },
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertGreaterEqual(resp.data['counts']['total'], 1)
+        item = resp.data['items'][0]
+        self.assertEqual(item['transaction_uuid'], uuid)
+        self.assertEqual(item['direction'], 'debit')
+        self.assertEqual(item['balance_before'], '5000.00')
+        self.assertEqual(item['balance_after'], '4900.00')
+
+        csv_resp = self.client.get(
+            reverse('admin_statement_history'),
+            {
+                'from_date': date.today().isoformat(),
+                'to_date': date.today().isoformat(),
+                'live': '0',
+                'export': 'csv',
+            },
+        )
+        self.assertEqual(csv_resp.status_code, status.HTTP_200_OK, csv_resp.content)
+        self.assertIn(uuid, csv_resp.content.decode('utf-8'))
+
 
 class HomePopupFrequencyTests(TestCase):
     """Per-user 24-hour home popup display caps."""

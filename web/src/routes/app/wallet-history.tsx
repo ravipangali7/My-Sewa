@@ -30,6 +30,11 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import { serialNumber } from "@/lib/serial";
+import {
+  TxnBeforeAfter,
+  formatWalletRu,
+  hasWalletBalance,
+} from "@/components/TxnBeforeAfter";
 
 export const Route = createFileRoute("/app/wallet-history")({
   head: () => ({
@@ -43,27 +48,14 @@ export const Route = createFileRoute("/app/wallet-history")({
       { property: "og:title", content: "Wallet History — MySewa" },
       {
         property: "og:description",
-        content: "View wallet credit and debit movements separately.",
+        content: "View all wallet movements with before and after balances, or filter by credit and debit.",
       },
     ],
   }),
   component: WalletHistoryPage,
 });
 
-type HistoryTab = "credit" | "debit";
-
-function formatRu(value: string | number) {
-  const n = typeof value === "string" ? Number(value) : value;
-  if (Number.isNaN(n)) return "रु. —";
-  return `रु. ${n.toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function hasBalance(value: string | null | undefined): value is string {
-  return value != null && String(value).trim() !== "";
-}
+type HistoryTab = "all" | "credit" | "debit";
 
 function KindIcon({ item }: { item: ActivityItem }) {
   if (item.kind === "deposit") return <Download className="size-[18px]" strokeWidth={2.25} />;
@@ -157,28 +149,11 @@ function HistoryList({
                 </span>
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
               </span>
-              <span className="ml-8 mr-1 grid grid-cols-2 gap-2 sm:ml-[4.5rem] sm:mr-7">
-                <span className="min-w-0 rounded-xl bg-[#F3F6FA] px-2.5 py-2">
-                  <span className="block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    {t("walletHistory.beforeBalance")}
-                  </span>
-                  <span className="mt-0.5 block truncate tabular text-[12px] font-bold text-[#0B2B4A]">
-                    {hasBalance(item.balance_before)
-                      ? formatRu(item.balance_before)
-                      : "रु. —"}
-                  </span>
-                </span>
-                <span className="min-w-0 rounded-xl bg-emerald-50 px-2.5 py-2">
-                  <span className="block text-[10px] font-semibold tracking-wide text-emerald-700/80 uppercase">
-                    {t("walletHistory.afterBalance")}
-                  </span>
-                  <span className="mt-0.5 block truncate tabular text-[12px] font-bold text-[#0B2B4A]">
-                    {hasBalance(item.balance_after)
-                      ? formatRu(item.balance_after)
-                      : "रु. —"}
-                  </span>
-                </span>
-              </span>
+              <TxnBeforeAfter
+                before={item.balance_before}
+                after={item.balance_after}
+                className="ml-8 mr-1 sm:ml-[4.5rem] sm:mr-7"
+              />
             </Link>
           </li>
         );
@@ -190,7 +165,7 @@ function HistoryList({
 function WalletHistoryPage() {
   const { t, locale } = useI18n();
   const { wallet } = useAuth();
-  const [tab, setTab] = useState<HistoryTab>("credit");
+  const [tab, setTab] = useState<HistoryTab>("all");
 
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
@@ -198,22 +173,17 @@ function WalletHistoryPage() {
     refetchInterval: LIVE_REFETCH_MS,
   });
 
-  const { credits, debits, latestWithBalances } = useMemo(() => {
-    const all = txQuery.data ? buildActivity(txQuery.data, t) : [];
-    const withBalances = all.find(
-      (item) => hasBalance(item.balance_before) && hasBalance(item.balance_after),
-    );
+  const { all, credits, debits } = useMemo(() => {
+    const items = txQuery.data ? buildActivity(txQuery.data, t) : [];
     return {
-      credits: sortByLatestFirst(filterWalletCredits(all)),
-      debits: sortByLatestFirst(filterWalletDebits(all)),
-      latestWithBalances: withBalances ?? null,
+      all: sortByLatestFirst(items),
+      credits: sortByLatestFirst(filterWalletCredits(items)),
+      debits: sortByLatestFirst(filterWalletDebits(items)),
     };
   }, [txQuery.data, t, locale]);
 
-  const activeCount = tab === "credit" ? credits.length : debits.length;
-  const afterBalance =
-    wallet?.balance ?? latestWithBalances?.balance_after ?? null;
-  const beforeBalance = latestWithBalances?.balance_before ?? null;
+  const visibleItems = tab === "all" ? all : tab === "credit" ? credits : debits;
+  const currentBalance = wallet?.balance ?? null;
 
   return (
     <UserShell title={t("walletHistory.title")} back="/app">
@@ -229,26 +199,18 @@ function WalletHistoryPage() {
           />
           <div className="relative z-10">
             <p className="text-[12px] font-medium text-white/75">{t("home.wallet")}</p>
-            <div className="mt-3 grid grid-cols-2 gap-2.5">
-              <div className="min-w-0 rounded-2xl bg-white/10 px-3 py-2.5 ring-1 ring-white/15">
-                <p className="text-[10px] font-semibold tracking-wide text-white/70 uppercase">
-                  {t("walletHistory.beforeBalance")}
-                </p>
-                <p className="mt-1 break-all tabular text-[17px] leading-tight font-bold tracking-tight text-white">
-                  {hasBalance(beforeBalance) ? formatRu(beforeBalance) : "रु. —"}
-                </p>
-              </div>
-              <div className="min-w-0 rounded-2xl bg-emerald-400/15 px-3 py-2.5 ring-1 ring-emerald-300/35">
-                <p className="text-[10px] font-semibold tracking-wide text-emerald-200 uppercase">
-                  {t("walletHistory.afterBalance")}
-                </p>
-                <p className="mt-1 break-all tabular text-[17px] leading-tight font-bold tracking-tight text-white">
-                  {hasBalance(afterBalance) ? formatRu(afterBalance) : "रु. —"}
-                </p>
-              </div>
+            <div className="mt-3 min-w-0 rounded-2xl bg-emerald-400/15 px-3 py-2.5 ring-1 ring-emerald-300/35">
+              <p className="text-[10px] font-semibold tracking-wide text-emerald-200 uppercase">
+                {t("walletHistory.currentBalance")}
+              </p>
+              <p className="mt-1 break-all tabular text-[17px] leading-tight font-bold tracking-tight text-white">
+                {hasWalletBalance(currentBalance)
+                  ? formatWalletRu(currentBalance)
+                  : "रु. —"}
+              </p>
             </div>
             <p className="mt-2.5 text-[11px] font-medium text-white/70">
-              {t("walletHistory.count", { count: activeCount })}
+              {t("walletHistory.count", { count: visibleItems.length })}
             </p>
           </div>
         </section>
@@ -258,7 +220,10 @@ function WalletHistoryPage() {
           onValueChange={(v) => setTab(v as HistoryTab)}
           className="min-w-0"
         >
-          <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl">
+          <TabsList className="grid h-11 w-full grid-cols-3 rounded-xl">
+            <TabsTrigger value="all" className="rounded-lg">
+              {t("walletHistory.allTab")}
+            </TabsTrigger>
             <TabsTrigger value="credit" className="rounded-lg">
               {t("walletHistory.creditTab")}
             </TabsTrigger>
@@ -266,6 +231,16 @@ function WalletHistoryPage() {
               {t("walletHistory.debitTab")}
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="all" className="mt-3">
+            <div className="inset-group min-w-0 overflow-hidden">
+              <HistoryList
+                items={all}
+                emptyLabel={t("walletHistory.emptyAll")}
+                loading={txQuery.isLoading}
+              />
+            </div>
+          </TabsContent>
 
           <TabsContent value="credit" className="mt-3">
             <div className="inset-group min-w-0 overflow-hidden">

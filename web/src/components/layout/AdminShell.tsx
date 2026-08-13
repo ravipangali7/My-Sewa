@@ -86,6 +86,13 @@ function isNavActive(pathname: string, to: string) {
   if (to === "/admin") {
     return pathname === "/admin" || pathname === "/admin/";
   }
+  if (to === "/admin/statement") {
+    return (
+      pathname === to ||
+      pathname.startsWith(`${to}/`) ||
+      pathname === "/admin/himalpay-history"
+    );
+  }
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 

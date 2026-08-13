@@ -1064,6 +1064,7 @@ export interface StatementDiscrepancy {
   suggested_amount: string | null;
   reason: string;
   can_solve: boolean;
+  can_correct?: boolean;
   resolved_by: number | null;
   resolved_at: string | null;
   resolution_adjustment: number | null;
@@ -1150,4 +1151,39 @@ export interface StatementLedgerResponse {
   };
   items: StatementLedgerRow[];
   by_user?: StatementLedgerUserGroup[];
+}
+
+export interface HimalPayHistoryItem {
+  key: string;
+  transaction_uuid: string;
+  created_at: string | null;
+  service: string;
+  direction: string;
+  status: string;
+  kind: string;
+  principal_amount: string;
+  net_amount: string;
+  charge: string;
+  cashback: string;
+  reference_id: string;
+  balance_before: string | null;
+  balance_after: string | null;
+  bonus_before: string | null;
+  bonus_after: string | null;
+  entry_count: number;
+}
+
+export interface HimalPayHistoryResponse {
+  from_date: string | null;
+  to_date: string | null;
+  source: string;
+  warning?: string | null;
+  counts: {
+    total: number;
+    credit: number;
+    debit: number;
+    credit_amount: string;
+    debit_amount: string;
+  };
+  items: HimalPayHistoryItem[];
 }

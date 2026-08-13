@@ -221,6 +221,79 @@ export async function api<T = unknown>(path: string, options: RequestOptions = {
   return data as T;
 }
 
+function filenameFromDisposition(header: string | null, fallback: string) {
+  if (!header) return fallback;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim());
+    } catch {
+      return star[1].trim();
+    }
+  }
+  const quoted = /filename="([^"]+)"/i.exec(header);
+  if (quoted?.[1]) return quoted[1];
+  const plain = /filename=([^;]+)/i.exec(header);
+  return plain?.[1]?.trim() || fallback;
+}
+
+const EXPORT_MIME: Record<"xlsx" | "csv" | "sql", string> = {
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  csv: "application/zip",
+  sql: "application/sql;charset=utf-8",
+};
+
+async function downloadAdminExport(path: string, format: "xlsx" | "csv" | "sql") {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  const fallback =
+    format === "xlsx"
+      ? `mysewa-all-data-${stamp}.xlsx`
+      : format === "csv"
+        ? `mysewa-all-data-${stamp}.zip`
+        : `mysewa-all-data-${stamp}.sql`;
+
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Token ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { headers });
+  } catch {
+    throw new ApiError(
+      "Cannot reach the MySewa server. Check your connection and try again.",
+      0,
+    );
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    let data: unknown = text;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
+    }
+    throw new ApiError(extractMessage(data, res.statusText || "Export failed"), res.status, data);
+  }
+
+  const blob = await res.blob();
+  const filename = filenameFromDisposition(res.headers.get("Content-Disposition"), fallback);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return { filename, mime: EXPORT_MIME[format] };
+}
+
 type AdminListFilters = Partial<{
   q: string;
   status: string;
@@ -1160,6 +1233,8 @@ export const apiClient = {
       method: "PATCH",
       ...(payload instanceof FormData ? { formData: payload } : { body: payload }),
     }),
+  adminExportAllData: (format: "xlsx" | "csv" | "sql") =>
+    downloadAdminExport(`/api/admin/settings/export/?format=${format}`, format),
 
   adminPopups: (filters?: { is_active?: string }) => {
     const params = new URLSearchParams();
@@ -1272,6 +1347,27 @@ export const apiClient = {
     const query = params.toString();
     return api<import("./types").StatementLedgerResponse>(
       `/api/admin/statement/ledger/${query ? `?${query}` : ""}`,
+    );
+  },
+
+  adminStatementHistory: (filters?: {
+    from_date?: string;
+    to_date?: string;
+    direction?: string;
+    q?: string;
+    live?: boolean;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.from_date) params.set("from_date", filters.from_date);
+    if (filters?.to_date) params.set("to_date", filters.to_date);
+    if (filters?.direction && filters.direction !== "all") {
+      params.set("direction", filters.direction);
+    }
+    if (filters?.q) params.set("q", filters.q);
+    if (filters?.live === false) params.set("live", "0");
+    const query = params.toString();
+    return api<import("./types").HimalPayHistoryResponse>(
+      `/api/admin/statement/history/${query ? `?${query}` : ""}`,
     );
   },
 
