@@ -380,6 +380,20 @@ def verify_citizenship(request):
     if pending:
         return pending
 
+    payment = get_app_config().get('payment') or {}
+    if not payment.get('citizenship_matching_enabled', False):
+        return Response(
+            {
+                'error': 'Citizenship matching disabled',
+                'message': (
+                    'Citizenship image matching is currently disabled. '
+                    'Fill the remittance form and continue to receive.'
+                ),
+                'code': 'citizenship_matching_disabled',
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     front = request.FILES.get('front') or request.FILES.get('citizenship_front')
     back = request.FILES.get('back') or request.FILES.get('citizenship_back')
     if not front or not back:
