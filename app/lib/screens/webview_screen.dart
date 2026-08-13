@@ -16,6 +16,8 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../config/app_config.dart';
 import '../config/app_constant.dart';
+import '../services/device_token_api.dart';
+import '../services/fcm_log.dart';
 import '../services/push_messaging.dart';
 import '../services/session_lifecycle.dart';
 import 'no_internet_screen.dart';
@@ -53,6 +55,8 @@ class _WebViewScreenState extends State<WebViewScreen>
   DateTime? _lastResumeBridgeSyncAt;
   StreamSubscription<String>? _fcmTokenSub;
   StreamSubscription<dynamic>? _fcmForegroundSub;
+  Timer? _fcmPollTimer;
+  bool _fcmSyncBusy = false;
   String? _apiBaseHint;
   String? _lastPostedFcm;
   String? _lastPostedAuth;
@@ -272,11 +276,14 @@ class _WebViewScreenState extends State<WebViewScreen>
     });
     _fcmTokenSub = PushMessaging.instance.onToken.listen((_) {
       unawaited(_deliverFcmTokenToWeb());
-      unawaited(_postFcmTokenToApi());
+      unawaited(_syncDeviceToken(reason: 'token-stream'));
     });
     _fcmForegroundSub = PushMessaging.instance.onForegroundMessage.listen((message) {
       unawaited(_deliverForegroundPushToWeb(message));
     });
+    if (PushMessaging.instance.token != null) {
+      unawaited(_syncDeviceToken(reason: 'token-already-fetched'));
+    }
     _bootstrap();
   }
 
@@ -299,7 +306,7 @@ class _WebViewScreenState extends State<WebViewScreen>
         await c.runJavaScript(_dispatchAppResumeJs);
         await c.runJavaScript(_installNativeBridgeJs);
         await _deliverFcmTokenToWeb();
-        await _postFcmTokenToApi();
+        _startFcmPoller('app-resume');
       }));
     }
   }
@@ -362,7 +369,7 @@ class _WebViewScreenState extends State<WebViewScreen>
           // First thing after the SPA is ready: send the FCM token to React
           // and persist it to the API if the user is already logged in.
           await _deliverFcmTokenToWeb();
-          await _postFcmTokenToApi();
+          _startFcmPoller('page-finished');
           if (mounted) {
             final padding = MediaQuery.paddingOf(context);
             await controller.runJavaScript(_safeAreaCssJs(padding));
@@ -558,7 +565,7 @@ class _WebViewScreenState extends State<WebViewScreen>
 
       if (type == 'request_push_token' || type == 'push_token_request') {
         await _deliverFcmTokenToWeb(forceRefresh: true);
-        await _postFcmTokenToApi();
+        _startFcmPoller('js-request-push-token');
         return;
       }
 
@@ -572,8 +579,9 @@ class _WebViewScreenState extends State<WebViewScreen>
         // posted earlier (logout deletes it; DRF auth tokens are reused).
         _lastPostedFcm = null;
         _lastPostedAuth = null;
+        FcmLog.banner('LOGIN / AUTH READY');
         await _deliverFcmTokenToWeb(forceRefresh: true);
-        await _postFcmTokenToApi();
+        _startFcmPoller('auth-ready');
         return;
       }
 
@@ -651,87 +659,151 @@ class _WebViewScreenState extends State<WebViewScreen>
     return text;
   }
 
-  Uri _deviceTokenUri(String apiBase) {
-    final trimmed = apiBase.trim();
-    final fallback = Uri.parse('${AppConfig.apiUrl}/api/auth/device-token/');
-    if (trimmed.isEmpty) return fallback;
-    final parsed = Uri.tryParse(trimmed);
-    if (parsed == null || parsed.host.isEmpty) return fallback;
-    final path = parsed.path.endsWith('/')
-        ? '${parsed.path}api/auth/device-token/'
-        : '${parsed.path}/api/auth/device-token/';
-    return parsed.replace(path: path, query: '', fragment: '');
+  void _startFcmPoller(String reason) {
+    _fcmPollTimer?.cancel();
+    FcmLog.ok('poller start', {'reason': reason});
+    unawaited(_syncDeviceToken(reason: reason));
+    var ticks = 0;
+    _fcmPollTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      ticks += 1;
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (ticks > 20) {
+        timer.cancel();
+        FcmLog.wait('poller stopped after 40s — retry on login/resume');
+        return;
+      }
+      unawaited(_syncDeviceToken(reason: '$reason#poll$ticks'));
+    });
   }
 
-  /// Persist the FCM token from the native shell so registration does not
-  /// depend on React having already attached its CustomEvent listener.
-  Future<void> _postFcmTokenToApi() async {
-    final fcmToken = PushMessaging.instance.token;
-    if (fcmToken == null || fcmToken.isEmpty) return;
+  Map<String, String> _parseWebAuthPayload(dynamic raw) {
+    if (raw is Map) {
+      return {
+        'token': '${raw['token'] ?? ''}',
+        'apiBase': '${raw['apiBase'] ?? raw['api_base'] ?? ''}',
+      };
+    }
+    var text = _jsStringResult(raw);
+    if (text.isEmpty) return const {'token': '', 'apiBase': ''};
+    try {
+      var decoded = jsonDecode(text);
+      if (decoded is String) {
+        text = decoded.trim();
+        decoded = jsonDecode(text);
+      }
+      if (decoded is Map) {
+        return {
+          'token': '${decoded['token'] ?? ''}',
+          'apiBase': '${decoded['apiBase'] ?? decoded['api_base'] ?? ''}',
+        };
+      }
+    } catch (_) {
+      // Fall through: treat a bare string as the auth token only when it
+      // does not look like JSON leftover from WebView quoting.
+      if (!text.startsWith('{') && !text.startsWith('"')) {
+        return {'token': text, 'apiBase': ''};
+      }
+    }
+    return const {'token': '', 'apiBase': ''};
+  }
 
-    var authToken = '';
-    var apiBase = _apiBaseHint ?? '';
-    await _safeControllerCall((c) async {
-      final raw = await c.runJavaScriptReturningResult(r'''
+  Future<({String authToken, String apiBase})> _readWebAuth() async {
+    final controller = _controller;
+    if (controller == null || !_isReady) {
+      FcmLog.skip('WebView not ready — cannot read mysewa_token');
+      return (authToken: '', apiBase: _apiBaseHint ?? '');
+    }
+    try {
+      final raw = await controller.runJavaScriptReturningResult(r'''
 (function() {
   try {
-    return JSON.stringify({
-      token: String(window.localStorage.getItem('mysewa_token') || ''),
-      apiBase: String(window.__mysewaApiBase || '')
-    });
+    var token = '';
+    try { token = String(window.localStorage.getItem('mysewa_token') || ''); } catch (e) {}
+    if (!token) {
+      try { token = String(window.sessionStorage.getItem('mysewa_token') || ''); } catch (e2) {}
+    }
+    var apiBase = '';
+    try { apiBase = String(window.__mysewaApiBase || ''); } catch (e3) {}
+    return JSON.stringify({ token: token, apiBase: apiBase });
   } catch (e) {
     return '{"token":"","apiBase":""}';
   }
 })();
 ''');
-      final text = _jsStringResult(raw);
-      if (text.isEmpty) return;
-      try {
-        final decoded = jsonDecode(text);
-        if (decoded is Map) {
-          authToken = decoded['token']?.toString() ?? '';
-          final hinted = decoded['apiBase']?.toString() ?? '';
-          if (hinted.trim().isNotEmpty) apiBase = hinted.trim();
-        }
-      } catch (_) {
-        authToken = text;
-      }
-    });
-
-    authToken = authToken.trim();
-    if (authToken.isEmpty) return;
-    if (_lastPostedFcm == fcmToken && _lastPostedAuth == authToken) return;
-
-    final uri = _deviceTokenUri(apiBase);
-    HttpClient? client;
-    try {
-      client = HttpClient();
-      final request = await client.postUrl(uri).timeout(const Duration(seconds: 15));
-      request.headers.set(HttpHeaders.authorizationHeader, 'Token $authToken');
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.add(
-        utf8.encode(
-          jsonEncode({
-            'token': fcmToken,
-            'platform': PushMessaging.instance.platform,
-          }),
-        ),
+      final parsed = _parseWebAuthPayload(raw);
+      return (
+        authToken: parsed['token']?.trim() ?? '',
+        apiBase: parsed['apiBase']?.trim() ?? '',
       );
-      final response = await request.close().timeout(const Duration(seconds: 15));
-      await response.drain<void>();
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        _lastPostedFcm = fcmToken;
-        _lastPostedAuth = authToken;
-        debugPrint('FCM token registered (${response.statusCode})');
-      } else {
-        debugPrint('FCM token API returned ${response.statusCode}');
-      }
     } catch (e) {
-      debugPrint('FCM token API post failed: $e');
-    } finally {
-      client?.close(force: true);
+      FcmLog.fail('reading mysewa_token from WebView', e);
+      return (authToken: '', apiBase: _apiBaseHint ?? '');
     }
+  }
+
+  /// Persist the FCM token from the native shell so registration does not
+  /// depend on React having already attached its CustomEvent listener.
+  Future<DeviceTokenSyncResult> _syncDeviceToken({required String reason}) async {
+    if (_fcmSyncBusy) {
+      FcmLog.wait('sync already in flight — skip overlap', {'reason': reason});
+      return const DeviceTokenSyncResult(DeviceTokenSyncStatus.alreadySaved);
+    }
+    _fcmSyncBusy = true;
+    try {
+      return await _syncDeviceTokenNow(reason: reason);
+    } finally {
+      _fcmSyncBusy = false;
+    }
+  }
+
+  Future<DeviceTokenSyncResult> _syncDeviceTokenNow({required String reason}) async {
+    var fcmToken = PushMessaging.instance.token?.trim() ?? '';
+    if (fcmToken.isEmpty) {
+      FcmLog.wait('no FCM token yet — refreshing', {'reason': reason});
+      fcmToken = (await PushMessaging.instance.refreshToken())?.trim() ?? '';
+    }
+    if (fcmToken.isEmpty) {
+      FcmLog.skip('still no FCM token', {'reason': reason});
+      return const DeviceTokenSyncResult(DeviceTokenSyncStatus.skippedNoFcm);
+    }
+
+    final webAuth = await _readWebAuth();
+    final authToken = webAuth.authToken;
+    if (webAuth.apiBase.isNotEmpty) {
+      _apiBaseHint = webAuth.apiBase;
+    }
+    if (authToken.isEmpty) {
+      FcmLog.skip('user not logged in (no mysewa_token)', {
+        'reason': reason,
+        'fcm': FcmLog.preview(fcmToken),
+        'webview_ready': '$_isReady',
+      });
+      return const DeviceTokenSyncResult(DeviceTokenSyncStatus.skippedNoAuth);
+    }
+    if (_lastPostedFcm == fcmToken && _lastPostedAuth == authToken) {
+      _fcmPollTimer?.cancel();
+      FcmLog.ok('already saved this FCM token for this session', {
+        'reason': reason,
+      });
+      return const DeviceTokenSyncResult(DeviceTokenSyncStatus.alreadySaved);
+    }
+
+    final result = await DeviceTokenApi.register(
+      fcmToken: fcmToken,
+      authToken: authToken,
+      platform: PushMessaging.instance.platform,
+      apiBaseHint: _apiBaseHint,
+      reason: reason,
+    );
+    if (result.status == DeviceTokenSyncStatus.saved) {
+      _lastPostedFcm = fcmToken;
+      _lastPostedAuth = authToken;
+      _fcmPollTimer?.cancel();
+    }
+    return result;
   }
 
   /// Inject the real FCM token into the WebView so React can save it via API.
@@ -740,12 +812,20 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (forceRefresh || token == null || token.isEmpty) {
       token = await PushMessaging.instance.refreshToken();
     }
-    if (token == null || token.isEmpty) return;
+    if (token == null || token.isEmpty) {
+      FcmLog.skip('cannot inject FCM token into WebView — token missing');
+      return;
+    }
     final platform = PushMessaging.instance.platform;
     final tokenJson = jsonEncode(token);
     final platformJson = jsonEncode(platform);
-    await _safeControllerCall((c) async {
-      await c.runJavaScript('''
+    final controller = _controller;
+    if (controller == null || !_isReady) {
+      FcmLog.skip('cannot inject FCM token — WebView not ready');
+      return;
+    }
+    try {
+      await controller.runJavaScript('''
 (function() {
   try {
     window.__mysewaFcmToken = $tokenJson;
@@ -756,7 +836,13 @@ class _WebViewScreenState extends State<WebViewScreen>
   } catch (e) {}
 })();
 ''');
-    });
+      FcmLog.ok('injected FCM token into WebView', {
+        'platform': platform,
+        'preview': FcmLog.preview(token),
+      });
+    } catch (e) {
+      FcmLog.fail('inject FCM token into WebView', e);
+    }
   }
 
   Future<void> _deliverForegroundPushToWeb(dynamic message) async {
@@ -1293,6 +1379,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     _connectivitySub?.cancel();
     _fcmTokenSub?.cancel();
     _fcmForegroundSub?.cancel();
+    _fcmPollTimer?.cancel();
     super.dispose();
   }
 

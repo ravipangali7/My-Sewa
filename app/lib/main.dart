@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'config/app_config.dart';
 import 'screens/webview_screen.dart';
+import 'services/fcm_log.dart';
 import 'services/push_messaging.dart';
 
 Future<void> main() async {
@@ -12,7 +13,9 @@ Future<void> main() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-  // Fetch FCM token before the WebView loads so React can register it immediately.
+  FcmLog.banner('COLD START');
+  // Fetch FCM token before the WebView loads so it can be POSTed as soon
+  // as a logged-in session is visible in localStorage.
   await PushMessaging.instance.init();
   runApp(const MySewaApp());
 }

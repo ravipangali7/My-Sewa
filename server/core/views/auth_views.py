@@ -1616,13 +1616,23 @@ def device_token(request):
         )
         if not serializer.is_valid():
             formatted = format_validation_errors(serializer.errors)
+            raw_token = str((request.data or {}).get('token') or '')
+            logger.warning(
+                'Device token rejected user_id=%s platform=%s errors=%s token=…%s len=%s',
+                getattr(request.user, 'pk', None),
+                (request.data or {}).get('platform'),
+                formatted,
+                raw_token[-8:] if raw_token else '',
+                len(raw_token),
+            )
             return Response(formatted, status=status.HTTP_400_BAD_REQUEST)
         obj = serializer.save()
         logger.info(
-            'Device token registered user_id=%s platform=%s token=…%s',
+            'Device token registered user_id=%s platform=%s token=…%s len=%s',
             getattr(request.user, 'pk', None),
             obj.platform,
             obj.token[-8:] if obj.token else '',
+            len(obj.token or ''),
         )
         return Response({
             'message': 'Device token registered',
