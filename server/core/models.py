@@ -5,6 +5,56 @@ from decimal import Decimal
 import json
 
 
+_authtoken_table_ready = False
+
+
+def _ensure_authtoken_table():
+    """
+    Create authtoken_token if deploy skipped `migrate authtoken`.
+    TokenAuthentication queries this table on every authenticated request;
+    a missing table 500s wallet history, login token create, and all APIs.
+    """
+    global _authtoken_table_ready
+    if _authtoken_table_ready:
+        return False
+
+    table = 'authtoken_token'
+    try:
+        if table in connection.introspection.table_names():
+            _authtoken_table_ready = True
+            return False
+    except Exception:
+        return False
+
+    from django.db.migrations.loader import MigrationLoader
+    from django.db.migrations.recorder import MigrationRecorder
+    from rest_framework.authtoken.models import Token
+
+    try:
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(Token)
+    except Exception:
+        if table in connection.introspection.table_names():
+            _authtoken_table_ready = True
+            return False
+        raise
+
+    recorder = MigrationRecorder(connection)
+    try:
+        loader = MigrationLoader(connection, ignore_no_migrations=True)
+        for app_label, name in loader.disk_migrations:
+            if app_label != 'authtoken':
+                continue
+            if not recorder.migration_qs.filter(app=app_label, name=name).exists():
+                recorder.record_applied(app_label, name)
+    except Exception:
+        if not recorder.migration_qs.filter(app='authtoken', name='0001_initial').exists():
+            recorder.record_applied('authtoken', '0001_initial')
+
+    _authtoken_table_ready = True
+    return True
+
+
 def _ensure_electricity_bill_table():
     """
     Create core_electricitybilltransaction if deploy skipped migrate 0031.

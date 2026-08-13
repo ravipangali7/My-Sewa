@@ -64,6 +64,7 @@ npm run build
 | `deploy/setup-server.sh` | venv, migrate, systemd `mysewa-api`, nginx patch |
 | `deploy/FIX_STATEMENT_500.sh` | Apply migration 0024 + restart API (fixes admin dashboard/statement 500) |
 | `deploy/FIX_ELECTRICITY_BILL_TABLE.sh` | Apply migration 0031 + restart API (fixes wallet transactions 500 / missing electricity table) |
+| `deploy/FIX_AUTHTOKEN_TABLE.sh` | Apply `migrate authtoken` + restart API (fixes `no such table: authtoken_token`) |
 | `deploy/patch-nginx-api.sh` | Inject `/api` proxy into existing SSL site config |
 | `deploy/nginx-api-locations.conf` | Snippet included by nginx |
 | `deploy/nginx-mysewa.conf` | Full example site (HTTP; certbot adds TLS) |
