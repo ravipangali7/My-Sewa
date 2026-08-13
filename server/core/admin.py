@@ -151,8 +151,76 @@ class DepositAdmin(admin.ModelAdmin):
         return False  # Deposits can only be created via API
 
 
+class SettingsAdminForm(forms.ModelForm):
+    """SMTP lives in Settings.config JSON, so these extra fields must be declared
+    on the form class. Django ModelAdmin builds the form from fieldsets first;
+    undeclared extra fields raise FieldError."""
+
+    smtp_enabled = forms.BooleanField(required=False, label='Enable SMTP')
+    smtp_host = forms.CharField(required=False, label='SMTP host', max_length=255)
+    smtp_port = forms.IntegerField(required=False, label='SMTP port', min_value=1)
+    smtp_encryption = forms.ChoiceField(
+        required=False,
+        label='Encryption',
+        choices=(('tls', 'TLS'), ('ssl', 'SSL'), ('none', 'None')),
+    )
+    smtp_email = forms.EmailField(required=False, label='smtp_email (username)')
+    smtp_password = forms.CharField(
+        required=False,
+        label='smtp_password',
+        widget=forms.PasswordInput(render_value=True),
+        help_text='Leave blank to keep the existing password.',
+    )
+    smtp_email_from = forms.EmailField(required=False, label='smtp_email_from')
+    smtp_name = forms.CharField(required=False, label='smtp_name', max_length=120)
+
+    class Meta:
+        model = Settings
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from .services.smtp import normalize_smtp_dict, PASSWORD_MASK
+        raw = {}
+        if getattr(self.instance, 'pk', None):
+            raw = (self.instance.get_config().get('smtp') or {})
+        cfg = normalize_smtp_dict(raw)
+        self.fields['smtp_enabled'].initial = cfg.get('enabled', True)
+        self.fields['smtp_host'].initial = cfg.get('host', '')
+        self.fields['smtp_port'].initial = cfg.get('port', 587)
+        self.fields['smtp_encryption'].initial = cfg.get('encryption', 'tls')
+        self.fields['smtp_email'].initial = cfg.get('smtp_email', '')
+        self.fields['smtp_password'].initial = PASSWORD_MASK if cfg.get('smtp_password') else ''
+        self.fields['smtp_email_from'].initial = cfg.get('smtp_email_from', '')
+        self.fields['smtp_name'].initial = cfg.get('smtp_name', '')
+
+    def save(self, commit=True):
+        from .services.smtp import preserve_smtp_password_on_merge, PASSWORD_MASK
+        instance = super().save(commit=False)
+        config = dict(instance.get_config())
+        current_smtp = dict(config.get('smtp') or {})
+        incoming = {
+            'enabled': self.cleaned_data.get('smtp_enabled', True),
+            'host': self.cleaned_data.get('smtp_host') or '',
+            'port': self.cleaned_data.get('smtp_port') or 587,
+            'encryption': self.cleaned_data.get('smtp_encryption') or 'tls',
+            'smtp_email': self.cleaned_data.get('smtp_email') or '',
+            'smtp_password': self.cleaned_data.get('smtp_password') or '',
+            'smtp_email_from': self.cleaned_data.get('smtp_email_from') or '',
+            'smtp_name': self.cleaned_data.get('smtp_name') or '',
+        }
+        if incoming['smtp_password'] in ('', PASSWORD_MASK):
+            incoming['smtp_password'] = ''
+        config['smtp'] = preserve_smtp_password_on_merge(current_smtp, incoming)
+        instance.config = config
+        if commit:
+            instance.save()
+        return instance
+
+
 @admin.register(Settings)
 class SettingsAdmin(admin.ModelAdmin):
+    form = SettingsAdminForm
     list_display = ('id', 'smtp_email_display', 'smtp_from_display', 'created_at', 'updated_at')
     readonly_fields = ('created_at', 'updated_at', 'smtp_preview')
     fieldsets = (
@@ -186,69 +254,6 @@ class SettingsAdmin(admin.ModelAdmin):
         ('Full config JSON', {'fields': ('config',), 'classes': ('collapse',)}),
         ('Meta', {'fields': ('created_at', 'updated_at')}),
     )
-
-    def get_form(self, request, obj=None, **kwargs):
-        base = super().get_form(request, obj, **kwargs)
-
-        class SettingsAdminForm(base):
-            smtp_enabled = forms.BooleanField(required=False, label='Enable SMTP')
-            smtp_host = forms.CharField(required=False, label='SMTP host', max_length=255)
-            smtp_port = forms.IntegerField(required=False, label='SMTP port', min_value=1)
-            smtp_encryption = forms.ChoiceField(
-                required=False,
-                label='Encryption',
-                choices=(('tls', 'TLS'), ('ssl', 'SSL'), ('none', 'None')),
-            )
-            smtp_email = forms.EmailField(required=False, label='smtp_email (username)')
-            smtp_password = forms.CharField(
-                required=False,
-                label='smtp_password',
-                widget=forms.PasswordInput(render_value=True),
-                help_text='Leave blank to keep the existing password.',
-            )
-            smtp_email_from = forms.EmailField(required=False, label='smtp_email_from')
-            smtp_name = forms.CharField(required=False, label='smtp_name', max_length=120)
-
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                from .services.smtp import normalize_smtp_dict, PASSWORD_MASK
-                raw = {}
-                if getattr(self.instance, 'pk', None):
-                    raw = (self.instance.get_config().get('smtp') or {})
-                cfg = normalize_smtp_dict(raw)
-                self.fields['smtp_enabled'].initial = cfg.get('enabled', True)
-                self.fields['smtp_host'].initial = cfg.get('host', '')
-                self.fields['smtp_port'].initial = cfg.get('port', 587)
-                self.fields['smtp_encryption'].initial = cfg.get('encryption', 'tls')
-                self.fields['smtp_email'].initial = cfg.get('smtp_email', '')
-                self.fields['smtp_password'].initial = PASSWORD_MASK if cfg.get('smtp_password') else ''
-                self.fields['smtp_email_from'].initial = cfg.get('smtp_email_from', '')
-                self.fields['smtp_name'].initial = cfg.get('smtp_name', '')
-
-            def save(self, commit=True):
-                from .services.smtp import preserve_smtp_password_on_merge, PASSWORD_MASK
-                instance = super().save(commit=False)
-                config = dict(instance.get_config())
-                current_smtp = dict(config.get('smtp') or {})
-                incoming = {
-                    'enabled': self.cleaned_data.get('smtp_enabled', True),
-                    'host': self.cleaned_data.get('smtp_host') or '',
-                    'port': self.cleaned_data.get('smtp_port') or 587,
-                    'encryption': self.cleaned_data.get('smtp_encryption') or 'tls',
-                    'smtp_email': self.cleaned_data.get('smtp_email') or '',
-                    'smtp_password': self.cleaned_data.get('smtp_password') or '',
-                    'smtp_email_from': self.cleaned_data.get('smtp_email_from') or '',
-                    'smtp_name': self.cleaned_data.get('smtp_name') or '',
-                }
-                if incoming['smtp_password'] in ('', PASSWORD_MASK):
-                    incoming['smtp_password'] = ''
-                config['smtp'] = preserve_smtp_password_on_merge(current_smtp, incoming)
-                instance.config = config
-                if commit:
-                    instance.save()
-                return instance
-
-        return SettingsAdminForm
 
     @admin.display(description='smtp_email')
     def smtp_email_display(self, obj):
