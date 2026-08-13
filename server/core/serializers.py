@@ -30,6 +30,7 @@ from .models import (
     StatementReconcileRun,
     StatementDiscrepancy,
     HomePopup,
+    PushNotification,
 )
 
 User = get_user_model()
@@ -2024,4 +2025,31 @@ class HomePopupSerializer(serializers.ModelSerializer):
                 {'max_per_24h': 'Must be at least 1 time per 24 hours.'}
             )
         return attrs
+
+
+class PushNotificationSerializer(serializers.ModelSerializer):
+    """Admin history of sent app push notifications."""
+
+    sent_by_phone = serializers.SerializerMethodField()
+    target_user_phone = serializers.SerializerMethodField()
+    audience_display = serializers.CharField(source='get_audience_display', read_only=True)
+
+    class Meta:
+        model = PushNotification
+        fields = (
+            'id', 'title', 'body', 'audience', 'audience_display',
+            'target_phone', 'target_user_phone', 'sent_by_phone',
+            'sent', 'failed', 'skipped', 'target_count', 'created_at',
+        )
+        read_only_fields = fields
+
+    def get_sent_by_phone(self, obj):
+        user = obj.sent_by
+        return getattr(user, 'phone', None) if user else None
+
+    def get_target_user_phone(self, obj):
+        if obj.target_phone:
+            return obj.target_phone
+        user = obj.target_user
+        return getattr(user, 'phone', None) if user else None
 

@@ -43,6 +43,7 @@ from ..models import (
     StatementDiscrepancy,
     HomePopup,
     DeviceToken,
+    PushNotification,
     merge_app_config,
 )
 from ..serializers import (
@@ -76,6 +77,7 @@ from ..serializers import (
     StatementReconcileRunSerializer,
     StatementDiscrepancySerializer,
     HomePopupSerializer,
+    PushNotificationSerializer,
 )
 from ..services.kyc import mark_submission_reviewed, update_kyc_submission
 from ..services.himalpay import (
@@ -4367,9 +4369,60 @@ def admin_popup_detail(request, popup_id):
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_push_status(request):
     """FCM configuration + registered device counts for the admin send form."""
+    from ..models import _ensure_push_notification_table
     from ..services.push import push_status
 
+    _ensure_push_notification_table()
     return Response(push_status())
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_push_history(request):
+    """List recently sent admin push notifications."""
+    from ..models import _ensure_push_notification_table
+
+    _ensure_push_notification_table()
+    try:
+        qs = PushNotification.objects.select_related('sent_by', 'target_user').order_by(
+            '-created_at', '-id',
+        )[:100]
+        data = PushNotificationSerializer(qs, many=True).data
+    except (ProgrammingError, OperationalError):
+        data = []
+    return Response({'items': data, 'count': len(data)})
+
+
+def _save_push_notification(
+    *,
+    request,
+    title,
+    body,
+    audience,
+    result,
+    target_count,
+    target_user=None,
+    target_phone='',
+):
+    from ..models import _ensure_push_notification_table
+
+    try:
+        _ensure_push_notification_table()
+        PushNotification.objects.create(
+            title=title,
+            body=body,
+            audience=audience,
+            target_user=target_user,
+            target_phone=(target_phone or '').strip(),
+            sent_by=request.user if getattr(request.user, 'is_authenticated', False) else None,
+            sent=int(result.get('sent') or 0),
+            failed=int(result.get('failed') or 0),
+            skipped=int(result.get('skipped') or 0),
+            target_count=int(target_count or 0),
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception('Failed to save push notification history')
 
 
 @api_view(['POST'])
@@ -4418,7 +4471,17 @@ def admin_push_send(request):
     }
     User = get_user_model()
 
-    def _push_response(result, *, target_count, message):
+    def _push_response(result, *, target_count, message, target_user=None, target_phone=''):
+        _save_push_notification(
+            request=request,
+            title=title,
+            body=body,
+            audience=audience,
+            result=result,
+            target_count=target_count,
+            target_user=target_user,
+            target_phone=target_phone,
+        )
         payload = {
             **result,
             'message': message,
@@ -4456,6 +4519,8 @@ def admin_push_send(request):
                 result,
                 target_count=len(tokens),
                 message=message,
+                target_user=user,
+                target_phone=target_label,
             )
         message = f'Push sent to {target_label} ({result["sent"]} device(s)).'
         if result['failed'] or result['skipped']:
@@ -4464,7 +4529,13 @@ def admin_push_send(request):
             )
         if issue and result['sent'] == 0:
             message = f'{message} {issue}'
-        return _push_response(result, target_count=len(tokens), message=message)
+        return _push_response(
+            result,
+            target_count=len(tokens),
+            message=message,
+            target_user=user,
+            target_phone=target_label,
+        )
 
     result = send_push_to_all(title, body, extra)
     issue = result.get('issue')
