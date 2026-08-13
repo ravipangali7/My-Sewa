@@ -16,6 +16,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../config/app_config.dart';
 import '../config/app_constant.dart';
+import '../services/push_messaging.dart';
 import '../services/session_lifecycle.dart';
 import 'no_internet_screen.dart';
 
@@ -51,6 +52,8 @@ class _WebViewScreenState extends State<WebViewScreen>
   final Set<String> _dispatchedPaymentOutcomeKeys = <String>{};
   DateTime? _splashStartedAt;
   DateTime? _lastResumeBridgeSyncAt;
+  StreamSubscription<String>? _fcmTokenSub;
+  StreamSubscription<dynamic>? _fcmForegroundSub;
 
   static const _minSplashDuration = Duration(milliseconds: 900);
   static const _resumeBridgeSyncMinGap = Duration(milliseconds: 700);
@@ -86,10 +89,10 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   /// Exposes download + push-token bridges the web app can call from JS.
   ///
-  /// Push flow (production):
-  /// 1. Add firebase_messaging + google-services.json / GoogleService-Info.plist
-  /// 2. Replace _deliverStubPushToken with FirebaseMessaging.instance.getToken()
-  /// 3. Web posts the token to POST /api/auth/device-token/ after mysewa-fcm-token
+  /// Push flow:
+  /// 1. Native fetches the FCM token on app open (PushMessaging.init).
+  /// 2. After each page load we dispatch `mysewa-fcm-token` into the WebView.
+  /// 3. React POSTs the token to /api/auth/device-token/ (unique per token).
   static const _installNativeBridgeJs = '''
 (function() {
   try {
@@ -265,6 +268,12 @@ class _WebViewScreenState extends State<WebViewScreen>
       if (!mounted) return;
       unawaited(precacheImage(const AssetImage('assets/logo.png'), context));
     });
+    _fcmTokenSub = PushMessaging.instance.onToken.listen((_) {
+      unawaited(_deliverFcmTokenToWeb());
+    });
+    _fcmForegroundSub = PushMessaging.instance.onForegroundMessage.listen((message) {
+      unawaited(_deliverForegroundPushToWeb(message));
+    });
     _bootstrap();
   }
 
@@ -289,6 +298,7 @@ class _WebViewScreenState extends State<WebViewScreen>
           _bridgeInstalled = true;
           await c.runJavaScript(_installNativeBridgeJs);
         }
+        await _deliverFcmTokenToWeb();
       }));
     }
   }
@@ -351,6 +361,8 @@ class _WebViewScreenState extends State<WebViewScreen>
             _bridgeInstalled = true;
             await controller.runJavaScript(_installNativeBridgeJs);
           }
+          // First thing after the SPA is ready: send the FCM token to React.
+          await _deliverFcmTokenToWeb();
           if (mounted) {
             final padding = MediaQuery.paddingOf(context);
             await controller.runJavaScript(_safeAreaCssJs(padding));
@@ -544,7 +556,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       final type = decoded['type']?.toString().toLowerCase() ?? 'download';
 
       if (type == 'request_push_token' || type == 'push_token_request') {
-        await _deliverStubPushToken();
+        await _deliverFcmTokenToWeb(forceRefresh: true);
         return;
       }
 
@@ -597,35 +609,59 @@ class _WebViewScreenState extends State<WebViewScreen>
     }
   }
 
-  /// Stub FCM token until firebase_messaging + google-services.json are added.
-  ///
-  /// Production replacement:
-  /// ```dart
-  /// final token = await FirebaseMessaging.instance.getToken();
-  /// // then inject the same CustomEvent with the real token
-  /// ```
-  /// Web listens for `mysewa-fcm-token` and POSTs to `/api/auth/device-token/`.
-  Future<void> _deliverStubPushToken() async {
-    final platform = Platform.isIOS
-        ? 'ios'
-        : Platform.isAndroid
-            ? 'android'
-            : 'unknown';
-    final stub =
-        'flutter-stub-$platform-${DateTime.now().millisecondsSinceEpoch}';
-    final tokenJson = jsonEncode(stub);
+  /// Inject the real FCM token into the WebView so React can save it via API.
+  Future<void> _deliverFcmTokenToWeb({bool forceRefresh = false}) async {
+    var token = PushMessaging.instance.token;
+    if (forceRefresh || token == null || token.isEmpty) {
+      token = await PushMessaging.instance.refreshToken();
+    }
+    if (token == null || token.isEmpty) return;
+    final platform = PushMessaging.instance.platform;
+    final tokenJson = jsonEncode(token);
     final platformJson = jsonEncode(platform);
     await _safeControllerCall((c) async {
       await c.runJavaScript('''
 (function() {
   try {
+    window.__mysewaFcmToken = $tokenJson;
+    window.__mysewaFcmPlatform = $platformJson;
     window.dispatchEvent(new CustomEvent('mysewa-fcm-token', {
-      detail: { token: $tokenJson, platform: $platformJson, stub: true }
+      detail: { token: $tokenJson, platform: $platformJson, stub: false }
     }));
   } catch (e) {}
 })();
 ''');
     });
+  }
+
+  Future<void> _deliverForegroundPushToWeb(dynamic message) async {
+    try {
+      final notification = message.notification;
+      final title = notification?.title?.toString() ?? '';
+      final body = notification?.body?.toString() ?? '';
+      final data = <String, String>{};
+      final rawData = message.data;
+      if (rawData is Map) {
+        rawData.forEach((key, value) {
+          data['$key'] = '$value';
+        });
+      }
+      if (title.isEmpty && body.isEmpty && data.isEmpty) return;
+      final titleJson = jsonEncode(title);
+      final bodyJson = jsonEncode(body);
+      final dataJson = jsonEncode(data);
+      await _safeControllerCall((c) async {
+        await c.runJavaScript('''
+(function() {
+  try {
+    window.dispatchEvent(new CustomEvent('mysewa-push-received', {
+      detail: { title: $titleJson, body: $bodyJson, data: $dataJson }
+    }));
+  } catch (e) {}
+})();
+''');
+      });
+    } catch (_) {}
   }
 
   String _sanitizeFilename(String name) {
@@ -1130,6 +1166,8 @@ class _WebViewScreenState extends State<WebViewScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _connectivitySub?.cancel();
+    _fcmTokenSub?.cancel();
+    _fcmForegroundSub?.cancel();
     super.dispose();
   }
 

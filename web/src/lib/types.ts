@@ -292,6 +292,23 @@ export interface HomePopup {
   updated_at: string;
 }
 
+export interface AdminPushStatus {
+  configured: boolean;
+  mode: "http_v1" | "legacy" | "none" | string;
+  project_id: string | null;
+  device_count: number;
+  user_count: number;
+  platform_counts: { platform: string; count: number }[];
+}
+
+export interface AdminPushSendResult {
+  message: string;
+  sent: number;
+  failed: number;
+  skipped: number;
+  target_count: number;
+}
+
 export interface Deposit {
   id: number;
   user: string;
@@ -361,6 +378,8 @@ export interface BankTransferTransaction {
   charge: string;
   cashback: string;
   total_debited: string;
+  provider_charge?: string;
+  platform_charge?: string;
   balance_before: string | null;
   balance_after: string | null;
   verified: boolean;
@@ -846,6 +865,8 @@ export interface AdminDashboard {
     topups_today: number;
     transfers_today: number;
     open_statement_issues?: number;
+    commission_today?: number;
+    commission_total?: number;
   };
   summary?: AmountSummary;
   volume_series: Array<{
@@ -995,6 +1016,53 @@ export interface AdminListStats {
 export interface AdminListResponse<T> {
   items: T[];
   stats: AdminListStats;
+  summary?: AmountSummary;
+}
+
+export interface CommissionEarnings {
+  total_earnings: number;
+  today_earnings: number;
+  monthly_earnings: number;
+  total_charges: number;
+  total_provider_charges: number;
+  transfer_volume: number;
+  earning_count: number;
+}
+
+export interface CommissionHistoryItem {
+  id: number;
+  user: string;
+  user_id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  amount: string;
+  destination_bank: string;
+  destination_bank_name: string;
+  destination_acc_no: string;
+  destination_acc_name: string;
+  is_destination_mobile: boolean;
+  transaction_remarks: string;
+  status: TxnStatus;
+  status_display: string;
+  merchant_txn_id: string;
+  provider_txn_id: string | null;
+  charge: string;
+  provider_charge: string;
+  platform_charge: string;
+  commission: string;
+  earned: string;
+  cashback: string;
+  total_debited: string;
+  source: "bank_transfer";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommissionHistoryResponse {
+  items: CommissionHistoryItem[];
+  stats: AdminListStats;
+  earnings: CommissionEarnings;
   summary?: AmountSummary;
 }
 

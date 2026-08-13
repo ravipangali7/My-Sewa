@@ -73,3 +73,7 @@ flutter {
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
 }
+
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}

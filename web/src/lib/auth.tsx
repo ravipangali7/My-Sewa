@@ -14,6 +14,7 @@ import { apiClient, getToken, setToken, ApiError } from "./api";
 import { LIVE_REFETCH_MS } from "./refresh";
 import type { UserProfile, Wallet } from "./types";
 import {
+  listenForNativePushToken,
   setupPushNotifications,
   unregisterStoredDeviceToken,
 } from "./push-notifications";
@@ -130,7 +131,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [profileQuery.data?.account_status]);
 
-  // Register FCM / web device token once authenticated.
+  // Listen for the native FCM token on first paint (before login).
+  useEffect(() => {
+    listenForNativePushToken();
+  }, []);
+
+  // Register FCM device token once authenticated. Same token is stored once.
   useEffect(() => {
     if (!token || !profileQuery.data) return;
     void setupPushNotifications();

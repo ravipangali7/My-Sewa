@@ -1,5 +1,8 @@
 package com.infelogroup.mysewa
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebStorage
@@ -12,6 +15,7 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        ensureDefaultNotificationChannel()
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -109,8 +113,23 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun ensureDefaultNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (manager.getNotificationChannel(DEFAULT_CHANNEL_ID) != null) return
+        val channel = NotificationChannel(
+            DEFAULT_CHANNEL_ID,
+            "MySewa",
+            NotificationManager.IMPORTANCE_HIGH,
+        )
+        channel.description = "App push notifications"
+        channel.enableVibration(true)
+        manager.createNotificationChannel(channel)
+    }
+
     companion object {
         private const val SESSION_CHANNEL = "com.mysewa.app/session_lifecycle"
         private const val MARKER_NAME = "install_session_v1"
+        private const val DEFAULT_CHANNEL_ID = "mysewa_default"
     }
 }

@@ -358,8 +358,12 @@ SMTP_PASSWORD = EMAIL_HOST_PASSWORD
 SMTP_FROM_EMAIL = EMAIL_HOST_USER
 SMTP_FROM_NAME = EMAIL_FROM_NAME
 
-# FCM / Firebase push (optional — without these, pushes are logged as no-ops)
+# FCM / Firebase push (HTTP v1 service account preferred)
 FCM_SERVER_KEY = os.environ.get('FCM_SERVER_KEY', '').strip()
 FIREBASE_CREDENTIALS_JSON = os.environ.get('FIREBASE_CREDENTIALS_JSON', '').strip()
-FIREBASE_CREDENTIALS_PATH = os.environ.get('FIREBASE_CREDENTIALS_PATH', '').strip()
+_firebase_cred_path = os.environ.get('FIREBASE_CREDENTIALS_PATH', '').strip()
+if _firebase_cred_path and not os.path.isabs(_firebase_cred_path):
+    _firebase_cred_path = str(BASE_DIR / _firebase_cred_path)
+FIREBASE_CREDENTIALS_PATH = _firebase_cred_path
+FIREBASE_PROJECT_ID = os.environ.get('FIREBASE_PROJECT_ID', '').strip()
 

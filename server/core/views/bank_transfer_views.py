@@ -765,6 +765,10 @@ def create_bank_transfer(request):
         charge=charge,
         cashback=cashback,
         total_debited=total_required,
+        platform_charge=fees['platform_charge'],
+        provider_charge=(
+            provider_charge if fees.get('charge_enabled', True) else Decimal('0.00')
+        ),
         verified=False,
     )
 

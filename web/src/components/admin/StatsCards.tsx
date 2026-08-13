@@ -144,7 +144,11 @@ export function StatsCards({ items, className, variant = "admin" }: StatsCardsPr
           clickable && "cursor-pointer",
         );
         return card.to ? (
-          <Link key={card.key} to={card.to as "/admin/himalpay-history"} className={classNameCard}>
+          <Link
+            key={card.key}
+            to={card.to as "/admin/himalpay-history" | "/admin/commission-history"}
+            className={classNameCard}
+          >
             {body}
           </Link>
         ) : (

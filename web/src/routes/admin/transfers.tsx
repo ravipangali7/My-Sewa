@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { Coins } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { ListPageToolbar } from "@/components/list/ListPageToolbar";
 import {
@@ -12,6 +13,7 @@ import {
   AdminMobileMeta,
 } from "@/components/admin/AdminDataList";
 import { StatsCards, amountSummaryCards } from "@/components/admin/StatsCards";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -122,7 +124,18 @@ function TransfersPage() {
   );
 
   return (
-    <AdminShell title="Bank transfers" description="Outbound transfer ledger">
+    <AdminShell
+      title="Bank transfers"
+      description="Outbound transfer ledger"
+      actions={
+        <Button asChild variant="outline" size="sm">
+          <Link to="/admin/commission-history">
+            <Coins className="mr-1.5 size-3.5" />
+            Commission History
+          </Link>
+        </Button>
+      }
+    >
       {transfersQuery.isLoading && (
         <p className="mb-4 text-sm text-muted-foreground">Loading transfers…</p>
       )}

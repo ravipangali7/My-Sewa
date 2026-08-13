@@ -1,33 +1,36 @@
 /**
  * Push / device-token registration for authenticated sessions.
  *
- * - Browser: Notification API permission + a stable web placeholder token.
- * - Flutter WebView: prefers FCM token from the native bridge
- *   (`mysewa-fcm-token` event / MySewaNative.requestPushToken).
+ * Flutter WebView delivers the real FCM token via:
+ *   - window.__mysewaFcmToken (set as soon as the native shell has it)
+ *   - CustomEvent `mysewa-fcm-token`
  *
- * Tokens are posted to POST /api/auth/device-token/.
+ * React POSTs that token to /api/auth/device-token/. The API stores each
+ * token only once (unique). Stub / placeholder tokens are never sent.
  */
-import { apiClient } from "./api";
+import { toast } from "sonner";
+import { apiClient, getToken } from "./api";
 import {
   isMySewaNativeApp,
   requestNativePushToken,
   waitForNativePushBridge,
 } from "./native-app";
 
-const WEB_TOKEN_KEY = "mysewa_web_device_token";
 const LAST_REGISTERED_KEY = "mysewa_last_device_token";
+const PENDING_TOKEN_KEY = "mysewa_pending_fcm_token";
+const PENDING_PLATFORM_KEY = "mysewa_pending_fcm_platform";
 
-function ensureWebPlaceholderToken(): string {
-  if (typeof window === "undefined") return "";
-  let token = localStorage.getItem(WEB_TOKEN_KEY);
-  if (token && token.length >= 8) return token;
-  const rand =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  token = `web:${rand}`;
-  localStorage.setItem(WEB_TOKEN_KEY, token);
-  return token;
+let listenerAttached = false;
+
+function isRealFcmToken(token: string): boolean {
+  const value = token.trim();
+  if (value.length < 20) return false;
+  const lowered = value.toLowerCase();
+  return !(
+    lowered.startsWith("flutter-stub") ||
+    lowered.startsWith("web:") ||
+    lowered.startsWith("stub:")
+  );
 }
 
 function detectPlatform(explicit?: string): "android" | "ios" | "web" | "unknown" {
@@ -42,12 +45,44 @@ function detectPlatform(explicit?: string): "android" | "ios" | "web" | "unknown
   return "web";
 }
 
+function cachePendingToken(token: string, platform?: string) {
+  if (typeof sessionStorage === "undefined") return;
+  sessionStorage.setItem(PENDING_TOKEN_KEY, token);
+  if (platform) sessionStorage.setItem(PENDING_PLATFORM_KEY, platform);
+}
+
+function readPendingToken(): { token: string; platform?: string } | null {
+  if (typeof window === "undefined") return null;
+  const injected = String(
+    (window as Window & { __mysewaFcmToken?: string }).__mysewaFcmToken || "",
+  ).trim();
+  const injectedPlatform = String(
+    (window as Window & { __mysewaFcmPlatform?: string }).__mysewaFcmPlatform || "",
+  ).trim();
+  const stored =
+    typeof sessionStorage !== "undefined"
+      ? (sessionStorage.getItem(PENDING_TOKEN_KEY) || "").trim()
+      : "";
+  const token = injected || stored;
+  if (!token || !isRealFcmToken(token)) return null;
+  const platform =
+    injectedPlatform ||
+    (typeof sessionStorage !== "undefined"
+      ? sessionStorage.getItem(PENDING_PLATFORM_KEY) || undefined
+      : undefined);
+  return { token, ...(platform ? { platform } : {}) };
+}
+
 export async function registerPushDeviceToken(opts?: {
   token?: string;
   platform?: string;
 }): Promise<boolean> {
   const token = (opts?.token || "").trim();
-  if (!token) return false;
+  if (!token || !isRealFcmToken(token)) return false;
+  if (!getToken()) {
+    cachePendingToken(token, opts?.platform);
+    return false;
+  }
   const platform = detectPlatform(opts?.platform);
   try {
     await apiClient.registerDeviceToken({ token, platform });
@@ -57,6 +92,7 @@ export async function registerPushDeviceToken(opts?: {
     return true;
   } catch (err) {
     console.warn("[push] device token registration failed", err);
+    cachePendingToken(token, platform);
     return false;
   }
 }
@@ -74,30 +110,53 @@ export async function unregisterStoredDeviceToken(): Promise<void> {
   }
 }
 
-async function requestBrowserNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
-  if (typeof window === "undefined" || !("Notification" in window)) {
-    return "unsupported";
+function handleNativeTokenEvent(ev: Event) {
+  const detail = (ev as CustomEvent<{ token?: string; platform?: string; stub?: boolean }>)
+    .detail;
+  const token = (detail?.token || "").trim();
+  if (!token || detail?.stub || !isRealFcmToken(token)) return;
+  cachePendingToken(token, detail?.platform);
+  void registerPushDeviceToken({
+    token,
+    ...(detail?.platform ? { platform: detail.platform } : {}),
+  });
+}
+
+function handleForegroundPush(ev: Event) {
+  const detail = (ev as CustomEvent<{ title?: string; body?: string }>).detail;
+  const title = (detail?.title || "").trim();
+  const body = (detail?.body || "").trim();
+  if (!title && !body) return;
+  if (title && body) {
+    toast.info(title, { description: body });
+    return;
   }
-  if (Notification.permission === "granted" || Notification.permission === "denied") {
-    return Notification.permission;
-  }
-  try {
-    return await Notification.requestPermission();
-  } catch {
-    return Notification.permission;
-  }
+  toast.info(title || body);
 }
 
 /**
- * Best-effort: register SW so future Web Push / showNotification can work.
- * Does not require a VAPID key for MVP.
+ * Start listening for the native FCM token as soon as the SPA boots —
+ * before login — so the first app-open event is not missed.
  */
-async function ensureNotificationServiceWorker(): Promise<void> {
-  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
-  try {
-    await navigator.serviceWorker.register("/sw-notifications.js", { scope: "/" });
-  } catch {
-    // Optional — ignore failures (e.g. non-HTTPS localhost quirks)
+export function listenForNativePushToken(): void {
+  if (typeof window === "undefined" || listenerAttached) return;
+  listenerAttached = true;
+  window.addEventListener("mysewa-fcm-token", handleNativeTokenEvent);
+  window.addEventListener("mysewa-push-received", handleForegroundPush);
+  window.addEventListener("mysewa-app-resume", () => {
+    requestNativePushToken();
+    const pending = readPendingToken();
+    if (pending) void registerPushDeviceToken(pending);
+  });
+
+  const pending = readPendingToken();
+  if (pending) {
+    void registerPushDeviceToken(pending);
+  }
+  if (isMySewaNativeApp()) {
+    void waitForNativePushBridge(2500).then((ok) => {
+      if (ok) requestNativePushToken();
+    });
   }
 }
 
@@ -107,37 +166,17 @@ async function ensureNotificationServiceWorker(): Promise<void> {
  */
 export async function setupPushNotifications(): Promise<void> {
   if (typeof window === "undefined") return;
-
-  // Listen for Flutter / native FCM token delivery
-  const onNativeToken = (ev: Event) => {
-    const detail = (ev as CustomEvent<{ token?: string; platform?: string }>).detail;
-    if (detail?.token) {
-      void registerPushDeviceToken({
-        token: detail.token,
-        ...(detail.platform ? { platform: detail.platform } : {}),
-      });
-    }
-  };
-  window.addEventListener("mysewa-fcm-token", onNativeToken);
+  listenForNativePushToken();
 
   if (isMySewaNativeApp()) {
     await waitForNativePushBridge(2000);
-    const requested = requestNativePushToken();
-    if (!requested) {
-      // Stub path: Flutter injects mysewa-fcm-token; if not, register a native placeholder
-      await registerPushDeviceToken({
-        token: `flutter-stub:${ensureWebPlaceholderToken().replace(/^web:/, "")}`,
-        platform: detectPlatform(),
-      });
+    requestNativePushToken();
+    const pending = readPendingToken();
+    if (pending) {
+      await registerPushDeviceToken(pending);
     }
-    // Keep listener for late FCM responses; do not remove
     return;
   }
 
-  await requestBrowserNotificationPermission();
-  void ensureNotificationServiceWorker();
-  await registerPushDeviceToken({
-    token: ensureWebPlaceholderToken(),
-    platform: "web",
-  });
+  // Browser sessions do not receive Firebase app pushes. Native FCM only.
 }

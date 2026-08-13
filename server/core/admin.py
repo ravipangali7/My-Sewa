@@ -323,8 +323,9 @@ class BankTransferTransactionAdmin(admin.ModelAdmin):
         'destination_acc_no', 'destination_acc_name', 'is_destination_mobile',
         'transaction_remarks', 'transaction_remarks_2', 'transaction_remarks_3',
         'status', 'merchant_txn_id', 'provider_txn_id', 'reference_id',
-        'charge', 'cashback', 'total_debited', 'balance_before', 'balance_after',
-        'verified', 'provider_response', 'created_at', 'updated_at',
+        'charge', 'provider_charge', 'platform_charge', 'cashback', 'total_debited',
+        'balance_before', 'balance_after', 'verified', 'provider_response',
+        'created_at', 'updated_at',
     )
     ordering = ('-created_at',)
 
