@@ -99,6 +99,8 @@ def register(request):
     serializer = UserSerializer(data=data)
     if serializer.is_valid():
         user = serializer.save()
+        from ..models import _ensure_authtoken_table
+        _ensure_authtoken_table()
         Token.objects.filter(user=user).delete()
         token = Token.objects.create(user=user)
         try:
@@ -470,10 +472,11 @@ def _issue_login_token_response(request, user, *, otp_verified: bool = True):
 
     from django.core.cache import cache
 
-    from ..models import SecurityAuditLog
+    from ..models import SecurityAuditLog, _ensure_authtoken_table
     from ..services.app_config import get_app_config
     from ..services.security import log_security_event
 
+    _ensure_authtoken_table()
     # Always rotate so a token restored from backup/old installs cannot stay valid
     # after a fresh credential (+ OTP when enabled) login on this (or another) device.
     old_keys = list(Token.objects.filter(user=user).values_list('key', flat=True))

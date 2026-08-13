@@ -43,6 +43,12 @@ class AppSettingsMiddleware(MiddlewareMixin):
             return None
 
         try:
+            from .models import _ensure_authtoken_table
+            _ensure_authtoken_table()
+        except Exception:
+            pass
+
+        try:
             config = get_app_config()
         except Exception:
             return None
