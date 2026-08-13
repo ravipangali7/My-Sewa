@@ -806,6 +806,8 @@ export const messages = {
     "remittance.verifyCitizenship": "Verify citizenship",
     "remittance.verifyingCitizenship": "Verifying…",
     "remittance.verifyRequired": "Verify citizenship documents before receiving.",
+    "remittance.citizenshipMatchingDisabled":
+      "Citizenship image matching is currently disabled. Fill the form and continue.",
     "remittance.verifyMismatch":
       "Citizenship details do not match the uploaded documents. Correct the form or re-upload clearer images.",
     "remittance.verifySuccess": "Citizenship verification: {status}",
@@ -1895,6 +1897,8 @@ export const messages = {
     "remittance.verifyCitizenship": "नागरिकता प्रमाणित गर्नुहोस्",
     "remittance.verifyingCitizenship": "प्रमाणित गर्दै…",
     "remittance.verifyRequired": "प्राप्त गर्नु अघि नागरिकता कागजात प्रमाणित गर्नुहोस्।",
+    "remittance.citizenshipMatchingDisabled":
+      "नागरिकता छवि मिलान अहिले अक्षम छ। फारम भरेर अगाडि बढ्नुहोस्।",
     "remittance.verifyMismatch":
       "नागरिकता विवरण अपलोड गरिएका कागजातसँग मिल्दैन। फारम सच्याउनुहोस् वा स्पष्ट फोटो पुनः अपलोड गर्नुहोस्।",
     "remittance.verifySuccess": "नागरिकता प्रमाणीकरण: {status}",

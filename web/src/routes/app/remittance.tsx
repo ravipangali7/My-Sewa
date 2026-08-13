@@ -204,6 +204,8 @@ function ReceiveRemittance() {
   });
   const remittancesEnabled =
     settingsQuery.data?.config?.payment?.remittances_enabled !== false && !accountPending;
+  const citizenshipMatchingEnabled =
+    settingsQuery.data?.config?.payment?.citizenship_matching_enabled === true;
 
   const historyQuery = useQuery({
     queryKey: ["remittances", debounced],
@@ -267,6 +269,9 @@ function ReceiveRemittance() {
     mutationFn: async () => {
       if (accountPending) throw new Error(t("account.pending"));
       if (!remittancesEnabled) throw new Error(t("remittance.disabledError"));
+      if (!citizenshipMatchingEnabled) {
+        throw new Error(t("remittance.citizenshipMatchingDisabled"));
+      }
       if (!citizenshipFront || !citizenshipBack) {
         throw new Error(t("remittance.citizenshipBothRequired"));
       }
@@ -361,12 +366,14 @@ function ReceiveRemittance() {
       if (!lookup) throw new Error(t("remittance.lookupFirst"));
       if (accountPending) throw new Error(t("account.pending"));
       if (!remittancesEnabled) throw new Error(t("remittance.disabledError"));
-      if (!citizenshipFront || !citizenshipBack) {
-        throw new Error(t("remittance.citizenshipBothRequired"));
-      }
-      if (!verification) throw new Error(t("remittance.verifyRequired"));
-      if (verification.match_status === "MISMATCH") {
-        throw new Error(t("remittance.verifyMismatch"));
+      if (citizenshipMatchingEnabled) {
+        if (!citizenshipFront || !citizenshipBack) {
+          throw new Error(t("remittance.citizenshipBothRequired"));
+        }
+        if (!verification) throw new Error(t("remittance.verifyRequired"));
+        if (verification.match_status === "MISMATCH") {
+          throw new Error(t("remittance.verifyMismatch"));
+        }
       }
 
       const required: Array<[keyof KycForm, string]> = [
@@ -410,16 +417,17 @@ function ReceiveRemittance() {
         ...kyc,
         beneficiary_id_number:
           kyc.beneficiary_id_number || kyc.beneficiary_citizenship_number,
-        citizenship_verification: verification
-          ? {
-              match_status: verification.match_status,
-              confidence_score: verification.confidence_score,
-              ocr_confidence: verification.ocr_confidence,
-              fields: verification.fields,
-              ocr: verification.ocr,
-              ocr_errors: verification.ocr_errors,
-            }
-          : undefined,
+        citizenship_verification:
+          citizenshipMatchingEnabled && verification
+            ? {
+                match_status: verification.match_status,
+                confidence_score: verification.confidence_score,
+                ocr_confidence: verification.ocr_confidence,
+                fields: verification.fields,
+                ocr: verification.ocr,
+                ocr_errors: verification.ocr_errors,
+              }
+            : undefined,
         transaction_pin,
       });
     },
@@ -584,17 +592,19 @@ function ReceiveRemittance() {
               className="space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (!citizenshipFront || !citizenshipBack) {
-                  toast.error(t("remittance.citizenshipBothRequired"));
-                  return;
-                }
-                if (!verification) {
-                  toast.error(t("remittance.verifyRequired"));
-                  return;
-                }
-                if (verification.match_status === "MISMATCH") {
-                  toast.error(t("remittance.verifyMismatch"));
-                  return;
+                if (citizenshipMatchingEnabled) {
+                  if (!citizenshipFront || !citizenshipBack) {
+                    toast.error(t("remittance.citizenshipBothRequired"));
+                    return;
+                  }
+                  if (!verification) {
+                    toast.error(t("remittance.verifyRequired"));
+                    return;
+                  }
+                  if (verification.match_status === "MISMATCH") {
+                    toast.error(t("remittance.verifyMismatch"));
+                    return;
+                  }
                 }
                 setPinError(null);
                 setPinOpen(true);
@@ -607,6 +617,7 @@ function ReceiveRemittance() {
                 })}
               </p>
 
+              {citizenshipMatchingEnabled ? (
               <div className="space-y-3 rounded-xl border border-border/70 bg-muted/30 p-3">
                 <div>
                   <p className="text-[14px] font-semibold">
@@ -652,6 +663,7 @@ function ReceiveRemittance() {
                   <CitizenshipVerificationPanel verification={verification} t={t} />
                 ) : null}
               </div>
+              ) : null}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label={t("remittance.gender")}>
@@ -865,8 +877,8 @@ function ReceiveRemittance() {
                 disabled={
                   receiveMutation.isPending ||
                   !remittancesEnabled ||
-                  !verification ||
-                  verification.match_status === "MISMATCH"
+                  (citizenshipMatchingEnabled &&
+                    (!verification || verification.match_status === "MISMATCH"))
                 }
                 className="h-12 w-full rounded-xl text-[17px]"
               >
