@@ -12,9 +12,14 @@ class CoreConfig(AppConfig):
         if any(cmd in sys.argv for cmd in ('migrate', 'makemigrations', 'showmigrations')):
             return
         try:
-            from core.models import _ensure_authtoken_table, _ensure_electricity_bill_table
+            from core.models import (
+                _ensure_authtoken_table,
+                _ensure_electricity_bill_table,
+                _ensure_settings_table,
+            )
 
             _ensure_authtoken_table()
+            _ensure_settings_table()
             _ensure_electricity_bill_table()
         except Exception:
             pass

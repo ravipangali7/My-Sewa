@@ -20,8 +20,11 @@ def _ensure_authtoken_table():
 
     table = 'authtoken_token'
     try:
-        if table in connection.introspection.table_names():
+        names = connection.introspection.table_names()
+        if table in names:
             _authtoken_table_ready = True
+            return False
+        if 'core_customuser' not in names:
             return False
     except Exception:
         return False
@@ -52,6 +55,52 @@ def _ensure_authtoken_table():
             recorder.record_applied('authtoken', '0001_initial')
 
     _authtoken_table_ready = True
+    return True
+
+
+_settings_table_ready = False
+
+
+def _ensure_settings_table():
+    """
+    Create core_settings if the connected DB is empty or migrate was skipped.
+    /api/settings/ calls Settings.load() on every page load; a missing table 500s the SPA.
+    """
+    global _settings_table_ready
+    if _settings_table_ready:
+        return False
+
+    table = 'core_settings'
+    try:
+        names = connection.introspection.table_names()
+        if table in names:
+            _settings_table_ready = True
+            return False
+        # Empty/wrong sqlite file (no users) — do not create a decoy settings row.
+        if 'core_customuser' not in names:
+            return False
+    except Exception:
+        return False
+
+    from django.apps import apps
+    from django.db.migrations.recorder import MigrationRecorder
+
+    model = apps.get_model('core', 'Settings')
+    try:
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(model)
+    except Exception:
+        if table in connection.introspection.table_names():
+            _settings_table_ready = True
+            return False
+        raise
+
+    recorder = MigrationRecorder(connection)
+    if not recorder.migration_qs.filter(app='core', name='0006_settings_config').exists():
+        if recorder.migration_qs.filter(app='core', name='0005_deposit_rejection_reason').exists():
+            recorder.record_applied('core', '0006_settings_config')
+
+    _settings_table_ready = True
     return True
 
 
@@ -463,8 +512,18 @@ class Settings(models.Model):
 
     @classmethod
     def load(cls):
-        obj, created = cls.objects.get_or_create(pk=1)
-        return obj
+        from django.db.utils import OperationalError, ProgrammingError
+
+        try:
+            obj, _created = cls.objects.get_or_create(pk=1)
+            return obj
+        except (OperationalError, ProgrammingError) as exc:
+            msg = str(exc).lower()
+            if 'core_settings' not in msg and 'no such table' not in msg:
+                raise
+            _ensure_settings_table()
+            obj, _created = cls.objects.get_or_create(pk=1)
+            return obj
 
     def get_config(self):
         return merge_app_config(self.config)
