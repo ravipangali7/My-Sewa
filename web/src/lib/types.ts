@@ -306,49 +306,29 @@ export interface AdminPushStatus {
   platform_counts: { platform: string; count: number }[];
 }
 
-export interface AdminPushSkipReason {
-  reason: string;
-  count: number;
-  help?: string | null;
-  samples?: string[];
-}
-
-export interface AdminPushErrorGroup {
-  error_code: string;
-  count: number;
-  help?: string | null;
-  error_message?: string | null;
-  http_status?: number | null;
-  samples?: string[];
-}
-
-export interface AdminPushDelivery {
-  ok: boolean;
-  http_status?: number | null;
-  error_code?: string | null;
-  error_message?: string | null;
-  status?: string | null;
-  issue?: string | null;
-  firebase?: unknown;
-  token_preview?: string;
-  token_length?: number;
-  token_removed?: boolean;
-}
-
 export interface AdminPushSendResult {
   message: string;
   sent: number;
   failed: number;
   skipped: number;
   target_count: number;
-  mode?: string;
-  project_id?: string | null;
-  firebase_called?: boolean;
   issue?: string | null;
-  issues?: string[];
-  skip_reasons?: AdminPushSkipReason[];
-  errors?: AdminPushErrorGroup[];
-  deliveries?: AdminPushDelivery[];
+}
+
+export interface AdminPushNotification {
+  id: number;
+  title: string;
+  body: string;
+  audience: "all" | "user" | string;
+  audience_display: string;
+  target_phone: string;
+  target_user_phone: string | null;
+  sent_by_phone: string | null;
+  sent: number;
+  failed: number;
+  skipped: number;
+  target_count: number;
+  created_at: string;
 }
 
 export interface Deposit {

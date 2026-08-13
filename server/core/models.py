@@ -130,6 +130,39 @@ def _ensure_electricity_bill_table():
     return True
 
 
+def _ensure_push_notification_table():
+    """Create core_pushnotification if deploy skipped migrate 0037."""
+    table = 'core_pushnotification'
+    try:
+        if table in connection.introspection.table_names():
+            return False
+        if 'core_customuser' not in connection.introspection.table_names():
+            return False
+    except Exception:
+        return False
+
+    from django.apps import apps
+    from django.db.migrations.recorder import MigrationRecorder
+
+    model = apps.get_model('core', 'PushNotification')
+    try:
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(model)
+    except Exception:
+        if table in connection.introspection.table_names():
+            return False
+        raise
+
+    recorder = MigrationRecorder(connection)
+    if not recorder.migration_qs.filter(app='core', name='0037_push_notification').exists():
+        if recorder.migration_qs.filter(
+            app='core',
+            name='0036_merge_0035_popup_index_user_feature_access',
+        ).exists():
+            recorder.record_applied('core', '0037_push_notification')
+    return True
+
+
 class CustomUserManager(BaseUserManager):
     """Custom user manager where phone is the unique identifier"""
     
@@ -1503,3 +1536,48 @@ class HomePopupImpression(models.Model):
         indexes = [
             models.Index(fields=['popup', 'user'], name='core_homepo_popup_i_c3de12_idx'),
         ]
+
+
+class PushNotification(models.Model):
+    """Record of an admin-sent Firebase app push notification."""
+
+    AUDIENCE_ALL = 'all'
+    AUDIENCE_USER = 'user'
+    AUDIENCE_CHOICES = [
+        (AUDIENCE_ALL, 'All devices'),
+        (AUDIENCE_USER, 'One user'),
+    ]
+
+    title = models.CharField(max_length=120)
+    body = models.TextField()
+    audience = models.CharField(
+        max_length=20, choices=AUDIENCE_CHOICES, default=AUDIENCE_ALL, db_index=True,
+    )
+    target_user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='targeted_push_notifications',
+    )
+    target_phone = models.CharField(max_length=20, blank=True, default='')
+    sent_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sent_push_notifications',
+    )
+    sent = models.PositiveIntegerField(default=0)
+    failed = models.PositiveIntegerField(default=0)
+    skipped = models.PositiveIntegerField(default=0)
+    target_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return f'{self.title} ({self.audience})'
+
+    class Meta:
+        verbose_name = 'Push Notification'
+        verbose_name_plural = 'Push Notifications'
+        ordering = ['-created_at', '-id']

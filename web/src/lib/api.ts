@@ -482,6 +482,11 @@ export const apiClient = {
   adminPushStatus: () =>
     api<import("./types").AdminPushStatus>("/api/admin/push/"),
 
+  adminPushHistory: () =>
+    api<{ items: import("./types").AdminPushNotification[]; count: number }>(
+      "/api/admin/push/history/",
+    ),
+
   adminSendPush: (body: {
     title: string;
     body: string;

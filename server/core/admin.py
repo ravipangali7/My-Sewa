@@ -23,6 +23,7 @@ from .models import (
     StatementDiscrepancy,
     HomePopup,
     HomePopupImpression,
+    PushNotification,
 )
 
 User = get_user_model()
@@ -596,6 +597,24 @@ class HomePopupImpressionAdmin(admin.ModelAdmin):
         'popup', 'user', 'window_started_at', 'view_count', 'last_shown_at',
         'created_at', 'updated_at',
     )
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(PushNotification)
+class PushNotificationAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'title', 'audience', 'target_phone', 'sent', 'failed',
+        'skipped', 'sent_by', 'created_at',
+    )
+    list_filter = ('audience', 'created_at')
+    search_fields = ('title', 'body', 'target_phone', 'sent_by__phone')
+    readonly_fields = (
+        'title', 'body', 'audience', 'target_user', 'target_phone',
+        'sent_by', 'sent', 'failed', 'skipped', 'target_count', 'created_at',
+    )
+    ordering = ('-created_at', '-id')
 
     def has_add_permission(self, request):
         return False

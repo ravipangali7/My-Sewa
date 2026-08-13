@@ -228,6 +228,7 @@ urlpatterns = [
     path('api/admin/popups/<int:popup_id>/', admin_views.admin_popup_detail, name='admin_popup_detail'),
     path('api/admin/push/', admin_views.admin_push_status, name='admin_push_status'),
     path('api/admin/push/send/', admin_views.admin_push_send, name='admin_push_send'),
+    path('api/admin/push/history/', admin_views.admin_push_history, name='admin_push_history'),
     path('api/admin/himalpay/status/', admin_views.admin_himalpay_status, name='admin_himalpay_status'),
     path('api/admin/statement/', admin_views.admin_statement_list, name='admin_statement_list'),
     path('api/admin/statement/run/', admin_views.admin_statement_run, name='admin_statement_run'),
