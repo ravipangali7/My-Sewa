@@ -297,8 +297,38 @@ export interface AdminPushStatus {
   mode: "http_v1" | "legacy" | "none" | string;
   project_id: string | null;
   device_count: number;
+  stub_count?: number;
   user_count: number;
   platform_counts: { platform: string; count: number }[];
+}
+
+export interface AdminPushSkipReason {
+  reason: string;
+  count: number;
+  help?: string | null;
+  samples?: string[];
+}
+
+export interface AdminPushErrorGroup {
+  error_code: string;
+  count: number;
+  help?: string | null;
+  error_message?: string | null;
+  http_status?: number | null;
+  samples?: string[];
+}
+
+export interface AdminPushDelivery {
+  ok: boolean;
+  http_status?: number | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  status?: string | null;
+  issue?: string | null;
+  firebase?: unknown;
+  token_preview?: string;
+  token_length?: number;
+  token_removed?: boolean;
 }
 
 export interface AdminPushSendResult {
@@ -307,6 +337,14 @@ export interface AdminPushSendResult {
   failed: number;
   skipped: number;
   target_count: number;
+  mode?: string;
+  project_id?: string | null;
+  firebase_called?: boolean;
+  issue?: string | null;
+  issues?: string[];
+  skip_reasons?: AdminPushSkipReason[];
+  errors?: AdminPushErrorGroup[];
+  deliveries?: AdminPushDelivery[];
 }
 
 export interface Deposit {
