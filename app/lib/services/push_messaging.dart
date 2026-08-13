@@ -3,16 +3,26 @@ import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart';
+
+import '../firebase_options.dart';
+import 'fcm_log.dart';
 
 /// Background isolate handler required by firebase_messaging.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
     if (Firebase.apps.isEmpty) {
-      await Firebase.initializeApp();
+      try {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+      } catch (_) {
+        await Firebase.initializeApp();
+      }
     }
-  } catch (_) {}
+  } catch (e) {
+    FcmLog.fail('background Firebase init', e);
+  }
 }
 
 /// Loads the FCM token as soon as the native app starts, then streams
@@ -42,13 +52,31 @@ class PushMessaging {
   }
 
   Future<void> init() async {
+    FcmLog.banner('APP OPEN — FETCH FCM TOKEN');
     try {
       if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp();
+        try {
+          await Firebase.initializeApp(
+            options: DefaultFirebaseOptions.currentPlatform,
+          );
+          FcmLog.ok('Firebase.initializeApp (DefaultFirebaseOptions)');
+        } catch (e) {
+          FcmLog.wait('options init failed, trying native defaults', {
+            'error': '$e',
+          });
+          await Firebase.initializeApp();
+          FcmLog.ok('Firebase.initializeApp (native google-services)');
+        }
+      } else {
+        FcmLog.ok('Firebase already initialized', {
+          'apps': '${Firebase.apps.length}',
+        });
       }
+
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
       final messaging = FirebaseMessaging.instance;
+      await messaging.setAutoInitEnabled(true);
       await messaging.setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
@@ -56,8 +84,7 @@ class PushMessaging {
       );
 
       if (Platform.isIOS) {
-        // iOS requires permission + an APNs token before FCM getToken works.
-        await messaging.requestPermission(
+        final settings = await messaging.requestPermission(
           alert: true,
           announcement: false,
           badge: true,
@@ -66,12 +93,18 @@ class PushMessaging {
           provisional: false,
           sound: true,
         );
+        FcmLog.ok('iOS permission', {
+          'auth': '${settings.authorizationStatus}',
+        });
         await _waitForApnsToken(messaging);
       }
 
-      // Fetch the token before the notification-permission prompt on Android
-      // so login can register it even if the user has not answered yet.
-      await refreshToken();
+      final fetched = await refreshToken();
+      if (fetched == null || fetched.isEmpty) {
+        FcmLog.fail('getToken returned empty after retries');
+      } else {
+        FcmLog.tokenDump(fetched, platform: platform);
+      }
 
       if (!Platform.isIOS) {
         unawaited(
@@ -83,7 +116,11 @@ class PushMessaging {
             criticalAlert: false,
             provisional: false,
             sound: true,
-          ),
+          ).then((settings) {
+            FcmLog.ok('Android permission', {
+              'auth': '${settings.authorizationStatus}',
+            });
+          }),
         );
       }
 
@@ -92,20 +129,38 @@ class PushMessaging {
         final next = value.trim();
         if (next.isEmpty) return;
         token = next;
+        FcmLog.box(
+          step: 'TOKEN REFRESH',
+          status: 'NEW',
+          fields: {
+            'platform': platform,
+            'preview': FcmLog.preview(next),
+            'full': next,
+          },
+        );
         if (!_tokenController.isClosed) _tokenController.add(next);
       });
 
       await _foregroundSub?.cancel();
       _foregroundSub = FirebaseMessaging.onMessage.listen((message) {
+        FcmLog.ok('foreground push', {
+          'title': message.notification?.title ?? '',
+        });
         if (!_foregroundController.isClosed) {
           _foregroundController.add(message);
         }
       });
 
-      ready = true;
+      ready = token != null && token!.isNotEmpty;
+      FcmLog.ok('PushMessaging.init done', {
+        'ready': '$ready',
+        'platform': platform,
+      });
     } catch (e, st) {
-      debugPrint('PushMessaging.init failed: $e\n$st');
       ready = false;
+      FcmLog.fail('PushMessaging.init crashed', e);
+      // ignore: avoid_print
+      print('[MYSEWA-FCM] $st');
     }
   }
 
@@ -113,29 +168,41 @@ class PushMessaging {
     for (var i = 0; i < 12; i++) {
       try {
         final apns = await messaging.getAPNSToken();
-        if (apns != null && apns.isNotEmpty) return;
-      } catch (_) {}
+        if (apns != null && apns.isNotEmpty) {
+          FcmLog.ok('APNs token ready', {
+            'preview': FcmLog.preview(apns),
+          });
+          return;
+        }
+      } catch (e) {
+        FcmLog.wait('APNs poll failed', {'attempt': '${i + 1}', 'error': '$e'});
+      }
       await Future<void>.delayed(const Duration(milliseconds: 400));
     }
+    FcmLog.fail('APNs token not available after waiting');
   }
 
   Future<String?> refreshToken() async {
-    for (var i = 0; i < 6; i++) {
+    for (var i = 0; i < 8; i++) {
       try {
         final messaging = FirebaseMessaging.instance;
         if (Platform.isIOS) {
           await _waitForApnsToken(messaging);
         }
+        FcmLog.wait('calling FirebaseMessaging.getToken()', {
+          'attempt': '${i + 1}/8',
+        });
         final value = (await messaging.getToken())?.trim();
         if (value != null && value.isNotEmpty) {
           token = value;
           if (!_tokenController.isClosed) _tokenController.add(value);
           return value;
         }
+        FcmLog.wait('getToken returned empty', {'attempt': '${i + 1}/8'});
       } catch (e) {
-        debugPrint('PushMessaging.refreshToken attempt ${i + 1} failed: $e');
+        FcmLog.fail('getToken attempt ${i + 1}/8', e);
       }
-      await Future<void>.delayed(Duration(milliseconds: 400 * (i + 1)));
+      await Future<void>.delayed(Duration(milliseconds: 500 * (i + 1)));
     }
     return token;
   }
