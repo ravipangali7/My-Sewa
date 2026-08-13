@@ -962,10 +962,48 @@ class BankTransferTransactionSerializer(serializers.ModelSerializer):
             'transaction_remarks', 'transaction_remarks_2', 'transaction_remarks_3',
             'status', 'status_display', 'merchant_txn_id', 'provider_txn_id',
             'reference_id', 'charge', 'cashback', 'total_debited',
+            'provider_charge', 'platform_charge',
             'balance_before', 'balance_after', 'verified',
             'created_at', 'updated_at',
         )
         read_only_fields = fields
+
+
+class CommissionHistorySerializer(serializers.ModelSerializer):
+    """Super Admin ledger of transfer charges and MySewa commission earned."""
+    user = serializers.StringRelatedField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    source = serializers.SerializerMethodField()
+    commission = serializers.SerializerMethodField()
+    earned = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BankTransferTransaction
+        fields = (
+            'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
+            'amount', 'destination_bank', 'destination_bank_name',
+            'destination_acc_no', 'destination_acc_name', 'is_destination_mobile',
+            'transaction_remarks', 'status', 'status_display',
+            'merchant_txn_id', 'provider_txn_id',
+            'charge', 'provider_charge', 'platform_charge', 'commission', 'earned',
+            'cashback', 'total_debited', 'source', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+    def get_source(self, _obj):
+        return 'bank_transfer'
+
+    def get_commission(self, obj):
+        return str(obj.platform_charge)
+
+    def get_earned(self, obj):
+        if obj.status == 'success':
+            return str(obj.platform_charge)
+        return '0.00'
 
 
 class BankAccountVerifySerializer(serializers.Serializer):
@@ -1708,14 +1746,18 @@ class DeviceTokenSerializer(serializers.Serializer):
 
     def validate_token(self, value):
         token = (value or '').strip()
-        if len(token) < 8:
+        if len(token) < 20:
             raise serializers.ValidationError('Device token is too short.')
+        from .services.push import is_real_fcm_token
+        if not is_real_fcm_token(token):
+            raise serializers.ValidationError('Placeholder or stub tokens are not stored.')
         return token
 
     def create(self, validated_data):
         user = self.context['request'].user
         token = validated_data['token']
         platform = validated_data.get('platform') or DeviceToken.PLATFORM_UNKNOWN
+        # Unique on token: same FCM token is stored once and reassigned to this user.
         obj, _created = DeviceToken.objects.update_or_create(
             token=token,
             defaults={'user': user, 'platform': platform},

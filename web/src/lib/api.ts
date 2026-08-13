@@ -471,6 +471,21 @@ export const apiClient = {
       body: { token },
     }),
 
+  adminPushStatus: () =>
+    api<import("./types").AdminPushStatus>("/api/admin/push/"),
+
+  adminSendPush: (body: {
+    title: string;
+    body: string;
+    audience: "all" | "user";
+    user_id?: number;
+    phone?: string;
+  }) =>
+    api<import("./types").AdminPushSendResult>("/api/admin/push/send/", {
+      method: "POST",
+      body,
+    }),
+
   forgotPassword: (phone: string) =>
     api<{ message: string; email_hint?: string; debug_otp?: string }>(
       "/api/auth/forgot-password/",
@@ -1210,6 +1225,10 @@ export const apiClient = {
   adminTransfers: (filters?: AdminListFilters) =>
     api<import("./types").AdminListResponse<import("./types").BankTransferTransaction>>(
       `/api/admin/transfers/${buildAdminListQuery(filters)}`,
+    ),
+  adminCommissionHistory: (filters?: AdminListFilters) =>
+    api<import("./types").CommissionHistoryResponse>(
+      `/api/admin/commission-history/${buildAdminListQuery(filters)}`,
     ),
   adminUpdateTransferStatus: (id: number, status: import("./types").TxnStatus) =>
     api<{ message: string; data: import("./types").BankTransferTransaction }>(

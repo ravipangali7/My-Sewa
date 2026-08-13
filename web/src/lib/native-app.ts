@@ -81,13 +81,15 @@ declare global {
     MySewaNative?: {
       hasBridge?: boolean;
       downloadFile?: (payload: string | Record<string, unknown>) => boolean;
-      /** Ask Flutter to obtain / stub an FCM token and dispatch mysewa-fcm-token. */
+      /** Ask Flutter to obtain an FCM token and dispatch mysewa-fcm-token. */
       requestPushToken?: () => boolean;
       hasPushBridge?: boolean;
     };
     MySewaBridge?: {
       postMessage: (message: string) => void;
     };
+    __mysewaFcmToken?: string;
+    __mysewaFcmPlatform?: string;
   }
 }
 

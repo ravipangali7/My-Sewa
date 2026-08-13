@@ -658,6 +658,14 @@ class BankTransferTransaction(models.Model):
     charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     cashback = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    provider_charge = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.00,
+        help_text="HimalPay / provider fee included in charge",
+    )
+    platform_charge = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.00,
+        help_text="MySewa commission collected on this transfer",
+    )
     balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     verified = models.BooleanField(default=False)

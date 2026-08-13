@@ -3,14 +3,17 @@ import 'package:flutter/services.dart';
 
 import 'config/app_config.dart';
 import 'screens/webview_screen.dart';
+import 'services/push_messaging.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  SystemChrome.setPreferredOrientations([
+  await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+  // Fetch FCM token before the WebView loads so React can register it immediately.
+  await PushMessaging.instance.init();
   runApp(const MySewaApp());
 }
 

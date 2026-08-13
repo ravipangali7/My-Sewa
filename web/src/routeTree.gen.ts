@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminCommissionHistoryRouteImport } from './routes/admin/commission-history'
 import { Route as AdminCommunityElectricityRouteImport } from './routes/admin/community-electricity'
 import { Route as AdminDataTopupsRouteImport } from './routes/admin/data-topups'
 import { Route as AdminDepositsRouteImport } from './routes/admin/deposits'
@@ -21,6 +22,7 @@ import { Route as AdminInternetRouteImport } from './routes/admin/internet'
 import { Route as AdminKycRouteImport } from './routes/admin/kyc'
 import { Route as AdminPopupsRouteImport } from './routes/admin/popups'
 import { Route as AdminProfileRouteImport } from './routes/admin/profile'
+import { Route as AdminPushRouteImport } from './routes/admin/push'
 import { Route as AdminRemittancesRouteImport } from './routes/admin/remittances'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
@@ -88,6 +90,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/admin/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminCommissionHistoryRoute = AdminCommissionHistoryRouteImport.update({
+  id: '/admin/commission-history',
+  path: '/admin/commission-history',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminCommunityElectricityRoute =
   AdminCommunityElectricityRouteImport.update({
     id: '/admin/community-electricity',
@@ -127,6 +134,11 @@ const AdminPopupsRoute = AdminPopupsRouteImport.update({
 const AdminProfileRoute = AdminProfileRouteImport.update({
   id: '/admin/profile',
   path: '/admin/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPushRoute = AdminPushRouteImport.update({
+  id: '/admin/push',
+  path: '/admin/push',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRemittancesRoute = AdminRemittancesRouteImport.update({
@@ -369,6 +381,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
   '/admin/deposits': typeof AdminDepositsRoute
@@ -377,6 +390,7 @@ export interface FileRoutesByFullPath {
   '/admin/kyc': typeof AdminKycRoute
   '/admin/popups': typeof AdminPopupsRoute
   '/admin/profile': typeof AdminProfileRoute
+  '/admin/push': typeof AdminPushRoute
   '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -429,6 +443,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
   '/admin/deposits': typeof AdminDepositsRoute
@@ -437,6 +452,7 @@ export interface FileRoutesByTo {
   '/admin/kyc': typeof AdminKycRoute
   '/admin/popups': typeof AdminPopupsRoute
   '/admin/profile': typeof AdminProfileRoute
+  '/admin/push': typeof AdminPushRoute
   '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -490,6 +506,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
   '/admin/deposits': typeof AdminDepositsRoute
@@ -498,6 +515,7 @@ export interface FileRoutesById {
   '/admin/kyc': typeof AdminKycRoute
   '/admin/popups': typeof AdminPopupsRoute
   '/admin/profile': typeof AdminProfileRoute
+  '/admin/push': typeof AdminPushRoute
   '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -552,6 +570,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/commission-history'
     | '/admin/community-electricity'
     | '/admin/data-topups'
     | '/admin/deposits'
@@ -560,6 +579,7 @@ export interface FileRouteTypes {
     | '/admin/kyc'
     | '/admin/popups'
     | '/admin/profile'
+    | '/admin/push'
     | '/admin/remittances'
     | '/admin/reports'
     | '/admin/settings'
@@ -612,6 +632,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/commission-history'
     | '/admin/community-electricity'
     | '/admin/data-topups'
     | '/admin/deposits'
@@ -620,6 +641,7 @@ export interface FileRouteTypes {
     | '/admin/kyc'
     | '/admin/popups'
     | '/admin/profile'
+    | '/admin/push'
     | '/admin/remittances'
     | '/admin/reports'
     | '/admin/settings'
@@ -672,6 +694,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/commission-history'
     | '/admin/community-electricity'
     | '/admin/data-topups'
     | '/admin/deposits'
@@ -680,6 +703,7 @@ export interface FileRouteTypes {
     | '/admin/kyc'
     | '/admin/popups'
     | '/admin/profile'
+    | '/admin/push'
     | '/admin/remittances'
     | '/admin/reports'
     | '/admin/settings'
@@ -733,6 +757,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   RegisterRoute: typeof RegisterRoute
+  AdminCommissionHistoryRoute: typeof AdminCommissionHistoryRoute
   AdminCommunityElectricityRoute: typeof AdminCommunityElectricityRoute
   AdminDataTopupsRoute: typeof AdminDataTopupsRoute
   AdminDepositsRoute: typeof AdminDepositsRoute
@@ -741,6 +766,7 @@ export interface RootRouteChildren {
   AdminKycRoute: typeof AdminKycRoute
   AdminPopupsRoute: typeof AdminPopupsRoute
   AdminProfileRoute: typeof AdminProfileRoute
+  AdminPushRoute: typeof AdminPushRoute
   AdminRemittancesRoute: typeof AdminRemittancesRoute
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
@@ -820,6 +846,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/commission-history': {
+      id: '/admin/commission-history'
+      path: '/admin/commission-history'
+      fullPath: '/admin/commission-history'
+      preLoaderRoute: typeof AdminCommissionHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/community-electricity': {
       id: '/admin/community-electricity'
       path: '/admin/community-electricity'
@@ -874,6 +907,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/profile'
       fullPath: '/admin/profile'
       preLoaderRoute: typeof AdminProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/push': {
+      id: '/admin/push'
+      path: '/admin/push'
+      fullPath: '/admin/push'
+      preLoaderRoute: typeof AdminPushRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/remittances': {
@@ -1205,6 +1245,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   RegisterRoute: RegisterRoute,
+  AdminCommissionHistoryRoute: AdminCommissionHistoryRoute,
   AdminCommunityElectricityRoute: AdminCommunityElectricityRoute,
   AdminDataTopupsRoute: AdminDataTopupsRoute,
   AdminDepositsRoute: AdminDepositsRoute,
@@ -1213,6 +1254,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminKycRoute: AdminKycRoute,
   AdminPopupsRoute: AdminPopupsRoute,
   AdminProfileRoute: AdminProfileRoute,
+  AdminPushRoute: AdminPushRoute,
   AdminRemittancesRoute: AdminRemittancesRoute,
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,

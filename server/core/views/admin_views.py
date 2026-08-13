@@ -40,6 +40,7 @@ from ..models import (
     StatementReconcileRun,
     StatementDiscrepancy,
     HomePopup,
+    DeviceToken,
     merge_app_config,
 )
 from ..serializers import (
@@ -52,6 +53,7 @@ from ..serializers import (
     TopupTransactionSerializer,
     AdminTopupSerializer,
     BankTransferTransactionSerializer,
+    CommissionHistorySerializer,
     RemittanceTransactionSerializer,
     AdminRemittanceSerializer,
     InternetBillTransactionSerializer,
@@ -525,6 +527,20 @@ def admin_dashboard(request):
         + _sum_amount(pack_success.filter(created_at__date__gte=month_start))
     )
 
+    try:
+        commission_today = (
+            xfer_success.filter(created_at__date=today).aggregate(
+                t=Sum('platform_charge'),
+            )['t']
+            or Decimal('0.00')
+        )
+        commission_total = (
+            xfer_success.aggregate(t=Sum('platform_charge'))['t'] or Decimal('0.00')
+        )
+    except (ProgrammingError, OperationalError):
+        commission_today = Decimal('0.00')
+        commission_total = Decimal('0.00')
+
     # Build 7-day volume series
     days = [week_start + timedelta(days=i) for i in range(7)]
     day_labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -578,6 +594,8 @@ def admin_dashboard(request):
             'topups_today': topups_today,
             'transfers_today': transfers_today,
             'open_statement_issues': open_statement_issues,
+            'commission_today': _money(commission_today),
+            'commission_total': _money(commission_total),
         },
         'summary': {
             'total_volume': total_credit + total_debit,
@@ -1444,6 +1462,102 @@ def admin_list_transfers(request):
             'pending': qs.filter(status='pending').count(),
             'failed': qs.filter(status='failed').count(),
         },
+        'summary': _amount_summary(qs, direction='debit'),
+    })
+
+
+def _commission_earnings(qs):
+    """Roll up MySewa transfer commission. Earnings count successful rows only."""
+    today = timezone.localdate()
+    month_start = today.replace(day=1)
+    success_qs = qs.filter(status='success')
+    today_qs = success_qs.filter(created_at__date=today)
+    month_qs = success_qs.filter(created_at__date__gte=month_start)
+
+    def _sum(filtered, field):
+        return filtered.aggregate(t=Sum(field))['t'] or Decimal('0.00')
+
+    return {
+        'total_earnings': _money(_sum(success_qs, 'platform_charge')),
+        'today_earnings': _money(_sum(today_qs, 'platform_charge')),
+        'monthly_earnings': _money(_sum(month_qs, 'platform_charge')),
+        'total_charges': _money(_sum(success_qs, 'charge')),
+        'total_provider_charges': _money(_sum(success_qs, 'provider_charge')),
+        'transfer_volume': _money(_sum(success_qs, 'amount')),
+        'earning_count': success_qs.filter(platform_charge__gt=0).count(),
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_commission_history(request):
+    """
+    History of charges collected on bank transfers (wallet → bank) and
+    MySewa platform commission earned from each successful movement.
+    """
+    qs = BankTransferTransaction.objects.select_related('user').order_by('-created_at')
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+    status_filter = request.query_params.get('status')
+    if status_filter in ('pending', 'success', 'failed'):
+        qs = qs.filter(status=status_filter)
+    if q:
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(user__first_name__icontains=q)
+            | Q(user__last_name__icontains=q)
+            | Q(destination_acc_no__icontains=q)
+            | Q(destination_acc_name__icontains=q)
+            | Q(destination_bank_name__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(provider_txn_id__icontains=q)
+            | _maybe_id_query(q, 'id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-commission-history.csv',
+            [
+                'id', 'created_at', 'phone', 'first_name', 'last_name',
+                'amount', 'destination_bank_name', 'destination_acc_no',
+                'destination_acc_name', 'provider_charge', 'platform_charge',
+                'commission_earned', 'charge', 'cashback', 'total_debited',
+                'merchant_txn_id', 'status',
+            ],
+            [
+                [
+                    t.id,
+                    t.created_at.isoformat() if t.created_at else '',
+                    t.user.phone,
+                    t.user.first_name,
+                    t.user.last_name,
+                    t.amount,
+                    t.destination_bank_name,
+                    t.destination_acc_no,
+                    t.destination_acc_name,
+                    t.provider_charge,
+                    t.platform_charge,
+                    t.platform_charge if t.status == 'success' else Decimal('0.00'),
+                    t.charge,
+                    t.cashback,
+                    t.total_debited,
+                    t.merchant_txn_id,
+                    t.status,
+                ]
+                for t in qs
+            ],
+        )
+
+    return Response({
+        'items': CommissionHistorySerializer(qs, many=True).data,
+        'stats': {
+            'total': qs.count(),
+            'success': qs.filter(status='success').count(),
+            'pending': qs.filter(status='pending').count(),
+            'failed': qs.filter(status='failed').count(),
+        },
+        'earnings': _commission_earnings(qs),
         'summary': _amount_summary(qs, direction='debit'),
     })
 
@@ -3785,4 +3899,106 @@ def admin_popup_detail(request, popup_id):
         'message': 'Popup updated',
         'data': HomePopupSerializer(popup, context={'request': request}).data,
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_push_status(request):
+    """FCM configuration + registered device counts for the admin send form."""
+    from ..services.push import push_status
+
+    return Response(push_status())
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_push_send(request):
+    """Send a Firebase app push to all registered devices, or one user."""
+    from ..services.push import is_push_configured, send_push_to_all, send_push_to_tokens
+
+    title = str(request.data.get('title') or '').strip()
+    body = str(request.data.get('body') or '').strip()
+    audience = str(request.data.get('audience') or 'all').strip().lower()
+    if not title:
+        return Response(
+            {'message': 'Title is required.', 'errors': {'title': ['This field is required.']}},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not body:
+        return Response(
+            {'message': 'Message is required.', 'errors': {'body': ['This field is required.']}},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if len(title) > 120:
+        return Response(
+            {'message': 'Title is too long.', 'errors': {'title': ['Keep the title under 120 characters.']}},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if len(body) > 1000:
+        return Response(
+            {'message': 'Message is too long.', 'errors': {'body': ['Keep the message under 1000 characters.']}},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not is_push_configured():
+        return Response(
+            {
+                'message': (
+                    'Firebase is not configured on the server. '
+                    'Add firebase-service-account.json or FIREBASE_CREDENTIALS_PATH.'
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    extra = {
+        'event': 'admin',
+        'audience': audience,
+    }
+    User = get_user_model()
+
+    if audience == 'user':
+        user_id = request.data.get('user_id')
+        phone = str(request.data.get('phone') or '').strip()
+        user = None
+        if user_id not in (None, ''):
+            try:
+                user = User.objects.get(pk=int(user_id))
+            except (User.DoesNotExist, TypeError, ValueError):
+                user = None
+        if user is None and phone:
+            user = User.objects.filter(phone=phone).first()
+        if user is None:
+            return Response(
+                {'message': 'User not found. Enter a valid phone or user id.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        tokens = list(
+            DeviceToken.objects.filter(user=user).values_list('token', flat=True)
+        )
+        result = send_push_to_tokens(tokens, title, body, extra)
+        target_label = getattr(user, 'phone', str(user.pk))
+        if result['sent'] == 0 and result['failed'] == 0:
+            return Response(
+                {
+                    'message': f'No app device token registered for {target_label}.',
+                    'sent': 0,
+                    'failed': 0,
+                    'skipped': result['skipped'],
+                    'target_count': len(tokens),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({
+            'message': f'Push sent to {target_label}.',
+            **result,
+            'target_count': len(tokens),
+        })
+
+    result = send_push_to_all(title, body, extra)
+    return Response({
+        'message': f"Push sent to {result['sent']} device(s).",
+        **result,
+        'target_count': result['sent'] + result['failed'] + result['skipped'],
+    })
+
 

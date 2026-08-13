@@ -34,7 +34,7 @@ import {
 import { apiClient } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { COLORS } from "@/constants/colors";
-import { Users, Wallet, Inbox, Smartphone, Banknote, AlertTriangle } from "lucide-react";
+import { Users, Wallet, Inbox, Smartphone, Banknote, AlertTriangle, Coins } from "lucide-react";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({
@@ -98,6 +98,15 @@ function AdminDashboard() {
           value: String(dashKpis.transfers_today ?? 0),
           icon: Banknote,
           tone: "debit" as const,
+        },
+        {
+          key: "commission",
+          label: "Commission today",
+          value: formatNPR(dashKpis.commission_today ?? 0),
+          hint: `All-time ${formatNPR(dashKpis.commission_total ?? 0)}`,
+          icon: Coins,
+          tone: "credit" as const,
+          to: "/admin/commission-history",
         },
         {
           key: "statement",

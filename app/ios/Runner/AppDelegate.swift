@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import UserNotifications
 import WebKit
 
 @main
@@ -8,6 +9,8 @@ import WebKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    UNUserNotificationCenter.current().delegate = self
+    application.registerForRemoteNotifications()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
