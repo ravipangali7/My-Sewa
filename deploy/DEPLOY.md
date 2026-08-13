@@ -1,5 +1,17 @@
 # Deploy MySewa so login works on https://mysewa.sewabyapar.com
 
+## Why settings / profile / wallet return 500
+
+Django is using an **empty** `db.sqlite3` while the real data is in **`db .sqlite3`** (space in the name). Traceback: `no such table: core_settings`.
+
+On the VPS:
+
+```bash
+sudo bash /home/luna/My-Sewa/deploy/FIX_ALL_500.sh
+```
+
+That restores the real database, runs migrations, and restarts Gunicorn. `/api/settings/` must return JSON 200.
+
 ## Why login returns 405
 
 nginx is serving the **static SPA** for `/api/*`.
@@ -65,6 +77,7 @@ npm run build
 | `deploy/FIX_STATEMENT_500.sh` | Apply migration 0024 + restart API (fixes admin dashboard/statement 500) |
 | `deploy/FIX_ELECTRICITY_BILL_TABLE.sh` | Apply migration 0031 + restart API (fixes wallet transactions 500 / missing electricity table) |
 | `deploy/FIX_AUTHTOKEN_TABLE.sh` | Apply `migrate authtoken` + restart API (fixes `no such table: authtoken_token`) |
+| `deploy/FIX_ALL_500.sh` | Restore misnamed `db .sqlite3` + migrate + restart (fixes settings/profile/wallet 500s) |
 | `deploy/patch-nginx-api.sh` | Inject `/api` proxy into existing SSL site config |
 | `deploy/nginx-api-locations.conf` | Snippet included by nginx |
 | `deploy/nginx-mysewa.conf` | Full example site (HTTP; certbot adds TLS) |

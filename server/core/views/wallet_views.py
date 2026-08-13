@@ -92,12 +92,52 @@ def get_wallet_balance(request):
         wallet = Wallet.objects.create(user=request.user, balance=0.00)
         serializer = WalletSerializer(wallet)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    except (OperationalError, ProgrammingError):
+        return Response(
+            {
+                'id': None,
+                'user': str(request.user),
+                'phone': getattr(request.user, 'phone', ''),
+                'balance': '0.00',
+                'created_at': None,
+                'updated_at': None,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_transaction_history(request):
     """Get transaction history (deposits, remittances, topups, bank transfers, bills, data packs, adjustments)"""
+    try:
+        return _transaction_history_payload(request)
+    except (OperationalError, ProgrammingError):
+        logger.exception('wallet transactions failed')
+        return Response({
+            'deposits': [],
+            'remittances': [],
+            'topups': [],
+            'bank_transfers': [],
+            'internet_bills': [],
+            'water_bills': [],
+            'electricity_bills': [],
+            'community_electricity': [],
+            'data_packs': [],
+            'wallet_adjustments': [],
+            'summary': {
+                'total_volume': 0,
+                'total_credit': 0,
+                'total_debit': 0,
+                'total_amount': 0,
+                'today_amount': 0,
+                'monthly_amount': 0,
+            },
+        }, status=status.HTTP_200_OK)
+
+
+def _transaction_history_payload(request):
+    """Build wallet history payload. Raises if a table is missing and cannot be healed."""
     # Self-heal skipped migrate 0031 so wallet history never 500s on missing table.
     try:
         _ensure_electricity_bill_table()

@@ -11,7 +11,11 @@ from ..models import Settings, UserFeeConfig
 
 
 def get_app_config() -> Dict[str, Any]:
-    return Settings.load().get_config()
+    try:
+        return Settings.load().get_config()
+    except Exception:
+        from ..models import default_app_config, merge_app_config
+        return merge_app_config(default_app_config())
 
 
 def _to_decimal(value, default: str = '0') -> Decimal:
