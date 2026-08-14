@@ -109,24 +109,35 @@ def _ensure_electricity_bill_table():
     Create core_electricitybilltransaction if deploy skipped migrate 0031.
     Wallet history queries this model; a missing table 500s the whole endpoint.
     """
-    table = 'core_electricitybilltransaction'
-    if table in connection.introspection.table_names():
-        return False
-
-    from django.apps import apps
     from django.db.migrations.recorder import MigrationRecorder
 
-    model = apps.get_model('core', 'ElectricityBillTransaction')
-    with connection.schema_editor() as schema_editor:
-        schema_editor.create_model(model)
+    table = 'core_electricitybilltransaction'
 
-    recorder = MigrationRecorder(connection)
-    if not recorder.migration_qs.filter(
-        app='core', name='0031_electricity_bill'
-    ).exists():
+    def _record_0031_if_possible():
+        recorder = MigrationRecorder(connection)
+        if recorder.migration_qs.filter(app='core', name='0031_electricity_bill').exists():
+            return
         # Only safe to mark applied when 0030 is already recorded (matches deps).
         if recorder.migration_qs.filter(app='core', name='0030_home_popup').exists():
             recorder.record_applied('core', '0031_electricity_bill')
+
+    if table in connection.introspection.table_names():
+        _record_0031_if_possible()
+        return False
+
+    from django.apps import apps
+
+    model = apps.get_model('core', 'ElectricityBillTransaction')
+    try:
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(model)
+    except Exception:
+        if table in connection.introspection.table_names():
+            _record_0031_if_possible()
+            return False
+        raise
+
+    _record_0031_if_possible()
     return True
 
 
