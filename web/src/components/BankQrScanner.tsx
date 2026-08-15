@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import jsQR from "jsqr";
+import jsQR from "@/lib/jsqr";
 import { Camera, ImageIcon, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
