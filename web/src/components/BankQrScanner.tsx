@@ -9,7 +9,7 @@ import jsQR from "@/lib/jsqr";
 import { waitForNativeCameraPermission } from "@/lib/native-app";
 import { cn } from "@/lib/utils";
 
-type ScannerTab = "scanner" | "share";
+type ScannerTab = "scanner" | "manual";
 
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
@@ -144,7 +144,7 @@ export function BankQrScanner({
     const clamped = next < 0 ? 0 : next > 1 ? 1 : next;
     pageRef.current = clamped;
     setPage(clamped);
-    setTab(clamped === 0 ? "scanner" : "share");
+    setTab(clamped === 0 ? "scanner" : "manual");
     setDragX(0);
   }, []);
 
@@ -375,15 +375,15 @@ export function BankQrScanner({
         </button>
         <Tabs
           value={tab}
-          onValueChange={(value) => goToPage(value === "share" ? 1 : 0)}
+          onValueChange={(value) => goToPage(value === "manual" ? 1 : 0)}
           className="min-w-0 flex-1"
         >
           <TabsList className="grid h-10 w-full grid-cols-2 rounded-full bg-black/45 text-white">
             <TabsTrigger value="scanner" className="rounded-full text-white data-[state=active]:bg-white data-[state=active]:text-foreground">
               {t("transfer.tabScanner")}
             </TabsTrigger>
-            <TabsTrigger value="share" className="rounded-full text-white data-[state=active]:bg-white data-[state=active]:text-foreground">
-              {t("transfer.tabShare")}
+            <TabsTrigger value="manual" className="rounded-full text-white data-[state=active]:bg-white data-[state=active]:text-foreground">
+              {t("transfer.tabManual")}
             </TabsTrigger>
           </TabsList>
         </Tabs>
