@@ -663,7 +663,6 @@ function ReceiveRemittance() {
                     {t("remittance.citizenshipVerifyHelp")}
                   </p>
                 </div>
-                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <CitizenshipUploadSlot
                     label={t("remittance.citizenshipFront")}
