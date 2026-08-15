@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import QRCode from "qrcode";
 import { Download, ImageIcon, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { CopyableField } from "@/components/CopyableField";
@@ -13,6 +12,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
 import { buildMySewaAccountQr } from "@/lib/bank-qr";
+import { toDataURL as qrToDataURL } from "@/lib/qrcode";
 import { useT } from "@/lib/i18n";
 import jsQR from "@/lib/jsqr";
 import {
@@ -314,18 +314,11 @@ export function BankQrScanner({
       setQrDataUrl("");
       return;
     }
-    let cancelled = false;
-    void QRCode.toDataURL(qrPayload, {
-      width: 512,
-      margin: 1,
-      errorCorrectionLevel: "M",
-      color: { dark: "#1C1C1E", light: "#FFFFFF" },
-    }).then((url) => {
-      if (!cancelled) setQrDataUrl(url);
-    });
-    return () => {
-      cancelled = true;
-    };
+    try {
+      setQrDataUrl(qrToDataURL(qrPayload, { width: 512 }));
+    } catch {
+      setQrDataUrl("");
+    }
   }, [open, qrPayload]);
 
   async function onFile(file: File | undefined) {
