@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, QrCode, Search } from "lucide-react";
@@ -69,6 +69,7 @@ type VerifiedDestination = {
 };
 
 function Transfer() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t, locale } = useI18n();
@@ -102,7 +103,6 @@ function Transfer() {
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
-  const [scannerOpen, setScannerOpen] = useState(false);
   const skipMethodResetRef = useRef(false);
   const pendingQrAmountRef = useRef("");
   const pendingQrVerifyRef = useRef(false);
@@ -636,19 +636,6 @@ function Transfer() {
             </TabsList>
           </Tabs>
 
-          {!scannerOpen ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="mb-4 h-12 w-full rounded-xl"
-            disabled={!transfersEnabled}
-            onClick={() => setScannerOpen(true)}
-          >
-            <QrCode className="size-4" />
-            {t("transfer.scanQr")}
-          </Button>
-          ) : null}
-
           <form
             className="space-y-4"
             onSubmit={(e) => {
@@ -1023,27 +1010,48 @@ function Transfer() {
   );
 
   return (
+    <BankQrScanner
+      onScan={applyScannedQr}
+      onClose={() => navigate({ to: "/app" })}
+    >
+      {({ showScanner }) => (
     <UserShell
       title={t("transfer.title")}
       back="/app"
       headerTrailing={
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
-            "hover:bg-white/25",
-            "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
-          )}
-          onClick={() => setSearchOpen(true)}
-          aria-label={t("transfer.searchTitle")}
-        >
-          <Search className="size-4" />
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
+              "hover:bg-white/25",
+              "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+            )}
+            onClick={showScanner}
+            aria-label={t("transfer.scanQr")}
+          >
+            <QrCode className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
+              "hover:bg-white/25",
+              "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+            )}
+            onClick={() => setSearchOpen(true)}
+            aria-label={t("transfer.searchTitle")}
+          >
+            <Search className="size-4" />
+          </Button>
+        </div>
       }
     >
-      {scannerOpen ? null : transferMain}
+      {transferMain}
       <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
         <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5">
           <SheetHeader className="mb-4 text-left">
@@ -1082,14 +1090,6 @@ function Transfer() {
         </SheetContent>
       </Sheet>
 
-      <BankQrScanner
-        open={scannerOpen}
-        onOpenChange={setScannerOpen}
-        onScan={applyScannedQr}
-      >
-        {transferMain}
-      </BankQrScanner>
-
       <TransactionPinDialog
         open={pinOpen}
         onOpenChange={(open) => {
@@ -1105,6 +1105,8 @@ function Transfer() {
         }}
       />
     </UserShell>
+      )}
+    </BankQrScanner>
   );
 }
 
