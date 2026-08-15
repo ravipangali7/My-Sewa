@@ -31,6 +31,7 @@ const JSON_KEYS = {
     "account",
     "destination_acc_no",
     "iban",
+    "phone",
   ],
   accountName: [
     "account_name",
@@ -117,6 +118,7 @@ function parseJsonPayload(raw: string): Partial<ParsedBankQr> | null {
       accountNumber: pickJsonValue(obj, JSON_KEYS.accountNumber),
       accountName: pickJsonValue(obj, JSON_KEYS.accountName),
       amount: pickJsonValue(obj, JSON_KEYS.amount),
+      isMobile: obj.is_mobile === true || obj.isMobile === true,
     };
   } catch {
     return null;
@@ -275,7 +277,7 @@ function finalize(
   const amount = /^\d+(?:\.\d{1,2})?$/.test(amountRaw) && Number(amountRaw) > 0 ? amountRaw : "";
 
   let isMobile = Boolean(partial.isMobile);
-  if (!isMobile && isNepaliMobile(accountNumber) && !isAccountNumber(accountNumber)) {
+  if (!isMobile && isNepaliMobile(accountNumber) && !partial.bankCode) {
     isMobile = true;
   }
   if (isMobile) {
@@ -338,4 +340,19 @@ export function parseBankQr(raw: string, banks: BankOption[] = []): ParseBankQrR
   }
 
   return { ok: false, reason: "not_qr" };
+}
+
+/** Payload encoded in the signed-in user's shareable MySewa account QR. */
+export function buildMySewaAccountQr(details: {
+  accountName: string;
+  accountNumber: string;
+}): string {
+  return JSON.stringify({
+    bank_name: "MySewa",
+    account_name: details.accountName,
+    account_number: details.accountNumber,
+    name: details.accountName,
+    phone: details.accountNumber,
+    is_mobile: true,
+  });
 }

@@ -1,18 +1,30 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import jsQR from "@/lib/jsqr";
-import { Camera, ImageIcon, QrCode } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "qrcode";
+import { Download, ImageIcon, Share2 } from "lucide-react";
 import { toast } from "sonner";
+import { CopyableField } from "@/components/CopyableField";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
-  SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/lib/auth";
+import { buildMySewaAccountQr } from "@/lib/bank-qr";
 import { useT } from "@/lib/i18n";
-import { waitForNativeCameraPermission } from "@/lib/native-app";
+import jsQR from "@/lib/jsqr";
+import {
+  hasNativeFileBridge,
+  isMySewaNativeApp,
+  waitForNativeCameraPermission,
+  waitForNativeFileBridge,
+} from "@/lib/native-app";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 import { cn } from "@/lib/utils";
+
+type ScannerTab = "scanner" | "share";
 
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
@@ -96,6 +108,45 @@ function stopStream(stream: MediaStream | null) {
   }
 }
 
+function dataUrlBase64(dataUrl: string): string {
+  const comma = dataUrl.indexOf(",");
+  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+}
+
+function sendPngViaNative(dataUrl: string, filename: string, type: "share" | "download"): boolean {
+  if (!hasNativeFileBridge()) return false;
+  const payload = {
+    type,
+    filename,
+    mime: "image/png",
+    base64: dataUrlBase64(dataUrl),
+  };
+  try {
+    if (window.MySewaNative?.downloadFile?.(payload)) return true;
+  } catch {
+    /* fall through */
+  }
+  try {
+    if (window.MySewaBridge?.postMessage) {
+      window.MySewaBridge.postMessage(JSON.stringify(payload));
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+function triggerPngDownload(dataUrl: string, filename: string) {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 export function BankQrScanner({
   open,
   onOpenChange,
@@ -106,15 +157,34 @@ export function BankQrScanner({
   onScan: (raw: string) => void;
 }) {
   const t = useT();
+  const { user } = useAuth();
+  const { logoUrl } = useSiteBranding();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
   const handledRef = useRef(false);
   const uploadRef = useRef<HTMLInputElement | null>(null);
-  const captureRef = useRef<HTMLInputElement | null>(null);
+  const [tab, setTab] = useState<ScannerTab>("scanner");
   const [cameraError, setCameraError] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [sharing, setSharing] = useState(false);
+
+  const accountName =
+    [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
+    (user?.nickname || "").trim() ||
+    (user?.business_name || "").trim() ||
+    t("profile.fallbackName");
+  const accountNumber = (user?.phone || "").replace(/\D/g, "") || user?.phone || "";
+  const brandName = "MySewa";
+  const qrPayload = useMemo(
+    () =>
+      accountNumber
+        ? buildMySewaAccountQr({ accountName, accountNumber })
+        : "",
+    [accountName, accountNumber],
+  );
 
   const emit = useCallback(
     (raw: string) => {
@@ -141,6 +211,17 @@ export function BankQrScanner({
 
   useEffect(() => {
     if (!open) {
+      setTab("scanner");
+      handledRef.current = false;
+      setCameraError(false);
+      stopCamera();
+    }
+  }, [open, stopCamera]);
+
+  const scannerActive = open && tab === "scanner";
+
+  useEffect(() => {
+    if (!scannerActive) {
       handledRef.current = false;
       setCameraError(false);
       stopCamera();
@@ -226,7 +307,26 @@ export function BankQrScanner({
       cancelled = true;
       stopCamera();
     };
-  }, [emit, open, stopCamera]);
+  }, [emit, scannerActive, stopCamera]);
+
+  useEffect(() => {
+    if (!open || !qrPayload) {
+      setQrDataUrl("");
+      return;
+    }
+    let cancelled = false;
+    void QRCode.toDataURL(qrPayload, {
+      width: 512,
+      margin: 1,
+      errorCorrectionLevel: "M",
+      color: { dark: "#1C1C1E", light: "#FFFFFF" },
+    }).then((url) => {
+      if (!cancelled) setQrDataUrl(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, qrPayload]);
 
   async function onFile(file: File | undefined) {
     if (!file) return;
@@ -239,84 +339,174 @@ export function BankQrScanner({
     toast.error(t("transfer.qrInvalid"));
   }
 
+  async function shareOrSave(mode: "share" | "download") {
+    if (!qrDataUrl) return;
+    const filename = `mysewa-qr-${accountNumber || "account"}.png`;
+    setSharing(true);
+    try {
+      if (isMySewaNativeApp()) {
+        await waitForNativeFileBridge();
+      }
+      if (sendPngViaNative(qrDataUrl, filename, mode)) {
+        if (mode === "download") toast.success(t("transfer.shareQrSaved"));
+        return;
+      }
+      if (mode === "share" && typeof navigator.share === "function") {
+        const res = await fetch(qrDataUrl);
+        const blob = await res.blob();
+        const file = new File([blob], filename, { type: "image/png" });
+        const payload = {
+          files: [file],
+          title: `${brandName} ${t("transfer.mySewaAccount")}`,
+          text: `${accountName}\n${accountNumber}`,
+        };
+        if (!navigator.canShare || navigator.canShare(payload)) {
+          await navigator.share(payload);
+          return;
+        }
+      }
+      triggerPngDownload(qrDataUrl, filename);
+      toast.success(t("transfer.shareQrSaved"));
+    } catch {
+      toast.error(t("transfer.shareQrFailed"));
+    } finally {
+      setSharing(false);
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
         className="max-h-[92dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5"
       >
-        <SheetHeader className="mb-4 pr-8 text-left">
-          <SheetTitle>{t("transfer.scanQrTitle")}</SheetTitle>
-          <SheetDescription>{t("transfer.scanQrBody")}</SheetDescription>
-        </SheetHeader>
+        <SheetTitle className="sr-only">{t("transfer.scanQr")}</SheetTitle>
+        <SheetDescription className="sr-only">{t("transfer.tabScanner")}</SheetDescription>
 
-        <div className="relative mx-auto aspect-square w-full max-w-sm overflow-hidden rounded-2xl bg-black">
-          <video
-            ref={videoRef}
-            className={cn(
-              "size-full object-cover",
-              cameraError || !scanning ? "opacity-0" : "opacity-100",
-            )}
-            playsInline
-            muted
-            autoPlay
-          />
-          {cameraError || !scanning ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted px-6 text-center">
-              <QrCode className="size-10 text-muted-foreground" />
-              <p className="text-[13px] text-muted-foreground">{t("transfer.qrCameraHelp")}</p>
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as ScannerTab)}
+          className="pr-8"
+        >
+          <TabsList className="mb-4 grid h-11 w-full grid-cols-2 rounded-xl">
+            <TabsTrigger value="scanner" className="rounded-lg">
+              {t("transfer.tabScanner")}
+            </TabsTrigger>
+            <TabsTrigger value="share" className="rounded-lg">
+              {t("transfer.tabShare")}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="scanner" className="mt-0">
+            <div className="relative mx-auto aspect-square w-full max-w-sm overflow-hidden rounded-2xl bg-black">
+              <video
+                ref={videoRef}
+                className={cn(
+                  "size-full object-cover",
+                  cameraError || !scanning ? "opacity-0" : "opacity-100",
+                )}
+                playsInline
+                muted
+                autoPlay
+              />
+              {scanning && !cameraError ? (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="size-[68%] rounded-2xl border-2 border-white/90 shadow-[0_0_0_999px_rgba(0,0,0,0.35)]" />
+                </div>
+              ) : null}
             </div>
-          ) : (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="size-[68%] rounded-2xl border-2 border-white/90 shadow-[0_0_0_999px_rgba(0,0,0,0.35)]" />
+
+            <div className="mx-auto mt-4 w-full max-w-sm">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 w-full rounded-xl"
+                onClick={() => uploadRef.current?.click()}
+              >
+                <ImageIcon className="size-4" />
+                {t("transfer.uploadQr")}
+              </Button>
             </div>
-          )}
-        </div>
 
-        <div className="mx-auto mt-4 grid w-full max-w-sm grid-cols-2 gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-12 rounded-xl"
-            onClick={() => captureRef.current?.click()}
-          >
-            <Camera className="size-4" />
-            {t("transfer.takeQrPhoto")}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-12 rounded-xl"
-            onClick={() => uploadRef.current?.click()}
-          >
-            <ImageIcon className="size-4" />
-            {t("transfer.uploadQr")}
-          </Button>
-        </div>
+            <input
+              ref={uploadRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                void onFile(file);
+              }}
+            />
+          </TabsContent>
 
-        <input
-          ref={captureRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
-            void onFile(file);
-          }}
-        />
-        <input
-          ref={uploadRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
-            void onFile(file);
-          }}
-        />
+          <TabsContent value="share" className="mt-0">
+            <div className="mx-auto w-full max-w-sm overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
+              <div className="flex items-center justify-center gap-2 bg-brand px-4 py-3">
+                <img
+                  src={logoUrl}
+                  alt=""
+                  className="size-8 rounded-md bg-white object-contain p-0.5"
+                />
+                <p className="text-[16px] font-semibold tracking-wide text-white">
+                  {brandName}
+                </p>
+              </div>
+              <div className="px-5 pb-5 pt-4">
+                <div className="mx-auto flex aspect-square w-full max-w-[220px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-white p-2">
+                  {qrDataUrl ? (
+                    <img
+                      src={qrDataUrl}
+                      alt={t("transfer.mySewaAccount")}
+                      className="size-full object-contain"
+                    />
+                  ) : (
+                    <div className="size-full animate-pulse rounded-lg bg-muted" />
+                  )}
+                </div>
+                <p className="mt-3 text-center text-[16px] font-semibold">{accountName}</p>
+                <p className="mt-0.5 text-center text-[12px] text-muted-foreground">
+                  {t("transfer.mySewaAccount")}
+                </p>
+                <dl className="mt-4 space-y-2 text-[14px]">
+                  <CopyableField
+                    label={t("load.accountName")}
+                    value={accountName}
+                    mono={false}
+                  />
+                  <CopyableField
+                    label={t("load.accountNumber")}
+                    value={accountNumber || "—"}
+                  />
+                  <CopyableField label={t("load.bankName")} value={brandName} mono={false} />
+                </dl>
+              </div>
+            </div>
+
+            <div className="mx-auto mt-4 grid w-full max-w-sm grid-cols-2 gap-2">
+              <Button
+                type="button"
+                className="h-12 rounded-xl"
+                disabled={!qrDataUrl || sharing}
+                onClick={() => void shareOrSave("share")}
+              >
+                <Share2 className="size-4" />
+                {t("transfer.shareQr")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 rounded-xl"
+                disabled={!qrDataUrl || sharing}
+                onClick={() => void shareOrSave("download")}
+              >
+                <Download className="size-4" />
+                {t("transfer.saveQr")}
+              </Button>
+            </div>
+          </TabsContent>
+        </Tabs>
       </SheetContent>
     </Sheet>
   );
