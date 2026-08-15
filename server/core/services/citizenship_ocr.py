@@ -94,8 +94,42 @@ def _tesseract_available() -> tuple[bool, str]:
     return True, ''
 
 
+def _ocr_pass(img: Image.Image, lang: str, psm: int) -> tuple[str, float]:
+    import pytesseract
+
+    config = f'--psm {psm}'
+    data = pytesseract.image_to_data(
+        img,
+        lang=lang,
+        output_type=pytesseract.Output.DICT,
+        config=config,
+    )
+    words = []
+    confs = []
+    for text, conf in zip(data.get('text', []), data.get('conf', [])):
+        token = (text or '').strip()
+        if not token:
+            continue
+        words.append(token)
+        try:
+            c = float(conf)
+        except (TypeError, ValueError):
+            c = -1
+        if c >= 0:
+            confs.append(c)
+    text = ' '.join(words)
+    if not text.strip():
+        text = pytesseract.image_to_string(img, lang=lang, config=config)
+    mean_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.0
+    return text, mean_conf
+
+
 def _ocr_image(img: Image.Image) -> tuple[str, float, list[str]]:
-    """Run Tesseract and return (text, mean_confidence 0-1, errors)."""
+    """Run Tesseract and return (text, mean_confidence 0-1, errors).
+
+    Tries Nepali+English first, then extra page-segmentation modes if the
+    first pass yields little structured text.
+    """
     ok, err = _tesseract_available()
     if not ok:
         return '', 0.0, [err]
@@ -104,49 +138,36 @@ def _ocr_image(img: Image.Image) -> tuple[str, float, list[str]]:
 
     errors: list[str] = []
     processed = _preprocess(img)
-    # Prefer nep+eng when Nepali pack exists; fall back to eng.
     langs_to_try = ('nep+eng', 'eng+nep', 'eng')
-    last_text = ''
-    last_conf = 0.0
+    psms = (6, 4, 11)
+    best_text = ''
+    best_conf = 0.0
+    best_filled = -1
 
     for lang in langs_to_try:
-        try:
-            data = pytesseract.image_to_data(
-                processed,
-                lang=lang,
-                output_type=pytesseract.Output.DICT,
-                config='--psm 6',
-            )
-            words = []
-            confs = []
-            for text, conf in zip(data.get('text', []), data.get('conf', [])):
-                token = (text or '').strip()
-                if not token:
-                    continue
-                words.append(token)
-                try:
-                    c = float(conf)
-                except (TypeError, ValueError):
-                    c = -1
-                if c >= 0:
-                    confs.append(c)
-            text = ' '.join(words)
-            if not text.strip():
-                text = pytesseract.image_to_string(processed, lang=lang, config='--psm 6')
-            mean_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.0
-            if text.strip():
-                return text, mean_conf, errors
-            last_text, last_conf = text, mean_conf
-        except pytesseract.TesseractError as exc:
-            errors.append(f'OCR lang={lang} failed: {exc}')
-            continue
-        except Exception as exc:  # pragma: no cover
-            errors.append(f'OCR lang={lang} error: {exc}')
-            continue
+        for psm in psms:
+            try:
+                text, mean_conf = _ocr_pass(processed, lang, psm)
+            except pytesseract.TesseractError as exc:
+                errors.append(f'OCR lang={lang} psm={psm} failed: {exc}')
+                continue
+            except Exception as exc:  # pragma: no cover
+                errors.append(f'OCR lang={lang} psm={psm} error: {exc}')
+                continue
+            if not (text or '').strip():
+                continue
+            filled = _field_fill_count(parse_citizenship_text(text))
+            # Prefer more extracted fields; break early on a strong read.
+            if filled > best_filled or (filled == best_filled and mean_conf > best_conf):
+                best_text, best_conf, best_filled = text, mean_conf, filled
+            if filled >= 4:
+                return best_text, best_conf, errors
+        if best_filled >= 3:
+            break
 
-    if not last_text.strip():
+    if not (best_text or '').strip():
         errors.append('No text could be extracted from the citizenship image')
-    return last_text, last_conf, errors
+    return best_text, best_conf, errors
 
 
 _CITIZENSHIP_NO_PATTERNS = [
@@ -155,13 +176,15 @@ _CITIZENSHIP_NO_PATTERNS = [
         r'certificate\s*(?:no\.?|number|#)|'
         r'registration\s*(?:no\.?|number|#)|'
         r'reg\.?\s*no\.?|'
-        r'नागरिकता\s*(?:नं\.?|नम्बर)|'
+        r'cit\.?\s*no\.?|'
+        r'नागरिकता\s*(?:प्रमाणपत्र\s*)?(?:नं\.?|नम्बर)|'
         r'प्रमाणपत्र\s*(?:नं\.?|नम्बर)|'
         r'दर्ता\s*(?:नं\.?|नम्बर))'
         r'[\s:#\-]*([A-Za-z0-9०-९][A-Za-z0-9०-९\-/\.]{2,30})',
         re.IGNORECASE,
     ),
-    re.compile(r'(?<!\d)(\d{1,3}[-/]\d{1,3}[-/]\d{2,6})(?!\d)'),
+    # District-year-serial style: 28-01-75-01234 or 12-34-56789
+    re.compile(r'(?<!\d)(\d{1,3}[-/]\d{1,4}[-/]\d{1,4}(?:[-/]\d{1,8})?)(?!\d)'),
     re.compile(r'(?<!\d)(\d{5,12})(?!\d)'),
 ]
 
@@ -170,9 +193,22 @@ _CITIZENSHIP_NO_STOPWORDS = {
     'name', 'date', 'birth', 'issue', 'place', 'district', 'sex', 'gender',
 }
 
+_NAME_STOPWORDS = {
+    'nepal', 'government', 'citizenship', 'certificate', 'national', 'identity',
+    'federal', 'democratic', 'republic', 'ministry', 'home', 'affairs',
+    'नागरिकता', 'प्रमाणपत्र', 'नेपाल', 'सरकार',
+}
+
 _NAME_PATTERNS = [
     re.compile(
-        r'(?:full\s*name|name|नाम|नाम थर|holder)[:\s]+([A-Za-z][A-Za-z\s.]{2,60}|[\u0900-\u097F\s]{3,60})',
+        r'(?:full\s*name|holder(?:\'s)?\s*name|name\s*in\s*english|'
+        r'name|नाम थर|नाम)'
+        r'[:\s]+([A-Za-z][A-Za-z .]{2,60}|[\u0900-\u097F ]{3,60})',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'(?:full\s*name|holder(?:\'s)?\s*name|name|नाम थर|नाम)[:\s]*[\r\n]+\s*'
+        r'([A-Za-z][A-Za-z .]{2,60}|[\u0900-\u097F ]{3,60})',
         re.IGNORECASE,
     ),
 ]
@@ -194,7 +230,7 @@ _ISSUE_DATE_PATTERNS = [
 _ISSUE_PLACE_PATTERNS = [
     re.compile(
         r'(?:place\s*of\s*issue|issued\s*(?:from|by|at)|issuing\s*(?:district|office|authority)|'
-        r'जारी\s*(?:जिल्ला|स्थान|कार्यालय)|जिल्ला)[:\s]+([A-Za-z][A-Za-z\s.]{2,40}|[\u0900-\u097F\s]{2,40})',
+        r'जारी\s*(?:जिल्ला|स्थान|कार्यालय)|जिल्ला)[:\s]+([A-Za-z][A-Za-z. ]{2,40}|[\u0900-\u097F ]{2,40})',
         re.IGNORECASE,
     ),
 ]
@@ -233,16 +269,36 @@ def _extract_issue_place(text: str) -> str:
     return ''
 
 
+def _looks_like_date_token(raw: str) -> bool:
+    """Reject DOB/issue dates accidentally captured as a citizenship number."""
+    text = normalize_nepali_digits(raw or '').strip()
+    if re.match(r'^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$', text):
+        return True
+    if re.match(r'^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}$', text):
+        return True
+    digits = re.sub(r'\D', '', text)
+    if len(digits) == 8:
+        year = int(digits[:4])
+        if 1900 <= year <= 2100:
+            month = int(digits[4:6])
+            if 1 <= month <= 12:
+                return True
+    return False
+
+
 def _clean_citizenship_number(raw: str) -> str:
     raw = normalize_nepali_digits(raw or '')
+    # OCR often reads 0/O and 1/I/l in numeric IDs.
+    raw = raw.replace('O', '0').replace('o', '0').replace('I', '1').replace('l', '1')
     raw = re.sub(r'\s+', '', raw)
     raw = raw.strip(':-.,;')
     if not raw:
         return ''
     if raw.casefold() in _CITIZENSHIP_NO_STOPWORDS:
         return ''
-    # Citizenship / registration numbers always include at least one digit.
     if not re.search(r'\d', raw):
+        return ''
+    if _looks_like_date_token(raw):
         return ''
     return raw
 
@@ -258,9 +314,50 @@ def _extract_citizenship_number(text: str) -> str:
 
 def _clean_name(raw: str) -> str:
     raw = re.sub(r'\s+', ' ', (raw or '').strip())
-    # Drop trailing labels accidentally captured
-    raw = re.split(r'\b(?:DOB|Date|Citizenship|Sex|Gender|Address)\b', raw, maxsplit=1)[0]
-    return raw.strip(' :-')
+    raw = re.split(
+        r'\b(?:DOB|Date|Citizenship|Sex|Gender|Address|Nationality|Occupation)\b',
+        raw,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+    raw = raw.strip(' :-')
+    if raw.casefold() in _NAME_STOPWORDS:
+        return ''
+    return raw
+
+
+def _fallback_name(text: str) -> str:
+    """Pick an ALL-CAPS / title-case person name line when labels are missing."""
+    for line in (text or '').splitlines():
+        candidate = _clean_name(line)
+        if not candidate:
+            continue
+        lower = candidate.casefold()
+        if any(stop in lower for stop in _NAME_STOPWORDS):
+            continue
+        if re.search(r'\d', candidate):
+            continue
+        words = candidate.split()
+        if 2 <= len(words) <= 5 and all(
+            re.match(r"^[A-Za-z\u0900-\u097F][A-Za-z\u0900-\u097F'.-]*$", w) for w in words
+        ):
+            if candidate.isupper() or all(w[:1].isupper() for w in words):
+                return candidate
+    return ''
+
+
+def _field_fill_count(parsed: CitizenshipOcrFields) -> int:
+    return sum(
+        1
+        for v in (
+            parsed.name,
+            parsed.citizenship_number,
+            parsed.dob,
+            parsed.issue_date,
+            parsed.issue_place,
+        )
+        if v
+    )
 
 
 def parse_citizenship_text(text: str, *, side: str = '') -> CitizenshipOcrFields:
@@ -274,7 +371,9 @@ def parse_citizenship_text(text: str, *, side: str = '') -> CitizenshipOcrFields
     has_nepali = bool(re.search(r'[\u0900-\u097F]', text))
     language_hint = 'nepali+english' if has_nepali else 'english'
 
-    name = _clean_name(_first_match(_NAME_PATTERNS, text) or _first_match(_NAME_PATTERNS, normalized))
+    name = _clean_name(
+        _first_match(_NAME_PATTERNS, text) or _first_match(_NAME_PATTERNS, normalized)
+    ) or _fallback_name(text) or _fallback_name(normalized)
     citizenship_number = _extract_citizenship_number(normalized)
     dob_raw = _first_match(_DOB_PATTERNS, normalized)
     issue_raw = _first_match(_ISSUE_DATE_PATTERNS, normalized)
@@ -341,6 +440,19 @@ def _prefer(*values: str) -> str:
     return ''
 
 
+def _numbers_conflict(a: str, b: str) -> bool:
+    fa = re.sub(r'[\s\-./]', '', normalize_nepali_digits(a or '')).casefold()
+    oa = re.sub(r'[\s\-./]', '', normalize_nepali_digits(b or '')).casefold()
+    if not fa or not oa:
+        return False
+    if fa == oa:
+        return False
+    shorter, longer = (fa, oa) if len(fa) <= len(oa) else (oa, fa)
+    if len(shorter) >= 8 and longer.endswith(shorter) and (len(longer) - len(shorter)) <= 3:
+        return False
+    return True
+
+
 def extract_citizenship_from_images(
     front: FileLike,
     back: FileLike,
@@ -351,17 +463,39 @@ def extract_citizenship_from_images(
     """
     front_result = ocr_citizenship_side(front, side='front')
     back_result = ocr_citizenship_side(back, side='back')
+    merged_text = '\n'.join(
+        part for part in (front_result.raw_text, back_result.raw_text) if part
+    )
+    merged_parsed = (
+        parse_citizenship_text(merged_text, side='combined')
+        if merged_text
+        else CitizenshipOcrFields()
+    )
+
+    errors = [*front_result.errors, *back_result.errors]
+    if _numbers_conflict(front_result.citizenship_number, back_result.citizenship_number):
+        errors.append(
+            'Front and back citizenship numbers do not match each other. '
+            'Upload the front and back of the same certificate.'
+        )
 
     combined = CombinedCitizenshipOcr(
-        name=_prefer(front_result.name, back_result.name),
+        name=_prefer(front_result.name, back_result.name, merged_parsed.name),
         citizenship_number=_prefer(
-            front_result.citizenship_number, back_result.citizenship_number
+            front_result.citizenship_number,
+            back_result.citizenship_number,
+            merged_parsed.citizenship_number,
         ),
-        dob=_prefer(front_result.dob, back_result.dob),
-        issue_date=_prefer(back_result.issue_date, front_result.issue_date),
+        dob=_prefer(front_result.dob, back_result.dob, merged_parsed.dob),
+        issue_date=_prefer(
+            back_result.issue_date,
+            front_result.issue_date,
+            merged_parsed.issue_date,
+        ),
         issue_place=_prefer(
             back_result.issue_place,
             front_result.issue_place,
+            merged_parsed.issue_place,
         ),
         front=front_result.to_dict(),
         back=back_result.to_dict(),
@@ -369,6 +503,12 @@ def extract_citizenship_from_images(
             (front_result.confidence + back_result.confidence) / 2.0,
             3,
         ),
-        errors=[*front_result.errors, *back_result.errors],
+        errors=errors,
     )
+    if not combined.citizenship_number and not combined.name:
+        errors.append(
+            'Could not read name or citizenship number from the uploaded images. '
+            'Use clearer, well-lit photos of both sides.'
+        )
+        combined.errors = errors
     return combined

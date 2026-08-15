@@ -19,6 +19,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { apiClient, ApiError } from "@/lib/api";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 import { formatDateTime, formatNPR } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { canWalletAdjust } from "@/lib/account-status";
@@ -58,6 +59,7 @@ function WalletDetailPage() {
     queryKey: ["admin", "wallets", id],
     queryFn: () => apiClient.adminGetWallet(id),
     enabled: Number.isFinite(id),
+    ...adminLiveQueryOptions(),
   });
 
   const deleteMutation = useMutation({

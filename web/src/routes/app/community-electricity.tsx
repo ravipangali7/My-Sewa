@@ -14,7 +14,8 @@ import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
+import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
@@ -89,6 +90,7 @@ function CommunityElectricityPayment() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
+    ...settingsQueryOptions(),
   });
   const enabled =
     settingsQuery.data?.config?.payment?.community_electricity_enabled !== false &&
@@ -103,19 +105,31 @@ function CommunityElectricityPayment() {
   const walletQuery = useQuery({
     queryKey: ["wallet", "balance"],
     queryFn: () => apiClient.walletBalance(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
 
   const historyQuery = useQuery({
     queryKey: ["community-electricity", debounced],
     queryFn: () => apiClient.communityElectricityHistory(debounced),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
   const ceItems = useMemo(
     () => sortByLatestFirst(historyQuery.data?.items ?? []),
     [historyQuery.data?.items],
   );
   const ceStats = historyQuery.data?.stats;
+
+  usePendingStatusPoll(
+    ceItems,
+    async (item) => {
+      const res = await apiClient.communityElectricityStatus(item.merchant_txn_id);
+      return { nextStatus: res.local_bill?.status ?? res.status, message: res.message };
+    },
+    {
+      invalidateKeys: [["community-electricity"], ["wallet"]],
+      onSettled: (_item, next, message) => toastPendingSettled(next, message, t),
+    },
+  );
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
   const payAmount = Number(amount) || 0;

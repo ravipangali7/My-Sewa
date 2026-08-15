@@ -11,7 +11,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiClient, getToken, setToken, ApiError } from "./api";
-import { LIVE_REFETCH_MS } from "./refresh";
+import { liveQueryOptions } from "./refresh";
 import type { UserProfile, Wallet } from "./types";
 import {
   listenForNativePushToken,
@@ -97,8 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     enabled: !!token,
     retry: false,
     // Poll so Pending → Active (and other profile fields) update without a manual refresh.
-    refetchInterval: token ? LIVE_REFETCH_MS : false,
-    refetchIntervalInBackground: false,
+    ...liveQueryOptions(),
   });
 
   const walletQuery = useQuery({
@@ -106,8 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryFn: () => apiClient.walletBalance(),
     enabled: !!token,
     retry: false,
-    refetchInterval: token ? LIVE_REFETCH_MS : false,
-    refetchIntervalInBackground: false,
+    ...liveQueryOptions(),
   });
 
   const prevAccountStatus = useRef<string | null>(null);

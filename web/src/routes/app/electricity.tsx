@@ -29,7 +29,8 @@ import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
+import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
@@ -111,6 +112,7 @@ function ElectricityBillPayment() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
+    ...settingsQueryOptions(),
   });
   const enabled =
     settingsQuery.data?.config?.payment?.electricity_bills_enabled !== false && !accountPending;
@@ -129,15 +131,27 @@ function ElectricityBillPayment() {
   const walletQuery = useQuery({
     queryKey: ["wallet", "balance"],
     queryFn: () => apiClient.walletBalance(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
 
   const historyQuery = useQuery({
     queryKey: ["electricity-bills", debounced],
     queryFn: () => apiClient.electricityHistory(debounced),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
   const electricityStats = historyQuery.data?.stats;
+
+  usePendingStatusPoll(
+    historyQuery.data?.items,
+    async (item) => {
+      const res = await apiClient.electricityStatus(item.merchant_txn_id);
+      return { nextStatus: res.local_bill?.status ?? res.status, message: res.message };
+    },
+    {
+      invalidateKeys: [["electricity-bills"], ["wallet"]],
+      onSettled: (_item, next, message) => toastPendingSettled(next, message, t),
+    },
+  );
 
   const filteredCounters = useMemo(() => {
     const q = counterQuery.trim().toLowerCase();

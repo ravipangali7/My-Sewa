@@ -5,6 +5,7 @@ import { AdminShell } from "@/components/layout/AdminShell";
 import { BackButton } from "@/components/BackButton";
 import { StatusChip } from "@/components/StatusChip";
 import { apiClient, ApiError } from "@/lib/api";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 import { OPERATORS } from "@/lib/constants";
 import { formatDateTime, formatNPR } from "@/lib/format";
 
@@ -60,7 +61,7 @@ function TopupDetailPage() {
     queryKey: ["admin", "topups", id],
     queryFn: () => apiClient.adminGetTopup(id),
     enabled: Number.isFinite(id),
-    refetchOnMount: "always",
+    ...adminLiveQueryOptions(),
   });
 
   const t = topupQuery.data;

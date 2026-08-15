@@ -29,7 +29,8 @@ import {
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
+import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
@@ -95,6 +96,7 @@ function DataTopUp() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
+    ...settingsQueryOptions(),
   });
   const enabled =
     settingsQuery.data?.config?.payment?.data_packs_enabled !== false && !accountPending;
@@ -104,19 +106,34 @@ function DataTopUp() {
   const walletQuery = useQuery({
     queryKey: ["wallet", "balance"],
     queryFn: () => apiClient.walletBalance(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
 
   const historyQuery = useQuery({
     queryKey: ["data-packs", debounced],
     queryFn: () => apiClient.dataPackHistory(debounced),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
   const dataPackItems = useMemo(
     () => sortByLatestFirst(historyQuery.data?.items ?? []),
     [historyQuery.data?.items],
   );
   const dataPackStats = historyQuery.data?.stats;
+
+  usePendingStatusPoll(
+    dataPackItems,
+    async (item) => {
+      const res = await apiClient.dataPackStatus(item.merchant_txn_id);
+      return {
+        nextStatus: res.local_data_pack?.status ?? res.status,
+        message: res.message,
+      };
+    },
+    {
+      invalidateKeys: [["data-packs"], ["wallet"]],
+      onSettled: (_item, next, message) => toastPendingSettled(next, message, t),
+    },
+  );
 
   const mobileError = useMemo(
     () => validateOperatorMobile(productId, mobile),

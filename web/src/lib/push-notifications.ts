@@ -11,6 +11,7 @@
  */
 import { toast } from "sonner";
 import { apiClient, getApiBase, getToken } from "./api";
+import { notifyLiveRefresh } from "./refresh";
 import {
   hasNativePushBridge,
   isMySewaNativeApp,
@@ -189,6 +190,7 @@ function handleForegroundPush(ev: Event) {
   const detail = (ev as CustomEvent<{ title?: string; body?: string }>).detail;
   const title = (detail?.title || "").trim();
   const body = (detail?.body || "").trim();
+  notifyLiveRefresh();
   if (!title && !body) return;
   if (title && body) {
     toast.info(title, { description: body });

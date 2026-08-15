@@ -18,6 +18,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiClient, ApiError } from "@/lib/api";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 import { formatDate, formatDateTime, formatNPR } from "@/lib/format";
 
 export const Route = createFileRoute("/admin/deposits_/$depositId")({
@@ -65,7 +66,7 @@ function DepositDetailPage() {
     queryKey: ["admin", "deposits", id],
     queryFn: () => apiClient.adminGetDeposit(id),
     enabled: Number.isFinite(id),
-    refetchOnMount: "always",
+    ...adminLiveQueryOptions(),
   });
 
   const invalidateDepositQueries = () => {

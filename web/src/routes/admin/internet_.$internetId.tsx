@@ -5,6 +5,7 @@ import { AdminShell } from "@/components/layout/AdminShell";
 import { BackButton } from "@/components/BackButton";
 import { StatusChip } from "@/components/StatusChip";
 import { apiClient, ApiError } from "@/lib/api";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 import { formatDateTime, formatNPR } from "@/lib/format";
 
 export const Route = createFileRoute("/admin/internet_/$internetId")({
@@ -55,7 +56,7 @@ function InternetDetailPage() {
     queryKey: ["admin", "internet-bills", id],
     queryFn: () => apiClient.adminGetInternetBill(id),
     enabled: Number.isFinite(id),
-    refetchOnMount: "always",
+    ...adminLiveQueryOptions(),
   });
 
   const t = detailQuery.data;

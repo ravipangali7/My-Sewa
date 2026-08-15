@@ -31,7 +31,7 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { buildActivityStatement } from "@/lib/activity";
 import { downloadReceiptFromElement, shareReceiptFromElement } from "@/lib/statement-pdf";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useSiteBranding } from "@/hooks/use-site-branding";
@@ -250,7 +250,7 @@ function HistoryStatementPage() {
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
 
   const statement = useMemo(

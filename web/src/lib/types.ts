@@ -445,6 +445,7 @@ export interface CitizenshipFieldComparison {
 
 export interface CitizenshipVerificationResult {
   match_status: CitizenshipOverallMatch;
+  allowed?: boolean;
   confidence_score: number;
   fields: CitizenshipFieldComparison[];
   form: {
@@ -469,6 +470,8 @@ export interface CitizenshipVerificationResult {
   };
   ocr_errors: string[];
   ocr_confidence: number;
+  mismatch_messages?: string[];
+  message?: string;
 }
 
 export interface RemittanceTransaction {

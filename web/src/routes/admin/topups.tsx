@@ -29,6 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiClient, ApiError } from "@/lib/api";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 import { OPERATORS } from "@/lib/constants";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
@@ -94,8 +95,7 @@ function TopupsPage() {
         status: statusTab,
         productId: operatorTab,
       }),
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
+    ...adminLiveQueryOptions(),
   });
 
   const statusMutation = useMutation({

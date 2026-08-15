@@ -22,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiClient, ApiError } from "@/lib/api";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 import { formatDateTime, formatNPR, sortByLatestFirst } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
 import { downloadCsvWithQuery } from "@/lib/list-query";
@@ -89,8 +90,7 @@ function TransactionHistoryPage() {
   const txQuery = useQuery({
     queryKey: ["admin", "transactions", debounced],
     queryFn: () => apiClient.adminTransactionHistory(debounced),
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
+    ...adminLiveQueryOptions(),
   });
 
   const items = useMemo(() => {

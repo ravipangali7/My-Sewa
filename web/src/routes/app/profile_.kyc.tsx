@@ -22,6 +22,7 @@ import {
 import type { KycDocumentSide, KycDocumentType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { liveQueryOptions } from "@/lib/refresh";
 
 export const Route = createFileRoute("/app/profile_/kyc")({
   head: () => ({
@@ -87,6 +88,7 @@ function KycPage() {
   const kycQuery = useQuery({
     queryKey: ["kyc"],
     queryFn: () => apiClient.getKyc(),
+    ...liveQueryOptions(),
   });
 
   const status = kycQuery.data?.kyc_status ?? user?.kyc_status ?? "not_submitted";

@@ -46,6 +46,8 @@ export const messages = {
     "common.amountNpr": "Amount (NPR)",
     "common.amountPlaceholder": "0.00",
     "common.search": "Search",
+    "live.statusSuccess": "Completed successfully",
+    "live.statusFailed": "Failed at the provider",
 
     "offline.title": "No Internet Connection",
     "offline.message": "Please check your mobile data or Wi‑Fi and try again.",
@@ -798,7 +800,7 @@ export const messages = {
     "remittance.searchPlaceholder": "Search ref no, sender, amount…",
     "remittance.citizenshipVerifyTitle": "Citizenship verification",
     "remittance.citizenshipVerifyHelp":
-      "Upload citizenship Front and Back images. We extract details with OCR and compare them to the form.",
+      "Upload citizenship Front and Back images. We extract details from both sides and match them to the remittance receiver name and the citizenship details you entered.",
     "remittance.citizenshipFront": "Citizenship front",
     "remittance.citizenshipBack": "Citizenship back",
     "remittance.citizenshipUploadHint": "JPG, PNG, or WEBP",
@@ -809,15 +811,23 @@ export const messages = {
     "remittance.citizenshipMatchingDisabled":
       "Citizenship image matching is currently disabled. Fill the form and continue.",
     "remittance.verifyMismatch":
-      "Citizenship details do not match the uploaded documents. Correct the form or re-upload clearer images.",
-    "remittance.verifySuccess": "Citizenship verification: {status}",
+      "Citizenship details do not match the remittance information. The remittance cannot be received.",
+    "remittance.verifyPartial":
+      "Citizenship details only partially match. Correct the form or upload clearer front and back images.",
+    "remittance.verifySuccess": "Citizenship details match. You can receive this remittance.",
     "remittance.verifyFailed": "Citizenship verification failed",
+    "remittance.receiverNameRequired":
+      "This remittance has no receiver name to match. Look up the remittance again.",
+    "remittance.verifyFillKycFirst":
+      "Fill citizenship number, date of birth, issue date, and issuing district, then verify the images.",
     "remittance.matchStatus": "Match status",
     "remittance.confidence": "Confidence",
     "remittance.ocrConfidence": "OCR confidence",
     "remittance.fieldMatch": "Field matches",
     "remittance.ocrErrors": "OCR notes",
-    "remittance.autofilledFromOcr": "Some empty fields were filled from the citizenship scan.",
+    "remittance.mismatchReasons": "Why it did not match",
+    "remittance.submittedValue": "Remittance / form",
+    "remittance.scannedValue": "Citizenship scan",
     "remittance.match.match": "Match",
     "remittance.match.partial": "Partial",
     "remittance.match.mismatch": "Mismatch",
@@ -1137,6 +1147,8 @@ export const messages = {
     "common.amountNpr": "रकम (NPR)",
     "common.amountPlaceholder": "०.००",
     "common.search": "खोज्नुहोस्",
+    "live.statusSuccess": "सफलतापूर्वक पूरा भयो",
+    "live.statusFailed": "प्रदायकमा असफल भयो",
 
     "offline.title": "इन्टरनेट जडान छैन",
     "offline.message": "कृपया आफ्नो मोबाइल डाटा वा Wi‑Fi जाँच गर्नुहोस् र फेरि प्रयास गर्नुहोस्।",
@@ -1889,7 +1901,7 @@ export const messages = {
     "remittance.searchPlaceholder": "सन्दर्भ नम्बर, पठाउने, रकम खोज्नुहोस्…",
     "remittance.citizenshipVerifyTitle": "नागरिकता प्रमाणीकरण",
     "remittance.citizenshipVerifyHelp":
-      "नागरिकताको अगाडि र पछाडि फोटो अपलोड गर्नुहोस्। OCR ले विवरण निकालेर फारमसँग तुलना गर्छ।",
+      "नागरिकताको अगाडि र पछाडि फोटो अपलोड गर्नुहोस्। दुवै तर्फबाट विवरण निकालेर रेमिटेन्सको प्राप्तकर्ता नाम र तपाईंले भरेका नागरिकता विवरणसँग मिलान गरिन्छ।",
     "remittance.citizenshipFront": "नागरिकता अगाडि",
     "remittance.citizenshipBack": "नागरिकता पछाडि",
     "remittance.citizenshipUploadHint": "JPG, PNG, वा WEBP",
@@ -1900,15 +1912,23 @@ export const messages = {
     "remittance.citizenshipMatchingDisabled":
       "नागरिकता छवि मिलान अहिले अक्षम छ। फारम भरेर अगाडि बढ्नुहोस्।",
     "remittance.verifyMismatch":
-      "नागरिकता विवरण अपलोड गरिएका कागजातसँग मिल्दैन। फारम सच्याउनुहोस् वा स्पष्ट फोटो पुनः अपलोड गर्नुहोस्।",
-    "remittance.verifySuccess": "नागरिकता प्रमाणीकरण: {status}",
+      "नागरिकता विवरण रेमिटेन्स जानकारीसँग मिल्दैन। रेमिटेन्स प्राप्त गर्न सकिँदैन।",
+    "remittance.verifyPartial":
+      "नागरिकता विवरण आंशिक मात्र मिल्यो। फारम सच्याउनुहोस् वा अगाडि र पछाडिका स्पष्ट फोटो अपलोड गर्नुहोस्।",
+    "remittance.verifySuccess": "नागरिकता विवरण मिल्यो। तपाईं यो रेमिटेन्स प्राप्त गर्न सक्नुहुन्छ।",
     "remittance.verifyFailed": "नागरिकता प्रमाणीकरण असफल",
+    "remittance.receiverNameRequired":
+      "यो रेमिटेन्समा मिलान गर्ने प्राप्तकर्ता नाम छैन। फेरि खोजी गर्नुहोस्।",
+    "remittance.verifyFillKycFirst":
+      "नागरिकता नम्बर, जन्म मिति, जारी मिति र जारी जिल्ला भरेर त्यसपछि फोटो प्रमाणित गर्नुहोस्।",
     "remittance.matchStatus": "मिल्ने अवस्था",
     "remittance.confidence": "विश्वास्यता",
     "remittance.ocrConfidence": "OCR विश्वास्यता",
     "remittance.fieldMatch": "फिल्ड मिलान",
     "remittance.ocrErrors": "OCR नोटहरू",
-    "remittance.autofilledFromOcr": "खाली फिल्डहरू नागरिकता स्क्यानबाट भरिए।",
+    "remittance.mismatchReasons": "नमिल्नुको कारण",
+    "remittance.submittedValue": "रेमिटेन्स / फारम",
+    "remittance.scannedValue": "नागरिकता स्क्यान",
     "remittance.match.match": "मिल्यो",
     "remittance.match.partial": "आंशिक",
     "remittance.match.mismatch": "नमिल्ने",

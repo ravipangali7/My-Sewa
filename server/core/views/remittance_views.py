@@ -27,7 +27,13 @@ from ..services.app_config import (
 )
 from ..services.notifications import notify_remittance_success
 from ..services.txn_status import apply_inbound_status_change
-from ..services.citizenship_verify import verify_citizenship_images
+from ..services.citizenship_verify import (
+    build_form_record,
+    clear_verification_ticket,
+    receive_block_reason,
+    store_verification_ticket,
+    verify_citizenship_images,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -366,12 +372,14 @@ def lookup_remittance(request):
 @parser_classes([MultiPartParser, FormParser])
 def verify_citizenship(request):
     """
-    OCR citizenship front + back images and compare against form fields.
+    OCR citizenship front + back images and compare against remittance/form fields.
 
     Multipart fields:
     - front / citizenship_front (required image)
     - back / citizenship_back (required image)
-    - name, citizenship_number, dob, issue_date, issue_place
+    - ref_no (remittance reference)
+    - name (receiver name from the remittance / sender-provided data)
+    - citizenship_number, dob, issue_date, issue_place
     """
     blocked = require_feature_enabled('remittances')
     if blocked:
@@ -426,17 +434,22 @@ def verify_citizenship(request):
             {
                 'error': 'Verification failed',
                 'message': str(exc) or 'Citizenship OCR verification failed.',
+                'code': 'citizenship_verify_failed',
             },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-    return Response(
-        {
-            'message': f"Citizenship verification: {result['match_status']}",
-            'data': result,
-        },
-        status=status.HTTP_200_OK,
-    )
+    store_verification_ticket(request.user.id, data.get('ref_no') or '', result)
+    payload = {
+        'message': result.get('message') or f"Citizenship verification: {result['match_status']}",
+        'data': result,
+        'code': 'citizenship_verified' if result.get('allowed') else 'citizenship_mismatch',
+    }
+    if not result.get('allowed'):
+        payload['error'] = 'Citizenship details do not match'
+        return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(payload, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -467,6 +480,34 @@ def receive_remittance(request):
     ref_no = data['ref_no']
     samsara_link_id = data['samsara_link_id']
     amount = HimalPayAPI.normalize_rupees(data['amount'])
+
+    payment = get_app_config().get('payment') or {}
+    if payment.get('citizenship_matching_enabled', False):
+        citizenship_form = build_form_record(
+            name=data.get('receiver_name') or '',
+            citizenship_number=data.get('beneficiary_citizenship_number') or '',
+            dob=data.get('beneficiary_dob') or '',
+            issue_date=data.get('beneficiary_id_issue_date') or '',
+            issue_place=(
+                data.get('beneficiary_citizenship_issuing_district')
+                or data.get('beneficiary_id_issue_by')
+                or ''
+            ),
+        )
+        blocked = receive_block_reason(
+            user_id=request.user.id,
+            ref_no=ref_no,
+            form=citizenship_form,
+        )
+        if blocked:
+            return Response(
+                {
+                    'error': 'Citizenship verification required',
+                    'message': blocked,
+                    'code': 'citizenship_mismatch',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     if RemittanceTransaction.objects.filter(ref_no=ref_no, status='success').exists():
         return Response(
@@ -611,6 +652,7 @@ def receive_remittance(request):
                 )
             txn.refresh_from_db()
             notify_remittance_success(txn)
+            clear_verification_ticket(request.user.id, ref_no)
             return Response(
                 with_himapay_response(
                     {

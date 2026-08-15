@@ -28,7 +28,8 @@ import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
+import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
@@ -133,6 +134,7 @@ function WaterBillPayment() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
+    ...settingsQueryOptions(),
   });
   const enabled =
     settingsQuery.data?.config?.payment?.water_bills_enabled !== false && !accountPending;
@@ -155,15 +157,27 @@ function WaterBillPayment() {
   const walletQuery = useQuery({
     queryKey: ["wallet", "balance"],
     queryFn: () => apiClient.walletBalance(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
 
   const historyQuery = useQuery({
     queryKey: ["water-bills", debounced],
     queryFn: () => apiClient.waterHistory(debounced),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
   const waterStats = historyQuery.data?.stats;
+
+  usePendingStatusPoll(
+    historyQuery.data?.items,
+    async (item) => {
+      const res = await apiClient.waterStatus(item.merchant_txn_id);
+      return { nextStatus: res.local_bill?.status ?? res.status, message: res.message };
+    },
+    {
+      invalidateKeys: [["water-bills"], ["wallet"]],
+      onSettled: (_item, next, message) => toastPendingSettled(next, message, t),
+    },
+  );
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
   const payAmount = Number(amount) || 0;

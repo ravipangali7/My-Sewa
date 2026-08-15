@@ -156,7 +156,7 @@ function SiteBrandingSync() {
   return null;
 }
 
-/** Refetch when the WebView/tab becomes visible again. */
+/** Force-refetch when the native app resumes or a push arrives. */
 function LiveRefreshSync() {
   useLiveRefresh();
   return null;

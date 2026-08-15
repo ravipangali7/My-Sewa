@@ -29,6 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiClient, ApiError } from "@/lib/api";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
 import type { TxnStatus } from "@/lib/types";
@@ -96,8 +97,7 @@ function DataTopupsPage() {
         status: statusTab,
         operator: operatorTab,
       }),
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
+    ...adminLiveQueryOptions(),
   });
 
   const statusMutation = useMutation({

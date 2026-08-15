@@ -25,7 +25,7 @@ import {
 } from "@/lib/activity";
 import type { ActivityItem } from "@/lib/types";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
@@ -170,7 +170,7 @@ function WalletHistoryPage() {
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
 
   const { all, credits, debits } = useMemo(() => {

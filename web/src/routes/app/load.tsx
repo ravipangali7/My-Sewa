@@ -15,7 +15,7 @@ import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime, formatDate, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
@@ -102,12 +102,13 @@ function LoadWallet() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
+    ...settingsQueryOptions(),
   });
 
   const depositsQuery = useQuery({
     queryKey: ["deposits", debounced],
     queryFn: () => apiClient.listDeposits(debounced),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
   const depositItems = useMemo(
     () => sortByLatestFirst(depositsQuery.data?.items ?? []),

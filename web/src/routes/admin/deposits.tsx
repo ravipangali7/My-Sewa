@@ -39,6 +39,7 @@ import { formatNPR, formatDateTime } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
 import { useListFilters, DEPOSIT_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 
 const LIST_PAGE = 1;
 const LIST_PAGE_SIZE = 50;
@@ -70,9 +71,7 @@ function DepositsPage() {
   const depositsQuery = useQuery({
     queryKey: ["admin", "deposits", debounced],
     queryFn: () => apiClient.adminDeposits(debounced),
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
-    refetchInterval: 15_000,
+    ...adminLiveQueryOptions(),
   });
 
   const visible = depositsQuery.data?.items ?? [];
