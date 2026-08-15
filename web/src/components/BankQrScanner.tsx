@@ -1,22 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Download, ImageIcon, Share2, X } from "lucide-react";
+import { ImageIcon, X } from "lucide-react";
 import { toast } from "sonner";
-import { CopyableField } from "@/components/CopyableField";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/lib/auth";
-import { buildMySewaAccountQr } from "@/lib/bank-qr";
-import { toDataURL as qrToDataURL } from "@/lib/qrcode";
 import { useT } from "@/lib/i18n";
 import jsQR from "@/lib/jsqr";
-import {
-  hasNativeFileBridge,
-  isMySewaNativeApp,
-  waitForNativeCameraPermission,
-  waitForNativeFileBridge,
-} from "@/lib/native-app";
-import { useSiteBranding } from "@/hooks/use-site-branding";
+import { waitForNativeCameraPermission } from "@/lib/native-app";
 import { cn } from "@/lib/utils";
 
 type ScannerTab = "scanner" | "share";
@@ -103,45 +93,6 @@ function stopStream(stream: MediaStream | null) {
   }
 }
 
-function dataUrlBase64(dataUrl: string): string {
-  const comma = dataUrl.indexOf(",");
-  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-}
-
-function sendPngViaNative(dataUrl: string, filename: string, type: "share" | "download"): boolean {
-  if (!hasNativeFileBridge()) return false;
-  const payload = {
-    type,
-    filename,
-    mime: "image/png",
-    base64: dataUrlBase64(dataUrl),
-  };
-  try {
-    if (window.MySewaNative?.downloadFile?.(payload)) return true;
-  } catch {
-    /* fall through */
-  }
-  try {
-    if (window.MySewaBridge?.postMessage) {
-      window.MySewaBridge.postMessage(JSON.stringify(payload));
-      return true;
-    }
-  } catch {
-    /* ignore */
-  }
-  return false;
-}
-
-function triggerPngDownload(dataUrl: string, filename: string) {
-  const link = document.createElement("a");
-  link.href = dataUrl;
-  link.download = filename;
-  link.rel = "noopener";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-}
-
 function isInteractiveTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) return false;
   return Boolean(
@@ -160,11 +111,9 @@ export function BankQrScanner({
 }: {
   onScan: (raw: string) => boolean | void;
   onClose: () => void;
-  children: ReactNode | ((api: { showScanner: () => void }) => ReactNode);
+  children: ReactNode | ((api: { showScanner: () => void; showForm: () => void }) => ReactNode);
 }) {
   const t = useT();
-  const { user } = useAuth();
-  const { logoUrl } = useSiteBranding();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
@@ -187,23 +136,6 @@ export function BankQrScanner({
   const [dragging, setDragging] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [qrDataUrl, setQrDataUrl] = useState("");
-  const [sharing, setSharing] = useState(false);
-
-  const accountName =
-    [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
-    (user?.nickname || "").trim() ||
-    (user?.business_name || "").trim() ||
-    t("profile.fallbackName");
-  const accountNumber = (user?.phone || "").replace(/\D/g, "") || user?.phone || "";
-  const brandName = "MySewa";
-  const qrPayload = useMemo(
-    () =>
-      accountNumber
-        ? buildMySewaAccountQr({ accountName, accountNumber })
-        : "",
-    [accountName, accountNumber],
-  );
 
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
@@ -212,6 +144,7 @@ export function BankQrScanner({
     const clamped = next < 0 ? 0 : next > 1 ? 1 : next;
     pageRef.current = clamped;
     setPage(clamped);
+    setTab(clamped === 0 ? "scanner" : "share");
     setDragX(0);
   }, []);
 
@@ -251,7 +184,7 @@ export function BankQrScanner({
     };
   }, [page]);
 
-  const scannerActive = tab === "scanner" && page === 0;
+  const scannerActive = page === 0;
 
   useEffect(() => {
     if (!scannerActive) {
@@ -342,18 +275,6 @@ export function BankQrScanner({
     };
   }, [emit, scannerActive, stopCamera]);
 
-  useEffect(() => {
-    if (!qrPayload) {
-      setQrDataUrl("");
-      return;
-    }
-    try {
-      setQrDataUrl(qrToDataURL(qrPayload, { width: 512 }));
-    } catch {
-      setQrDataUrl("");
-    }
-  }, [qrPayload]);
-
   async function onFile(file: File | undefined) {
     if (!file) return;
     const raw = await decodeFromFile(file);
@@ -435,43 +356,10 @@ export function BankQrScanner({
     };
   }, []);
 
-  async function shareOrSave(mode: "share" | "download") {
-    if (!qrDataUrl) return;
-    const filename = `mysewa-qr-${accountNumber || "account"}.png`;
-    setSharing(true);
-    try {
-      if (isMySewaNativeApp()) {
-        await waitForNativeFileBridge();
-      }
-      if (sendPngViaNative(qrDataUrl, filename, mode)) {
-        if (mode === "download") toast.success(t("transfer.shareQrSaved"));
-        return;
-      }
-      if (mode === "share" && typeof navigator.share === "function") {
-        const res = await fetch(qrDataUrl);
-        const blob = await res.blob();
-        const file = new File([blob], filename, { type: "image/png" });
-        const payload = {
-          files: [file],
-          title: `${brandName} ${t("transfer.mySewaAccount")}`,
-          text: `${accountName}\n${accountNumber}`,
-        };
-        if (!navigator.canShare || navigator.canShare(payload)) {
-          await navigator.share(payload);
-          return;
-        }
-      }
-      triggerPngDownload(qrDataUrl, filename);
-      toast.success(t("transfer.shareQrSaved"));
-    } catch {
-      toast.error(t("transfer.shareQrFailed"));
-    } finally {
-      setSharing(false);
-    }
-  }
-
   if (typeof document === "undefined") {
-    return typeof children === "function" ? children({ showScanner: () => goToPage(0) }) : children;
+    return typeof children === "function"
+      ? children({ showScanner: () => goToPage(0), showForm: () => goToPage(1) })
+      : children;
   }
 
   const scannerPane = (
@@ -487,7 +375,7 @@ export function BankQrScanner({
         </button>
         <Tabs
           value={tab}
-          onValueChange={(value) => setTab(value as ScannerTab)}
+          onValueChange={(value) => goToPage(value === "share" ? 1 : 0)}
           className="min-w-0 flex-1"
         >
           <TabsList className="grid h-10 w-full grid-cols-2 rounded-full bg-black/45 text-white">
@@ -501,128 +389,52 @@ export function BankQrScanner({
         </Tabs>
       </div>
 
-      {tab === "scanner" ? (
-        <>
-          <div className="relative min-h-0 flex-1 bg-black">
-            <video
-              ref={videoRef}
-              className={cn(
-                "absolute inset-0 size-full object-cover",
-                cameraError || !scanning ? "opacity-0" : "opacity-100",
-              )}
-              playsInline
-              muted
-              autoPlay
-            />
-            {scanning && !cameraError ? (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="size-[62%] max-h-[62vw] rounded-3xl border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.38)]" />
-              </div>
-            ) : null}
+      <div className="relative min-h-0 flex-1 bg-black">
+        <video
+          ref={videoRef}
+          className={cn(
+            "absolute inset-0 size-full object-cover",
+            cameraError || !scanning ? "opacity-0" : "opacity-100",
+          )}
+          playsInline
+          muted
+          autoPlay
+        />
+        {scanning && !cameraError ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="size-[62%] max-h-[62vw] rounded-3xl border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.38)]" />
           </div>
-          <div className="absolute inset-x-0 bottom-0 z-20 space-y-3 px-4 pb-[max(1.25rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
-            <button
-              type="button"
-              className="w-full text-center text-[13px] text-white/80"
-              onClick={() => goToPage(1)}
-            >
-              {t("transfer.swipeForDetails")}
-            </button>
-            <Button
-              type="button"
-              variant="secondary"
-              className="h-12 w-full rounded-xl"
-              onClick={() => uploadRef.current?.click()}
-            >
-              <ImageIcon className="size-4" />
-              {t("transfer.uploadQr")}
-            </Button>
-          </div>
-          <input
-            ref={uploadRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              void onFile(file);
-            }}
-          />
-        </>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto bg-background px-4 pb-8 pt-[calc(4.5rem+var(--safe-area-top,env(safe-area-inset-top,0px)))]">
-          <div className="mx-auto w-full max-w-sm overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
-            <div className="flex items-center justify-center gap-2 bg-brand px-4 py-3">
-              <img
-                src={logoUrl}
-                alt=""
-                className="size-8 rounded-md bg-white object-contain p-0.5"
-              />
-              <p className="text-[16px] font-semibold tracking-wide text-white">
-                {brandName}
-              </p>
-            </div>
-            <div className="px-5 pb-5 pt-4">
-              <div className="mx-auto flex aspect-square w-full max-w-[220px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-separator bg-white p-2">
-                {qrDataUrl ? (
-                  <img
-                    src={qrDataUrl}
-                    alt={t("transfer.mySewaAccount")}
-                    className="size-full object-contain"
-                  />
-                ) : (
-                  <div className="size-full animate-pulse rounded-lg bg-muted" />
-                )}
-              </div>
-              <p className="mt-3 text-center text-[16px] font-semibold">{accountName}</p>
-              <p className="mt-0.5 text-center text-[12px] text-muted-foreground">
-                {t("transfer.mySewaAccount")}
-              </p>
-              <dl className="mt-4 space-y-2 text-[14px]">
-                <CopyableField
-                  label={t("load.accountName")}
-                  value={accountName}
-                  mono={false}
-                />
-                <CopyableField
-                  label={t("load.accountNumber")}
-                  value={accountNumber || "—"}
-                />
-                <CopyableField label={t("load.bankName")} value={brandName} mono={false} />
-              </dl>
-            </div>
-          </div>
-          <div className="mx-auto mt-4 grid w-full max-w-sm grid-cols-2 gap-2">
-            <Button
-              type="button"
-              className="h-12 rounded-xl"
-              disabled={!qrDataUrl || sharing}
-              onClick={() => void shareOrSave("share")}
-            >
-              <Share2 className="size-4" />
-              {t("transfer.shareQr")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-12 rounded-xl"
-              disabled={!qrDataUrl || sharing}
-              onClick={() => void shareOrSave("download")}
-            >
-              <Download className="size-4" />
-              {t("transfer.saveQr")}
-            </Button>
-          </div>
-          <button
-            type="button"
-            className="mt-4 w-full text-center text-[13px] text-muted-foreground"
-            onClick={() => goToPage(1)}
-          >
-            {t("transfer.swipeForDetails")}
-          </button>
-        </div>
-      )}
+        ) : null}
+      </div>
+      <div className="absolute inset-x-0 bottom-0 z-20 space-y-3 px-4 pb-[max(1.25rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
+        <button
+          type="button"
+          className="w-full text-center text-[13px] text-white/80"
+          onClick={() => goToPage(1)}
+        >
+          {t("transfer.swipeForDetails")}
+        </button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="h-12 w-full rounded-xl"
+          onClick={() => uploadRef.current?.click()}
+        >
+          <ImageIcon className="size-4" />
+          {t("transfer.uploadQr")}
+        </Button>
+      </div>
+      <input
+        ref={uploadRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          void onFile(file);
+        }}
+      />
     </div>
   );
 
@@ -636,7 +448,9 @@ export function BankQrScanner({
         onTouchEnd={onPointerUp}
         onTouchCancel={onPointerUp}
       >
-        {typeof children === "function" ? children({ showScanner: () => goToPage(0) }) : children}
+        {typeof children === "function"
+          ? children({ showScanner: () => goToPage(0), showForm: () => goToPage(1) })
+          : children}
       </div>
       {createPortal(
         <div
