@@ -3,14 +3,18 @@ package com.infelogroup.mysewa
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -52,6 +56,27 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "requestCameraPermission" -> requestCameraPermission(result)
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            UPDATE_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "installApk" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrBlank()) {
+                        result.error("invalid_path", "APK path is missing.", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        result.success(installApk(path))
+                    } catch (error: Exception) {
+                        result.error("install_failed", error.message, null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -151,6 +176,46 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun installApk(path: String): Boolean {
+        val file = File(path)
+        if (!file.exists()) {
+            throw IllegalArgumentException("APK file was not found.")
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName"),
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            return false
+        }
+
+        val uri = FileProvider.getUriForFile(
+            this,
+            "$packageName.fileprovider",
+            file,
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val resolvers = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        for (resolve in resolvers) {
+            grantUriPermission(
+                resolve.activityInfo.packageName,
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
+        startActivity(intent)
+        return true
+    }
+
     private fun ensureDefaultNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java) ?: return
@@ -167,6 +232,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val SESSION_CHANNEL = "com.mysewa.app/session_lifecycle"
+        private const val UPDATE_CHANNEL = "com.mysewa.app/app_update"
         private const val MARKER_NAME = "install_session_v1"
         private const val DEFAULT_CHANNEL_ID = "mysewa_default"
         private const val CAMERA_REQ = 48101

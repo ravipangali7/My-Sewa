@@ -27,5 +27,17 @@ export function canWalletAdjust(user: UserProfile | null | undefined): boolean {
   return user.can_wallet_adjust !== false;
 }
 
+/** True when HimalPay deducted but MySewa did not apply — admin must unblock. */
+export function isWalletBlocked(wallet: { transactions_blocked?: boolean } | null | undefined): boolean {
+  return Boolean(wallet?.transactions_blocked);
+}
+
+export function isOutboundLocked(
+  user: UserProfile | null | undefined,
+  wallet?: { transactions_blocked?: boolean } | null,
+): boolean {
+  return isAccountPending(user) || isWalletBlocked(wallet);
+}
+
 export const ACCOUNT_PENDING_MESSAGE =
   "Your account is pending approval. You can browse the app, but remittance, top-up, fund transfer and other transactions stay disabled until an admin activates your account.";

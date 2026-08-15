@@ -283,9 +283,28 @@ function ReceiveRemittance() {
     Boolean(verification) &&
     verification?.match_status === "MATCH" &&
     verification?.allowed !== false;
+  const pendingReviewAllowed = Boolean(verification?.pending_review_allowed);
+  const canSubmitRemittance = verificationAllowsReceive || pendingReviewAllowed;
+
+  const applyExtractedCitizenship = (data: CitizenshipVerificationResult) => {
+    const src = data.form || data.extracted || data.ocr;
+    if (!src) return;
+    setKyc((prev) => ({
+      ...prev,
+      beneficiary_citizenship_number:
+        src.citizenship_number || prev.beneficiary_citizenship_number,
+      beneficiary_id_number:
+        src.citizenship_number || prev.beneficiary_id_number || prev.beneficiary_citizenship_number,
+      beneficiary_dob: src.dob || prev.beneficiary_dob,
+      beneficiary_id_issue_date: src.issue_date || prev.beneficiary_id_issue_date,
+      beneficiary_citizenship_issuing_district:
+        src.issue_place || prev.beneficiary_citizenship_issuing_district,
+      beneficiary_id_issue_by: src.issue_place || prev.beneficiary_id_issue_by,
+    }));
+  };
 
   const verifyMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (mode: "auto" | "manual" = "manual") => {
       if (accountPending) throw new Error(t("account.pending"));
       if (!remittancesEnabled) throw new Error(t("remittance.disabledError"));
       if (!citizenshipMatchingEnabled) {
@@ -298,41 +317,36 @@ function ReceiveRemittance() {
       if (!citizenshipFront || !citizenshipBack) {
         throw new Error(t("remittance.citizenshipBothRequired"));
       }
-      const requiredBeforeVerify: Array<[keyof KycForm, string]> = [
-        ["beneficiary_citizenship_number", t("remittance.citizenshipNo")],
-        ["beneficiary_dob", t("remittance.dob")],
-        ["beneficiary_id_issue_date", t("remittance.idIssueDate")],
-        ["beneficiary_citizenship_issuing_district", t("remittance.citizenshipDistrict")],
-      ];
-      for (const [key, label] of requiredBeforeVerify) {
-        if (!String(kyc[key] || "").trim()) {
-          throw new Error(t("remittance.fieldRequired", { field: label }));
-        }
-      }
 
+      const autoFill = mode === "auto";
       const fd = new FormData();
       fd.append("front", citizenshipFront);
       fd.append("back", citizenshipBack);
       fd.append("ref_no", lookup.ref_no);
       fd.append("name", lookup.receiver_name.trim());
-      fd.append("citizenship_number", kyc.beneficiary_citizenship_number.trim());
-      fd.append("dob", kyc.beneficiary_dob.trim());
-      fd.append("issue_date", kyc.beneficiary_id_issue_date.trim());
+      fd.append("citizenship_number", autoFill ? "" : kyc.beneficiary_citizenship_number.trim());
+      fd.append("dob", autoFill ? "" : kyc.beneficiary_dob.trim());
+      fd.append("issue_date", autoFill ? "" : kyc.beneficiary_id_issue_date.trim());
       fd.append(
         "issue_place",
-        (
-          kyc.beneficiary_citizenship_issuing_district ||
-          kyc.beneficiary_id_issue_by ||
-          ""
-        ).trim(),
+        autoFill
+          ? ""
+          : (
+              kyc.beneficiary_citizenship_issuing_district ||
+              kyc.beneficiary_id_issue_by ||
+              ""
+            ).trim(),
       );
       return apiClient.verifyRemittanceCitizenship(fd);
     },
     onSuccess: (response) => {
       const data = response.data;
       setVerification(data);
+      applyExtractedCitizenship(data);
       if (data.match_status === "MATCH" && data.allowed !== false) {
         toast.success(response.message || t("remittance.verifySuccess"));
+      } else if (data.pending_review_allowed) {
+        toast.message(response.message || t("remittance.verifyPendingReview"));
       } else if (data.match_status === "PARTIAL MATCH") {
         toast.error(response.message || t("remittance.verifyPartial"));
       } else {
@@ -347,11 +361,21 @@ function ReceiveRemittance() {
         };
         if (body.data?.match_status) {
           setVerification(body.data);
+          applyExtractedCitizenship(body.data);
         }
       }
       toastApiError(err, { fallback: t("remittance.verifyFailed") });
     },
   });
+
+  useEffect(() => {
+    if (!citizenshipMatchingEnabled || !remittancesEnabled || accountPending) return;
+    if (!citizenshipFront || !citizenshipBack) return;
+    if (!lookup?.ref_no || !String(lookup.receiver_name || "").trim()) return;
+    verifyMutation.mutate("auto");
+    // Re-scan only when both images change, not when mutation state updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [citizenshipFront, citizenshipBack, lookup?.ref_no, citizenshipMatchingEnabled]);
 
   const receiveMutation = useMutation({
     mutationFn: async (transaction_pin: string) => {
@@ -363,7 +387,7 @@ function ReceiveRemittance() {
           throw new Error(t("remittance.citizenshipBothRequired"));
         }
         if (!verification) throw new Error(t("remittance.verifyRequired"));
-        if (!verificationAllowsReceive) {
+        if (!canSubmitRemittance) {
           throw new Error(
             verification.message ||
               (verification.match_status === "PARTIAL MATCH"
@@ -433,12 +457,20 @@ function ReceiveRemittance() {
     onSuccess: (res) => {
       setPinOpen(false);
       setPinError(null);
+      const isPendingReview =
+        res.data?.status === "pending" || res.code === "citizenship_review_pending";
       const credited = res.data?.total_credited ?? res.data?.amount;
-      toast.success(res.message || t("remittance.credited"), {
-        description: credited != null
-          ? t("remittance.creditedBody", { amount: formatNPR(credited) })
-          : undefined,
-      });
+      if (isPendingReview) {
+        toast.message(res.message || t("remittance.pendingReviewTitle"), {
+          description: res.pending_message || t("remittance.pendingReviewBody"),
+        });
+      } else {
+        toast.success(res.message || t("remittance.credited"), {
+          description: credited != null
+            ? t("remittance.creditedBody", { amount: formatNPR(credited) })
+            : undefined,
+        });
+      }
       setStep("lookup");
       setRefNo("");
       setLookup(null);
@@ -600,7 +632,7 @@ function ReceiveRemittance() {
                     toast.error(t("remittance.verifyRequired"));
                     return;
                   }
-                  if (!verificationAllowsReceive) {
+                  if (!canSubmitRemittance) {
                     toast.error(
                       verification.message ||
                         (verification.match_status === "PARTIAL MATCH"
@@ -631,6 +663,7 @@ function ReceiveRemittance() {
                     {t("remittance.citizenshipVerifyHelp")}
                   </p>
                 </div>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <CitizenshipUploadSlot
                     label={t("remittance.citizenshipFront")}
@@ -657,12 +690,19 @@ function ReceiveRemittance() {
                     !citizenshipBack ||
                     !remittancesEnabled
                   }
-                  onClick={() => verifyMutation.mutate()}
+                  onClick={() => verifyMutation.mutate("manual")}
                 >
                   {verifyMutation.isPending
                     ? t("remittance.verifyingCitizenship")
-                    : t("remittance.verifyCitizenship")}
+                    : verification
+                      ? t("remittance.verifyCitizenshipAgain")
+                      : t("remittance.verifyCitizenship")}
                 </Button>
+                {verifyMutation.isPending && !verification ? (
+                  <p className="text-[12px] text-muted-foreground">
+                    {t("remittance.autoFetchingDetails")}
+                  </p>
+                ) : null}
                 {verification ? (
                   <CitizenshipVerificationPanel verification={verification} t={t} />
                 ) : null}
@@ -881,13 +921,15 @@ function ReceiveRemittance() {
                 disabled={
                   receiveMutation.isPending ||
                   !remittancesEnabled ||
-                  (citizenshipMatchingEnabled && !verificationAllowsReceive)
+                  (citizenshipMatchingEnabled && !canSubmitRemittance)
                 }
                 className="h-12 w-full rounded-xl text-[17px]"
               >
                 {receiveMutation.isPending
                   ? t("common.submitting")
-                  : t("remittance.confirmReceive", { amount: formatNPR(lookup.amount) })}
+                  : pendingReviewAllowed
+                    ? t("remittance.submitPendingReview", { amount: formatNPR(lookup.amount) })
+                    : t("remittance.confirmReceive", { amount: formatNPR(lookup.amount) })}
               </Button>
             </form>
           ) : null}
@@ -908,8 +950,20 @@ function ReceiveRemittance() {
                       ? "warning"
                       : "success"
                 }
-                title={t("remittance.credited")}
-                body={t("history.downloadStatement")}
+                title={
+                  remittanceItems.find(
+                    (x) => activityIdForKind("remittance", x.id) === lastReceiptId,
+                  )?.status === "pending"
+                    ? t("remittance.pendingReviewTitle")
+                    : t("remittance.credited")
+                }
+                body={
+                  remittanceItems.find(
+                    (x) => activityIdForKind("remittance", x.id) === lastReceiptId,
+                  )?.status === "pending"
+                    ? t("remittance.pendingReviewBody")
+                    : t("history.downloadStatement")
+                }
                 receiptLabel={t("history.downloadPdf")}
                 onDownloadReceipt={() => void downloadReceipt(lastReceiptId)}
                 downloading={receiptDownloading}
@@ -1123,7 +1177,7 @@ function CitizenshipVerificationPanel({
   const tone =
     verification.match_status === "MATCH"
       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
-      : verification.match_status === "PARTIAL MATCH"
+      : verification.pending_review_allowed || verification.match_status === "PARTIAL MATCH"
         ? "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-100"
         : "border-destructive/30 bg-destructive/10 text-destructive";
 
@@ -1160,6 +1214,20 @@ function CitizenshipVerificationPanel({
       </p>
       {verification.message ? (
         <p className="text-[12px] font-medium">{verification.message}</p>
+      ) : null}
+      {verification.extracted_from_nepali ? (
+        <p className="text-[12px] opacity-80">{t("remittance.convertedFromNepali")}</p>
+      ) : null}
+      {typeof verification.attempt_count === "number" &&
+      verification.match_status !== "MATCH" ? (
+        <p className="text-[12px] font-medium">
+          {verification.pending_review_allowed
+            ? t("remittance.attemptsExhausted")
+            : t("remittance.attemptsRemaining", {
+                remaining: verification.attempts_remaining ?? 0,
+                max: verification.max_attempts ?? 2,
+              })}
+        </p>
       ) : null}
       <div className="space-y-1.5">
         <p className="text-[12px] font-medium opacity-80">{t("remittance.fieldMatch")}</p>

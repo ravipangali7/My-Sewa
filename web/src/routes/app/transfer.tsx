@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
-import { isAccountPending, canFundTransfer } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer, isWalletBlocked } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -68,6 +68,11 @@ type VerifiedDestination = {
   is_mobile: boolean;
 };
 
+type VerifyResult = "verified" | "failed" | "abort";
+
+const QR_VERIFY_MAX_ATTEMPTS = 5;
+const QR_VERIFY_RETRY_GAP_MS = 1000;
+
 function Transfer() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -104,9 +109,11 @@ function Transfer() {
   const [pinOpen, setPinOpen] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
   const [qrFilled, setQrFilled] = useState(false);
+  const [qrVerifyAttempt, setQrVerifyAttempt] = useState(0);
   const skipMethodResetRef = useRef(false);
   const pendingQrAmountRef = useRef("");
   const pendingQrVerifyRef = useRef(false);
+  const qrVerifyGenerationRef = useRef(0);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -196,12 +203,20 @@ function Transfer() {
   );
   const amt = Number(amount) || 0;
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
+  const walletBlocked = isWalletBlocked(walletQuery.data);
   const totalDue = Number(totalDebited) || amt;
   const insufficient =
     amt >= minTransfer && totalDue > 0 && walletBalance < totalDue;
   const isMobile = method === "phone";
   const destinationNumber = isMobile ? phone.trim() : accNo.trim();
   const showVerifyButton = !qrFilled;
+  const qrVerifyingLabel =
+    qrFilled && verifying
+      ? t("transfer.verifyingQrRetry", {
+          attempt: Math.max(qrVerifyAttempt, 1),
+          max: QR_VERIFY_MAX_ATTEMPTS,
+        })
+      : null;
 
   function resolveBankCode(code: string, name = "") {
     const matched = matchBank(banks, code) || matchBank(banks, name);
@@ -229,6 +244,10 @@ function Transfer() {
       skipMethodResetRef.current = false;
       return;
     }
+    qrVerifyGenerationRef.current += 1;
+    pendingQrVerifyRef.current = false;
+    setQrVerifyAttempt(0);
+    setVerifying(false);
     setQrFilled(false);
     setVerified(false);
     setVerifyStatus("idle");
@@ -241,6 +260,10 @@ function Transfer() {
   }, [method]);
 
   function resetVerification() {
+    qrVerifyGenerationRef.current += 1;
+    pendingQrVerifyRef.current = false;
+    setQrVerifyAttempt(0);
+    setVerifying(false);
     setVerified(false);
     setVerifyStatus("idle");
     setVerifiedDetails(null);
@@ -251,14 +274,19 @@ function Transfer() {
   }
 
   useEffect(() => {
+    return () => {
+      qrVerifyGenerationRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!pendingQrVerifyRef.current || !qrFilled || verifying || verified) return;
     const number = (method === "phone" ? phone : accNo).trim();
     const resolvedBank = resolveBankCode(bank);
     if (!number) return;
     if (!resolvedBank) return;
     if (!banks.length && banksQuery.isLoading) return;
-    pendingQrVerifyRef.current = false;
-    void verifyDestination({
+    void verifyDestinationFromQr({
       bankCode: resolvedBank,
       accountNumber: number,
       accountName: accName,
@@ -357,6 +385,7 @@ function Transfer() {
   const submitMutation = useMutation({
     mutationFn: (transaction_pin: string) => {
       if (accountPending) throw new Error(t("account.pending"));
+      if (walletBlocked) throw new Error(t("account.walletBlocked"));
       if (!transfersEnabled) throw new Error(t("transfer.disabledError"));
       if (amt < minTransfer) throw new Error(t("transfer.minError", { min: minTransfer }));
       if (maxTransfer > 0 && amt > maxTransfer) {
@@ -463,26 +492,66 @@ function Transfer() {
     pendingQrAmountRef.current = data.amount;
     pendingQrVerifyRef.current = true;
     if (resolvedBank && data.accountNumber) {
-      void verifyDestination({
-        bankCode: resolvedBank,
-        accountNumber: data.accountNumber,
-        accountName: data.accountName,
-        isMobile: data.isMobile,
-        allowMissingName: true,
-      });
+      if (banks.length || !banksQuery.isLoading) {
+        void verifyDestinationFromQr({
+          bankCode: resolvedBank,
+          accountNumber: data.accountNumber,
+          accountName: data.accountName,
+          isMobile: data.isMobile,
+          allowMissingName: true,
+        });
+      }
     } else if (!resolvedBank) {
       toast.message(t("transfer.qrSelectBank"));
     }
     return true;
   }
 
-  async function verifyDestination(overrides?: {
+  async function verifyDestinationFromQr(overrides: {
     bankCode?: string;
     accountNumber?: string;
     accountName?: string;
     isMobile?: boolean;
     allowMissingName?: boolean;
   }) {
+    pendingQrVerifyRef.current = false;
+    const generation = ++qrVerifyGenerationRef.current;
+    setVerifying(true);
+    setQrVerifyAttempt(1);
+    try {
+      for (let attempt = 1; attempt <= QR_VERIFY_MAX_ATTEMPTS; attempt++) {
+        if (qrVerifyGenerationRef.current !== generation) return;
+        setQrVerifyAttempt(attempt);
+        const result = await verifyDestination(overrides, {
+          silent: attempt < QR_VERIFY_MAX_ATTEMPTS,
+          manageVerifying: false,
+        });
+        if (qrVerifyGenerationRef.current !== generation) return;
+        if (result === "verified" || result === "abort") return;
+        if (attempt < QR_VERIFY_MAX_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, QR_VERIFY_RETRY_GAP_MS));
+        }
+      }
+    } finally {
+      if (qrVerifyGenerationRef.current === generation) {
+        setVerifying(false);
+        setQrVerifyAttempt(0);
+      }
+    }
+  }
+
+  async function verifyDestination(
+    overrides?: {
+      bankCode?: string;
+      accountNumber?: string;
+      accountName?: string;
+      isMobile?: boolean;
+      allowMissingName?: boolean;
+    },
+    options?: { silent?: boolean; manageVerifying?: boolean },
+  ): Promise<VerifyResult> {
+    const silent = options?.silent ?? false;
+    const manageVerifying = options?.manageVerifying ?? true;
     const useMobile = overrides?.isMobile ?? isMobile;
     const useBank = resolveBankCode(
       overrides?.bankCode ?? bank,
@@ -497,31 +566,35 @@ function Transfer() {
 
     if (accountPending) {
       toast.error(t("account.pending"));
-      return;
+      return "abort";
+    }
+    if (walletBlocked) {
+      toast.error(t("account.walletBlocked"));
+      return "abort";
     }
     if (!useBank) {
       toast.error(
         useMobile ? t("transfer.enterBankAndPhone") : t("transfer.enterBankAndName"),
       );
-      return;
+      return "abort";
     }
     if (useMobile) {
       const digits = useNumber.replace(/\D/g, "");
       if (digits.length < 10) {
         toast.error(t("transfer.invalidNepaliMobile"));
-        return;
+        return "abort";
       }
     } else {
       if (!useName && !overrides?.allowMissingName) {
         toast.error(t("transfer.enterBankAndName"));
-        return;
+        return "abort";
       }
       if (useNumber.length < 5) {
         toast.error(t("transfer.enterValidAccount"));
-        return;
+        return "abort";
       }
     }
-    setVerifying(true);
+    if (manageVerifying) setVerifying(true);
     try {
       const res = await apiClient.verifyBank({
         bank_code: useBank,
@@ -532,19 +605,23 @@ function Transfer() {
         is_mobile: useMobile,
       });
       if (!res.data?.verified) {
-        setVerified(false);
-        setVerifyStatus("unverified");
-        setVerifiedDetails(null);
-        toast.error(t("transfer.dontMatch"));
-        return;
+        if (!silent) {
+          setVerified(false);
+          setVerifyStatus("unverified");
+          setVerifiedDetails(null);
+          toast.error(t("transfer.dontMatch"));
+        }
+        return "failed";
       }
       const originalName = (res.data.account_name || "").trim();
       if (!originalName) {
-        setVerified(false);
-        setVerifyStatus("unverified");
-        setVerifiedDetails(null);
-        toast.error(t("transfer.dontMatch"));
-        return;
+        if (!silent) {
+          setVerified(false);
+          setVerifyStatus("unverified");
+          setVerifiedDetails(null);
+          toast.error(t("transfer.dontMatch"));
+        }
+        return "failed";
       }
       const confirmedBankCode = res.data.bank_code || useBank;
       const confirmedNumber = (res.data.account_number || useNumber).trim();
@@ -581,49 +658,53 @@ function Transfer() {
           ? t("transfer.verifiedPhone", { name: originalName })
           : res.message || t("transfer.accountVerified"),
       );
+      return "verified";
     } catch (err) {
-      setVerified(false);
-      setVerifyStatus("unverified");
-      setVerifiedDetails(null);
-      const body =
-        err instanceof ApiError && err.body && typeof err.body === "object"
-          ? (err.body as Record<string, unknown>)
-          : null;
-      const errorCode = body?.error_code;
-      const serviceBlocked =
-        errorCode === 7000 ||
-        errorCode === "7000" ||
-        String(body?.error_type || "")
-          .toLowerCase()
-          .includes("walletservicenotallowed");
-      const mismatch =
-        !serviceBlocked &&
-        err instanceof ApiError &&
-        (body?.mismatch === true ||
-          err.message === "Don't Match" ||
-          err.message === "Account details do not match." ||
-          err.message.toLowerCase().includes("don't match") ||
-          err.message.toLowerCase().includes("do not match"));
-      toastApiError(err, {
-        title: mismatch
-          ? t("transfer.dontMatch")
-          : serviceBlocked
-            ? t("transfer.verifyUnavailable")
-            : t("transfer.verifyFailed"),
-        fallback: mismatch
-          ? t("transfer.dontMatch")
-          : serviceBlocked
-            ? t("transfer.verifyUnavailable")
-            : t("transfer.verifyFailed"),
-      });
+      if (!silent) {
+        setVerified(false);
+        setVerifyStatus("unverified");
+        setVerifiedDetails(null);
+        const body =
+          err instanceof ApiError && err.body && typeof err.body === "object"
+            ? (err.body as Record<string, unknown>)
+            : null;
+        const errorCode = body?.error_code;
+        const serviceBlocked =
+          errorCode === 7000 ||
+          errorCode === "7000" ||
+          String(body?.error_type || "")
+            .toLowerCase()
+            .includes("walletservicenotallowed");
+        const mismatch =
+          !serviceBlocked &&
+          err instanceof ApiError &&
+          (body?.mismatch === true ||
+            err.message === "Don't Match" ||
+            err.message === "Account details do not match." ||
+            err.message.toLowerCase().includes("don't match") ||
+            err.message.toLowerCase().includes("do not match"));
+        toastApiError(err, {
+          title: mismatch
+            ? t("transfer.dontMatch")
+            : serviceBlocked
+              ? t("transfer.verifyUnavailable")
+              : t("transfer.verifyFailed"),
+          fallback: mismatch
+            ? t("transfer.dontMatch")
+            : serviceBlocked
+              ? t("transfer.verifyUnavailable")
+              : t("transfer.verifyFailed"),
+        });
+      }
+      return "failed";
     } finally {
-      setVerifying(false);
+      if (manageVerifying) setVerifying(false);
     }
   }
 
   const transferMain = (
       <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
-        {accountPending ? (
+        {accountPending || walletBlocked ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />
           </div>
@@ -754,8 +835,8 @@ function Transfer() {
                   ) : null}
                 </div>
                 <p className="text-[12px] text-muted-foreground">{t("transfer.phoneHelp")}</p>
-                {qrFilled && verifying ? (
-                  <p className="text-[13px] text-muted-foreground">{t("common.processing")}</p>
+                {qrVerifyingLabel ? (
+                  <p className="text-[13px] text-muted-foreground">{qrVerifyingLabel}</p>
                 ) : null}
                 {verifiedDetails ? null : (
                   <VerifyStatusMessage
@@ -806,8 +887,8 @@ function Transfer() {
                     </Button>
                   ) : null}
                 </div>
-                {qrFilled && verifying ? (
-                  <p className="text-[13px] text-muted-foreground">{t("common.processing")}</p>
+                {qrVerifyingLabel ? (
+                  <p className="text-[13px] text-muted-foreground">{qrVerifyingLabel}</p>
                 ) : null}
                 {verifiedDetails ? null : (
                   <VerifyStatusMessage

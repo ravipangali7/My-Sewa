@@ -758,6 +758,8 @@ export const apiClient = {
   receiveRemittance: (body: Record<string, unknown>) =>
     api<{
       message: string;
+      pending_message?: string;
+      code?: string;
       data: import("./types").RemittanceTransaction;
       himapayResponse?: unknown;
       himalpay_response?: unknown;
@@ -1109,6 +1111,11 @@ export const apiClient = {
     }),
   adminDeleteWallet: (id: number) =>
     api<{ message: string }>(`/api/admin/wallets/${id}/`, { method: "DELETE" }),
+  adminUnblockWallet: (id: number) =>
+    api<{ message: string; data: import("./types").AdminWallet }>(
+      `/api/admin/wallets/${id}/unblock/`,
+      { method: "POST" },
+    ),
   adminWalletTransactions: (
     id: number,
     filters?: AdminListFilters & { type?: string },

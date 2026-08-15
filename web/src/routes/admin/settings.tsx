@@ -19,6 +19,7 @@ import {
   Shield,
   ArrowDownToLine,
   Send,
+  Smartphone,
   Trash2,
 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
@@ -79,7 +80,7 @@ export const Route = createFileRoute("/admin/settings")({
       {
         name: "description",
         content:
-          "Manage MySewa global configuration: general info, branding, payments, transaction rules, SMTP email, notifications, security, deposit accounts, and full data export.",
+          "Manage MySewa global configuration: general info, branding, payments, transaction rules, SMTP email, notifications, security, Android auto-update, deposit accounts, and full data export.",
       },
       { property: "og:title", content: "App Settings — MySewa Admin" },
       {
@@ -196,6 +197,7 @@ const SECTIONS = [
   { id: "smtp", label: "Email / SMTP", icon: Mail },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "security", label: "Security", icon: Shield },
+  { id: "mobile", label: "App update", icon: Smartphone },
   { id: "export", label: "Data export", icon: Database },
 ] as const;
 
@@ -229,12 +231,17 @@ function SettingsPage() {
   >({});
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
+  const [apkFile, setApkFile] = useState<File | null>(null);
   const [smtpTestEmail, setSmtpTestEmail] = useState("");
   const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
 
   useEffect(() => {
     if (!settingsQuery.data) return;
     const remote = settingsQuery.data.config;
+    setAutoUpdateEnabled(Boolean(settingsQuery.data.auto_update_enabled));
+    setAppVersion(settingsQuery.data.app_version ?? "");
     setConfig({
       site: { ...DEFAULT_CONFIG.site, ...(remote?.site ?? {}) },
       payment: { ...DEFAULT_CONFIG.payment, ...(remote?.payment ?? {}) },
@@ -341,6 +348,7 @@ function SettingsPage() {
       setQrFiles({});
       setAccountQrFiles({});
       setLogoFile(null);
+      setApkFile(null);
       invalidate();
     },
     onError: (err) => {
@@ -469,6 +477,20 @@ function SettingsPage() {
       return;
     }
     saveConfigSection("site", config.site);
+  };
+
+  const saveMobileApp = () => {
+    const fd = new FormData();
+    fd.append("auto_update_enabled", autoUpdateEnabled ? "true" : "false");
+    fd.append("app_version", appVersion.trim());
+    if (apkFile) fd.append("apk", apkFile);
+    saveMutation.mutate(fd);
+  };
+
+  const clearApk = () => {
+    const fd = new FormData();
+    fd.append("clear_apk", "1");
+    saveMutation.mutate(fd);
   };
 
   const updateAccount = (id: string, patch: Partial<PaymentAccount>) => {
@@ -863,7 +885,7 @@ function SettingsPage() {
                 />
                 <ToggleRow
                   label="Citizenship image matching"
-                  description="Require citizenship front/back upload and OCR matching before remittance payout. When off, users fill the KYC form and hit HimalPay directly."
+                  description="Require citizenship front/back upload. English details are auto-filled (Nepali is converted if needed). After 2 mismatches the remittance can be submitted as pending for admin review."
                   checked={config.payment.citizenship_matching_enabled === true}
                   onCheckedChange={(v) =>
                     setConfig((c) => ({
@@ -2164,6 +2186,90 @@ function SettingsPage() {
                     }))
                   }
                 />
+              </div>
+            </SettingsPanel>
+          </TabsContent>
+
+          <TabsContent value="mobile">
+            <SettingsPanel
+              title="Android auto update"
+              description="When enabled, the Flutter app compares its local version with this APK version. If they differ, it downloads the APK and installs it automatically."
+              onSave={saveMobileApp}
+              saving={saving}
+            >
+              <div className="space-y-5">
+                <ToggleRow
+                  label="Enable auto update"
+                  description="Turn this on after uploading a new APK and setting the matching version. Turn it off to leave installed apps as they are."
+                  checked={autoUpdateEnabled}
+                  onCheckedChange={setAutoUpdateEnabled}
+                />
+                <div className="space-y-2">
+                  <Label htmlFor="app_version">APK version</Label>
+                  <Input
+                    id="app_version"
+                    value={appVersion}
+                    onChange={(e) => setAppVersion(e.target.value)}
+                    placeholder="e.g. 2.0.1"
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Must match <code className="rounded bg-muted px-1 py-0.5">AppConstant.appVersion</code>{" "}
+                    in the Flutter build you upload. Installed apps whose version does not match
+                    this value will download and install the APK.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="apk_file">APK file</Label>
+                  <div className="rounded-lg border border-dashed border-border bg-muted/40 p-4">
+                    <input
+                      id="apk_file"
+                      type="file"
+                      accept=".apk,application/vnd.android.package-archive"
+                      className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-brand file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
+                      onChange={(e) => setApkFile(e.target.files?.[0] ?? null)}
+                    />
+                    {apkFile ? (
+                      <p className="mt-3 truncate text-xs font-medium text-brand">
+                        New file selected: {apkFile.name} ({Math.round(apkFile.size / (1024 * 1024))} MB)
+                      </p>
+                    ) : settingsQuery.data?.apk_url ? (
+                      <p className="mt-3 truncate text-xs text-muted-foreground">
+                        Current APK: {settingsQuery.data.apk || "uploaded"}
+                      </p>
+                    ) : (
+                      <p className="mt-3 text-xs text-muted-foreground">No APK uploaded yet.</p>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Upload a release APK (typically 30–80 MB). Max upload size is 100 MB.
+                  </p>
+                  {autoUpdateEnabled && (!appVersion.trim() || (!apkFile && !settingsQuery.data?.apk_url)) ? (
+                    <p className="text-xs text-amber-600">
+                      Auto update is on, but a version and APK are both required before the app
+                      can update.
+                    </p>
+                  ) : null}
+                  {settingsQuery.data?.apk_url && !apkFile ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" asChild>
+                        <a href={settingsQuery.data.apk_url} download>
+                          Download current APK
+                        </a>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1.5 text-destructive"
+                        disabled={saving}
+                        onClick={clearApk}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Remove APK
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </SettingsPanel>
           </TabsContent>

@@ -95,7 +95,7 @@ from ..services.statement_reconcile import (
     collect_himalpay_entries_for_range,
     group_ledger_by_user,
     ledger_from_latest_run,
-    run_statement_reconcile,
+    run_statement_reconcile_range,
 )
 
 User = get_user_model()
@@ -1024,10 +1024,11 @@ def admin_list_wallets(request):
     if _is_csv_export(request):
         return _csv_response(
             'admin-wallets.csv',
-            ['id', 'user_id', 'phone', 'first_name', 'last_name', 'balance', 'created_at', 'updated_at'],
+            ['id', 'user_id', 'phone', 'first_name', 'last_name', 'balance', 'transactions_blocked', 'created_at', 'updated_at'],
             [
                 [
                     w.id, w.user_id, w.user.phone, w.user.first_name, w.user.last_name, w.balance,
+                    w.transactions_blocked,
                     w.created_at.isoformat() if w.created_at else '',
                     w.updated_at.isoformat() if w.updated_at else '',
                 ]
@@ -1151,6 +1152,28 @@ def admin_wallet_detail(request, wallet_id):
     wallet = Wallet.objects.select_related('user').get(pk=wallet.pk)
     return Response({
         'message': 'Wallet updated successfully',
+        'data': AdminWalletSerializer(wallet).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_wallet_unblock(request, wallet_id):
+    """Unlock a wallet that was auto-blocked after a HimalPay/MySewa mismatch."""
+    try:
+        wallet = Wallet.objects.select_related('user').get(pk=wallet_id)
+    except Wallet.DoesNotExist:
+        return Response({'error': 'Wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+    if not wallet.transactions_blocked:
+        return Response({
+            'message': 'Wallet is already unblocked',
+            'data': AdminWalletSerializer(wallet).data,
+        })
+    from ..services.wallet_guard import unblock_wallet
+    wallet = unblock_wallet(wallet, request.user)
+    wallet = Wallet.objects.select_related('user').get(pk=wallet.pk)
+    return Response({
+        'message': 'Wallet unblocked. Outbound payments are allowed again.',
         'data': AdminWalletSerializer(wallet).data,
     })
 
@@ -2709,6 +2732,40 @@ def admin_settings(request):
     elif request.data.get('logo') in ('', 'null', None) and 'logo' in request.data:
         pass  # ignore empty
 
+    if 'auto_update_enabled' in request.data and request.data.get('auto_update_enabled') is not None:
+        raw_enabled = request.data.get('auto_update_enabled')
+        if isinstance(raw_enabled, bool):
+            settings_obj.auto_update_enabled = raw_enabled
+        else:
+            settings_obj.auto_update_enabled = str(raw_enabled).strip().lower() in (
+                '1', 'true', 'yes', 'on',
+            )
+
+    if 'app_version' in request.data and request.data.get('app_version') is not None:
+        settings_obj.app_version = str(request.data.get('app_version') or '').strip()[:32]
+
+    if 'apk' in request.FILES:
+        uploaded_apk = request.FILES['apk']
+        apk_name = (getattr(uploaded_apk, 'name', '') or '').lower()
+        if not apk_name.endswith('.apk'):
+            return Response(
+                {
+                    'error': 'Upload a valid .apk file.',
+                    'message': 'Upload a valid .apk file.',
+                    'code': 'invalid_apk',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if settings_obj.apk:
+            settings_obj.apk.delete(save=False)
+        settings_obj.apk = uploaded_apk
+    elif 'clear_apk' in request.data and str(request.data.get('clear_apk')).lower() in (
+        '1', 'true', 'yes',
+    ):
+        if settings_obj.apk:
+            settings_obj.apk.delete(save=False)
+        settings_obj.apk = None
+
     if 'bank_details' in request.data:
         parsed_bank = _parse_json_field(request.data.get('bank_details'))
         if parsed_bank is not None:
@@ -3891,7 +3948,7 @@ def admin_statement_runs(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_statement_run(request):
-    """Trigger a statement reconcile for a date range (max ~2 months)."""
+    """Trigger a statement reconcile for a date range (chunked if longer than ~2 months)."""
     from_raw = (request.data.get('from_date') or '').strip()
     to_raw = (request.data.get('to_date') or '').strip()
     from_date = parse_date(from_raw) if from_raw else timezone.localdate()
@@ -3902,7 +3959,7 @@ def admin_statement_run(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
     try:
-        run = run_statement_reconcile(
+        run = run_statement_reconcile_range(
             from_date=from_date,
             to_date=to_date,
             triggered_by=StatementReconcileRun.TRIGGER_ADMIN,
@@ -3919,8 +3976,8 @@ def admin_statement_run(request):
         return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     ledger = build_statement_ledger(
-        from_date=run.from_date,
-        to_date=run.to_date,
+        from_date=from_date,
+        to_date=to_date,
         run=run,
     )
     payload = {

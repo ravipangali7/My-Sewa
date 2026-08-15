@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
-import { isAccountPending } from "@/lib/account-status";
+import { isAccountPending, isWalletBlocked } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -144,6 +144,7 @@ function DataTopUp() {
   const mobileReady = normalizedMobile.length === 10 && mobileError === null;
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
+  const walletBlocked = isWalletBlocked(walletQuery.data);
   const pkgAmount = Number(selectedPackage?.amount ?? 0);
   const totalDue = Number(totalDebited) || pkgAmount;
   const insufficient = pkgAmount > 0 && totalDue > 0 && walletBalance < totalDue;
@@ -212,6 +213,7 @@ function DataTopUp() {
     mutationFn: async (transaction_pin: string) => {
       if (!selectedPackage) throw new Error(t("dataTopup.selectPackage"));
       if (accountPending) throw new Error(t("account.pending"));
+      if (walletBlocked) throw new Error(t("account.walletBlocked"));
       if (!enabled) throw new Error(t("dataTopup.disabledError"));
       if (insufficient) {
         throw new Error(
@@ -351,11 +353,7 @@ function DataTopUp() {
       headerTrailing={headerSearchButton}
     >
       <div className="grid min-w-0 max-w-full grid-cols-1 gap-5 lg:grid-cols-2">
-        {accountPending ? (
-          <div className="lg:col-span-2">
-            <AccountPendingBanner />
-          </div>
-        ) : null}
+        <AccountPendingBanner />
         {!enabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
             <p className="text-[15px] font-medium text-destructive">{t("dataTopup.disabledTitle")}</p>
@@ -582,7 +580,7 @@ function DataTopUp() {
 
               <Button
                 type="button"
-                disabled={payMutation.isPending || feeLoading || insufficient || !enabled}
+                disabled={payMutation.isPending || feeLoading || insufficient || !enabled || walletBlocked}
                 className="h-12 w-full rounded-xl text-[17px]"
                 onClick={() => {
                   setPinError(null);

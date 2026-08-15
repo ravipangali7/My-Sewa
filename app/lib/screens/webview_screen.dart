@@ -16,10 +16,12 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../config/app_config.dart';
 import '../config/app_constant.dart';
+import '../services/app_update_service.dart';
 import '../services/device_token_api.dart';
 import '../services/fcm_log.dart';
 import '../services/push_messaging.dart';
 import '../services/session_lifecycle.dart';
+import 'auto_update_screen.dart';
 import 'no_internet_screen.dart';
 
 List<int> _decodeBase64InBackground(String value) {
@@ -49,6 +51,8 @@ class _WebViewScreenState extends State<WebViewScreen>
   bool _isHandlingDownload = false;
   bool _isRecovering = false;
   bool _offlineBlankLoaded = false;
+  bool _updating = false;
+  AppUpdateInfo? _updateInfo;
   int _reachabilitySeq = 0;
   final Set<String> _dispatchedPaymentOutcomeKeys = <String>{};
   DateTime? _splashStartedAt;
@@ -326,6 +330,18 @@ class _WebViewScreenState extends State<WebViewScreen>
     // Always clear HTTP / SW caches on cold start so site updates show fresh.
     await SessionLifecycle.clearWebResourceCache();
     if (!mounted) return;
+
+    final update = await AppUpdateService.checkForUpdate();
+    if (!mounted) return;
+    if (update != null) {
+      setState(() {
+        _updating = true;
+        _updateInfo = update;
+        _showSplash = false;
+      });
+      return;
+    }
+
     await _initWebView();
     _watchConnectivity();
   }
@@ -1357,6 +1373,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Future<void> _handleBack() async {
+    if (_updating) return;
     if (!_isOnline) {
       await _confirmExit();
       return;
@@ -1427,6 +1444,13 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_updating && _updateInfo != null) {
+      return PopScope(
+        canPop: false,
+        child: AutoUpdateScreen(info: _updateInfo!),
+      );
+    }
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {

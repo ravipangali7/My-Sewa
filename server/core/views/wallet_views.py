@@ -95,12 +95,15 @@ def get_wallet_balance(request):
     except (OperationalError, ProgrammingError):
         return Response(
             {
-                'id': None,
-                'user': str(request.user),
-                'phone': getattr(request.user, 'phone', ''),
-                'balance': '0.00',
-                'created_at': None,
-                'updated_at': None,
+            'id': None,
+            'user': str(request.user),
+            'phone': getattr(request.user, 'phone', ''),
+            'balance': '0.00',
+            'transactions_blocked': False,
+            'blocked_reason': '',
+            'blocked_at': None,
+            'created_at': None,
+            'updated_at': None,
             },
             status=status.HTTP_200_OK,
         )

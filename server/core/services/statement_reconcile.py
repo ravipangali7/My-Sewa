@@ -67,6 +67,9 @@ class GroupedHpTxn:
     reference_id: str
     created_at: Optional[str]
     snapshot: Dict[str, Any]
+    merchant_txn_id: str = ''
+    balance_before: Optional[Decimal] = None
+    balance_after: Optional[Decimal] = None
 
 
 def _money(value) -> Decimal:
@@ -74,6 +77,75 @@ def _money(value) -> Decimal:
         return Decimal(str(value or 0)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     except Exception:
         return Decimal('0.00')
+
+
+def _optional_money(value) -> Optional[Decimal]:
+    if value is None or value == '':
+        return None
+    try:
+        return _money(HimalPayAPI.to_rupees(value))
+    except Exception:
+        try:
+            return _money(value)
+        except Exception:
+            return None
+
+
+def _hp_balance_delta(hp: GroupedHpTxn) -> Optional[Decimal]:
+    if hp.balance_before is None or hp.balance_after is None:
+        return None
+    return _money(abs(hp.balance_after - hp.balance_before))
+
+
+def _local_balance_delta(local: LocalTxn) -> Optional[Decimal]:
+    before = getattr(local.obj, 'balance_before', None)
+    after = getattr(local.obj, 'balance_after', None)
+    if before is None or after is None:
+        return None
+    return _money(abs(_money(after) - _money(before)))
+
+
+def iter_statement_windows(from_date: date, to_date: date) -> List[Tuple[date, date]]:
+    """Split a range into HimalPay-safe windows (max ~2 months each)."""
+    if to_date < from_date:
+        from_date, to_date = to_date, from_date
+    windows: List[Tuple[date, date]] = []
+    cursor = from_date
+    while cursor <= to_date:
+        chunk_end = min(to_date, cursor + timedelta(days=MAX_STATEMENT_SPAN_DAYS))
+        windows.append((cursor, chunk_end))
+        cursor = chunk_end + timedelta(days=1)
+    return windows
+
+
+def run_statement_reconcile_range(
+    *,
+    from_date: date,
+    to_date: date,
+    triggered_by: str = StatementReconcileRun.TRIGGER_ADMIN,
+    triggered_by_user=None,
+    himalpay: Optional[HimalPayAPI] = None,
+) -> StatementReconcileRun:
+    """Run reconcile across a range, chunking when it exceeds HimalPay's span limit."""
+    last = None
+    api = himalpay or HimalPayAPI()
+    for start, end in iter_statement_windows(from_date, to_date):
+        last = run_statement_reconcile(
+            from_date=start,
+            to_date=end,
+            triggered_by=triggered_by,
+            triggered_by_user=triggered_by_user,
+            himalpay=api,
+        )
+    if last is None:
+        return run_statement_reconcile(
+            from_date=from_date,
+            to_date=to_date,
+            triggered_by=triggered_by,
+            triggered_by_user=triggered_by_user,
+            himalpay=api,
+        )
+        return last
 
 
 def _approx_equal(a: Decimal, b: Decimal, tol: Decimal = MONEY_TOLERANCE) -> bool:
@@ -128,6 +200,14 @@ def _group_statement_entries(entries: Iterable[Dict[str, Any]]) -> Dict[str, Gro
             net = amount + charge - cashback
             direction = direction or 'debit'
 
+        merchant_txn_id = str(
+            principal.get('merchant_transaction_id')
+            or principal.get('merchant_txn_id')
+            or ''
+        ).strip()
+        balance_before = _optional_money(principal.get('balance_before'))
+        balance_after = _optional_money(principal.get('balance_after'))
+        net_money = _money(net)
         grouped[uuid] = GroupedHpTxn(
             transaction_uuid=uuid,
             entries=rows,
@@ -137,7 +217,7 @@ def _group_statement_entries(entries: Iterable[Dict[str, Any]]) -> Dict[str, Gro
             principal_amount=_money(amount),
             charge=_money(charge),
             cashback=_money(cashback),
-            net_amount=_money(net),
+            net_amount=net_money,
             reference_id=str(principal.get('reference_id') or ''),
             created_at=str(principal.get('created_at') or '') or None,
             snapshot={
@@ -148,8 +228,14 @@ def _group_statement_entries(entries: Iterable[Dict[str, Any]]) -> Dict[str, Gro
                 'principal_amount': str(_money(amount)),
                 'charge': str(_money(charge)),
                 'cashback': str(_money(cashback)),
-                'net_amount': str(_money(net)),
+                'net_amount': str(net_money),
+                'merchant_txn_id': merchant_txn_id,
+                'balance_before': str(balance_before) if balance_before is not None else None,
+                'balance_after': str(balance_after) if balance_after is not None else None,
             },
+            merchant_txn_id=merchant_txn_id,
+            balance_before=balance_before,
+            balance_after=balance_after,
         )
     return grouped
 
@@ -183,6 +269,28 @@ def _index_local_txns(
                 txn_type=txn_type, obj=obj, provider_id=provider_id,
             )
     return indexed
+
+
+def _merchant_index(local_index: Dict[str, LocalTxn]) -> Dict[str, LocalTxn]:
+    by_merchant: Dict[str, LocalTxn] = {}
+    for local in local_index.values():
+        mid = str(getattr(local.obj, 'merchant_txn_id', '') or '').strip()
+        if mid and mid not in by_merchant:
+            by_merchant[mid] = local
+    return by_merchant
+
+
+def _lookup_local(
+    hp: GroupedHpTxn,
+    local_index: Dict[str, LocalTxn],
+    by_merchant: Dict[str, LocalTxn],
+) -> Optional[LocalTxn]:
+    local = local_index.get(hp.transaction_uuid)
+    if local:
+        return local
+    if hp.merchant_txn_id:
+        return by_merchant.get(hp.merchant_txn_id)
+    return None
 
 
 def _collect_hp_entries_for_range(from_date: date, to_date: date) -> List[Dict[str, Any]]:
@@ -407,6 +515,35 @@ def _suggest_for_issue(
             f'User over-debited by Rs. {abs(delta)} vs HimalPay.'
         )
 
+    if issue_type == StatementDiscrepancy.ISSUE_BALANCE_MISMATCH:
+        hp_delta = _hp_balance_delta(hp) if hp else None
+        local_delta = _local_balance_delta(local) if local else None
+        local_net = _local_net_amount(local)
+        parts = []
+        if hp and hp_delta is not None and not _approx_equal(hp_delta, hp.net_amount):
+            parts.append(
+                f'HimalPay before/after change Rs. {hp_delta} does not match '
+                f'HimalPay amount Rs. {hp.net_amount}.'
+            )
+        if local and local_delta is not None and not _approx_equal(local_delta, local_net):
+            parts.append(
+                f'MySewa before/after change Rs. {local_delta} does not match '
+                f'MySewa amount Rs. {local_net}.'
+            )
+        reason = ' '.join(parts) or (
+            f'Before/after balance mismatch (HimalPay {hp.net_amount if hp else "—"} '
+            f'vs MySewa {local_net}).'
+        )
+        if hp and local:
+            delta = _money(hp.net_amount - local_net)
+            if delta > 0:
+                adj = 'credit' if local.txn_type == StatementDiscrepancy.TXN_REMITTANCE else 'debit'
+                return adj, abs(delta), reason
+            if delta < 0:
+                adj = 'debit' if local.txn_type == StatementDiscrepancy.TXN_REMITTANCE else 'credit'
+                return adj, abs(delta), reason
+        return '', None, reason
+
     return '', None, ''
 
 
@@ -440,7 +577,10 @@ def _build_issue(
         'run': run,
         'issue_type': issue_type,
         'transaction_uuid': hp.transaction_uuid if hp else (local.provider_id if local else ''),
-        'merchant_txn_id': str(getattr(local.obj, 'merchant_txn_id', '') or '') if local else '',
+        'merchant_txn_id': (
+            str(getattr(local.obj, 'merchant_txn_id', '') or '') if local
+            else (hp.merchant_txn_id if hp else '')
+        ),
         'wallet_service_name': hp.wallet_service_name if hp else '',
         'direction': hp.direction if hp else (
             'credit' if local and local.txn_type == StatementDiscrepancy.TXN_REMITTANCE else 'debit'
@@ -460,6 +600,65 @@ def _build_issue(
     }
 
 
+def _should_auto_block(
+    issue_type: str,
+    hp: Optional[GroupedHpTxn],
+    local: Optional[LocalTxn],
+) -> bool:
+    """Lock wallet when HimalPay already took money and MySewa did not apply it."""
+    if local is None or getattr(local.obj, 'user', None) is None:
+        return False
+    if hp is None or hp.status != 'SUCCESS':
+        return False
+    if (hp.direction or '').lower() == 'credit':
+        return False
+    if issue_type == StatementDiscrepancy.ISSUE_WALLET_NOT_APPLIED:
+        return True
+    if issue_type == StatementDiscrepancy.ISSUE_STATUS_MISMATCH:
+        local_status = str(getattr(local.obj, 'status', '') or '')
+        if local_status == 'pending':
+            from .app_config import is_auto_status_verified
+            if not is_auto_status_verified():
+                return False
+        if local_status != 'success' or not _wallet_applied(local):
+            return True
+    return False
+
+
+def _pair_issue_type(
+    hp: Optional[GroupedHpTxn],
+    local: Optional[LocalTxn],
+) -> str:
+    if hp is None and local is not None:
+        return StatementDiscrepancy.ISSUE_MISSING_PROVIDER
+    if local is None and hp is not None:
+        return StatementDiscrepancy.ISSUE_MISSING_LOCAL
+    if hp is None or local is None:
+        return 'unmatched'
+
+    local_status = str(getattr(local.obj, 'status', '') or '')
+    expected = _map_hp_status(hp.status)
+    if expected == 'success' and local_status != 'success':
+        return StatementDiscrepancy.ISSUE_STATUS_MISMATCH
+    if expected != 'success' and local_status == 'success':
+        return StatementDiscrepancy.ISSUE_STATUS_MISMATCH
+    if expected == 'success' and not _approx_equal(_local_net_amount(local), hp.net_amount):
+        return StatementDiscrepancy.ISSUE_AMOUNT_MISMATCH
+    if expected == 'success' and not _wallet_applied(local):
+        return StatementDiscrepancy.ISSUE_WALLET_NOT_APPLIED
+    hp_delta = _hp_balance_delta(hp)
+    local_delta = _local_balance_delta(local)
+    if expected == 'success' and hp_delta is not None and not _approx_equal(hp_delta, hp.net_amount):
+        return StatementDiscrepancy.ISSUE_BALANCE_MISMATCH
+    if (
+        expected == 'success'
+        and local_delta is not None
+        and not _approx_equal(local_delta, _local_net_amount(local))
+    ):
+        return StatementDiscrepancy.ISSUE_BALANCE_MISMATCH
+    return 'matched'
+
+
 def run_statement_reconcile(
     *,
     from_date: date,
@@ -467,6 +666,7 @@ def run_statement_reconcile(
     triggered_by: str = StatementReconcileRun.TRIGGER_ADMIN,
     triggered_by_user=None,
     himalpay: Optional[HimalPayAPI] = None,
+    focus_transaction_id: Optional[str] = None,
 ) -> StatementReconcileRun:
     from_date, to_date = clamp_date_range(from_date, to_date)
     run = StatementReconcileRun.objects.create(
@@ -496,6 +696,38 @@ def run_statement_reconcile(
             entries = _build_entries_via_status_checks(api, from_date, to_date)
             used_status_fallback = True
 
+        focus_id = (focus_transaction_id or '').strip()
+        if focus_id:
+            try:
+                extra = api.get_reseller_statement(transaction_id=focus_id)
+                if isinstance(extra, list):
+                    seen_focus = {
+                        (
+                            str(row.get('transaction_uuid') or ''),
+                            str(row.get('created_at') or ''),
+                            str(row.get('amount') or ''),
+                        )
+                        for row in entries
+                        if isinstance(row, dict)
+                    }
+                    for row in extra:
+                        if not isinstance(row, dict):
+                            continue
+                        key = (
+                            str(row.get('transaction_uuid') or ''),
+                            str(row.get('created_at') or ''),
+                            str(row.get('amount') or ''),
+                        )
+                        if key not in seen_focus:
+                            entries.append(row)
+                            seen_focus.add(key)
+            except HimalPayError as exc:
+                logger.warning(
+                    'Focus transaction_id %s statement fetch failed: %s',
+                    focus_id,
+                    exc,
+                )
+
         try:
             balance = api.get_reseller_balance()
         except HimalPayError as exc:
@@ -504,12 +736,14 @@ def run_statement_reconcile(
 
         grouped = _group_statement_entries(entries)
         local_index = _index_local_txns(from_date, to_date, grouped.keys())
+        by_merchant = _merchant_index(local_index)
 
         found_issues: Dict[str, Dict[str, Any]] = {}
         matched = 0
+        matched_local_pks = set()
 
         for uuid, hp in grouped.items():
-            local = local_index.get(uuid)
+            local = _lookup_local(hp, local_index, by_merchant)
             if local is None:
                 # Only alert on successful HP money movement without a local match
                 if hp.status == 'SUCCESS':
@@ -519,49 +753,31 @@ def run_statement_reconcile(
                         hp=hp,
                         local=None,
                     )
-                    found_issues[_open_key(uuid, '', issue['issue_type'])] = issue
+                    found_issues[_open_key(uuid, hp.merchant_txn_id, issue['issue_type'])] = issue
                 continue
 
             matched += 1
-            local_status = str(getattr(local.obj, 'status', '') or '')
-            expected = _map_hp_status(hp.status)
-
-            if expected == 'success' and local_status != 'success':
-                issue = _build_issue(
-                    run=run,
-                    issue_type=StatementDiscrepancy.ISSUE_STATUS_MISMATCH,
-                    hp=hp,
-                    local=local,
-                )
-                found_issues[_open_key(uuid, issue['merchant_txn_id'], issue['issue_type'])] = issue
-            elif expected != 'success' and local_status == 'success':
-                issue = _build_issue(
-                    run=run,
-                    issue_type=StatementDiscrepancy.ISSUE_STATUS_MISMATCH,
-                    hp=hp,
-                    local=local,
-                )
-                found_issues[_open_key(uuid, issue['merchant_txn_id'], issue['issue_type'])] = issue
-            elif expected == 'success' and not _approx_equal(_local_net_amount(local), hp.net_amount):
-                issue = _build_issue(
-                    run=run,
-                    issue_type=StatementDiscrepancy.ISSUE_AMOUNT_MISMATCH,
-                    hp=hp,
-                    local=local,
-                )
-                found_issues[_open_key(uuid, issue['merchant_txn_id'], issue['issue_type'])] = issue
-            elif expected == 'success' and not _wallet_applied(local):
-                issue = _build_issue(
-                    run=run,
-                    issue_type=StatementDiscrepancy.ISSUE_WALLET_NOT_APPLIED,
-                    hp=hp,
-                    local=local,
-                )
-                found_issues[_open_key(uuid, issue['merchant_txn_id'], issue['issue_type'])] = issue
+            matched_local_pks.add((local.txn_type, local.obj.pk))
+            issue_type = _pair_issue_type(hp, local)
+            if issue_type in ('matched', 'local_only', 'unmatched'):
+                continue
+            issue = _build_issue(
+                run=run,
+                issue_type=issue_type,
+                hp=hp,
+                local=local,
+            )
+            found_issues[_open_key(uuid, issue['merchant_txn_id'], issue['issue_type'])] = issue
 
         # Local success rows in range with provider id but no HP entry
+        hp_merchant_ids = {hp.merchant_txn_id for hp in grouped.values() if hp.merchant_txn_id}
         for provider_id, local in local_index.items():
+            if (local.txn_type, local.obj.pk) in matched_local_pks:
+                continue
             if provider_id in grouped:
+                continue
+            mid = str(getattr(local.obj, 'merchant_txn_id', '') or '').strip()
+            if mid and mid in hp_merchant_ids:
                 continue
             if str(getattr(local.obj, 'status', '')) != 'success':
                 continue
@@ -601,6 +817,29 @@ def run_statement_reconcile(
                         **payload,
                     )
                     new_count += 1
+                    local_for_block = None
+                    hp_for_block = grouped.get(payload.get('transaction_uuid') or '')
+                    user = payload.get('user')
+                    if user is not None and payload.get('txn_id'):
+                        for local in local_index.values():
+                            if local.obj.pk == payload['txn_id'] and local.txn_type == payload.get('txn_type'):
+                                local_for_block = local
+                                break
+                    if _should_auto_block(payload['issue_type'], hp_for_block, local_for_block):
+                        try:
+                            from .wallet_guard import block_wallet
+                            block_wallet(
+                                user,
+                                reason=payload.get('reason') or (
+                                    'HimalPay deducted this payment but MySewa did not apply it.'
+                                ),
+                                merchant_txn_id=payload.get('merchant_txn_id') or '',
+                            )
+                        except Exception:
+                            logger.exception(
+                                'Failed to auto-block wallet for statement issue %s',
+                                payload.get('transaction_uuid'),
+                            )
 
             # Auto-resolve opens that are no longer present for UUIDs we re-checked
             checked_uuids = set(grouped.keys()) | {
@@ -645,6 +884,24 @@ def run_statement_reconcile(
                 run.error_message = (
                     'Used status-check fallback (HimalPay reseller statement route unavailable on this host).'
                 )
+            live_rupees = run.himalpay_balance_rupees
+            latest_after = None
+            for hp in grouped.values():
+                if hp.balance_after is None:
+                    continue
+                latest_after = hp.balance_after
+            if (
+                live_rupees is not None
+                and latest_after is not None
+                and not _approx_equal(_money(live_rupees), latest_after)
+            ):
+                note = (
+                    f'HimalPay live balance Rs. {_money(live_rupees)} does not match '
+                    f'latest statement after-balance Rs. {latest_after}.'
+                )
+                run.error_message = (
+                    f'{run.error_message} {note}'.strip() if run.error_message else note
+                )
             run.finished_at = timezone.now()
             run.save()
 
@@ -680,6 +937,7 @@ _TXN_TYPE_LABELS = {
     StatementDiscrepancy.TXN_DATA_PACK: 'Data pack',
     StatementDiscrepancy.TXN_INTERNET: 'Internet',
     StatementDiscrepancy.TXN_WATER: 'Water',
+    StatementDiscrepancy.TXN_ELECTRICITY: 'Electricity',
     StatementDiscrepancy.TXN_COMMUNITY_ELECTRICITY: 'Community electricity',
     StatementDiscrepancy.TXN_BANK_TRANSFER: 'Bank transfer',
     StatementDiscrepancy.TXN_REMITTANCE: 'Remittance',
@@ -719,6 +977,16 @@ def _local_side(local: LocalTxn) -> Dict[str, Any]:
         'user_name': user_name,
         'created_at': created_at,
         'wallet_applied': _wallet_applied(local),
+        'balance_before': (
+            str(_money(getattr(obj, 'balance_before')))
+            if getattr(obj, 'balance_before', None) is not None
+            else None
+        ),
+        'balance_after': (
+            str(_money(getattr(obj, 'balance_after')))
+            if getattr(obj, 'balance_after', None) is not None
+            else None
+        ),
     }
 
 
@@ -734,6 +1002,9 @@ def _hp_side(hp: GroupedHpTxn) -> Dict[str, Any]:
         'charge': str(hp.charge),
         'cashback': str(hp.cashback),
         'reference_id': hp.reference_id,
+        'merchant_txn_id': hp.merchant_txn_id,
+        'balance_before': str(hp.balance_before) if hp.balance_before is not None else None,
+        'balance_after': str(hp.balance_after) if hp.balance_after is not None else None,
     }
 
 
@@ -741,24 +1012,7 @@ def _match_state_for_pair(
     hp: Optional[GroupedHpTxn],
     local: Optional[LocalTxn],
 ) -> str:
-    if hp is None and local is not None:
-        return StatementDiscrepancy.ISSUE_MISSING_PROVIDER
-    if local is None and hp is not None:
-        return StatementDiscrepancy.ISSUE_MISSING_LOCAL
-    if hp is None or local is None:
-        return 'unmatched'
-
-    local_status = str(getattr(local.obj, 'status', '') or '')
-    expected = _map_hp_status(hp.status)
-    if expected == 'success' and local_status != 'success':
-        return StatementDiscrepancy.ISSUE_STATUS_MISMATCH
-    if expected != 'success' and local_status == 'success':
-        return StatementDiscrepancy.ISSUE_STATUS_MISMATCH
-    if expected == 'success' and not _approx_equal(_local_net_amount(local), hp.net_amount):
-        return StatementDiscrepancy.ISSUE_AMOUNT_MISMATCH
-    if expected == 'success' and not _wallet_applied(local):
-        return StatementDiscrepancy.ISSUE_WALLET_NOT_APPLIED
-    return 'matched'
+    return _pair_issue_type(hp, local)
 
 
 def build_statement_ledger(
@@ -776,7 +1030,8 @@ def build_statement_ledger(
     omitted, HimalPay rows are merged from all successful runs overlapping the
     range (plus `run` if given).
     """
-    from_date, to_date = clamp_date_range(from_date, to_date)
+    if to_date < from_date:
+        from_date, to_date = to_date, from_date
     if entries is None:
         entries = _collect_hp_entries_for_range(from_date, to_date)
         if run is not None and isinstance(run.himalpay_statement_logs, list):
@@ -813,6 +1068,7 @@ def build_statement_ledger(
 
     grouped = _group_statement_entries(entries)
     local_index = _index_local_txns(from_date, to_date, grouped.keys())
+    by_merchant = _merchant_index(local_index)
 
     open_discs = {
         (d.transaction_uuid or '', d.issue_type): d
@@ -893,8 +1149,9 @@ def build_statement_ledger(
         })
 
     for uuid, hp in grouped.items():
-        local = local_index.get(uuid)
+        local = _lookup_local(hp, local_index, by_merchant)
         if local:
+            seen_local.add(local.provider_id)
             seen_local.add(uuid)
         match_state = _match_state_for_pair(hp, local)
         disc = open_discs.get((uuid, match_state)) or open_by_uuid.get(uuid)
@@ -1102,7 +1359,8 @@ def ledger_from_latest_run(
     ).order_by('-created_at')
     today = timezone.localdate()
     if from_date and to_date:
-        from_date, to_date = clamp_date_range(from_date, to_date)
+        if to_date < from_date:
+            from_date, to_date = to_date, from_date
     elif qs.exists():
         latest = qs.first()
         from_date = from_date or latest.from_date

@@ -25,10 +25,15 @@ from ..services.app_config import (
     platform_topup_charge,
     require_feature_enabled,
     require_account_approved,
+    require_wallet_not_blocked,
     is_auto_status_verified,
 )
 from ..services.notifications import notify_topup_success, notify_low_balance_if_needed
 from ..services.txn_status import resolve_provider_outcome, debit_wallet_for_txn
+from ..services.wallet_guard import (
+    handle_provider_success_without_wallet,
+    schedule_post_transaction_reconcile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +72,9 @@ def _process_topup(request, product_id: int, service_label: str):
     pending = require_account_approved(request.user)
     if pending:
         return pending
+    locked = require_wallet_not_blocked(request.user)
+    if locked:
+        return locked
 
     serializer = TopupCreateSerializer(data=request.data)
     if not serializer.is_valid():
@@ -193,6 +201,9 @@ def _process_topup(request, product_id: int, service_label: str):
                 wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                 debit = topup_txn.total_debited or amount
                 if wallet.balance < debit:
+                    handle_provider_success_without_wallet(
+                        request.user, topup_txn, schedule=False,
+                    )
                     topup_txn.status = 'failed'
                     topup_txn.save()
                     return Response(
@@ -274,6 +285,8 @@ def _process_topup(request, product_id: int, service_label: str):
             {'error': 'Topup request failed', 'message': str(exc)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+    finally:
+        schedule_post_transaction_reconcile(request.user, topup_txn)
 
 
 @api_view(['POST'])
@@ -468,12 +481,16 @@ def check_transaction_status(request):
                                 )
                                 notify_low_balance_if_needed(wallet)
                             else:
+                                handle_provider_success_without_wallet(
+                                    request.user, topup, schedule=False,
+                                )
                                 topup.status = 'failed'
                                 topup.provider_response = {
                                     **(topup.provider_response or {}),
                                     'local_error': 'Insufficient balance on status sync',
                                 }
                                 topup.save()
+                                schedule_post_transaction_reconcile(request.user, topup)
                         elif local_status == 'failed':
                             topup.status = 'failed'
                             topup.save()

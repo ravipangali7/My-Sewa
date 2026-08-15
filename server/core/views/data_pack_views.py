@@ -26,10 +26,15 @@ from ..services.app_config import (
     platform_topup_charge,
     require_feature_enabled,
     require_account_approved,
+    require_wallet_not_blocked,
     is_auto_status_verified,
 )
 from ..services.notifications import notify_low_balance_if_needed, notify_wallet_debit
 from ..services.txn_status import resolve_provider_outcome, debit_wallet_for_txn
+from ..services.wallet_guard import (
+    handle_provider_success_without_wallet,
+    schedule_post_transaction_reconcile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +91,9 @@ def inquiry_packages(request):
     pending = require_account_approved(request.user)
     if pending:
         return pending
+    locked = require_wallet_not_blocked(request.user)
+    if locked:
+        return locked
 
     serializer = DataPackInquirySerializer(data=request.data)
     if not serializer.is_valid():
@@ -155,6 +163,9 @@ def pay_data_pack(request):
     pending = require_account_approved(request.user)
     if pending:
         return pending
+    locked = require_wallet_not_blocked(request.user)
+    if locked:
+        return locked
 
     serializer = DataPackPaySerializer(data=request.data)
     if not serializer.is_valid():
@@ -276,6 +287,9 @@ def pay_data_pack(request):
                 wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                 debit = data_txn.total_debited or amount
                 if wallet.balance < debit:
+                    handle_provider_success_without_wallet(
+                        request.user, data_txn, schedule=False,
+                    )
                     data_txn.status = 'failed'
                     data_txn.save()
                     return Response(
@@ -344,6 +358,8 @@ def pay_data_pack(request):
             {'error': 'Payment request failed', 'message': str(exc)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+    finally:
+        schedule_post_transaction_reconcile(request.user, data_txn)
 
 
 @api_view(['GET'])

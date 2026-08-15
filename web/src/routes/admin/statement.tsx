@@ -88,10 +88,30 @@ function todayISO() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function monthStartISO() {
-  const d = new Date();
+function shiftISO(iso: string, days: number) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function monthStartISO(from = todayISO()) {
+  return `${from.slice(0, 7)}-01`;
+}
+
+function yearStartISO(from = todayISO()) {
+  return `${from.slice(0, 4)}-01-01`;
+}
+
+type DatePreset = "day" | "week" | "month" | "year" | "custom";
+
+function applyPreset(preset: DatePreset): { from: string; to: string } {
+  const to = todayISO();
+  if (preset === "day") return { from: to, to };
+  if (preset === "week") return { from: shiftISO(to, -6), to };
+  if (preset === "month") return { from: monthStartISO(to), to };
+  if (preset === "year") return { from: yearStartISO(to), to };
+  return { from: monthStartISO(to), to };
 }
 
 function txnDetailPath(row: StatementLedgerRow): string | null {
@@ -137,6 +157,8 @@ function matchLabel(state: string): string {
       return "Missing in HimalPay";
     case "wallet_not_applied":
       return "Wallet not applied";
+    case "balance_mismatch":
+      return "Balance mismatch";
     default:
       return state.replace(/_/g, " ");
   }
@@ -165,6 +187,7 @@ const ISSUE_TYPE_OPTIONS = [
   { value: "missing_local", label: "Missing in MySewa" },
   { value: "missing_provider", label: "Missing in HimalPay" },
   { value: "wallet_not_applied", label: "Wallet not applied" },
+  { value: "balance_mismatch", label: "Before/after balance mismatch" },
 ];
 
 function StatementPage() {
@@ -175,8 +198,9 @@ function StatementPage() {
   const { user } = useAuth();
   const allowAdjust = canWalletAdjust(user);
 
-  const [fromDate, setFromDate] = useState(monthStartISO);
-  const [toDate, setToDate] = useState(todayISO);
+  const [fromDate, setFromDate] = useState(() => todayISO());
+  const [toDate, setToDate] = useState(() => todayISO());
+  const [preset, setPreset] = useState<DatePreset>("day");
   const [matchFilter, setMatchFilter] = useState("all");
   const [userFilter, setUserFilter] = useState("");
   const [search, setSearch] = useState(routeSearch.q ?? "");
@@ -440,14 +464,51 @@ function StatementPage() {
 
         <TabsContent value="ledger" className="mt-4 space-y-4">
           <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="flex flex-wrap gap-2">
+              {(["day", "week", "month", "year"] as DatePreset[]).map((key) => (
+                <Button
+                  key={key}
+                  type="button"
+                  size="sm"
+                  variant={preset === key ? "default" : "outline"}
+                  onClick={() => {
+                    const next = applyPreset(key);
+                    setPreset(key);
+                    setFromDate(next.from);
+                    setToDate(next.to);
+                  }}
+                >
+                  {key === "day" ? "Day" : key === "week" ? "Week" : key === "month" ? "Month" : "Year"}
+                </Button>
+              ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
+              <div className="space-y-1.5">
+                <Label htmlFor="one-day">One day</Label>
+                <Input
+                  id="one-day"
+                  type="date"
+                  value={fromDate === toDate ? fromDate : ""}
+                  max={todayISO()}
+                  onChange={(e) => {
+                    const day = e.target.value;
+                    if (!day) return;
+                    setPreset("day");
+                    setFromDate(day);
+                    setToDate(day);
+                  }}
+                />
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="from">From</Label>
                 <Input
                   id="from"
                   type="date"
                   value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
+                  onChange={(e) => {
+                    setPreset("custom");
+                    setFromDate(e.target.value);
+                  }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -457,7 +518,10 @@ function StatementPage() {
                   type="date"
                   value={toDate}
                   max={todayISO()}
-                  onChange={(e) => setToDate(e.target.value)}
+                  onChange={(e) => {
+                    setPreset("custom");
+                    setToDate(e.target.value);
+                  }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -475,6 +539,7 @@ function StatementPage() {
                     <SelectItem value="missing_local">Missing in MySewa</SelectItem>
                     <SelectItem value="missing_provider">Missing in HimalPay</SelectItem>
                     <SelectItem value="wallet_not_applied">Wallet not applied</SelectItem>
+                    <SelectItem value="balance_mismatch">Balance mismatch</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -503,14 +568,16 @@ function StatementPage() {
                 disabled={runMutation.isPending || !fromDate || !toDate}
               >
                 <RefreshCw className={`mr-2 size-4 ${runMutation.isPending ? "animate-spin" : ""}`} />
-                {runMutation.isPending ? "Checking…" : "Run check"}
+                {runMutation.isPending ? "Matching…" : "Start matching"}
               </Button>
               <Button type="button" variant="outline" onClick={() => void exportLedger()} disabled={exporting}>
                 {exporting ? "Exporting…" : "Export CSV"}
               </Button>
               <p className="text-xs text-muted-foreground">
-                Shows all MySewa transactions in range (through today). Run check to refresh
-                HimalPay rows for the same window.
+                Matches HimalPay and MySewa by transaction number and amount on the same dates.
+                Flags amount, missing rows, and before/after balance mismatches. Year ranges are
+                checked in chunks. After each user payment, today&apos;s statement is also
+                rechecked in the background.
               </p>
             </div>
           </div>
@@ -527,7 +594,7 @@ function StatementPage() {
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">
-              MySewa-side rows load from the database for this range. Run check to pull HimalPay
+              MySewa-side rows load from the database for this range. Start matching to pull HimalPay
               statement entries.
             </p>
           )}
@@ -604,6 +671,13 @@ function StatementPage() {
                                     <div className="font-mono text-[11px] text-muted-foreground break-all">
                                       {hp.transaction_uuid}
                                     </div>
+                                    {hp.balance_before != null || hp.balance_after != null ? (
+                                      <div className="text-[11px] text-muted-foreground">
+                                        Before {hp.balance_before != null ? formatNPR(hp.balance_before) : "—"}
+                                        {" → "}
+                                        After {hp.balance_after != null ? formatNPR(hp.balance_after) : "—"}
+                                      </div>
+                                    ) : null}
                                     {hp.created_at ? (
                                       <div className="text-[11px] text-muted-foreground">
                                         {formatDateTime(hp.created_at)}
@@ -642,6 +716,13 @@ function StatementPage() {
                                     <div className="text-[11px] text-muted-foreground">
                                       {ms.merchant_txn_id || ms.provider_txn_id || `ID ${ms.txn_id}`}
                                     </div>
+                                    {ms.balance_before != null || ms.balance_after != null ? (
+                                      <div className="text-[11px] text-muted-foreground">
+                                        Before {ms.balance_before != null ? formatNPR(ms.balance_before) : "—"}
+                                        {" → "}
+                                        After {ms.balance_after != null ? formatNPR(ms.balance_after) : "—"}
+                                      </div>
+                                    ) : null}
                                     {ms.created_at ? (
                                       <div className="text-[11px] text-muted-foreground">
                                         {formatDateTime(ms.created_at)}
@@ -756,7 +837,7 @@ function StatementPage() {
                 disabled={runMutation.isPending || !fromDate || !toDate}
               >
                 <RefreshCw className={`mr-2 size-4 ${runMutation.isPending ? "animate-spin" : ""}`} />
-                {runMutation.isPending ? "Checking…" : "Run check"}
+                {runMutation.isPending ? "Matching…" : "Start matching"}
               </Button>
               <Button type="button" variant="outline" onClick={() => void exportIssues()} disabled={exporting}>
                 {exporting ? "Exporting…" : "Export CSV"}
@@ -890,7 +971,7 @@ function StatementPage() {
               disabled={runMutation.isPending || !fromDate || !toDate}
             >
               <RefreshCw className={`mr-2 size-4 ${runMutation.isPending ? "animate-spin" : ""}`} />
-              {runMutation.isPending ? "Checking…" : "Run check"}
+              {runMutation.isPending ? "Matching…" : "Start matching"}
             </Button>
             <p className="text-xs text-muted-foreground">
               Recent HimalPay ↔ MySewa reconcile jobs (newest first).

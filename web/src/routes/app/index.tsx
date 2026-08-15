@@ -31,7 +31,8 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
-import { isAccountPending, canFundTransfer } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer, isWalletBlocked } from "@/lib/account-status";
+import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { toast } from "sonner";
 
@@ -144,6 +145,7 @@ function WalletHome() {
   const { logoUrl } = useSiteBranding();
   const { t, locale } = useI18n();
   const accountPending = isAccountPending(user);
+  const walletBlocked = isWalletBlocked(wallet);
   const [balanceVisible, setBalanceVisible] = useState(true);
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
@@ -331,19 +333,22 @@ function WalletHome() {
             </div>
           </Link>
 
+          {(accountPending || walletBlocked) ? <AccountPendingBanner /> : null}
+
           {/* Quick actions */}
           <section className="grid shrink-0 grid-cols-3 gap-2.5">
             {ACTIONS.map((a) => {
               const transferBlocked = a.to === "/app/transfer" && !canFundTransfer(user);
+              const outbound =
+                a.to === "/app/transfer" ||
+                a.to === "/app/topup" ||
+                a.to === "/app/data-topup" ||
+                a.to === "/app/internet" ||
+                a.to === "/app/water" ||
+                a.to === "/app/electricity";
               const blocked =
-                (accountPending &&
-                  (a.to === "/app/transfer" ||
-                    a.to === "/app/topup" ||
-                    a.to === "/app/data-topup" ||
-                    a.to === "/app/internet" ||
-                    a.to === "/app/water" ||
-                    a.to === "/app/electricity" ||
-                    a.to === "/app/remittance")) ||
+                (accountPending && (outbound || a.to === "/app/remittance")) ||
+                (walletBlocked && outbound) ||
                 transferBlocked;
               if (blocked) {
                 return (
@@ -352,9 +357,11 @@ function WalletHome() {
                     type="button"
                     onClick={() =>
                       toast.error(
-                        transferBlocked && !accountPending
-                          ? t("transfer.disabledError")
-                          : t("account.pending"),
+                        walletBlocked && outbound && !accountPending
+                          ? t("account.walletBlocked")
+                          : transferBlocked && !accountPending
+                            ? t("transfer.disabledError")
+                            : t("account.pending"),
                       )
                     }
                     className="flex flex-col items-center gap-2 rounded-2xl bg-white px-1.5 py-3.5 opacity-70 shadow-[0_4px_16px_-6px_rgba(16,24,40,0.14)] transition-transform active:scale-[0.97]"

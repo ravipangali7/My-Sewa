@@ -1431,6 +1431,135 @@ class StatementReconcileTests(TestCase):
         self.assertEqual(csv_resp.status_code, status.HTTP_200_OK, csv_resp.content)
         self.assertIn(uuid, csv_resp.content.decode('utf-8'))
 
+    def test_amount_mismatch_and_balance_mismatch(self):
+        from .models import StatementDiscrepancy
+        from .services.statement_reconcile import run_statement_reconcile
+
+        uuid = 'HP-AMT-MIS-001'
+        self.TopupTransaction.objects.create(
+            user=self.user,
+            mobile_number='9801112233',
+            amount=Decimal('100.00'),
+            product_id=1,
+            status='success',
+            merchant_txn_id='MYSEWA_NTC_AMT',
+            service_hub_txn_id=uuid,
+            total_debited=Decimal('100.00'),
+            balance_before=Decimal('600.00'),
+            balance_after=Decimal('500.00'),
+        )
+        entries = [{
+            'direction': 'debit',
+            'amount': 15000,
+            'is_refund': False,
+            'is_cashback': False,
+            'is_charge': False,
+            'transaction_uuid': uuid,
+            'status': 'SUCCESS',
+            'wallet_service_name': 'NTC',
+            'transaction_cashback': 0,
+            'transaction_charge': 0,
+            'created_at': '2026-08-09T10:00:00Z',
+        }]
+        run_statement_reconcile(
+            from_date=date.today(),
+            to_date=date.today(),
+            himalpay=self._mock_api(entries),
+        )
+        disc = StatementDiscrepancy.objects.get(status='open')
+        self.assertEqual(disc.issue_type, 'amount_mismatch')
+
+        uuid2 = 'HP-BAL-MIS-001'
+        self.TopupTransaction.objects.create(
+            user=self.user,
+            mobile_number='9801112233',
+            amount=Decimal('50.00'),
+            product_id=1,
+            status='success',
+            merchant_txn_id='MYSEWA_NTC_BAL',
+            service_hub_txn_id=uuid2,
+            total_debited=Decimal('50.00'),
+            balance_before=Decimal('500.00'),
+            balance_after=Decimal('450.00'),
+        )
+        StatementDiscrepancy.objects.filter(status='open').update(status='ignored')
+        entries2 = [{
+            'direction': 'debit',
+            'amount': 5000,
+            'balance_before': 200000,
+            'balance_after': 100000,
+            'is_refund': False,
+            'is_cashback': False,
+            'is_charge': False,
+            'transaction_uuid': uuid2,
+            'status': 'SUCCESS',
+            'wallet_service_name': 'NTC',
+            'transaction_cashback': 0,
+            'transaction_charge': 0,
+            'created_at': '2026-08-09T11:00:00Z',
+        }]
+        run_statement_reconcile(
+            from_date=date.today(),
+            to_date=date.today(),
+            himalpay=self._mock_api(entries2),
+        )
+        bal_disc = StatementDiscrepancy.objects.get(status='open', transaction_uuid=uuid2)
+        self.assertEqual(bal_disc.issue_type, 'balance_mismatch')
+
+    def test_hp_success_without_wallet_blocks_and_admin_unblocks(self):
+        from .models import StatementDiscrepancy
+        from .services.statement_reconcile import run_statement_reconcile
+
+        uuid = 'HP-BLOCK-001'
+        self.TopupTransaction.objects.create(
+            user=self.user,
+            mobile_number='9801112233',
+            amount=Decimal('100.00'),
+            product_id=1,
+            status='failed',
+            merchant_txn_id='MYSEWA_NTC_BLOCK',
+            service_hub_txn_id=uuid,
+            total_debited=Decimal('100.00'),
+        )
+        entries = [{
+            'direction': 'debit',
+            'amount': 10000,
+            'is_refund': False,
+            'is_cashback': False,
+            'is_charge': False,
+            'transaction_uuid': uuid,
+            'status': 'SUCCESS',
+            'wallet_service_name': 'NTC',
+            'transaction_cashback': 0,
+            'transaction_charge': 0,
+            'created_at': '2026-08-09T10:00:00Z',
+        }]
+        run_statement_reconcile(
+            from_date=date.today(),
+            to_date=date.today(),
+            himalpay=self._mock_api(entries),
+        )
+        disc = StatementDiscrepancy.objects.get(status='open')
+        self.assertEqual(disc.issue_type, 'status_mismatch')
+        self.wallet.refresh_from_db()
+        self.assertTrue(self.wallet.transactions_blocked)
+
+        resp = self.client.post(
+            reverse('admin_wallet_unblock', args=[self.wallet.pk]),
+            {},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.wallet.refresh_from_db()
+        self.assertFalse(self.wallet.transactions_blocked)
+
+        from .services.wallet_guard import require_wallet_not_blocked, block_wallet
+        block_wallet(self.user, reason='test lock', merchant_txn_id='MYSEWA_NTC_BLOCK', notify=False)
+        blocked_resp = require_wallet_not_blocked(self.user)
+        self.assertIsNotNone(blocked_resp)
+        self.assertEqual(blocked_resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(blocked_resp.data.get('code'), 'wallet_blocked')
+
 
 class HomePopupFrequencyTests(TestCase):
     """Per-user 24-hour home popup display caps."""
@@ -1735,6 +1864,39 @@ class CitizenshipMatchingTests(SimpleTestCase):
         self.assertEqual(result['match_status'], 'MATCH')
         self.assertTrue(result['allowed'])
 
+    def test_nepali_fields_convert_to_english(self):
+        from .services.citizenship_ocr import parse_citizenship_text
+        from .services.nepali_latin import lookup_district, to_english_field
+
+        self.assertEqual(lookup_district('काठमाडौं'), 'Kathmandu')
+        self.assertEqual(to_english_field('राम बहादुर थापा', kind='name'), 'Ram Bahadur Thapa')
+
+        parsed = parse_citizenship_text(
+            'नाम: राम बहादुर थापा\n'
+            'नागरिकता नं: २८-०१-७५-०१२३४\n'
+            'जन्म मिति: २०४५-०२-१५\n'
+            'जारी मिति: २०६५-०८-१०\n'
+            'जारी जिल्ला: काठमाडौं\n',
+            side='front',
+        )
+        self.assertEqual(parsed.name, 'Ram Bahadur Thapa')
+        self.assertEqual(parsed.citizenship_number, '28-01-75-01234')
+        self.assertEqual(parsed.issue_place, 'Kathmandu')
+        self.assertTrue(parsed.dob)
+        self.assertTrue(parsed.issue_date)
+
+    def test_prefers_english_over_nepali(self):
+        from .services.citizenship_ocr import parse_citizenship_text
+
+        parsed = parse_citizenship_text(
+            'Name: RAM BAHADUR THAPA\nनाम: सीता शर्मा\n'
+            'Citizenship No: 28-01-75-01234\n'
+            'Place of Issue: Lalitpur\nजिल्ला: काठमाडौं\n',
+            side='front',
+        )
+        self.assertEqual(parsed.name.upper(), 'RAM BAHADUR THAPA')
+        self.assertEqual(parsed.issue_place, 'Lalitpur')
+
     def test_mismatch_blocks_when_receiver_name_differs(self):
         from .services.citizenship_ocr import CombinedCitizenshipOcr
         from .services.citizenship_verify import build_form_record, verify_citizenship
@@ -1947,4 +2109,49 @@ class RemittanceCitizenshipReceiveGateTests(TestCase):
         self.assertEqual(body.get('data', {}).get('match_status'), 'MISMATCH')
         self.assertFalse(body.get('data', {}).get('allowed'))
         self.assertTrue(body.get('data', {}).get('mismatch_messages'))
+        self.assertEqual(body.get('data', {}).get('attempt_count'), 1)
+        self.assertFalse(body.get('data', {}).get('pending_review_allowed'))
+
+    def test_second_mismatch_allows_pending_review_receive(self):
+        from unittest.mock import patch
+        from .services.citizenship_verify import (
+            build_form_record,
+            store_verification_ticket,
+            verification_fingerprint,
+        )
+
+        form = build_form_record(
+            name='Ram Bahadur Thapa',
+            citizenship_number='28-01-75-01234',
+            dob='1988-05-28',
+            issue_date='2008-11-23',
+            issue_place='Kathmandu',
+        )
+        store_verification_ticket(
+            self.user.id,
+            'S100CITIZEN1',
+            {
+                'allowed': False,
+                'match_status': 'MISMATCH',
+                'fingerprint': verification_fingerprint(form),
+                'message': 'Citizenship details do not match.',
+                'attempt_count': 2,
+                'pending_review_allowed': True,
+                'ocr': {'name': 'SITA SHARMA', 'citizenship_number': '11-22-33-44556'},
+            },
+        )
+        with patch(
+            'core.services.notifications.notify_remittance_citizenship_review'
+        ) as notify:
+            resp = self.client.post(
+                reverse('remittance_receive'),
+                self.receive_payload,
+                format='json',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED)
+        body = resp.json()
+        self.assertEqual(body.get('code'), 'citizenship_review_pending')
+        self.assertEqual(body.get('data', {}).get('status'), 'pending')
+        self.assertTrue(body.get('data', {}).get('citizenship_review_pending'))
+        notify.assert_called_once()
 

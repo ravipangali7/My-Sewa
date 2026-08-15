@@ -2,6 +2,6 @@
 class AppConstant {
   AppConstant._();
 
-  /// Local build version (used in the WebView user-agent).
-  static const String appVersion = '1.0.0';
+  /// Bump this when shipping a new Android build that matches Settings.app_version.
+  static const String appVersion = '2.0.0';
 }

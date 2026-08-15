@@ -28,10 +28,12 @@ from ..services.app_config import (
 from ..services.notifications import notify_remittance_success
 from ..services.txn_status import apply_inbound_status_change
 from ..services.citizenship_verify import (
+    apply_attempt_state,
     build_form_record,
     clear_verification_ticket,
+    is_pending_review_ticket,
+    load_verification_ticket,
     receive_block_reason,
-    store_verification_ticket,
     verify_citizenship_images,
 )
 
@@ -439,7 +441,7 @@ def verify_citizenship(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-    store_verification_ticket(request.user.id, data.get('ref_no') or '', result)
+    result = apply_attempt_state(request.user.id, data.get('ref_no') or '', result)
     payload = {
         'message': result.get('message') or f"Citizenship verification: {result['match_status']}",
         'data': result,
@@ -482,6 +484,8 @@ def receive_remittance(request):
     amount = HimalPayAPI.normalize_rupees(data['amount'])
 
     payment = get_app_config().get('payment') or {}
+    citizenship_ticket = None
+    pending_citizenship_review = False
     if payment.get('citizenship_matching_enabled', False):
         citizenship_form = build_form_record(
             name=data.get('receiver_name') or '',
@@ -508,6 +512,8 @@ def receive_remittance(request):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        citizenship_ticket = load_verification_ticket(request.user.id, ref_no)
+        pending_citizenship_review = is_pending_review_ticket(citizenship_ticket)
 
     if RemittanceTransaction.objects.filter(ref_no=ref_no, status='success').exists():
         return Response(
@@ -518,9 +524,25 @@ def receive_remittance(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    if pending_citizenship_review and RemittanceTransaction.objects.filter(
+        ref_no=ref_no, status='pending'
+    ).exists():
+        return Response(
+            {
+                'error': 'Already pending',
+                'message': (
+                    f'Remittance {ref_no} is already pending admin citizenship review.'
+                ),
+                'code': 'citizenship_review_pending',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     agent = _agent_defaults()
     from django.conf import settings as django_settings
     bypass = getattr(django_settings, 'HIMALPAY_BYPASS_API', False)
+    if pending_citizenship_review:
+        bypass = True
     if bypass:
         agent.setdefault('payout_agent_pan_number', agent.get('payout_agent_pan_number') or '123456789')
         agent.setdefault('teller_contact', agent.get('teller_contact') or '9800000000')
@@ -557,6 +579,16 @@ def receive_remittance(request):
         beneficiary['beneficiary_mobile_no'] = request.user.phone
 
     citizenship_verification = data.pop('citizenship_verification', None) or {}
+    lookup_payload = {}
+    if citizenship_verification:
+        lookup_payload['citizenship_verification'] = citizenship_verification
+    if pending_citizenship_review:
+        lookup_payload['citizenship_review_pending'] = True
+        lookup_payload['citizenship_review_reason'] = (
+            (citizenship_ticket or {}).get('message')
+            or 'Citizenship details did not match after 2 attempts.'
+        )
+        lookup_payload['citizenship_ocr'] = (citizenship_ticket or {}).get('ocr') or {}
 
     txn = RemittanceTransaction.objects.create(
         user=request.user,
@@ -576,13 +608,30 @@ def receive_remittance(request):
         status='pending',
         merchant_txn_id=merchant_txn_id,
         total_credited=amount,
-        lookup_response=(
-            {'citizenship_verification': citizenship_verification}
-            if citizenship_verification
-            else {}
-        ),
+        lookup_response=lookup_payload,
         **beneficiary,
     )
+
+    if pending_citizenship_review:
+        from ..services.notifications import notify_remittance_citizenship_review
+
+        notify_remittance_citizenship_review(txn)
+        clear_verification_ticket(request.user.id, ref_no)
+        return Response(
+            {
+                'message': (
+                    'Remittance submitted as pending. '
+                    'Admin will review the citizenship details and update it shortly.'
+                ),
+                'pending_message': (
+                    'Citizenship did not match after 2 attempts. '
+                    'Your remittance is pending admin review.'
+                ),
+                'code': 'citizenship_review_pending',
+                'data': RemittanceTransactionSerializer(txn).data,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     pay_data = {
         'samsara_link_id': samsara_link_id,
@@ -747,6 +796,16 @@ def remittance_status(request):
         )
     except RemittanceTransaction.DoesNotExist:
         return Response({'error': 'Remittance not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    lookup = txn.lookup_response if isinstance(txn.lookup_response, dict) else {}
+    if lookup.get('citizenship_review_pending') and txn.status == 'pending':
+        return Response(
+            {
+                'message': 'Awaiting admin citizenship review',
+                'provider_status': 'pending',
+                'data': RemittanceTransactionSerializer(txn).data,
+            }
+        )
 
     himalpay = HimalPayAPI()
     try:

@@ -85,6 +85,8 @@ export const messages = {
     "account.pendingShort": "Account pending",
     "account.activeLabel": "Active",
     "account.pendingLabel": "Pending",
+    "account.walletBlocked":
+      "Your wallet is locked because a payment was taken by the provider but not recorded on MySewa. Contact support — only an admin can unlock it.",
 
     "status.pending": "Pending",
     "status.approved": "Approved",
@@ -338,6 +340,7 @@ export const messages = {
     "transfer.phonePlaceholder": "98XXXXXXXX",
     "transfer.defaultRemarks": "Fund Transfer",
     "transfer.verify": "Verify",
+    "transfer.verifyingQrRetry": "Verifying account… {attempt} of {max}",
     "transfer.confirm": "Confirm transfer",
     "transfer.phoneHelp":
       "Enter a Nepal mobile number linked to a registered bank account. Select the bank, enter the number, then tap Verify.",
@@ -825,22 +828,36 @@ export const messages = {
     "remittance.searchPlaceholder": "Search ref no, sender, amount…",
     "remittance.citizenshipVerifyTitle": "Citizenship verification",
     "remittance.citizenshipVerifyHelp":
-      "Upload citizenship Front and Back images. We extract details from both sides and match them to the remittance receiver name and the citizenship details you entered.",
+      "Upload Front and Back of the citizenship certificate. English details (name, date of birth, issue date, issuing district, citizenship number) are filled automatically. If English is not readable, Nepali text is converted to English. After 2 unsuccessful matches you can submit the remittance as pending for admin review.",
     "remittance.citizenshipFront": "Citizenship front",
     "remittance.citizenshipBack": "Citizenship back",
     "remittance.citizenshipUploadHint": "JPG, PNG, or WEBP",
     "remittance.citizenshipBothRequired": "Upload both citizenship Front and Back images.",
     "remittance.verifyCitizenship": "Verify citizenship",
-    "remittance.verifyingCitizenship": "Verifying…",
-    "remittance.verifyRequired": "Verify citizenship documents before receiving.",
+    "remittance.verifyCitizenshipAgain": "Scan again",
+    "remittance.verifyingCitizenship": "Reading citizenship…",
+    "remittance.autoFetchingDetails":
+      "Reading English details from both sides. If English is missing, Nepali text is converted.",
+    "remittance.verifyRequired": "Upload citizenship Front and Back so we can read the details.",
     "remittance.citizenshipMatchingDisabled":
       "Citizenship image matching is currently disabled. Fill the form and continue.",
     "remittance.verifyMismatch":
-      "Citizenship details do not match the remittance information. The remittance cannot be received.",
+      "Citizenship details do not match. Upload clearer photos and try again. After 2 attempts you can submit as pending for admin review.",
     "remittance.verifyPartial":
       "Citizenship details only partially match. Correct the form or upload clearer front and back images.",
     "remittance.verifySuccess": "Citizenship details match. You can receive this remittance.",
+    "remittance.verifyPendingReview":
+      "Citizenship did not match after 2 attempts. You can submit this remittance as pending. Admin will review and update it shortly.",
     "remittance.verifyFailed": "Citizenship verification failed",
+    "remittance.convertedFromNepali": "Some fields were converted from Nepali to English.",
+    "remittance.attemptsRemaining":
+      "Match attempt {remaining} of {max} remaining. After 2 unsuccessful matches this remittance can be submitted as pending.",
+    "remittance.attemptsExhausted":
+      "Two match attempts failed. Submit as pending — admin will review and update it very soon.",
+    "remittance.submitPendingReview": "Submit {amount} as pending for review",
+    "remittance.pendingReviewTitle": "Remittance pending review",
+    "remittance.pendingReviewBody":
+      "Citizenship details did not match. Admin will review and update this remittance shortly.",
     "remittance.receiverNameRequired":
       "This remittance has no receiver name to match. Look up the remittance again.",
     "remittance.verifyFillKycFirst":
@@ -1211,6 +1228,8 @@ export const messages = {
     "account.pendingShort": "खाता पेन्डिङ",
     "account.activeLabel": "सक्रिय",
     "account.pendingLabel": "पेन्डिङ",
+    "account.walletBlocked":
+      "तपाईंको वालेट लक छ किनभने प्रदायकले रकम काटिसकेको छ तर MySewa मा रेकर्ड भएको छैन। सहयोग सम्पर्क गर्नुहोस् — एडमिनले मात्र अनलक गर्न सक्छन्।",
 
     "status.pending": "पेन्डिङ",
     "status.approved": "स्वीकृत",
@@ -1464,6 +1483,7 @@ export const messages = {
     "transfer.phonePlaceholder": "९८XXXXXXXX",
     "transfer.defaultRemarks": "फन्ड ट्रान्सफर",
     "transfer.verify": "प्रमाणित गर्नुहोस्",
+    "transfer.verifyingQrRetry": "खाता प्रमाणित गर्दै… {attempt} / {max}",
     "transfer.confirm": "ट्रान्सफर पुष्टि गर्नुहोस्",
     "transfer.phoneHelp":
       "दर्ता भएको बैंक खातासँग जोडिएको नेपाली मोबाइल नम्बर प्रविष्ट गर्नुहोस्। बैंक छान्नुहोस्, नम्बर हाल्नुहोस्, अनि प्रमाणित गर्नुहोस्।",
@@ -1951,22 +1971,36 @@ export const messages = {
     "remittance.searchPlaceholder": "सन्दर्भ नम्बर, पठाउने, रकम खोज्नुहोस्…",
     "remittance.citizenshipVerifyTitle": "नागरिकता प्रमाणीकरण",
     "remittance.citizenshipVerifyHelp":
-      "नागरिकताको अगाडि र पछाडि फोटो अपलोड गर्नुहोस्। दुवै तर्फबाट विवरण निकालेर रेमिटेन्सको प्राप्तकर्ता नाम र तपाईंले भरेका नागरिकता विवरणसँग मिलान गरिन्छ।",
+      "नागरिकताको अगाडि र पछाडि फोटो अपलोड गर्नुहोस्। अंग्रेजी विवरण (नाम, जन्म मिति, जारी मिति, जारी जिल्ला, नागरिकता नम्बर) स्वतः भरिन्छ। अंग्रेजी नभेटिएमा नेपालीबाट अंग्रेजीमा रूपान्तरण गरिन्छ। २ पटक नमिलेमा रेमिटेन्स पेन्डिङमा पठाउन सकिन्छ, एडमिनले चाँडै समीक्षा गर्छन्।",
     "remittance.citizenshipFront": "नागरिकता अगाडि",
     "remittance.citizenshipBack": "नागरिकता पछाडि",
     "remittance.citizenshipUploadHint": "JPG, PNG, वा WEBP",
     "remittance.citizenshipBothRequired": "नागरिकताको अगाडि र पछाडि दुवै फोटो अपलोड गर्नुहोस्।",
     "remittance.verifyCitizenship": "नागरिकता प्रमाणित गर्नुहोस्",
-    "remittance.verifyingCitizenship": "प्रमाणित गर्दै…",
-    "remittance.verifyRequired": "प्राप्त गर्नु अघि नागरिकता कागजात प्रमाणित गर्नुहोस्।",
+    "remittance.verifyCitizenshipAgain": "फेरि स्क्यान गर्नुहोस्",
+    "remittance.verifyingCitizenship": "नागरिकता पढ्दै…",
+    "remittance.autoFetchingDetails":
+      "दुवै तर्फबाट अंग्रेजी विवरण पढिँदैछ। अंग्रेजी नभए नेपालीलाई अंग्रेजीमा रूपान्तरण गरिन्छ।",
+    "remittance.verifyRequired": "विवरण पढ्न नागरिकताको अगाडि र पछाडि फोटो अपलोड गर्नुहोस्।",
     "remittance.citizenshipMatchingDisabled":
       "नागरिकता छवि मिलान अहिले अक्षम छ। फारम भरेर अगाडि बढ्नुहोस्।",
     "remittance.verifyMismatch":
-      "नागरिकता विवरण रेमिटेन्स जानकारीसँग मिल्दैन। रेमिटेन्स प्राप्त गर्न सकिँदैन।",
+      "नागरिकता विवरण मिलेन। स्पष्ट फोटो अपलोड गरेर फेरि प्रयास गर्नुहोस्। २ पटक नमिलेमा पेन्डिङमा पठाउन सकिन्छ।",
     "remittance.verifyPartial":
       "नागरिकता विवरण आंशिक मात्र मिल्यो। फारम सच्याउनुहोस् वा अगाडि र पछाडिका स्पष्ट फोटो अपलोड गर्नुहोस्।",
     "remittance.verifySuccess": "नागरिकता विवरण मिल्यो। तपाईं यो रेमिटेन्स प्राप्त गर्न सक्नुहुन्छ।",
+    "remittance.verifyPendingReview":
+      "२ पटक प्रयास गर्दा पनि नागरिकता मिलेन। रेमिटेन्स पेन्डिङमा पठाउन सक्नुहुन्छ। एडमिनले चाँडै समीक्षा गरी अपडेट गर्नुहुन्छ।",
     "remittance.verifyFailed": "नागरिकता प्रमाणीकरण असफल",
+    "remittance.convertedFromNepali": "केही फिल्ड नेपालीबाट अंग्रेजीमा रूपान्तरण गरिएका हुन्।",
+    "remittance.attemptsRemaining":
+      "{max} मध्ये {remaining} प्रयास बाँकी। २ पटक नमिलेमा यो रेमिटेन्स पेन्डिङमा पठाउन सकिन्छ।",
+    "remittance.attemptsExhausted":
+      "दुई पटक मिलान असफल भयो। पेन्डिङमा पठाउनुहोस् — एडमिनले चाँडै समीक्षा गरी अपडेट गर्नुहुन्छ।",
+    "remittance.submitPendingReview": "{amount} पेन्डिङ समीक्षाका लागि पठाउनुहोस्",
+    "remittance.pendingReviewTitle": "रेमिटेन्स समीक्षाको प्रतीक्षामा",
+    "remittance.pendingReviewBody":
+      "नागरिकता विवरण मिलेन। एडमिनले चाँडै समीक्षा गरी यो रेमिटेन्स अपडेट गर्नुहुन्छ।",
     "remittance.receiverNameRequired":
       "यो रेमिटेन्समा मिलान गर्ने प्राप्तकर्ता नाम छैन। फेरि खोजी गर्नुहोस्।",
     "remittance.verifyFillKycFirst":
