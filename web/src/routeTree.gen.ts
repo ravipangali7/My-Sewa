@@ -28,8 +28,8 @@ import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminStatementRouteImport } from './routes/admin/statement'
 import { Route as AdminTopupsRouteImport } from './routes/admin/topups'
-import { Route as AdminTransfersRouteImport } from './routes/admin/transfers'
 import { Route as AdminTransactionHistoryRouteImport } from './routes/admin/transaction-history'
+import { Route as AdminTransfersRouteImport } from './routes/admin/transfers'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
 import { Route as AdminWalletsRouteImport } from './routes/admin/wallets'
 import { Route as AdminWaterRouteImport } from './routes/admin/water'
@@ -167,14 +167,14 @@ const AdminTopupsRoute = AdminTopupsRouteImport.update({
   path: '/admin/topups',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminTransfersRoute = AdminTransfersRouteImport.update({
-  id: '/admin/transfers',
-  path: '/admin/transfers',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AdminTransactionHistoryRoute = AdminTransactionHistoryRouteImport.update({
   id: '/admin/transaction-history',
   path: '/admin/transaction-history',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminTransfersRoute = AdminTransfersRouteImport.update({
+  id: '/admin/transfers',
+  path: '/admin/transfers',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminUsersRoute = AdminUsersRouteImport.update({
@@ -402,8 +402,8 @@ export interface FileRoutesByFullPath {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/statement': typeof AdminStatementRoute
   '/admin/topups': typeof AdminTopupsRoute
-  '/admin/transfers': typeof AdminTransfersRoute
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
+  '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
@@ -465,8 +465,8 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/statement': typeof AdminStatementRoute
   '/admin/topups': typeof AdminTopupsRoute
-  '/admin/transfers': typeof AdminTransfersRoute
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
+  '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
@@ -529,8 +529,8 @@ export interface FileRoutesById {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/statement': typeof AdminStatementRoute
   '/admin/topups': typeof AdminTopupsRoute
-  '/admin/transfers': typeof AdminTransfersRoute
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
+  '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
@@ -594,8 +594,8 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/statement'
     | '/admin/topups'
-    | '/admin/transfers'
     | '/admin/transaction-history'
+    | '/admin/transfers'
     | '/admin/users'
     | '/admin/wallets'
     | '/admin/water'
@@ -657,8 +657,8 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/statement'
     | '/admin/topups'
-    | '/admin/transfers'
     | '/admin/transaction-history'
+    | '/admin/transfers'
     | '/admin/users'
     | '/admin/wallets'
     | '/admin/water'
@@ -720,8 +720,8 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/statement'
     | '/admin/topups'
-    | '/admin/transfers'
     | '/admin/transaction-history'
+    | '/admin/transfers'
     | '/admin/users'
     | '/admin/wallets'
     | '/admin/water'
@@ -784,8 +784,8 @@ export interface RootRouteChildren {
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminStatementRoute: typeof AdminStatementRoute
   AdminTopupsRoute: typeof AdminTopupsRoute
-  AdminTransfersRoute: typeof AdminTransfersRoute
   AdminTransactionHistoryRoute: typeof AdminTransactionHistoryRoute
+  AdminTransfersRoute: typeof AdminTransfersRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminWalletsRoute: typeof AdminWalletsRoute
   AdminWaterRoute: typeof AdminWaterRoute
@@ -964,18 +964,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminTopupsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/transfers': {
-      id: '/admin/transfers'
-      path: '/admin/transfers'
-      fullPath: '/admin/transfers'
-      preLoaderRoute: typeof AdminTransfersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/admin/transaction-history': {
       id: '/admin/transaction-history'
       path: '/admin/transaction-history'
       fullPath: '/admin/transaction-history'
       preLoaderRoute: typeof AdminTransactionHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/transfers': {
+      id: '/admin/transfers'
+      path: '/admin/transfers'
+      fullPath: '/admin/transfers'
+      preLoaderRoute: typeof AdminTransfersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/users': {
@@ -1280,8 +1280,8 @@ const rootRouteChildren: RootRouteChildren = {
   AdminSettingsRoute: AdminSettingsRoute,
   AdminStatementRoute: AdminStatementRoute,
   AdminTopupsRoute: AdminTopupsRoute,
-  AdminTransfersRoute: AdminTransfersRoute,
   AdminTransactionHistoryRoute: AdminTransactionHistoryRoute,
+  AdminTransfersRoute: AdminTransfersRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminWalletsRoute: AdminWalletsRoute,
   AdminWaterRoute: AdminWaterRoute,
@@ -1328,3 +1328,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
