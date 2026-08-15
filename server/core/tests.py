@@ -1560,6 +1560,34 @@ class StatementReconcileTests(TestCase):
         self.assertEqual(blocked_resp.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(blocked_resp.data.get('code'), 'wallet_blocked')
 
+    def test_start_matching_returns_run_instead_of_500(self):
+        from unittest.mock import patch
+        from .models import StatementReconcileRun
+        from .services.statement_reconcile import run_statement_reconcile_range
+
+        today = date.today()
+        run = run_statement_reconcile_range(
+            from_date=today,
+            to_date=today,
+            himalpay=self._mock_api([]),
+        )
+        self.assertIsInstance(run, StatementReconcileRun)
+        self.assertIsNotNone(run.pk)
+
+        with patch(
+            'core.services.statement_reconcile.HimalPayAPI',
+            return_value=self._mock_api([]),
+        ):
+            resp = self.client.post(
+                reverse('admin_statement_run'),
+                {'from_date': today.isoformat(), 'to_date': today.isoformat()},
+                format='json',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertTrue(resp.data.get('data'))
+        self.assertIn('issues_new', resp.data['data'])
+        self.assertIn('issues_open', resp.data['data'])
+
 
 class HomePopupFrequencyTests(TestCase):
     """Per-user 24-hour home popup display caps."""

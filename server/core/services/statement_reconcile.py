@@ -145,7 +145,7 @@ def run_statement_reconcile_range(
             triggered_by_user=triggered_by_user,
             himalpay=api,
         )
-        return last
+    return last
 
 
 def _approx_equal(a: Decimal, b: Decimal, tol: Decimal = MONEY_TOLERANCE) -> bool:

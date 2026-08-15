@@ -3982,10 +3982,10 @@ def admin_statement_run(request):
     )
     payload = {
         'message': 'Statement reconcile completed',
-        'data': StatementReconcileRunSerializer(run).data,
+        'data': StatementReconcileRunSerializer(run).data if run else None,
         'statement_logs': (
             run.himalpay_statement_logs
-            if isinstance(run.himalpay_statement_logs, list)
+            if run is not None and isinstance(run.himalpay_statement_logs, list)
             else []
         ),
         'ledger': ledger,
