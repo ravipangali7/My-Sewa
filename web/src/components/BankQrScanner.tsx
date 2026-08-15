@@ -142,16 +142,25 @@ function triggerPngDownload(dataUrl: string, filename: string) {
   link.remove();
 }
 
+function isInteractiveTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest("input, textarea, select, [contenteditable='true'], [role='combobox']"),
+  );
+}
+
+function touchPoint(event: TouchEvent | React.TouchEvent) {
+  return event.touches[0] || event.changedTouches[0] || null;
+}
+
 export function BankQrScanner({
-  open,
-  onOpenChange,
   onScan,
+  onClose,
   children,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   onScan: (raw: string) => boolean | void;
-  children?: ReactNode;
+  onClose: () => void;
+  children: ReactNode | ((api: { showScanner: () => void }) => ReactNode);
 }) {
   const t = useT();
   const { user } = useAuth();
@@ -162,9 +171,16 @@ export function BankQrScanner({
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
   const handledRef = useRef(false);
   const uploadRef = useRef<HTMLInputElement | null>(null);
-  const pagerRef = useRef<HTMLDivElement | null>(null);
+  const formRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const pageRef = useRef(0);
-  const dragRef = useRef({ active: false, startX: 0, startY: 0, dx: 0, locked: null as null | "x" | "y" });
+  const dragRef = useRef({
+    active: false,
+    startX: 0,
+    startY: 0,
+    dx: 0,
+    locked: null as null | "x" | "y",
+  });
   const [tab, setTab] = useState<ScannerTab>("scanner");
   const [page, setPage] = useState(0);
   const [dragX, setDragX] = useState(0);
@@ -189,6 +205,9 @@ export function BankQrScanner({
     [accountName, accountNumber],
   );
 
+  const onScanRef = useRef(onScan);
+  onScanRef.current = onScan;
+
   const goToPage = useCallback((next: number) => {
     const clamped = next < 0 ? 0 : next > 1 ? 1 : next;
     pageRef.current = clamped;
@@ -201,14 +220,14 @@ export function BankQrScanner({
       const value = raw.trim();
       if (!value || handledRef.current) return;
       handledRef.current = true;
-      const ok = onScan(value);
+      const ok = onScanRef.current(value);
       if (ok === false) {
         handledRef.current = false;
         return;
       }
       goToPage(1);
     },
-    [goToPage, onScan],
+    [goToPage],
   );
 
   const stopCamera = useCallback(() => {
@@ -224,27 +243,15 @@ export function BankQrScanner({
   }, []);
 
   useEffect(() => {
-    if (!open) {
-      setTab("scanner");
-      setPage(0);
-      setDragX(0);
-      handledRef.current = false;
-      pageRef.current = 0;
-      setCameraError(false);
-      stopCamera();
-      return;
-    }
-    handledRef.current = false;
-    pageRef.current = 0;
-    setPage(0);
+    if (page !== 0) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [open, stopCamera]);
+  }, [page]);
 
-  const scannerActive = open && tab === "scanner" && page === 0;
+  const scannerActive = tab === "scanner" && page === 0;
 
   useEffect(() => {
     if (!scannerActive) {
@@ -336,7 +343,7 @@ export function BankQrScanner({
   }, [emit, scannerActive, stopCamera]);
 
   useEffect(() => {
-    if (!open || !qrPayload) {
+    if (!qrPayload) {
       setQrDataUrl("");
       return;
     }
@@ -345,7 +352,7 @@ export function BankQrScanner({
     } catch {
       setQrDataUrl("");
     }
-  }, [open, qrPayload]);
+  }, [qrPayload]);
 
   async function onFile(file: File | undefined) {
     if (!file) return;
@@ -358,8 +365,9 @@ export function BankQrScanner({
     toast.error(t("transfer.qrInvalid"));
   }
 
-  function onPointerDown(event: TouchEvent | MouseEvent) {
-    const point = "touches" in event ? event.touches[0] : event;
+  function onPointerDown(event: React.TouchEvent | TouchEvent) {
+    if (pageRef.current === 1 && isInteractiveTarget(event.target)) return;
+    const point = touchPoint(event);
     if (!point) return;
     dragRef.current = {
       active: true,
@@ -370,10 +378,10 @@ export function BankQrScanner({
     };
   }
 
-  function onPointerMove(event: TouchEvent | MouseEvent) {
+  function onPointerMove(event: React.TouchEvent | TouchEvent) {
     const drag = dragRef.current;
     if (!drag.active) return;
-    const point = "touches" in event ? event.touches[0] : event;
+    const point = touchPoint(event);
     if (!point) return;
     const dx = point.clientX - drag.startX;
     const dy = point.clientY - drag.startY;
@@ -382,11 +390,12 @@ export function BankQrScanner({
       drag.locked = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
     }
     if (drag.locked !== "x") return;
-    if ("touches" in event) event.preventDefault();
-    const width = pagerRef.current?.clientWidth || window.innerWidth;
+    event.preventDefault();
+    const width = window.innerWidth;
+    const currentPage = pageRef.current;
     let next = dx;
-    if (page === 0 && next > 0) next *= 0.25;
-    if (page === 1 && next < 0) next *= 0.25;
+    if (currentPage === 0 && next > 0) next *= 0.25;
+    if (currentPage === 1 && next < 0) next *= 0.25;
     next = Math.max(-width, Math.min(width, next));
     drag.dx = next;
     setDragging(true);
@@ -397,7 +406,7 @@ export function BankQrScanner({
     const drag = dragRef.current;
     if (!drag.active) return;
     drag.active = false;
-    const width = pagerRef.current?.clientWidth || window.innerWidth;
+    const width = window.innerWidth;
     const threshold = Math.min(72, width * 0.18);
     if (drag.locked === "x") {
       if (drag.dx <= -threshold) goToPage(1);
@@ -410,6 +419,21 @@ export function BankQrScanner({
     drag.locked = null;
     drag.dx = 0;
   }
+
+  useEffect(() => {
+    const nodes = [formRef.current, overlayRef.current].filter(
+      (node): node is HTMLDivElement => Boolean(node),
+    );
+    const onMove = (event: TouchEvent) => onPointerMove(event);
+    for (const node of nodes) {
+      node.addEventListener("touchmove", onMove, { passive: false });
+    }
+    return () => {
+      for (const node of nodes) {
+        node.removeEventListener("touchmove", onMove);
+      }
+    };
+  }, []);
 
   async function shareOrSave(mode: "share" | "download") {
     if (!qrDataUrl) return;
@@ -446,14 +470,16 @@ export function BankQrScanner({
     }
   }
 
-  if (typeof document === "undefined" || !open) return null;
+  if (typeof document === "undefined") {
+    return typeof children === "function" ? children({ showScanner: () => goToPage(0) }) : children;
+  }
 
   const scannerPane = (
     <div className="relative flex h-full min-h-0 flex-col bg-black">
       <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 px-3 pt-[max(10px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-2">
         <button
           type="button"
-          onClick={() => onOpenChange(false)}
+          onClick={onClose}
           aria-label={t("common.goBack")}
           className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur"
         >
@@ -495,7 +521,13 @@ export function BankQrScanner({
             ) : null}
           </div>
           <div className="absolute inset-x-0 bottom-0 z-20 space-y-3 px-4 pb-[max(1.25rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
-            <p className="text-center text-[13px] text-white/80">{t("transfer.swipeForDetails")}</p>
+            <button
+              type="button"
+              className="w-full text-center text-[13px] text-white/80"
+              onClick={() => goToPage(1)}
+            >
+              {t("transfer.swipeForDetails")}
+            </button>
             <Button
               type="button"
               variant="secondary"
@@ -582,58 +614,50 @@ export function BankQrScanner({
               {t("transfer.saveQr")}
             </Button>
           </div>
-          <p className="mt-4 text-center text-[13px] text-muted-foreground">
+          <button
+            type="button"
+            className="mt-4 w-full text-center text-[13px] text-muted-foreground"
+            onClick={() => goToPage(1)}
+          >
             {t("transfer.swipeForDetails")}
-          </p>
+          </button>
         </div>
       )}
     </div>
   );
 
-  return createPortal(
-    <div className="fixed inset-0 z-[45] bg-black" role="dialog" aria-modal="true">
+  return (
+    <>
       <div
-        ref={pagerRef}
-        className="h-dvh w-full overflow-hidden touch-pan-y"
+        ref={formRef}
+        aria-hidden={page === 0}
+        className="touch-pan-y"
         onTouchStart={onPointerDown}
-        onTouchMove={onPointerMove}
         onTouchEnd={onPointerUp}
         onTouchCancel={onPointerUp}
       >
-        <div
-          className={cn("flex h-full", !dragging && "transition-transform duration-300 ease-out")}
-          style={{
-            width: "200%",
-            transform: `translate3d(calc(${page === 0 ? 0 : -50}% + ${dragX}px), 0, 0)`,
-          }}
-        >
-          <section className="h-full w-1/2 shrink-0">{scannerPane}</section>
-          <section className="h-full w-1/2 shrink-0 overflow-y-auto overscroll-y-contain bg-background">
-            <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-border/60 bg-hero-gradient px-3 pt-[max(10px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-3">
-              <button
-                type="button"
-                onClick={() => onOpenChange(false)}
-                aria-label={t("common.goBack")}
-                className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/15 text-primary-foreground"
-              >
-                <X className="size-5" />
-              </button>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[17px] font-semibold text-primary-foreground">
-                  {t("transfer.tabManual")}
-                </p>
-                <p className="truncate text-[12px] text-primary-foreground/75">
-                  {t("transfer.swipeForScanner")}
-                </p>
-              </div>
-            </div>
-            <div className="px-3 pb-[max(1.5rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] pt-4 sm:px-4">
-              {children}
-            </div>
-          </section>
-        </div>
+        {typeof children === "function" ? children({ showScanner: () => goToPage(0) }) : children}
       </div>
-    </div>,
-    document.body,
+      {createPortal(
+        <div
+          ref={overlayRef}
+          className={cn(
+            "fixed inset-0 z-[45] bg-black",
+            !dragging && "transition-transform duration-300 ease-out",
+          )}
+          aria-hidden={page !== 0 && !dragging}
+          style={{
+            transform: `translate3d(calc(${page === 0 ? "0%" : "-100%"} + ${dragX}px), 0, 0)`,
+            pointerEvents: page === 0 || dragging ? "auto" : "none",
+          }}
+          onTouchStart={onPointerDown}
+          onTouchEnd={onPointerUp}
+          onTouchCancel={onPointerUp}
+        >
+          {scannerPane}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
