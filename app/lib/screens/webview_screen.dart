@@ -123,6 +123,15 @@ class _WebViewScreenState extends State<WebViewScreen>
       } catch (e) {}
       return false;
     };
+    window.MySewaNative.requestCamera = function() {
+      try {
+        if (window.MySewaBridge && window.MySewaBridge.postMessage) {
+          window.MySewaBridge.postMessage(JSON.stringify({ type: 'request_camera' }));
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    };
     window.MySewaNative.hasBridge = true;
     window.MySewaNative.hasPushBridge = true;
   } catch (e) {}
@@ -453,6 +462,23 @@ class _WebViewScreenState extends State<WebViewScreen>
       await android.setMediaPlaybackRequiresUserGesture(false);
       await android.setTextZoom(100);
       await android.setOnShowFileSelector(_androidFileSelector);
+      await android.setOnPlatformPermissionRequest((request) async {
+        final needsCamera = request.types.contains(
+          WebViewPermissionResourceType.camera,
+        );
+        final needsMic = request.types.contains(
+          WebViewPermissionResourceType.microphone,
+        );
+        var allow = true;
+        if (needsCamera || needsMic) {
+          allow = await SessionLifecycle.requestCameraPermission();
+        }
+        if (allow) {
+          await request.grant();
+        } else {
+          await request.deny();
+        }
+      });
       // Avoid plugin-side nullability crash in some Android WebView callback
       // paths by not wiring optional geolocation prompt callbacks.
     }
@@ -566,6 +592,22 @@ class _WebViewScreenState extends State<WebViewScreen>
       if (type == 'request_push_token' || type == 'push_token_request') {
         await _deliverFcmTokenToWeb(forceRefresh: true);
         _startFcmPoller('js-request-push-token');
+        return;
+      }
+
+      if (type == 'request_camera' || type == 'camera_permission') {
+        final granted = await SessionLifecycle.requestCameraPermission();
+        await _safeControllerCall((c) async {
+          await c.runJavaScript('''
+(function() {
+  try {
+    window.dispatchEvent(new CustomEvent('mysewa-camera-permission', {
+      detail: { granted: ${granted ? 'true' : 'false'} }
+    }));
+  } catch (e) {}
+})();
+''');
+        });
         return;
       }
 

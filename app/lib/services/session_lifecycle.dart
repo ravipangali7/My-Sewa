@@ -42,4 +42,18 @@ class SessionLifecycle {
       debugPrint('SessionLifecycle.clearWebResourceCache failed: $error');
     }
   }
+
+  /// Requests Android CAMERA so WebView getUserMedia can scan bank QR codes.
+  /// iOS has no native handler — returns true so WKWebView can prompt itself.
+  static Future<bool> requestCameraPermission() async {
+    try {
+      final ok = await _channel.invokeMethod<bool>('requestCameraPermission');
+      return ok ?? true;
+    } on MissingPluginException {
+      return true;
+    } on PlatformException catch (error) {
+      debugPrint('SessionLifecycle.requestCameraPermission failed: $error');
+      return false;
+    }
+  }
 }

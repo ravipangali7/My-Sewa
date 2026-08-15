@@ -1,18 +1,24 @@
 package com.infelogroup.mysewa
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.pm.PackageManager
 import android.os.Build
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
+    private var cameraPermissionResult: MethodChannel.Result? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         ensureDefaultNotificationChannel()
@@ -45,9 +51,41 @@ class MainActivity : FlutterActivity() {
                         )
                     }
                 }
+                "requestCameraPermission" -> requestCameraPermission(result)
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != CAMERA_REQ) return
+        val granted = grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        cameraPermissionResult?.success(granted)
+        cameraPermissionResult = null
+    }
+
+    private fun requestCameraPermission(result: MethodChannel.Result) {
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            result.success(true)
+            return
+        }
+        cameraPermissionResult?.success(false)
+        cameraPermissionResult = result
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.CAMERA),
+            CAMERA_REQ,
+        )
     }
 
     /**
@@ -131,5 +169,6 @@ class MainActivity : FlutterActivity() {
         private const val SESSION_CHANNEL = "com.mysewa.app/session_lifecycle"
         private const val MARKER_NAME = "install_session_v1"
         private const val DEFAULT_CHANNEL_ID = "mysewa_default"
+        private const val CAMERA_REQ = 48101
     }
 }
