@@ -317,7 +317,10 @@ class AdminWalletSerializer(serializers.ModelSerializer):
         model = Wallet
         fields = (
             'id', 'user_id', 'phone', 'first_name', 'last_name',
-            'balance', 'created_at', 'updated_at',
+            'balance',
+            'transactions_blocked', 'blocked_reason', 'blocked_at',
+            'blocked_merchant_txn_id', 'unblocked_at', 'unblocked_by',
+            'created_at', 'updated_at',
         )
 
 
@@ -704,8 +707,16 @@ class WalletSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Wallet
-        fields = ('id', 'user', 'phone', 'balance', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'user', 'balance', 'created_at', 'updated_at')
+        fields = (
+            'id', 'user', 'phone', 'balance',
+            'transactions_blocked', 'blocked_reason', 'blocked_at',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = (
+            'id', 'user', 'balance',
+            'transactions_blocked', 'blocked_reason', 'blocked_at',
+            'created_at', 'updated_at',
+        )
 
 
 class DepositSerializer(serializers.ModelSerializer):
@@ -792,6 +803,7 @@ class SettingsSerializer(serializers.ModelSerializer):
     khalti_qr_code_url = serializers.SerializerMethodField()
     esewa_qr_code_url = serializers.SerializerMethodField()
     logo_url = serializers.SerializerMethodField()
+    apk_url = serializers.SerializerMethodField()
     bank_details = serializers.SerializerMethodField()
     config = serializers.SerializerMethodField()
 
@@ -803,10 +815,12 @@ class SettingsSerializer(serializers.ModelSerializer):
             'khalti_qr_code', 'khalti_qr_code_url',
             'esewa_qr_code', 'esewa_qr_code_url',
             'logo', 'logo_url',
+            'auto_update_enabled', 'app_version',
+            'apk', 'apk_url',
             'bank_details', 'config',
             'created_at', 'updated_at',
         )
-        read_only_fields = ('id', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'created_at', 'updated_at', 'apk_url')
 
     def _absolute_media_url(self, file_field):
         if not file_field:
@@ -827,6 +841,9 @@ class SettingsSerializer(serializers.ModelSerializer):
 
     def get_logo_url(self, obj):
         return self._absolute_media_url(obj.logo)
+
+    def get_apk_url(self, obj):
+        return self._absolute_media_url(obj.apk)
 
     def get_bank_details(self, obj):
         from .services.payment_accounts import enrich_bank_details_qr_urls
@@ -1132,6 +1149,7 @@ class RemittanceTransactionSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(source='user.first_name', read_only=True)
     last_name = serializers.CharField(source='user.last_name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    citizenship_review_pending = serializers.SerializerMethodField()
 
     class Meta:
         model = RemittanceTransaction
@@ -1152,9 +1170,14 @@ class RemittanceTransactionSerializer(serializers.ModelSerializer):
             'status', 'status_display', 'merchant_txn_id', 'provider_txn_id',
             'reference_id', 'charge', 'cashback', 'total_credited',
             'balance_before', 'balance_after',
-            'wallet_credited', 'created_at', 'updated_at',
+            'wallet_credited', 'citizenship_review_pending',
+            'created_at', 'updated_at',
         )
         read_only_fields = fields
+
+    def get_citizenship_review_pending(self, obj) -> bool:
+        lookup = obj.lookup_response if isinstance(obj.lookup_response, dict) else {}
+        return bool(lookup.get('citizenship_review_pending'))
 
 
 class AdminRemittanceSerializer(RemittanceTransactionSerializer):
@@ -1285,10 +1308,16 @@ class CitizenshipVerifySerializer(serializers.Serializer):
     """Remittance/form citizenship fields compared against OCR of front/back images."""
     ref_no = serializers.CharField(max_length=100, required=True)
     name = serializers.CharField(max_length=200, required=True)
-    citizenship_number = serializers.CharField(max_length=100, required=True)
-    dob = serializers.CharField(max_length=30, required=True)
-    issue_date = serializers.CharField(max_length=30, required=True)
-    issue_place = serializers.CharField(max_length=100, required=True)
+    citizenship_number = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default=''
+    )
+    dob = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
+    issue_date = serializers.CharField(
+        max_length=30, required=False, allow_blank=True, default=''
+    )
+    issue_place = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default=''
+    )
 
     def _require(self, value, label):
         value = (value or '').strip()
@@ -1303,16 +1332,16 @@ class CitizenshipVerifySerializer(serializers.Serializer):
         return self._require(value, 'Receiver name')
 
     def validate_citizenship_number(self, value):
-        return self._require(value, 'Citizenship number')
+        return (value or '').strip()
 
     def validate_dob(self, value):
-        return self._require(value, 'Date of birth')
+        return (value or '').strip()
 
     def validate_issue_date(self, value):
-        return self._require(value, 'Issue date')
+        return (value or '').strip()
 
     def validate_issue_place(self, value):
-        return self._require(value, 'Issue place')
+        return (value or '').strip()
 
 
 class InternetBillTransactionSerializer(serializers.ModelSerializer):

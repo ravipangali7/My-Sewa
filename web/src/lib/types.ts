@@ -112,6 +112,9 @@ export interface Wallet {
   user: string;
   phone: string;
   balance: string;
+  transactions_blocked?: boolean;
+  blocked_reason?: string;
+  blocked_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -277,6 +280,12 @@ export interface AppSettings {
   esewa_qr_code_url: string | null;
   logo: string | null;
   logo_url: string | null;
+  /** When true, the Android app auto-downloads and installs the APK if versions differ */
+  auto_update_enabled?: boolean;
+  /** Latest Android version string compared with Flutter AppConstant.appVersion */
+  app_version?: string;
+  apk?: string | null;
+  apk_url?: string | null;
   bank_details: BankDetails;
   config: AppConfig;
   created_at: string;
@@ -472,6 +481,18 @@ export interface CitizenshipVerificationResult {
   ocr_confidence: number;
   mismatch_messages?: string[];
   message?: string;
+  attempt_count?: number;
+  max_attempts?: number;
+  attempts_remaining?: number;
+  pending_review_allowed?: boolean;
+  extracted_from_nepali?: boolean;
+  extracted?: {
+    name: string;
+    citizenship_number: string;
+    dob: string;
+    issue_date: string;
+    issue_place: string;
+  };
 }
 
 export interface RemittanceTransaction {
@@ -515,6 +536,7 @@ export interface RemittanceTransaction {
   remittance_purpose: string;
   status: TxnStatus;
   status_display: string;
+  citizenship_review_pending?: boolean;
   merchant_txn_id: string;
   provider_txn_id: string | null;
   reference_id: string | null;
@@ -880,6 +902,12 @@ export interface AdminWallet {
   first_name: string;
   last_name: string;
   balance: string;
+  transactions_blocked?: boolean;
+  blocked_reason?: string;
+  blocked_at?: string | null;
+  blocked_merchant_txn_id?: string;
+  unblocked_at?: string | null;
+  unblocked_by?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -1209,6 +1237,9 @@ export interface StatementLedgerHpSide {
   charge: string;
   cashback: string;
   reference_id: string;
+  merchant_txn_id?: string;
+  balance_before?: string | null;
+  balance_after?: string | null;
 }
 
 export interface StatementLedgerMySewaSide {
@@ -1224,6 +1255,8 @@ export interface StatementLedgerMySewaSide {
   user_name: string | null;
   created_at: string | null;
   wallet_applied: boolean;
+  balance_before?: string | null;
+  balance_after?: string | null;
 }
 
 export interface StatementLedgerRow {

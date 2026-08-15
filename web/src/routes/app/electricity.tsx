@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
-import { isAccountPending } from "@/lib/account-status";
+import { isAccountPending, isWalletBlocked } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -165,6 +165,7 @@ function ElectricityBillPayment() {
   }, [counters, counterQuery]);
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
+  const walletBlocked = isWalletBlocked(walletQuery.data);
   const payAmount = Number(amount) || 0;
   const totalDue = Number(totalDebited) || payAmount;
   const insufficient = payAmount > 0 && totalDue > 0 && walletBalance < totalDue;
@@ -246,6 +247,7 @@ function ElectricityBillPayment() {
     mutationFn: async (transaction_pin: string) => {
       if (!selectedCounter || !inquiry) throw new Error(t("electricity.inquiryRequired"));
       if (accountPending) throw new Error(t("account.pending"));
+      if (walletBlocked) throw new Error(t("account.walletBlocked"));
       if (!enabled) throw new Error(t("electricity.disabledError"));
       if (payAmount <= 0) throw new Error(t("electricity.amountRequired"));
       if (insufficient) {
@@ -432,7 +434,7 @@ function ElectricityBillPayment() {
         </header>
 
         <div className="relative z-10 space-y-3.5 px-4 pt-2 pb-8">
-          {accountPending ? <AccountPendingBanner /> : null}
+          <AccountPendingBanner />
           {!enabled && !accountPending ? (
             <section className="rounded-2xl border border-destructive/20 bg-white p-4 shadow-sm">
               <p className="text-[15px] font-medium text-destructive">
@@ -727,7 +729,7 @@ function ElectricityBillPayment() {
               </div>
               <button
                 type="button"
-                disabled={payMutation.isPending || feeLoading || insufficient || !enabled}
+                disabled={payMutation.isPending || feeLoading || insufficient || !enabled || walletBlocked}
                 onClick={() => {
                   setPinError(null);
                   setPinOpen(true);

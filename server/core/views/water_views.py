@@ -31,10 +31,15 @@ from ..services.app_config import (
     get_app_config,
     require_feature_enabled,
     require_account_approved,
+    require_wallet_not_blocked,
     is_auto_status_verified,
 )
 from ..services.notifications import notify_low_balance_if_needed, notify_wallet_debit
 from ..services.txn_status import resolve_provider_outcome, debit_wallet_for_txn
+from ..services.wallet_guard import (
+    handle_provider_success_without_wallet,
+    schedule_post_transaction_reconcile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +123,9 @@ def inquiry_bill(request):
     pending = require_account_approved(request.user)
     if pending:
         return pending
+    locked = require_wallet_not_blocked(request.user)
+    if locked:
+        return locked
 
     serializer = WaterBillInquirySerializer(data=request.data)
     if not serializer.is_valid():
@@ -207,6 +215,9 @@ def pay_bill(request):
     pending = require_account_approved(request.user)
     if pending:
         return pending
+    locked = require_wallet_not_blocked(request.user)
+    if locked:
+        return locked
 
     serializer = WaterBillPaySerializer(data=request.data)
     if not serializer.is_valid():
@@ -335,6 +346,9 @@ def pay_bill(request):
                 wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                 debit = bill_txn.total_debited or amount
                 if wallet.balance < debit:
+                    handle_provider_success_without_wallet(
+                        request.user, bill_txn, schedule=False,
+                    )
                     bill_txn.status = 'failed'
                     bill_txn.save()
                     return Response(
@@ -406,6 +420,8 @@ def pay_bill(request):
             {'error': 'Payment request failed', 'message': str(exc)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+    finally:
+        schedule_post_transaction_reconcile(request.user, bill_txn)
 
 
 @api_view(['GET'])

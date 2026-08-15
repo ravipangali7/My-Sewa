@@ -1,6 +1,6 @@
 from django.db import connection, models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
-from django.core.validators import MinValueValidator
+from django.core.validators import FileExtensionValidator, MinValueValidator
 from decimal import Decimal
 import json
 
@@ -101,6 +101,59 @@ def _ensure_settings_table():
             recorder.record_applied('core', '0006_settings_config')
 
     _settings_table_ready = True
+    return True
+
+
+_settings_app_update_columns_ready = False
+
+
+def _ensure_settings_app_update_columns():
+    """Add Settings auto-update columns if deploy skipped migrate 0038."""
+    global _settings_app_update_columns_ready
+    if _settings_app_update_columns_ready:
+        return False
+
+    table = 'core_settings'
+    try:
+        names = connection.introspection.table_names()
+        if table not in names:
+            return False
+        with connection.cursor() as cursor:
+            existing = {
+                col.name
+                for col in connection.introspection.get_table_description(cursor, table)
+            }
+    except Exception:
+        return False
+
+    needed = ('auto_update_enabled', 'app_version', 'apk')
+    missing = [name for name in needed if name not in existing]
+    if not missing:
+        _settings_app_update_columns_ready = True
+        return False
+
+    from django.apps import apps
+
+    model = apps.get_model('core', 'Settings')
+    try:
+        with connection.schema_editor() as schema_editor:
+            for name in missing:
+                schema_editor.add_field(model, model._meta.get_field(name))
+    except Exception:
+        try:
+            with connection.cursor() as cursor:
+                existing = {
+                    col.name
+                    for col in connection.introspection.get_table_description(cursor, table)
+                }
+            if all(name in existing for name in needed):
+                _settings_app_update_columns_ready = True
+                return False
+        except Exception:
+            pass
+        raise
+
+    _settings_app_update_columns_ready = True
     return True
 
 
@@ -344,6 +397,27 @@ class Wallet(models.Model):
     """User wallet to store balance"""
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='wallet')
     balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, validators=[MinValueValidator(0)])
+    transactions_blocked = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "When True, outbound payments (top-up, bills, fund transfer, data pack) "
+            "are blocked until a Super Admin unblocks. Used when HimalPay already "
+            "debited but MySewa did not apply the wallet movement."
+        ),
+    )
+    blocked_reason = models.TextField(blank=True, default='')
+    blocked_at = models.DateTimeField(null=True, blank=True)
+    blocked_merchant_txn_id = models.CharField(max_length=100, blank=True, default='')
+    unblocked_at = models.DateTimeField(null=True, blank=True)
+    unblocked_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='wallets_unblocked',
+        help_text="Admin who last unblocked this wallet.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -546,6 +620,24 @@ class Settings(models.Model):
         blank=True,
         help_text="Brand logo used across the app and as the favicon",
     )
+    auto_update_enabled = models.BooleanField(
+        default=False,
+        help_text="When enabled, the Android app downloads and installs the APK if versions differ",
+    )
+    app_version = models.CharField(
+        max_length=32,
+        blank=True,
+        default='',
+        help_text="Latest Android app version string compared with Flutter AppConstant.appVersion",
+    )
+    apk = models.FileField(
+        upload_to='settings/apk/',
+        null=True,
+        blank=True,
+        max_length=255,
+        validators=[FileExtensionValidator(allowed_extensions=['apk'])],
+        help_text="Latest Android APK used for in-app auto updates",
+    )
     bank_details = models.JSONField(
         default=dict,
         help_text="Deposit payment accounts JSON: legacy bank_* fields plus accounts[] (bank/khalti/esewa)",
@@ -568,16 +660,32 @@ class Settings(models.Model):
     def load(cls):
         from django.db.utils import OperationalError, ProgrammingError
 
+        def _is_missing_table(exc):
+            msg = str(exc).lower()
+            return 'core_settings' in msg or 'no such table' in msg or "doesn't exist" in msg
+
+        def _is_missing_column(exc):
+            msg = str(exc).lower()
+            return any(
+                name in msg
+                for name in ('auto_update_enabled', 'app_version', 'unknown column', 'no such column')
+            )
+
         try:
+            _ensure_settings_app_update_columns()
             obj, _created = cls.objects.get_or_create(pk=1)
             return obj
         except (OperationalError, ProgrammingError) as exc:
-            msg = str(exc).lower()
-            if 'core_settings' not in msg and 'no such table' not in msg:
-                raise
-            _ensure_settings_table()
-            obj, _created = cls.objects.get_or_create(pk=1)
-            return obj
+            if _is_missing_table(exc):
+                _ensure_settings_table()
+                _ensure_settings_app_update_columns()
+                obj, _created = cls.objects.get_or_create(pk=1)
+                return obj
+            if _is_missing_column(exc):
+                _ensure_settings_app_update_columns()
+                obj, _created = cls.objects.get_or_create(pk=1)
+                return obj
+            raise
 
     def get_config(self):
         return merge_app_config(self.config)
@@ -1311,9 +1419,11 @@ class StatementReconcileRun(models.Model):
 
     TRIGGER_SCHEDULE = 'schedule'
     TRIGGER_ADMIN = 'admin'
+    TRIGGER_POST_TXN = 'post_txn'
     TRIGGER_CHOICES = [
         (TRIGGER_SCHEDULE, 'Schedule'),
         (TRIGGER_ADMIN, 'Admin'),
+        (TRIGGER_POST_TXN, 'After transaction'),
     ]
 
     STATUS_RUNNING = 'running'
@@ -1370,12 +1480,14 @@ class StatementDiscrepancy(models.Model):
     ISSUE_MISSING_LOCAL = 'missing_local'
     ISSUE_MISSING_PROVIDER = 'missing_provider'
     ISSUE_WALLET_NOT_APPLIED = 'wallet_not_applied'
+    ISSUE_BALANCE_MISMATCH = 'balance_mismatch'
     ISSUE_TYPE_CHOICES = [
         (ISSUE_STATUS_MISMATCH, 'Status mismatch'),
         (ISSUE_AMOUNT_MISMATCH, 'Amount mismatch'),
         (ISSUE_MISSING_LOCAL, 'Missing in MySewa'),
         (ISSUE_MISSING_PROVIDER, 'Missing in HimalPay'),
         (ISSUE_WALLET_NOT_APPLIED, 'Wallet not applied'),
+        (ISSUE_BALANCE_MISMATCH, 'Before/after balance mismatch'),
     ]
 
     STATUS_OPEN = 'open'

@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
-import { isAccountPending } from "@/lib/account-status";
+import { isAccountPending, isWalletBlocked } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -119,6 +119,7 @@ function InternetBillPayment() {
   );
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
+  const walletBlocked = isWalletBlocked(walletQuery.data);
   const pkgAmount = Number(selectedPackage?.amount ?? 0);
   const totalDue = Number(totalDebited) || pkgAmount;
   const insufficient = pkgAmount > 0 && totalDue > 0 && walletBalance < totalDue;
@@ -182,6 +183,7 @@ function InternetBillPayment() {
         throw new Error(t("internet.selectPackageError"));
       }
       if (accountPending) throw new Error(t("account.pending"));
+      if (walletBlocked) throw new Error(t("account.walletBlocked"));
       if (!enabled) throw new Error(t("internet.disabledError"));
       if (insufficient) {
         throw new Error(
@@ -319,7 +321,7 @@ function InternetBillPayment() {
       }
     >
       <div className="min-w-0 max-w-full space-y-5 overflow-x-clip">
-        {accountPending ? <AccountPendingBanner /> : null}
+        <AccountPendingBanner />
         {!enabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4">
             <p className="text-[15px] font-medium text-destructive">{t("internet.disabledTitle")}</p>
@@ -573,7 +575,7 @@ function InternetBillPayment() {
 
               <Button
                 type="button"
-                disabled={payMutation.isPending || feeLoading || insufficient || !enabled}
+                disabled={payMutation.isPending || feeLoading || insufficient || !enabled || walletBlocked}
                 className="h-12 w-full rounded-xl text-[17px]"
                 onClick={() => {
                   setPinError(null);

@@ -277,6 +277,12 @@ def require_user_feature(user, feature: str) -> Optional[Response]:
     )
 
 
+def require_wallet_not_blocked(user) -> Optional[Response]:
+    """Block outbound payments when the user's wallet is locked by statement mismatch."""
+    from .wallet_guard import require_wallet_not_blocked as _impl
+    return _impl(user)
+
+
 def require_account_approved(user) -> Optional[Response]:
     """
     Block business transactions for accounts that are still pending approval.

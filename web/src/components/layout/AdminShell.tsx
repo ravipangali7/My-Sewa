@@ -234,11 +234,14 @@ export function AdminShell({
   description,
   children,
   actions,
+  dense = false,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
   actions?: ReactNode;
+  /** Compact header + page padding for managed console surfaces */
+  dense?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -332,7 +335,12 @@ export function AdminShell({
       </Sheet>
 
       <div className="flex min-w-0 max-w-full flex-col md:min-h-0 md:flex-1">
-        <header className="sticky top-0 z-30 border-b border-border bg-surface/95 px-3 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-3 backdrop-blur sm:px-4 md:px-8 md:pt-5 md:pb-5">
+        <header
+          className={cn(
+            "sticky top-0 z-30 border-b border-border bg-surface/95 px-3 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-3 backdrop-blur sm:px-4 md:px-8",
+            dense ? "md:pt-3 md:pb-3" : "md:pt-5 md:pb-5",
+          )}
+        >
           <div className="flex min-w-0 items-start gap-2 sm:gap-3">
             <button
               type="button"
@@ -346,11 +354,23 @@ export function AdminShell({
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-start gap-2">
                 <div className="min-w-0 flex-1">
-                  <h1 className="truncate text-lg font-semibold tracking-tight sm:text-xl md:text-[28px]">
+                  <h1
+                    className={cn(
+                      "truncate font-semibold tracking-tight",
+                      dense
+                        ? "text-base sm:text-lg md:text-xl"
+                        : "text-lg sm:text-xl md:text-[28px]",
+                    )}
+                  >
                     {title}
                   </h1>
                   {description && (
-                    <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground md:truncate md:line-clamp-none">
+                    <p
+                      className={cn(
+                        "mt-0.5 line-clamp-2 text-muted-foreground md:truncate md:line-clamp-none",
+                        dense ? "text-xs" : "text-sm",
+                      )}
+                    >
                       {description}
                     </p>
                   )}
@@ -377,7 +397,12 @@ export function AdminShell({
           </div>
         </header>
 
-        <main className="min-w-0 max-w-full overscroll-y-none px-3 py-5 pb-safe sm:px-4 md:flex-1 md:px-8 md:py-7 md:pb-7">
+        <main
+          className={cn(
+            "min-w-0 max-w-full overscroll-y-none px-3 pb-safe sm:px-4 md:flex-1 md:px-8",
+            dense ? "py-4 md:py-5 md:pb-5" : "py-5 md:py-7 md:pb-7",
+          )}
+        >
           {children}
         </main>
 

@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Pencil, Trash2, History } from "lucide-react";
+import { Pencil, Trash2, History, Unlock } from "lucide-react";
 import type { ReactNode } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { BackButton } from "@/components/BackButton";
@@ -74,6 +74,18 @@ function WalletDetailPage() {
     },
   });
 
+  const unblockMutation = useMutation({
+    mutationFn: () => apiClient.adminUnblockWallet(id),
+    onSuccess: (res) => {
+      toast.success(res.message || "Wallet unblocked");
+      queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
+      queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not unblock wallet");
+    },
+  });
+
   const w = walletQuery.data;
   const name = w ? walletDisplayName(w) : "";
 
@@ -90,6 +102,17 @@ function WalletDetailPage() {
                 View Transaction History
               </Link>
             </Button>
+            {w.transactions_blocked ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={unblockMutation.isPending}
+                onClick={() => unblockMutation.mutate()}
+              >
+                <Unlock className="size-3.5" />
+                {unblockMutation.isPending ? "Unblocking…" : "Unblock wallet"}
+              </Button>
+            ) : null}
             {allowAdjust ? (
             <Button asChild size="sm" variant="outline">
               <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
@@ -168,6 +191,22 @@ function WalletDetailPage() {
               <DetailRow label="Balance">
                 <span className="tabular">{formatNPR(w.balance)}</span>
               </DetailRow>
+              <DetailRow label="Transactions">
+                {w.transactions_blocked ? (
+                  <span className="text-destructive">
+                    Locked
+                    {w.blocked_reason ? ` — ${w.blocked_reason}` : ""}
+                  </span>
+                ) : (
+                  "Allowed"
+                )}
+              </DetailRow>
+              {w.blocked_at ? (
+                <DetailRow label="Locked at">{formatDateTime(w.blocked_at)}</DetailRow>
+              ) : null}
+              {w.blocked_merchant_txn_id ? (
+                <DetailRow label="Lock txn">{w.blocked_merchant_txn_id}</DetailRow>
+              ) : null}
               <DetailRow label="Created at">{formatDateTime(w.created_at)}</DetailRow>
               <DetailRow label="Updated at">{formatDateTime(w.updated_at)}</DetailRow>
             </dl>

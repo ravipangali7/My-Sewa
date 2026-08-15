@@ -1589,6 +1589,102 @@ def notify_wallet_adjustment(
     )
 
 
+def notify_remittance_citizenship_review(remittance) -> None:
+    """
+    Separate admin email when citizenship matching failed twice and the
+    remittance was submitted as pending for review.
+    """
+    site_name = _site_name()
+    admin_emails = _admin_alert_emails()
+    user = remittance.user
+    lookup = remittance.lookup_response if isinstance(remittance.lookup_response, dict) else {}
+    ocr = lookup.get('citizenship_ocr') or {}
+    verification = lookup.get('citizenship_verification') or {}
+    frontend = (
+        getattr(django_settings, 'FRONTEND_URL', None)
+        or getattr(django_settings, 'FRONTEND_ORIGIN', None)
+        or ''
+    ).rstrip('/')
+    review_url = f'{frontend}/admin/remittances' if frontend else '/admin/remittances'
+    rows: List[Row] = [
+        ('Remittance ID', str(remittance.id)),
+        ('Reference no.', remittance.ref_no or '-'),
+        ('Amount', _fmt_amount(remittance.amount)),
+        ('User', getattr(user, 'phone', '-') or '-'),
+        ('Receiver name', remittance.receiver_name or '-'),
+        ('Citizenship no.', remittance.beneficiary_citizenship_number or '-'),
+        ('Date of birth', remittance.beneficiary_dob or '-'),
+        ('Issue date', remittance.beneficiary_id_issue_date or '-'),
+        ('Issue district', remittance.beneficiary_citizenship_issuing_district or '-'),
+        ('OCR name', str(ocr.get('name') or '-')),
+        ('OCR citizenship no.', str(ocr.get('citizenship_number') or '-')),
+        ('Match status', str(verification.get('match_status') or 'MISMATCH')),
+        ('Reason', str(lookup.get('citizenship_review_reason') or '-')),
+        ('Review', review_url),
+        ('Status', 'Pending review'),
+        ('Date', _format_when(getattr(remittance, 'created_at', None))),
+    ]
+    if admin_emails:
+        _send_txn_email(
+            recipients=admin_emails,
+            subject=f'[{site_name}] Remittance pending citizenship review #{remittance.id}',
+            text_intro=(
+                f'Remittance {remittance.ref_no} was submitted as pending because '
+                'citizenship image matching failed twice. Please review and update '
+                'the details very soon.'
+            ),
+            title='Citizenship review needed',
+            subtitle=(
+                'Please review this remittance and update it shortly. '
+                'Payout is on hold until you mark it success or failed.'
+            ),
+            amount_display=_fmt_amount(remittance.amount),
+            status='pending',
+            status_label='Pending review',
+            rows=rows,
+            copy_admin=False,
+        )
+
+    if _user_email(user):
+        _send_txn_email(
+            recipients=[user.email],
+            subject=f'[{site_name}] Remittance pending admin review',
+            text_intro=(
+                f'Your remittance {remittance.ref_no} was submitted as pending. '
+                'Admin will review the citizenship details and update it shortly.'
+            ),
+            title='Remittance pending review',
+            subtitle='Citizenship details could not be matched automatically. Admin will review soon.',
+            amount_display=_fmt_amount(remittance.amount),
+            status='pending',
+            status_label='Pending',
+            rows=[
+                ('Reference no.', remittance.ref_no or '-'),
+                ('Amount', _fmt_amount(remittance.amount)),
+                ('Status', 'Pending admin review'),
+                ('Date', _format_when(getattr(remittance, 'created_at', None))),
+            ],
+            greeting=f'Hi {getattr(user, "first_name", "") or "there"},',
+            copy_admin=False,
+        )
+
+    _push(
+        user,
+        f'{site_name}: Remittance pending review',
+        (
+            f'Remittance {remittance.ref_no} of {_fmt_amount(remittance.amount)} '
+            'is pending admin review.'
+        ),
+        event='remittance',
+        extra={
+            'amount': remittance.amount,
+            'ref_no': remittance.ref_no,
+            'remittance_id': remittance.id,
+            'status': 'pending',
+        },
+    )
+
+
 def notify_remittance_success(remittance, balance_after=None) -> None:
     cfg = _notif_cfg()
     site_name = _site_name()
@@ -1709,6 +1805,38 @@ def notify_statement_discrepancies(run, new_count: int) -> None:
             ('New issues', str(new_count)),
             ('Triggered by', run.get_triggered_by_display()),
             ('Date', _format_when(getattr(run, 'finished_at', None) or timezone.now())),
+        ],
+        copy_admin=False,
+    )
+
+
+def notify_wallet_blocked(wallet, *, reason: str = '', merchant_txn_id: str = '') -> None:
+    """Alert admins that a user wallet was locked after a HimalPay/MySewa mismatch."""
+    admin_emails = _admin_alert_emails()
+    if not admin_emails:
+        return
+    user = getattr(wallet, 'user', None)
+    site_name = _site_name()
+    phone = getattr(user, 'phone', '-') if user else '-'
+    _send_txn_email(
+        recipients=admin_emails,
+        subject=f'[{site_name}] Wallet locked — HimalPay deducted, MySewa did not apply',
+        text_intro=(
+            f'User {phone} wallet was locked because HimalPay already took money '
+            f'that was not applied on MySewa. Only an admin can unblock it.'
+        ),
+        title='Wallet locked',
+        subtitle='HimalPay deducted funds that MySewa did not record on the user wallet.',
+        amount_display=_fmt_amount(getattr(wallet, 'balance', 0)),
+        amount_label='Wallet balance',
+        status='pending',
+        status_label='Locked',
+        rows=[
+            ('User', phone),
+            ('Wallet ID', str(getattr(wallet, 'pk', '-') or '-')),
+            ('Merchant txn', merchant_txn_id or '-'),
+            ('Reason', (reason or '-')[:400]),
+            ('Date', _format_when(getattr(wallet, 'blocked_at', None) or timezone.now())),
         ],
         copy_admin=False,
     )

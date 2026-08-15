@@ -88,10 +88,12 @@ class CustomUserAdmin(admin.ModelAdmin):
 
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):
-    list_display = ('user', 'balance', 'created_at', 'updated_at')
-    list_filter = ('created_at', 'updated_at')
-    search_fields = ('user__username', 'user__email')
-    readonly_fields = ('created_at', 'updated_at')
+    list_display = ('user', 'balance', 'transactions_blocked', 'created_at', 'updated_at')
+    list_filter = ('transactions_blocked', 'created_at', 'updated_at')
+    search_fields = ('user__username', 'user__email', 'user__phone')
+    readonly_fields = (
+        'created_at', 'updated_at', 'blocked_at', 'unblocked_at', 'unblocked_by',
+    )
     ordering = ('-updated_at',)
 
 
@@ -232,6 +234,10 @@ class SettingsAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at', 'smtp_preview')
     fieldsets = (
         ('Branding', {'fields': ('logo',)}),
+        (
+            'Android auto update',
+            {'fields': ('auto_update_enabled', 'app_version', 'apk')},
+        ),
         (
             'Deposit QR codes',
             {'fields': ('qr_code', 'khalti_qr_code', 'esewa_qr_code')},

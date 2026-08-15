@@ -16,7 +16,7 @@ import { DepositAccountsPanel } from "@/components/DepositAccountsPanel";
 import { apiClient } from "@/lib/api";
 import { settingsQueryOptions } from "@/lib/refresh";
 import { useAuth } from "@/lib/auth";
-import { isAccountPending, canFundTransfer } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer, isWalletBlocked } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useT } from "@/lib/i18n";
 
@@ -41,8 +41,9 @@ export const Route = createFileRoute("/app/services")({
 
 function Services() {
   const t = useT();
-  const { user } = useAuth();
+  const { user, wallet } = useAuth();
   const accountPending = isAccountPending(user);
+  const walletBlocked = isWalletBlocked(wallet);
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
@@ -75,70 +76,88 @@ function Services() {
       title: t("services.topup"),
       desc: accountPending
         ? t("services.unavailablePending")
-        : t("services.topupDesc"),
+        : walletBlocked
+          ? t("account.walletBlocked")
+          : t("services.topupDesc"),
       icon: Smartphone,
-      enabled: payment?.topups_enabled !== false && !accountPending,
+      enabled: payment?.topups_enabled !== false && !accountPending && !walletBlocked,
     },
     {
       to: "/app/data-topup" as const,
       title: t("services.dataTopup"),
       desc: accountPending
         ? t("services.unavailablePending")
-        : t("services.dataTopupDesc"),
+        : walletBlocked
+          ? t("account.walletBlocked")
+          : t("services.dataTopupDesc"),
       icon: Signal,
-      enabled: payment?.data_packs_enabled !== false && !accountPending,
+      enabled: payment?.data_packs_enabled !== false && !accountPending && !walletBlocked,
     },
     {
       to: "/app/internet" as const,
       title: t("services.internet"),
       desc: accountPending
         ? t("services.unavailablePending")
-        : t("services.internetDesc"),
+        : walletBlocked
+          ? t("account.walletBlocked")
+          : t("services.internetDesc"),
       icon: Wifi,
-      enabled: payment?.internet_bills_enabled !== false && !accountPending,
+      enabled: payment?.internet_bills_enabled !== false && !accountPending && !walletBlocked,
     },
     {
       to: "/app/water" as const,
       title: t("services.water"),
       desc: accountPending
         ? t("services.unavailablePending")
-        : t("services.waterDesc"),
+        : walletBlocked
+          ? t("account.walletBlocked")
+          : t("services.waterDesc"),
       icon: Droplets,
-      enabled: payment?.water_bills_enabled !== false && !accountPending,
+      enabled: payment?.water_bills_enabled !== false && !accountPending && !walletBlocked,
     },
     {
       to: "/app/electricity" as const,
       title: t("services.electricity"),
       desc: accountPending
         ? t("services.unavailablePending")
-        : t("services.electricityDesc"),
+        : walletBlocked
+          ? t("account.walletBlocked")
+          : t("services.electricityDesc"),
       icon: Zap,
-      enabled: payment?.electricity_bills_enabled !== false && !accountPending,
+      enabled: payment?.electricity_bills_enabled !== false && !accountPending && !walletBlocked,
     },
     {
       to: "/app/community-electricity" as const,
       title: t("services.communityElectricity"),
       desc: accountPending
         ? t("services.unavailablePending")
-        : t("services.communityElectricityDesc"),
+        : walletBlocked
+          ? t("account.walletBlocked")
+          : t("services.communityElectricityDesc"),
       icon: Zap,
-      enabled: payment?.community_electricity_enabled !== false && !accountPending,
+      enabled: payment?.community_electricity_enabled !== false && !accountPending && !walletBlocked,
     },
     {
       to: "/app/transfer" as const,
       title: t("services.transfer"),
       desc: accountPending
         ? t("services.unavailablePending")
-        : t("services.transferDesc"),
+        : walletBlocked
+          ? t("account.walletBlocked")
+          : t("services.transferDesc"),
       icon: Send,
-      enabled: payment?.transfers_enabled !== false && !accountPending && canFundTransfer(user),
+      enabled:
+        payment?.transfers_enabled !== false &&
+        !accountPending &&
+        !walletBlocked &&
+        canFundTransfer(user),
     },
   ];
 
   return (
     <UserShell title={t("services.title")}>
       <div className="space-y-5">
-        {accountPending ? <AccountPendingBanner /> : null}
+        <AccountPendingBanner />
         <ul className="inset-group divide-y divide-border">
           {services.map((s) => (
             <li key={s.to}>
@@ -161,7 +180,7 @@ function Services() {
                   <span className="min-w-0 flex-1">
                     <span className="block text-[17px] font-medium">{s.title}</span>
                     <span className="block text-[13px] text-muted-foreground">
-                      {accountPending ? s.desc : t("services.unavailable")}
+                      {accountPending || walletBlocked ? s.desc : t("services.unavailable")}
                     </span>
                   </span>
                 </div>

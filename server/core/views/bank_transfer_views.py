@@ -36,10 +36,15 @@ from ..services.app_config import (
     require_feature_enabled,
     require_user_feature,
     require_account_approved,
+    require_wallet_not_blocked,
     is_auto_status_verified,
 )
 from ..services.notifications import notify_low_balance_if_needed, notify_transfer_success
 from ..services.txn_status import resolve_provider_outcome, debit_wallet_for_txn
+from ..services.wallet_guard import (
+    handle_provider_success_without_wallet,
+    schedule_post_transaction_reconcile,
+)
 from django.utils import timezone
 from django.db.models import Sum
 
@@ -399,6 +404,9 @@ def verify_account(request):
     pending = require_account_approved(request.user)
     if pending:
         return pending
+    locked = require_wallet_not_blocked(request.user)
+    if locked:
+        return locked
 
     serializer = BankAccountVerifySerializer(data=request.data)
     if not serializer.is_valid():
@@ -628,6 +636,9 @@ def create_bank_transfer(request):
     pending = require_account_approved(request.user)
     if pending:
         return pending
+    locked = require_wallet_not_blocked(request.user)
+    if locked:
+        return locked
 
     serializer = BankTransferCreateSerializer(data=request.data)
     if not serializer.is_valid():
@@ -928,6 +939,9 @@ def create_bank_transfer(request):
                 wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                 debit = transfer.total_debited or amount
                 if wallet.balance < debit:
+                    handle_provider_success_without_wallet(
+                        request.user, transfer, schedule=False,
+                    )
                     transfer.status = 'failed'
                     transfer.save()
                     return Response(
@@ -1026,6 +1040,8 @@ def create_bank_transfer(request):
             },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+    finally:
+        schedule_post_transaction_reconcile(request.user, transfer)
 
 
 @api_view(['GET'])

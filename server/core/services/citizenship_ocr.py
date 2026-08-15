@@ -15,6 +15,7 @@ from typing import Any, BinaryIO, Optional, Union
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 from .bs_ad import normalize_date_to_ad_iso, normalize_nepali_digits
+from .nepali_latin import has_devanagari, prefer_english
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class CitizenshipOcrFields:
     confidence: float = 0.0
     errors: list[str] = field(default_factory=list)
     language_hint: str = ''
+    extracted_from_nepali: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -48,6 +50,7 @@ class CombinedCitizenshipOcr:
     back: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0
     errors: list[str] = field(default_factory=list)
+    extracted_from_nepali: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -124,12 +127,13 @@ def _ocr_pass(img: Image.Image, lang: str, psm: int) -> tuple[str, float]:
     return text, mean_conf
 
 
-def _ocr_image(img: Image.Image) -> tuple[str, float, list[str]]:
-    """Run Tesseract and return (text, mean_confidence 0-1, errors).
-
-    Tries Nepali+English first, then extra page-segmentation modes if the
-    first pass yields little structured text.
-    """
+def _ocr_langs(
+    img: Image.Image,
+    langs: tuple[str, ...],
+    *,
+    convert_nepali: bool = True,
+) -> tuple[str, float, list[str]]:
+    """Run Tesseract for the given language packs and return the best text."""
     ok, err = _tesseract_available()
     if not ok:
         return '', 0.0, [err]
@@ -138,13 +142,12 @@ def _ocr_image(img: Image.Image) -> tuple[str, float, list[str]]:
 
     errors: list[str] = []
     processed = _preprocess(img)
-    langs_to_try = ('nep+eng', 'eng+nep', 'eng')
     psms = (6, 4, 11)
     best_text = ''
     best_conf = 0.0
     best_filled = -1
 
-    for lang in langs_to_try:
+    for lang in langs:
         for psm in psms:
             try:
                 text, mean_conf = _ocr_pass(processed, lang, psm)
@@ -156,8 +159,9 @@ def _ocr_image(img: Image.Image) -> tuple[str, float, list[str]]:
                 continue
             if not (text or '').strip():
                 continue
-            filled = _field_fill_count(parse_citizenship_text(text))
-            # Prefer more extracted fields; break early on a strong read.
+            filled = _field_fill_count(
+                parse_citizenship_text(text, convert_nepali=convert_nepali)
+            )
             if filled > best_filled or (filled == best_filled and mean_conf > best_conf):
                 best_text, best_conf, best_filled = text, mean_conf, filled
             if filled >= 4:
@@ -360,15 +364,20 @@ def _field_fill_count(parsed: CitizenshipOcrFields) -> int:
     )
 
 
-def parse_citizenship_text(text: str, *, side: str = '') -> CitizenshipOcrFields:
-    """Parse OCR text from one citizenship side into structured fields."""
+def parse_citizenship_text(
+    text: str,
+    *,
+    side: str = '',
+    convert_nepali: bool = True,
+) -> CitizenshipOcrFields:
+    """Parse OCR text from one citizenship side into structured English fields."""
     errors: list[str] = []
     if not (text or '').strip():
         errors.append(f'Empty OCR text{" for " + side if side else ""}')
         return CitizenshipOcrFields(errors=errors)
 
     normalized = normalize_nepali_digits(text)
-    has_nepali = bool(re.search(r'[\u0900-\u097F]', text))
+    has_nepali = has_devanagari(text)
     language_hint = 'nepali+english' if has_nepali else 'english'
 
     name = _clean_name(
@@ -378,6 +387,10 @@ def parse_citizenship_text(text: str, *, side: str = '') -> CitizenshipOcrFields
     dob_raw = _first_match(_DOB_PATTERNS, normalized)
     issue_raw = _first_match(_ISSUE_DATE_PATTERNS, normalized)
     issue_place = _extract_issue_place(text) or _extract_issue_place(normalized)
+
+    if convert_nepali:
+        name = prefer_english(name, kind='name')
+        issue_place = prefer_english(issue_place, kind='place')
 
     dob = ''
     if dob_raw:
@@ -424,13 +437,90 @@ def ocr_citizenship_side(data: FileLike, *, side: str) -> CitizenshipOcrFields:
     except Exception as exc:
         return CitizenshipOcrFields(errors=[f'Invalid {side} image: {exc}'])
 
-    text, engine_conf, errors = _ocr_image(img)
-    parsed = parse_citizenship_text(text, side=side)
-    parsed.errors = [*errors, *parsed.errors]
-    # Blend engine confidence with field coverage.
-    if engine_conf > 0:
-        parsed.confidence = round((engine_conf * 0.55) + (parsed.confidence * 0.45), 3)
+    parsed = _ocr_side_english_then_nepali(img, side=side)
     return parsed
+
+
+def _merge_ocr_fields(
+    primary: CitizenshipOcrFields,
+    fallback: CitizenshipOcrFields,
+) -> CitizenshipOcrFields:
+    """Keep English values; fill gaps from Nepali (already converted)."""
+    used_nepali = False
+
+    def pick(kind: str, a: str, b: str) -> str:
+        nonlocal used_nepali
+        chosen = prefer_english(a, b, kind=kind)
+        if chosen and (not a or has_devanagari(a)) and b:
+            used_nepali = True
+        return chosen
+
+    merged = CitizenshipOcrFields(
+        name=pick('name', primary.name, fallback.name),
+        citizenship_number=prefer_english(
+            primary.citizenship_number, fallback.citizenship_number, kind='text'
+        ) or primary.citizenship_number or fallback.citizenship_number,
+        dob=primary.dob or fallback.dob,
+        issue_date=primary.issue_date or fallback.issue_date,
+        issue_place=pick('place', primary.issue_place, fallback.issue_place),
+        raw_text='\n'.join(
+            part for part in (primary.raw_text, fallback.raw_text) if part
+        )[:4000],
+        confidence=max(primary.confidence, fallback.confidence),
+        errors=[*primary.errors, *fallback.errors],
+        language_hint=(
+            'nepali+english'
+            if (
+                'nepali' in (primary.language_hint or '')
+                or 'nepali' in (fallback.language_hint or '')
+            )
+            else primary.language_hint or fallback.language_hint
+        ),
+    )
+    merged.language_hint = (
+        'nepali_converted' if used_nepali and not prefer_english(primary.name, kind='name')
+        else merged.language_hint
+    )
+    return merged
+
+
+def _ocr_side_english_then_nepali(img: Image.Image, *, side: str) -> CitizenshipOcrFields:
+    """Extract English details first; convert Nepali words when English is missing."""
+    eng_text, eng_conf, eng_errors = _ocr_langs(img, ('eng',), convert_nepali=False)
+    eng_parsed = parse_citizenship_text(eng_text, side=side, convert_nepali=True)
+    eng_parsed.errors = [*eng_errors, *eng_parsed.errors]
+    if eng_conf > 0:
+        eng_parsed.confidence = round((eng_conf * 0.55) + (eng_parsed.confidence * 0.45), 3)
+
+    latin_filled = sum(
+        1
+        for v in (
+            eng_parsed.name,
+            eng_parsed.citizenship_number,
+            eng_parsed.dob,
+            eng_parsed.issue_date,
+            eng_parsed.issue_place,
+        )
+        if v and not has_devanagari(v)
+    )
+    if latin_filled >= 4:
+        return eng_parsed
+
+    nep_text, nep_conf, nep_errors = _ocr_langs(
+        img, ('nep+eng', 'eng+nep'), convert_nepali=True
+    )
+    nep_parsed = parse_citizenship_text(nep_text, side=side, convert_nepali=True)
+    nep_parsed.errors = [*nep_errors, *nep_parsed.errors]
+    if nep_conf > 0:
+        nep_parsed.confidence = round((nep_conf * 0.55) + (nep_parsed.confidence * 0.45), 3)
+
+    merged = _merge_ocr_fields(eng_parsed, nep_parsed)
+    merged.extracted_from_nepali = latin_filled < _field_fill_count(merged)
+    if not (merged.raw_text or '').strip():
+        merged.errors = [
+            err for err in merged.errors if 'No text could be extracted' not in err
+        ] or merged.errors
+    return merged
 
 
 def _prefer(*values: str) -> str:
@@ -479,8 +569,14 @@ def extract_citizenship_from_images(
             'Upload the front and back of the same certificate.'
         )
 
+    used_nepali = bool(
+        getattr(front_result, 'extracted_from_nepali', False)
+        or getattr(back_result, 'extracted_from_nepali', False)
+    )
     combined = CombinedCitizenshipOcr(
-        name=_prefer(front_result.name, back_result.name, merged_parsed.name),
+        name=prefer_english(
+            front_result.name, back_result.name, merged_parsed.name, kind='name'
+        ),
         citizenship_number=_prefer(
             front_result.citizenship_number,
             back_result.citizenship_number,
@@ -492,11 +588,13 @@ def extract_citizenship_from_images(
             front_result.issue_date,
             merged_parsed.issue_date,
         ),
-        issue_place=_prefer(
+        issue_place=prefer_english(
             back_result.issue_place,
             front_result.issue_place,
             merged_parsed.issue_place,
+            kind='place',
         ),
+        extracted_from_nepali=used_nepali,
         front=front_result.to_dict(),
         back=back_result.to_dict(),
         confidence=round(

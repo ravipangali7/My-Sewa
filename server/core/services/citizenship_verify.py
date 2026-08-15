@@ -42,6 +42,7 @@ NAME_TOKEN_COVERAGE_MATCH = 0.99
 
 TICKET_TTL_SECONDS = 30 * 60
 TICKET_CACHE_PREFIX = 'remittance_citizenship'
+MAX_MISMATCH_ATTEMPTS = 2
 
 _NAME_TITLES = {
     'mr', 'mrs', 'ms', 'miss', 'sri', 'shri', 'smt', 'dr', 'er',
@@ -345,9 +346,40 @@ def store_verification_ticket(user_id, ref_no: str, result: dict[str, Any]) -> N
             'match_status': result.get('match_status'),
             'fingerprint': result.get('fingerprint') or {},
             'message': result.get('message') or '',
+            'attempts': int(result.get('attempt_count') or 0),
+            'pending_review_allowed': bool(result.get('pending_review_allowed')),
+            'ocr': result.get('ocr') or {},
         },
         TICKET_TTL_SECONDS,
     )
+
+
+def apply_attempt_state(user_id, ref_no: str, result: dict[str, Any]) -> dict[str, Any]:
+    """
+    Count unsuccessful matches (max 2). After two mismatches the remittance
+    may be submitted as pending for admin review.
+    """
+    prev = load_verification_ticket(user_id, ref_no) or {}
+    if result.get('allowed'):
+        attempts = 0
+        pending_review = False
+    else:
+        attempts = int(prev.get('attempts') or 0) + 1
+        pending_review = attempts >= MAX_MISMATCH_ATTEMPTS
+    result['attempt_count'] = attempts
+    result['max_attempts'] = MAX_MISMATCH_ATTEMPTS
+    result['attempts_remaining'] = (
+        0 if result.get('allowed') else max(0, MAX_MISMATCH_ATTEMPTS - attempts)
+    )
+    result['pending_review_allowed'] = pending_review
+    if pending_review:
+        result['message'] = (
+            (result.get('message') or 'Citizenship details do not match.')
+            + ' After 2 unsuccessful matches you can submit this remittance '
+            'as pending. Admin will review and update it shortly.'
+        )
+    store_verification_ticket(user_id, ref_no, result)
+    return result
 
 
 def load_verification_ticket(user_id, ref_no: str) -> Optional[dict[str, Any]]:
@@ -367,27 +399,44 @@ def receive_block_reason(
 ) -> Optional[str]:
     """
     Return a user-facing error if this remittance must not be paid out.
-    None means verification passed and receive may continue.
+    None means verification passed, or two mismatches allow pending review.
     """
     ticket = load_verification_ticket(user_id, ref_no)
     if not ticket:
         return (
             'Verify citizenship front and back images before receiving this remittance.'
         )
-    if not ticket.get('allowed') or str(ticket.get('match_status') or '').upper() != 'MATCH':
+    if ticket.get('pending_review_allowed'):
+        return None
+    if ticket.get('allowed') and str(ticket.get('match_status') or '').upper() == 'MATCH':
+        expected = ticket.get('fingerprint') or {}
+        actual = verification_fingerprint(form)
+        if expected != actual:
+            return (
+                'Citizenship details changed after verification. '
+                'Upload the images and verify again before receiving.'
+            )
+        return None
+    remaining = max(0, MAX_MISMATCH_ATTEMPTS - int(ticket.get('attempts') or 0))
+    if remaining > 0:
         return (
             ticket.get('message')
             or 'Citizenship details do not match the remittance information. '
-            'The remittance cannot be received.'
+            f'Upload clearer images and try again ({remaining} attempt remaining).'
         )
-    expected = ticket.get('fingerprint') or {}
-    actual = verification_fingerprint(form)
-    if expected != actual:
-        return (
-            'Citizenship details changed after verification. '
-            'Upload the images and verify again before receiving.'
-        )
-    return None
+    return (
+        ticket.get('message')
+        or 'Citizenship details do not match the remittance information. '
+        'The remittance cannot be received.'
+    )
+
+
+def is_pending_review_ticket(ticket: Optional[dict[str, Any]]) -> bool:
+    if not ticket:
+        return False
+    if ticket.get('allowed') and str(ticket.get('match_status') or '').upper() == 'MATCH':
+        return False
+    return bool(ticket.get('pending_review_allowed'))
 
 
 def verify_citizenship(
@@ -432,6 +481,8 @@ def verify_citizenship(
         'mismatch_messages': messages,
         'message': message,
         'fingerprint': verification_fingerprint(form),
+        'extracted_from_nepali': bool(getattr(ocr, 'extracted_from_nepali', False)),
+        'extracted': ocr_record,
     }
 
 
@@ -445,13 +496,13 @@ def verify_citizenship_images(
     issue_date: str = '',
     issue_place: str = '',
 ) -> dict[str, Any]:
-    """End-to-end: OCR front+back, then compare against remittance/form fields."""
+    """End-to-end: OCR front+back, auto-fill missing English fields, then compare."""
     ocr = extract_citizenship_from_images(front, back)
     form = build_form_record(
         name=name,
-        citizenship_number=citizenship_number,
-        dob=dob,
-        issue_date=issue_date,
-        issue_place=issue_place,
+        citizenship_number=citizenship_number or ocr.citizenship_number,
+        dob=dob or ocr.dob,
+        issue_date=issue_date or ocr.issue_date,
+        issue_place=issue_place or ocr.issue_place,
     )
     return verify_citizenship(form=form, ocr=ocr)
