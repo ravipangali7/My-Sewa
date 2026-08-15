@@ -15,7 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toastApiError, toastApiMessage } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { parseBankQr } from "@/lib/bank-qr";
-import { mergeBankLists } from "@/lib/nepali-banks";
+import { mergeBankLists, matchBank, normalizeBankCode } from "@/lib/nepali-banks";
 import type { BankOption, BankTransferTransaction } from "@/lib/types";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -201,7 +201,20 @@ function Transfer() {
     amt >= minTransfer && totalDue > 0 && walletBalance < totalDue;
   const isMobile = method === "phone";
   const destinationNumber = isMobile ? phone.trim() : accNo.trim();
-  const showVerifyButton = !qrFilled || verifyStatus === "unverified";
+  const showVerifyButton = !qrFilled;
+
+  function resolveBankCode(code: string, name = "") {
+    const matched = matchBank(banks, code) || matchBank(banks, name);
+    if (matched?.bank_code) return matched.bank_code;
+    const normalized = normalizeBankCode(code);
+    if (normalized && banks.some((b) => b.bank_code === normalized)) return normalized;
+    const prefix = banks.find(
+      (b) =>
+        (normalized && b.bank_code.startsWith(normalized)) ||
+        (normalized && normalized.startsWith(b.bank_code)),
+    );
+    return prefix?.bank_code || normalized || code.trim().toUpperCase();
+  }
 
   useEffect(() => {
     if (!banks.length || !bank) return;
@@ -238,20 +251,33 @@ function Transfer() {
   }
 
   useEffect(() => {
-    if (!pendingQrVerifyRef.current || !bank || verifying || verified) return;
+    if (!pendingQrVerifyRef.current || !qrFilled || verifying || verified) return;
     const number = (method === "phone" ? phone : accNo).trim();
+    const resolvedBank = resolveBankCode(bank);
     if (!number) return;
+    if (!resolvedBank) return;
+    if (!banks.length && banksQuery.isLoading) return;
     pendingQrVerifyRef.current = false;
     void verifyDestination({
-      bankCode: bank,
+      bankCode: resolvedBank,
       accountNumber: number,
       accountName: accName,
       isMobile: method === "phone",
       allowMissingName: true,
     });
-    // verifyDestination is a function declaration in this render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bank, accNo, phone, method, accName, verifying, verified]);
+  }, [
+    qrFilled,
+    bank,
+    accNo,
+    phone,
+    method,
+    accName,
+    verifying,
+    verified,
+    banks,
+    banksQuery.isLoading,
+  ]);
 
   useEffect(() => {
     setRemarks((prev) =>
@@ -417,6 +443,7 @@ function Transfer() {
       return false;
     }
     const data = parsed.data;
+    const resolvedBank = resolveBankCode(data.bankCode, data.bankName);
     const nextMethod: TransferMethod = data.isMobile ? "phone" : "bank";
     if (nextMethod !== method) {
       skipMethodResetRef.current = true;
@@ -424,7 +451,7 @@ function Transfer() {
     }
     resetVerification();
     setQrFilled(true);
-    setBank(data.bankCode);
+    setBank(resolvedBank);
     if (data.isMobile) {
       setPhone(data.accountNumber);
       setAccNo("");
@@ -434,19 +461,17 @@ function Transfer() {
     }
     setAccName(data.accountName);
     pendingQrAmountRef.current = data.amount;
-    if (data.bankCode && data.accountNumber) {
-      pendingQrVerifyRef.current = false;
+    pendingQrVerifyRef.current = true;
+    if (resolvedBank && data.accountNumber) {
       void verifyDestination({
-        bankCode: data.bankCode,
+        bankCode: resolvedBank,
         accountNumber: data.accountNumber,
         accountName: data.accountName,
         isMobile: data.isMobile,
         allowMissingName: true,
       });
-    } else {
-      pendingQrVerifyRef.current = Boolean(data.accountNumber);
-      toast.success(t("transfer.qrFilled"));
-      if (!data.bankCode) toast.message(t("transfer.qrSelectBank"));
+    } else if (!resolvedBank) {
+      toast.message(t("transfer.qrSelectBank"));
     }
     return true;
   }
@@ -459,12 +484,16 @@ function Transfer() {
     allowMissingName?: boolean;
   }) {
     const useMobile = overrides?.isMobile ?? isMobile;
-    const useBank = (overrides?.bankCode ?? bank).trim();
+    const useBank = resolveBankCode(
+      overrides?.bankCode ?? bank,
+      overrides?.accountName ?? "",
+    );
     const useName = (overrides?.accountName ?? accName).trim();
     const useNumber = (
       overrides?.accountNumber ?? (useMobile ? phone : accNo)
     ).trim();
     const useBankMeta = banks.find((b) => b.bank_code === useBank) || selectedBank;
+    pendingQrVerifyRef.current = false;
 
     if (accountPending) {
       toast.error(t("account.pending"));
@@ -1071,7 +1100,7 @@ function Transfer() {
       }
     >
       <Tabs
-        value="share"
+        value="manual"
         onValueChange={(value) => {
           if (value === "scanner") showScanner();
         }}
@@ -1081,8 +1110,8 @@ function Transfer() {
           <TabsTrigger value="scanner" className="rounded-lg">
             {t("transfer.tabScanner")}
           </TabsTrigger>
-          <TabsTrigger value="share" className="rounded-lg">
-            {t("transfer.tabShare")}
+          <TabsTrigger value="manual" className="rounded-lg">
+            {t("transfer.tabManual")}
           </TabsTrigger>
         </TabsList>
       </Tabs>
