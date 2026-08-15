@@ -103,6 +103,7 @@ function Transfer() {
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [qrFilled, setQrFilled] = useState(false);
   const skipMethodResetRef = useRef(false);
   const pendingQrAmountRef = useRef("");
   const pendingQrVerifyRef = useRef(false);
@@ -200,6 +201,7 @@ function Transfer() {
     amt >= minTransfer && totalDue > 0 && walletBalance < totalDue;
   const isMobile = method === "phone";
   const destinationNumber = isMobile ? phone.trim() : accNo.trim();
+  const showVerifyButton = !qrFilled || verifyStatus === "unverified";
 
   useEffect(() => {
     if (!banks.length || !bank) return;
@@ -214,6 +216,7 @@ function Transfer() {
       skipMethodResetRef.current = false;
       return;
     }
+    setQrFilled(false);
     setVerified(false);
     setVerifyStatus("idle");
     setVerifiedDetails(null);
@@ -420,6 +423,7 @@ function Transfer() {
       setMethod(nextMethod);
     }
     resetVerification();
+    setQrFilled(true);
     setBank(data.bankCode);
     if (data.isMobile) {
       setPhone(data.accountNumber);
@@ -659,6 +663,8 @@ function Transfer() {
                 onChange={(v) => {
                   setBank(v);
                   resetVerification();
+                  if (qrFilled) pendingQrVerifyRef.current = true;
+                  else setQrFilled(false);
                 }}
               />
             </div>
@@ -672,6 +678,7 @@ function Transfer() {
                   onChange={(e) => {
                     setAccName(e.target.value);
                     resetVerification();
+                    setQrFilled(false);
                   }}
                   placeholder={t("transfer.accHolderPlaceholder")}
                   className="h-12 rounded-xl"
@@ -693,28 +700,34 @@ function Transfer() {
                     onChange={(e) => {
                       setPhone(e.target.value);
                       resetVerification();
+                      setQrFilled(false);
                       setAccName("");
                     }}
                     className="h-12 min-w-0 flex-1 rounded-xl"
                     required
                     disabled={!transfersEnabled || !bank}
                   />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-12 shrink-0 rounded-xl"
-                    disabled={
-                      verifying ||
-                      !transfersEnabled ||
-                      !bank ||
-                      phone.replace(/\D/g, "").length < 10
-                    }
-                    onClick={() => void verifyDestination()}
-                  >
-                    {verifying ? "…" : t("transfer.verify")}
-                  </Button>
+                  {showVerifyButton ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-12 shrink-0 rounded-xl"
+                      disabled={
+                        verifying ||
+                        !transfersEnabled ||
+                        !bank ||
+                        phone.replace(/\D/g, "").length < 10
+                      }
+                      onClick={() => void verifyDestination()}
+                    >
+                      {verifying ? "…" : t("transfer.verify")}
+                    </Button>
+                  ) : null}
                 </div>
                 <p className="text-[12px] text-muted-foreground">{t("transfer.phoneHelp")}</p>
+                {qrFilled && verifying ? (
+                  <p className="text-[13px] text-muted-foreground">{t("common.processing")}</p>
+                ) : null}
                 {verifiedDetails ? null : (
                   <VerifyStatusMessage
                     status={verifyStatus}
@@ -738,29 +751,35 @@ function Transfer() {
                     onChange={(e) => {
                       setAccNo(e.target.value);
                       resetVerification();
+                      setQrFilled(false);
                     }}
                     placeholder={t("transfer.accountPlaceholder")}
                     className="h-12 min-w-0 flex-1 rounded-xl"
                     required
                     disabled={!transfersEnabled || !bank}
                   />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-12 shrink-0 rounded-xl"
-                    disabled={
-                      verifying ||
-                      !transfersEnabled ||
-                      !bank ||
-                      !accNo.trim()
-                    }
-                    onClick={() =>
-                      void verifyDestination({ allowMissingName: !accName.trim() })
-                    }
-                  >
-                    {verifying ? "…" : t("transfer.verify")}
-                  </Button>
+                  {showVerifyButton ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-12 shrink-0 rounded-xl"
+                      disabled={
+                        verifying ||
+                        !transfersEnabled ||
+                        !bank ||
+                        !accNo.trim()
+                      }
+                      onClick={() =>
+                        void verifyDestination({ allowMissingName: !accName.trim() })
+                      }
+                    >
+                      {verifying ? "…" : t("transfer.verify")}
+                    </Button>
+                  ) : null}
                 </div>
+                {qrFilled && verifying ? (
+                  <p className="text-[13px] text-muted-foreground">{t("common.processing")}</p>
+                ) : null}
                 {verifiedDetails ? null : (
                   <VerifyStatusMessage
                     status={verifyStatus}
@@ -1051,6 +1070,22 @@ function Transfer() {
         </div>
       }
     >
+      <Tabs
+        value="share"
+        onValueChange={(value) => {
+          if (value === "scanner") showScanner();
+        }}
+        className="mb-4"
+      >
+        <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl">
+          <TabsTrigger value="scanner" className="rounded-lg">
+            {t("transfer.tabScanner")}
+          </TabsTrigger>
+          <TabsTrigger value="share" className="rounded-lg">
+            {t("transfer.tabShare")}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
       {transferMain}
       <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
         <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5">
