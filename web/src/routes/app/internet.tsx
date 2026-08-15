@@ -14,7 +14,8 @@ import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
+import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
@@ -77,6 +78,7 @@ function InternetBillPayment() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
+    ...settingsQueryOptions(),
   });
   const enabled =
     settingsQuery.data?.config?.payment?.internet_bills_enabled !== false && !accountPending;
@@ -90,19 +92,31 @@ function InternetBillPayment() {
   const walletQuery = useQuery({
     queryKey: ["wallet", "balance"],
     queryFn: () => apiClient.walletBalance(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
 
   const historyQuery = useQuery({
     queryKey: ["internet-bills", debounced],
     queryFn: () => apiClient.internetHistory(debounced),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
   const internetItems = useMemo(
     () => sortByLatestFirst(historyQuery.data?.items ?? []),
     [historyQuery.data?.items],
   );
   const internetStats = historyQuery.data?.stats;
+
+  usePendingStatusPoll(
+    internetItems,
+    async (item) => {
+      const res = await apiClient.internetStatus(item.merchant_txn_id);
+      return { nextStatus: res.local_bill?.status ?? res.status, message: res.message };
+    },
+    {
+      invalidateKeys: [["internet-bills"], ["wallet"]],
+      onSettled: (_item, next, message) => toastPendingSettled(next, message, t),
+    },
+  );
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
   const pkgAmount = Number(selectedPackage?.amount ?? 0);

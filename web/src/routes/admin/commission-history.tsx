@@ -23,6 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiClient, ApiError } from "@/lib/api";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 import { formatDateTime, formatNPR } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
 import { downloadCsvExport } from "@/lib/list-query";
@@ -65,8 +66,7 @@ function CommissionHistoryPage() {
   const historyQuery = useQuery({
     queryKey: ["admin", "commission-history", debounced],
     queryFn: () => apiClient.adminCommissionHistory(debounced),
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
+    ...adminLiveQueryOptions(),
   });
 
   const items = historyQuery.data?.items ?? [];

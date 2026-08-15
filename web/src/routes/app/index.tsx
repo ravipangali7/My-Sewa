@@ -30,7 +30,7 @@ import { buildNotifications } from "@/lib/notifications";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useSiteBranding } from "@/hooks/use-site-branding";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { isAccountPending, canFundTransfer } from "@/lib/account-status";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { toast } from "sonner";
@@ -148,11 +148,12 @@ function WalletHome() {
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
+    ...settingsQueryOptions(),
   });
   const manualLoadEnabled =
     settingsQuery.data?.config?.payment?.deposits_enabled !== false && !accountPending;

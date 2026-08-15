@@ -42,6 +42,7 @@ import type { AdminUser } from "@/lib/types";
 import { useListFilters } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
 import { useState } from "react";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 
 const LIST_PAGE = 1;
 const LIST_PAGE_SIZE = 50;
@@ -71,6 +72,7 @@ function UsersPage() {
   const usersQuery = useQuery({
     queryKey: ["admin", "users", debounced],
     queryFn: () => apiClient.adminUsers(debounced),
+    ...adminLiveQueryOptions(),
   });
 
   const statusMutation = useMutation({

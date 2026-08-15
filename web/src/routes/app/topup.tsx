@@ -18,7 +18,8 @@ import {
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
+import { usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
@@ -67,6 +68,7 @@ function TopUp() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
+    ...settingsQueryOptions(),
   });
   const topupsEnabled =
     settingsQuery.data?.config?.payment?.topups_enabled !== false && !accountPending;
@@ -78,13 +80,13 @@ function TopUp() {
   const walletQuery = useQuery({
     queryKey: ["wallet", "balance"],
     queryFn: () => apiClient.walletBalance(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
 
   const historyQuery = useQuery({
     queryKey: ["topups"],
     queryFn: () => apiClient.topupHistory(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
   const topupItems = useMemo(
     () => sortByLatestFirst(historyQuery.data?.items ?? []),
@@ -186,50 +188,30 @@ function TopUp() {
   }, [amt, serviceName, topupsEnabled, minTopup]);
 
   // Auto-poll HimalPay status for pending top-ups (docs: wallet-service-reseller-status)
-  useEffect(() => {
-    const pending = topupItems.filter((item) => item.status === "pending");
-    if (!pending.length) return;
-
-    let cancelled = false;
-    const poll = async () => {
-      let changed = false;
-      for (const item of pending.slice(0, 5)) {
-        try {
-          const res = await apiClient.topupStatus(item.merchant_txn_id);
-          const next = res.local_topup?.status;
-          if (next && next !== "pending" && next !== item.status) {
-            changed = true;
-            if (next === "success") {
-              toast.success(t("topup.statusSuccess"));
-            } else if (next === "failed") {
-              if (res.message) {
-                toastApiMessage(res.message, {
-                  title: t("topup.statusFailed"),
-                  fallback: t("topup.statusFailed"),
-                });
-              } else {
-                toast.error(t("topup.statusFailed"));
-              }
-            }
+  usePendingStatusPoll(
+    topupItems,
+    async (item) => {
+      const res = await apiClient.topupStatus(item.merchant_txn_id);
+      return { nextStatus: res.local_topup?.status, message: res.message };
+    },
+    {
+      invalidateKeys: [["topups"], ["wallet"]],
+      onSettled: (_item, next, message) => {
+        if (next === "success") {
+          toast.success(t("topup.statusSuccess"));
+        } else if (next === "failed") {
+          if (message) {
+            toastApiMessage(message, {
+              title: t("topup.statusFailed"),
+              fallback: t("topup.statusFailed"),
+            });
+          } else {
+            toast.error(t("topup.statusFailed"));
           }
-        } catch {
-          // ignore transient status errors while polling
         }
-        if (cancelled) return;
-      }
-      if (changed && !cancelled) {
-        queryClient.invalidateQueries({ queryKey: ["topups"] });
-        queryClient.invalidateQueries({ queryKey: ["wallet"] });
-      }
-    };
-
-    const timer = setInterval(poll, Math.max(LIVE_REFETCH_MS, 8000));
-    void poll();
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [topupItems, queryClient, t]);
+      },
+    },
+  );
 
   const refreshStatus = async (item: TopupTransaction) => {
     setRefreshingId(item.id);

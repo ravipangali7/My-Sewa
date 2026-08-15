@@ -48,6 +48,7 @@ import { useListFilters } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
 import { useAuth } from "@/lib/auth";
 import { canWalletAdjust } from "@/lib/account-status";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 
 const LIST_PAGE = 1;
 const LIST_PAGE_SIZE = 50;
@@ -79,6 +80,7 @@ function WalletsPage() {
   const walletsQuery = useQuery({
     queryKey: ["admin", "wallets", debounced],
     queryFn: () => apiClient.adminWallets(debounced),
+    ...adminLiveQueryOptions(),
   });
 
   const deleteMutation = useMutation({

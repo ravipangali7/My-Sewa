@@ -1282,18 +1282,37 @@ class RemittanceReceiveSerializer(serializers.Serializer):
 
 
 class CitizenshipVerifySerializer(serializers.Serializer):
-    """Form-side citizenship fields compared against OCR of front/back images."""
-    name = serializers.CharField(max_length=200, required=False, allow_blank=True, default='')
+    """Remittance/form citizenship fields compared against OCR of front/back images."""
+    ref_no = serializers.CharField(max_length=100, required=True)
+    name = serializers.CharField(max_length=200, required=True)
     citizenship_number = serializers.CharField(max_length=100, required=True)
-    dob = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
-    issue_date = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
-    issue_place = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    dob = serializers.CharField(max_length=30, required=True)
+    issue_date = serializers.CharField(max_length=30, required=True)
+    issue_place = serializers.CharField(max_length=100, required=True)
 
-    def validate_citizenship_number(self, value):
+    def _require(self, value, label):
         value = (value or '').strip()
         if not value:
-            raise serializers.ValidationError('Citizenship number is required.')
+            raise serializers.ValidationError(f'{label} is required.')
         return value
+
+    def validate_ref_no(self, value):
+        return self._require(value, 'Remittance reference number')
+
+    def validate_name(self, value):
+        return self._require(value, 'Receiver name')
+
+    def validate_citizenship_number(self, value):
+        return self._require(value, 'Citizenship number')
+
+    def validate_dob(self, value):
+        return self._require(value, 'Date of birth')
+
+    def validate_issue_date(self, value):
+        return self._require(value, 'Issue date')
+
+    def validate_issue_place(self, value):
+        return self._require(value, 'Issue place')
 
 
 class InternetBillTransactionSerializer(serializers.ModelSerializer):

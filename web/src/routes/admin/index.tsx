@@ -35,6 +35,7 @@ import { apiClient } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { COLORS } from "@/constants/colors";
 import { Users, Wallet, Inbox, Smartphone, Banknote, AlertTriangle, Coins } from "lucide-react";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({
@@ -59,6 +60,7 @@ function AdminDashboard() {
   const dash = useQuery({
     queryKey: ["admin", "dashboard"],
     queryFn: () => apiClient.adminDashboard(),
+    ...adminLiveQueryOptions(),
   });
 
   const dashKpis = dash.data?.kpis;

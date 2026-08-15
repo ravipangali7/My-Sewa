@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { apiClient } from "@/lib/api";
+import { settingsQueryOptions } from "@/lib/refresh";
 
 const DEFAULT_LOGO = "/logo.png";
 const DEFAULT_FAVICON = "/favicon.png";
@@ -10,7 +11,7 @@ export function useSiteBranding() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
-    staleTime: 60_000,
+    ...settingsQueryOptions(),
   });
 
   const logoUrl = settingsQuery.data?.logo_url || DEFAULT_LOGO;

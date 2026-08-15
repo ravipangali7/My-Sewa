@@ -38,6 +38,7 @@ import { formatDateTime } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
 import { useListFilters, DEPOSIT_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 
 const LIST_PAGE = 1;
 const LIST_PAGE_SIZE = 50;
@@ -108,9 +109,7 @@ function KycPage() {
   const kycQuery = useQuery({
     queryKey: ["admin", "kyc", debounced],
     queryFn: () => apiClient.adminKyc(debounced),
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
-    refetchInterval: 15_000,
+    ...adminLiveQueryOptions(),
   });
 
   const visible = kycQuery.data?.items ?? [];

@@ -12,7 +12,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { apiClient } from "@/lib/api";
-import { refreshAppData } from "@/lib/refresh";
+import { refreshAppData, settingsQueryOptions } from "@/lib/refresh";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { AuthSessionLoader } from "@/components/AuthSessionLoader";
 import { PullToRefresh } from "@/components/PullToRefresh";
@@ -81,14 +81,14 @@ export function UserShell({
   const t = useT();
 
   const handlePullRefresh = useCallback(
-    () => refreshAppData(queryClient),
+    () => refreshAppData(queryClient, { force: true }),
     [queryClient],
   );
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
-    staleTime: 60_000,
+    ...settingsQueryOptions(),
   });
   const maintenance = settingsQuery.data?.config?.security?.maintenance_mode;
   const maintenanceMessage =

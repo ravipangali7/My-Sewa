@@ -18,7 +18,8 @@ import type { BankOption, BankTransferTransaction } from "@/lib/types";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
+import { usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
 import { isAccountPending, canFundTransfer } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
@@ -103,6 +104,7 @@ function Transfer() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
+    ...settingsQueryOptions(),
   });
   const transfersEnabled =
     settingsQuery.data?.config?.payment?.transfers_enabled !== false &&
@@ -121,7 +123,7 @@ function Transfer() {
   const walletQuery = useQuery({
     queryKey: ["wallet", "balance"],
     queryFn: () => apiClient.walletBalance(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
 
   const banksQuery = useQuery({
@@ -146,7 +148,7 @@ function Transfer() {
   const historyQuery = useQuery({
     queryKey: ["transfers", debounced],
     queryFn: () => apiClient.transferHistory(debounced),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
   const transferItems = useMemo(
     () => sortByLatestFirst(historyQuery.data?.items ?? []),
@@ -155,51 +157,31 @@ function Transfer() {
   const transferStats = historyQuery.data?.stats;
 
   // Auto-poll HimalPay status for pending transfers (wallet-service-reseller-status)
-  useEffect(() => {
-    const pending = transferItems.filter((item) => item.status === "pending");
-    if (!pending.length) return;
-
-    let cancelled = false;
-    const poll = async () => {
-      let changed = false;
-      for (const item of pending.slice(0, 5)) {
-        try {
-          const res = await apiClient.transferStatus(item.merchant_txn_id);
-          const next = res.local_transfer?.status;
-          if (next && next !== "pending" && next !== item.status) {
-            changed = true;
-            if (next === "success") {
-              toast.success(t("transfer.statusSuccess"));
-              setLastReceiptId(activityIdForKind("transfer", item.id));
-            } else if (next === "failed") {
-              if (res.message) {
-                toastApiMessage(res.message, {
-                  title: t("transfer.statusFailed"),
-                  fallback: t("transfer.statusFailed"),
-                });
-              } else {
-                toast.error(t("transfer.statusFailed"));
-              }
-            }
+  usePendingStatusPoll(
+    transferItems,
+    async (item) => {
+      const res = await apiClient.transferStatus(item.merchant_txn_id);
+      return { nextStatus: res.local_transfer?.status, message: res.message };
+    },
+    {
+      invalidateKeys: [["transfers"], ["wallet"]],
+      onSettled: (item, next, message) => {
+        if (next === "success") {
+          toast.success(t("transfer.statusSuccess"));
+          setLastReceiptId(activityIdForKind("transfer", item.id));
+        } else if (next === "failed") {
+          if (message) {
+            toastApiMessage(message, {
+              title: t("transfer.statusFailed"),
+              fallback: t("transfer.statusFailed"),
+            });
+          } else {
+            toast.error(t("transfer.statusFailed"));
           }
-        } catch {
-          // ignore transient status errors while polling
         }
-        if (cancelled) return;
-      }
-      if (changed && !cancelled) {
-        queryClient.invalidateQueries({ queryKey: ["transfers"] });
-        queryClient.invalidateQueries({ queryKey: ["wallet"] });
-      }
-    };
-
-    const timer = setInterval(poll, Math.max(LIVE_REFETCH_MS, 8000));
-    void poll();
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [transferItems, queryClient, t]);
+      },
+    },
+  );
 
   const banks = useMemo(
     () => mergeBankLists(banksQuery.data ?? []),

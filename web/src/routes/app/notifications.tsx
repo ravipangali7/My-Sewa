@@ -12,7 +12,7 @@ import {
 } from "@/lib/notifications";
 import { formatDateTime, formatNPR } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
-import { LIVE_REFETCH_MS } from "@/lib/refresh";
+import { liveQueryOptions } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 
@@ -35,7 +35,7 @@ function NotificationsPage() {
   const txQuery = useQuery({
     queryKey: ["wallet", "transactions"],
     queryFn: () => apiClient.walletTransactions(),
-    refetchInterval: LIVE_REFETCH_MS,
+    ...liveQueryOptions(),
   });
 
   const notifications = useMemo(

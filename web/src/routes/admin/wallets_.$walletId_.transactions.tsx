@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { walletDisplayName } from "@/components/admin/WalletCard";
 import { apiClient, ApiError } from "@/lib/api";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 import { buildActivity } from "@/lib/activity";
 import { formatDateTime, formatNPR, sortByLatestFirst } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
@@ -87,6 +88,7 @@ function WalletTransactionsPage() {
     queryKey: ["admin", "wallets", id],
     queryFn: () => apiClient.adminGetWallet(id),
     enabled: Number.isFinite(id),
+    ...adminLiveQueryOptions(),
   });
 
   const txQuery = useQuery({
@@ -97,7 +99,7 @@ function WalletTransactionsPage() {
         endDate: debounced.endDate,
       }),
     enabled: Number.isFinite(id),
-    refetchOnMount: "always",
+    ...adminLiveQueryOptions(),
   });
 
   const items = useMemo(() => {

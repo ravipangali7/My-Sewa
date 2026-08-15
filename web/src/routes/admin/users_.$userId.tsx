@@ -19,6 +19,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { apiClient, ApiError } from "@/lib/api";
+import { adminLiveQueryOptions } from "@/lib/refresh";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { UserFeesForm } from "@/components/admin/UserFeesForm";
@@ -58,6 +59,7 @@ function UserDetailPage() {
     queryKey: ["admin", "users", id],
     queryFn: () => apiClient.adminGetUser(id),
     enabled: Number.isFinite(id),
+    ...adminLiveQueryOptions(),
   });
 
   const deleteMutation = useMutation({

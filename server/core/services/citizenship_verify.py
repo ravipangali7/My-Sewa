@@ -1,17 +1,31 @@
 """
-Compare remittance citizenship form data against OCR-extracted citizenship fields.
+Compare remittance (sender-provided) citizenship data against OCR from front + back images.
 """
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, Optional
+
+from django.core.cache import cache
 
 from .bs_ad import dates_equal, normalize_date_to_ad_iso, normalize_nepali_digits
 from .citizenship_ocr import CombinedCitizenshipOcr, extract_citizenship_from_images
 
+logger = logging.getLogger(__name__)
+
 FIELD_KEYS = ('name', 'citizenship_number', 'dob', 'issue_date', 'issue_place')
+REQUIRED_FIELDS = FIELD_KEYS
+
+FIELD_LABELS = {
+    'name': 'Name',
+    'citizenship_number': 'Citizenship number',
+    'dob': 'Date of birth',
+    'issue_date': 'Issue date',
+    'issue_place': 'Issue place',
+}
 
 # Weights for overall confidence (citizenship number is critical).
 FIELD_WEIGHTS = {
@@ -24,6 +38,28 @@ FIELD_WEIGHTS = {
 
 FUZZY_MATCH_THRESHOLD = 0.78
 FUZZY_PARTIAL_THRESHOLD = 0.55
+NAME_TOKEN_COVERAGE_MATCH = 0.99
+
+TICKET_TTL_SECONDS = 30 * 60
+TICKET_CACHE_PREFIX = 'remittance_citizenship'
+
+_NAME_TITLES = {
+    'mr', 'mrs', 'ms', 'miss', 'sri', 'shri', 'smt', 'dr', 'er',
+    'श्री', 'श्रीमती', 'सुश्री',
+}
+
+_PLACE_ALIASES = {
+    'ktm': 'kathmandu',
+    'kathmandu metropolitan': 'kathmandu',
+    'kathmandu metropolitan city': 'kathmandu',
+    'kathmandu district': 'kathmandu',
+    'lalitpur metropolitan': 'lalitpur',
+    'lalitpur metropolitan city': 'lalitpur',
+    'patan': 'lalitpur',
+    'bhaktapur municipality': 'bhaktapur',
+    'pokhara lekhnath': 'kaski',
+    'pokhara': 'kaski',
+}
 
 
 def _strip_accents(text: str) -> str:
@@ -41,8 +77,34 @@ def normalize_text(value: str) -> str:
 
 def normalize_citizenship_number(value: str) -> str:
     text = normalize_nepali_digits(value or '')
+    text = (
+        text.replace('O', '0')
+        .replace('o', '0')
+        .replace('I', '1')
+        .replace('l', '1')
+        .replace('|', '1')
+    )
     text = text.casefold()
     return re.sub(r'[\s\-./]', '', text)
+
+
+def citizenship_numbers_equal(a: str, b: str) -> bool:
+    """
+    Strict identity after OCR-confusable normalization.
+
+    Also accepts a short district-prefix miss (OCR dropped leading 1–3 digits)
+    when the remaining serial is at least 8 digits.
+    """
+    fa = normalize_citizenship_number(a)
+    oa = normalize_citizenship_number(b)
+    if not fa or not oa:
+        return False
+    if fa == oa:
+        return True
+    shorter, longer = (fa, oa) if len(fa) <= len(oa) else (oa, fa)
+    if len(shorter) >= 8 and longer.endswith(shorter) and (len(longer) - len(shorter)) <= 3:
+        return True
+    return False
 
 
 def fuzzy_ratio(a: str, b: str) -> float:
@@ -51,13 +113,49 @@ def fuzzy_ratio(a: str, b: str) -> float:
         return 0.0
     if na == nb:
         return 1.0
-    # Token-sort style: compare sorted tokens to tolerate name order differences.
     sa = ' '.join(sorted(na.split()))
     sb = ' '.join(sorted(nb.split()))
     return max(
         SequenceMatcher(None, na, nb).ratio(),
         SequenceMatcher(None, sa, sb).ratio(),
     )
+
+
+def _name_tokens(value: str) -> list[str]:
+    tokens = [tok for tok in normalize_text(value).split() if tok and tok not in _NAME_TITLES]
+    return tokens
+
+
+def name_match_ratio(a: str, b: str) -> float:
+    """Fuzzy name score; full token coverage of the shorter name counts as a match."""
+    ta, tb = _name_tokens(a), _name_tokens(b)
+    if not ta or not tb:
+        return 0.0
+    set_a, set_b = set(ta), set(tb)
+    overlap = set_a & set_b
+    coverage = len(overlap) / min(len(set_a), len(set_b))
+    ratio = fuzzy_ratio(' '.join(ta), ' '.join(tb))
+    if coverage >= NAME_TOKEN_COVERAGE_MATCH:
+        return max(ratio, 0.92)
+    return max(ratio, coverage * 0.9)
+
+
+def _canonical_place(value: str) -> str:
+    text = normalize_text(value)
+    text = re.sub(r'\b(district|municipality|metropolitan|city|office|dao)\b', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return _PLACE_ALIASES.get(text, text)
+
+
+def place_match_ratio(a: str, b: str) -> float:
+    na, nb = _canonical_place(a), _canonical_place(b)
+    if not na or not nb:
+        return 0.0
+    if na == nb:
+        return 1.0
+    if na in nb or nb in na:
+        return 0.92
+    return fuzzy_ratio(na, nb)
 
 
 def _status_from_ratio(ratio: float, *, strict: bool = False) -> str:
@@ -87,22 +185,16 @@ def compare_field(
     }
 
     if not form_value and not ocr_value:
-        result['status'] = 'missing'
-        result['score'] = 0.0
         return result
     if not form_value or not ocr_value:
-        result['status'] = 'missing'
-        result['score'] = 0.0
         return result
 
     if key == 'citizenship_number':
-        fa = normalize_citizenship_number(form_value)
-        oa = normalize_citizenship_number(ocr_value)
-        score = 1.0 if fa and fa == oa else 0.0
-        result['score'] = score
-        result['status'] = 'match' if score == 1.0 else 'mismatch'
-        result['normalized_form'] = fa
-        result['normalized_ocr'] = oa
+        equal = citizenship_numbers_equal(form_value, ocr_value)
+        result['score'] = 1.0 if equal else 0.0
+        result['status'] = 'match' if equal else 'mismatch'
+        result['normalized_form'] = normalize_citizenship_number(form_value)
+        result['normalized_ocr'] = normalize_citizenship_number(ocr_value)
         return result
 
     if key in ('dob', 'issue_date'):
@@ -113,8 +205,12 @@ def compare_field(
         result['normalized_ocr'] = normalize_date_to_ad_iso(ocr_value, prefer_bs=True) or ocr_value
         return result
 
-    # name / issue_place — fuzzy
-    ratio = fuzzy_ratio(form_value, ocr_value)
+    if key == 'name':
+        ratio = name_match_ratio(form_value, ocr_value)
+    elif key == 'issue_place':
+        ratio = place_match_ratio(form_value, ocr_value)
+    else:
+        ratio = fuzzy_ratio(form_value, ocr_value)
     result['score'] = round(ratio, 3)
     result['status'] = _status_from_ratio(ratio, strict=False)
     return result
@@ -122,38 +218,70 @@ def compare_field(
 
 def overall_match_status(field_results: list[dict[str, Any]]) -> str:
     statuses = {item['field']: item['status'] for item in field_results}
-    # Hard fail on citizenship number mismatch.
-    if statuses.get('citizenship_number') == 'mismatch':
+
+    if any(statuses.get(key) == 'mismatch' for key in REQUIRED_FIELDS):
         return 'MISMATCH'
 
-    present = [s for s in statuses.values() if s != 'missing']
-    if not present:
-        return 'MISMATCH'
+    if any(statuses.get(key) == 'missing' for key in REQUIRED_FIELDS):
+        # Nothing extracted at all → mismatch; some fields read → partial.
+        present = [s for s in statuses.values() if s != 'missing']
+        return 'PARTIAL MATCH' if present else 'MISMATCH'
 
-    if all(s == 'match' for s in present) and statuses.get('citizenship_number') == 'match':
-        # Require the critical ID number; other missing fields → partial.
-        missing_optional = [
-            k for k in ('name', 'dob', 'issue_date', 'issue_place')
-            if statuses.get(k) == 'missing'
-        ]
-        if missing_optional:
-            return 'PARTIAL MATCH'
+    if any(statuses.get(key) == 'partial' for key in REQUIRED_FIELDS):
+        return 'PARTIAL MATCH'
+
+    if all(statuses.get(key) == 'match' for key in REQUIRED_FIELDS):
         return 'MATCH'
 
-    if any(s == 'mismatch' for s in present):
-        # Soft mismatches on fuzzy fields with matching citizenship → partial
-        hard = statuses.get('citizenship_number') == 'mismatch'
-        date_mismatch = (
-            statuses.get('dob') == 'mismatch' or statuses.get('issue_date') == 'mismatch'
+    return 'PARTIAL MATCH'
+
+
+def is_receive_allowed(match_status: str) -> bool:
+    return (match_status or '').upper() == 'MATCH'
+
+
+def field_mismatch_messages(field_results: list[dict[str, Any]]) -> list[str]:
+    messages: list[str] = []
+    for item in field_results:
+        label = FIELD_LABELS.get(item['field'], item['field'])
+        status = item.get('status')
+        form_value = item.get('form_value') or '—'
+        ocr_value = item.get('ocr_value') or '—'
+        if status == 'mismatch':
+            messages.append(
+                f'{label} does not match. Remittance/form: {form_value}; '
+                f'citizenship image: {ocr_value}.'
+            )
+        elif status == 'missing':
+            if not (item.get('ocr_value') or '').strip():
+                messages.append(
+                    f'Could not read {label} from the citizenship images. '
+                    'Upload clearer front and back photos.'
+                )
+            else:
+                messages.append(f'{label} is missing from the remittance details.')
+        elif status == 'partial':
+            messages.append(
+                f'{label} only partially matches. Remittance/form: {form_value}; '
+                f'citizenship image: {ocr_value}.'
+            )
+    return messages
+
+
+def summary_message(match_status: str, messages: list[str]) -> str:
+    if match_status == 'MATCH':
+        return 'Citizenship details match the remittance information.'
+    if messages:
+        return messages[0]
+    if match_status == 'PARTIAL MATCH':
+        return (
+            'Citizenship details only partially match. '
+            'Correct the form or upload clearer front and back images.'
         )
-        if hard or date_mismatch:
-            return 'MISMATCH'
-        return 'PARTIAL MATCH'
-
-    if any(s == 'partial' for s in present) or any(s == 'missing' for s in statuses.values()):
-        return 'PARTIAL MATCH'
-
-    return 'MATCH'
+    return (
+        'Citizenship details do not match the remittance information. '
+        'The remittance cannot be received.'
+    )
 
 
 def confidence_score(field_results: list[dict[str, Any]], ocr_confidence: float) -> float:
@@ -191,6 +319,77 @@ def build_form_record(
     }
 
 
+def verification_fingerprint(form: dict[str, str]) -> dict[str, str]:
+    return {
+        'name': normalize_text(form.get('name') or ''),
+        'citizenship_number': normalize_citizenship_number(form.get('citizenship_number') or ''),
+        'dob': normalize_date_to_ad_iso(form.get('dob') or '')
+        or normalize_text(form.get('dob') or ''),
+        'issue_date': normalize_date_to_ad_iso(form.get('issue_date') or '')
+        or normalize_text(form.get('issue_date') or ''),
+        'issue_place': _canonical_place(form.get('issue_place') or ''),
+    }
+
+
+def ticket_key(user_id, ref_no: str) -> str:
+    return f'{TICKET_CACHE_PREFIX}:{user_id}:{str(ref_no or "").strip().upper()}'
+
+
+def store_verification_ticket(user_id, ref_no: str, result: dict[str, Any]) -> None:
+    if not ref_no:
+        return
+    cache.set(
+        ticket_key(user_id, ref_no),
+        {
+            'allowed': bool(result.get('allowed')),
+            'match_status': result.get('match_status'),
+            'fingerprint': result.get('fingerprint') or {},
+            'message': result.get('message') or '',
+        },
+        TICKET_TTL_SECONDS,
+    )
+
+
+def load_verification_ticket(user_id, ref_no: str) -> Optional[dict[str, Any]]:
+    data = cache.get(ticket_key(user_id, ref_no))
+    return data if isinstance(data, dict) else None
+
+
+def clear_verification_ticket(user_id, ref_no: str) -> None:
+    cache.delete(ticket_key(user_id, ref_no))
+
+
+def receive_block_reason(
+    *,
+    user_id,
+    ref_no: str,
+    form: dict[str, str],
+) -> Optional[str]:
+    """
+    Return a user-facing error if this remittance must not be paid out.
+    None means verification passed and receive may continue.
+    """
+    ticket = load_verification_ticket(user_id, ref_no)
+    if not ticket:
+        return (
+            'Verify citizenship front and back images before receiving this remittance.'
+        )
+    if not ticket.get('allowed') or str(ticket.get('match_status') or '').upper() != 'MATCH':
+        return (
+            ticket.get('message')
+            or 'Citizenship details do not match the remittance information. '
+            'The remittance cannot be received.'
+        )
+    expected = ticket.get('fingerprint') or {}
+    actual = verification_fingerprint(form)
+    if expected != actual:
+        return (
+            'Citizenship details changed after verification. '
+            'Upload the images and verify again before receiving.'
+        )
+    return None
+
+
 def verify_citizenship(
     *,
     form: dict[str, str],
@@ -208,9 +407,16 @@ def verify_citizenship(
         for key in FIELD_KEYS
     ]
     match_status = overall_match_status(field_results)
+    messages = field_mismatch_messages(field_results)
+    if any('do not match each other' in err for err in (ocr.errors or [])):
+        match_status = 'MISMATCH'
+        messages.insert(0, ocr.errors[0])
+    allowed = is_receive_allowed(match_status)
     score = confidence_score(field_results, ocr.confidence)
+    message = summary_message(match_status, messages)
     return {
         'match_status': match_status,
+        'allowed': allowed,
         'confidence_score': score,
         'fields': field_results,
         'form': form,
@@ -223,6 +429,9 @@ def verify_citizenship(
         },
         'ocr_errors': ocr.errors,
         'ocr_confidence': ocr.confidence,
+        'mismatch_messages': messages,
+        'message': message,
+        'fingerprint': verification_fingerprint(form),
     }
 
 
@@ -236,7 +445,7 @@ def verify_citizenship_images(
     issue_date: str = '',
     issue_place: str = '',
 ) -> dict[str, Any]:
-    """End-to-end: OCR front+back, then compare against form fields."""
+    """End-to-end: OCR front+back, then compare against remittance/form fields."""
     ocr = extract_citizenship_from_images(front, back)
     form = build_form_record(
         name=name,

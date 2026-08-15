@@ -14,6 +14,7 @@ import {
 import { UserShell } from "@/components/layout/UserShell";
 import { DepositAccountsPanel } from "@/components/DepositAccountsPanel";
 import { apiClient } from "@/lib/api";
+import { settingsQueryOptions } from "@/lib/refresh";
 import { useAuth } from "@/lib/auth";
 import { isAccountPending, canFundTransfer } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
@@ -45,6 +46,7 @@ function Services() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
+    ...settingsQueryOptions(),
   });
 
   const payment = settingsQuery.data?.config?.payment;
