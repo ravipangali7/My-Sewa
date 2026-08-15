@@ -84,6 +84,8 @@ declare global {
       /** Ask Flutter to obtain an FCM token and dispatch mysewa-fcm-token. */
       requestPushToken?: () => boolean;
       hasPushBridge?: boolean;
+      /** Ask Flutter to request CAMERA so WebView QR scanning can start. */
+      requestCamera?: () => boolean;
     };
     MySewaBridge?: {
       postMessage: (message: string) => void;
@@ -129,6 +131,49 @@ export function requestNativePushToken(): boolean {
     }
   }
   return false;
+}
+
+/** Ask the Flutter shell to request CAMERA before getUserMedia QR scanning. */
+export function requestNativeCameraPermission(): boolean {
+  if (typeof window === "undefined") return false;
+  if (typeof window.MySewaNative?.requestCamera === "function") {
+    try {
+      return Boolean(window.MySewaNative.requestCamera());
+    } catch {
+      return false;
+    }
+  }
+  if (window.MySewaBridge?.postMessage) {
+    try {
+      window.MySewaBridge.postMessage(JSON.stringify({ type: "request_camera" }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+export async function waitForNativeCameraPermission(timeoutMs = 12000): Promise<boolean> {
+  if (typeof window === "undefined") return true;
+  if (!isMySewaNativeApp()) return true;
+  if (!requestNativeCameraPermission()) return true;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (granted: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("mysewa-camera-permission", onEvent as EventListener);
+      resolve(granted);
+    };
+    const onEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ granted?: boolean }>).detail;
+      finish(detail?.granted !== false);
+    };
+    window.addEventListener("mysewa-camera-permission", onEvent as EventListener);
+    window.setTimeout(() => finish(true), timeoutMs);
+  });
 }
 
 /** Wait briefly for the Flutter push bridge after load. */

@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, QrCode, Search } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { BankCombobox } from "@/components/BankCombobox";
+import { BankQrScanner } from "@/components/BankQrScanner";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toastApiError, toastApiMessage } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
+import { parseBankQr } from "@/lib/bank-qr";
 import { mergeBankLists } from "@/lib/nepali-banks";
 import type { BankOption, BankTransferTransaction } from "@/lib/types";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
@@ -44,12 +46,12 @@ export const Route = createFileRoute("/app/transfer")({
       {
         name: "description",
         content:
-          "Send money from your MySewa business wallet to any Nepali bank account or mobile number: verify, review charges and confirm.",
+          "Send money from your MySewa business wallet to any Nepali bank account or mobile number: scan a bank QR or enter details, verify, review charges and confirm.",
       },
       { property: "og:title", content: "Fund Transfer — MySewa" },
       {
         property: "og:description",
-        content: "Bank account or phone number transfers from your MySewa business wallet.",
+        content: "Bank account, phone number, or bank QR transfers from your MySewa business wallet.",
       },
     ],
   }),
@@ -100,6 +102,9 @@ function Transfer() {
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const skipMethodResetRef = useRef(false);
+  const pendingQrAmountRef = useRef("");
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -204,6 +209,10 @@ function Transfer() {
   }, [banks, bank]);
 
   useEffect(() => {
+    if (skipMethodResetRef.current) {
+      skipMethodResetRef.current = false;
+      return;
+    }
     setVerified(false);
     setVerifyStatus("idle");
     setVerifiedDetails(null);
@@ -350,6 +359,7 @@ function Transfer() {
       setVerified(false);
       setVerifyStatus("idle");
       setVerifiedDetails(null);
+      pendingQrAmountRef.current = "";
       queryClient.invalidateQueries({ queryKey: ["transfers"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
@@ -378,29 +388,82 @@ function Transfer() {
     },
   });
 
-  async function verifyDestination() {
+  function applyScannedQr(raw: string) {
+    const parsed = parseBankQr(raw, banks);
+    if (!parsed.ok) {
+      toast.error(
+        parsed.reason === "not_bank" ? t("transfer.qrNotBank") : t("transfer.qrInvalid"),
+      );
+      return;
+    }
+    const data = parsed.data;
+    const nextMethod: TransferMethod = data.isMobile ? "phone" : "bank";
+    if (nextMethod !== method) {
+      skipMethodResetRef.current = true;
+      setMethod(nextMethod);
+    }
+    resetVerification();
+    setBank(data.bankCode);
+    if (data.isMobile) {
+      setPhone(data.accountNumber);
+      setAccNo("");
+    } else {
+      setAccNo(data.accountNumber);
+      setPhone("");
+    }
+    setAccName(data.accountName);
+    pendingQrAmountRef.current = data.amount;
+    if (data.bankCode && data.accountNumber) {
+      void verifyDestination({
+        bankCode: data.bankCode,
+        accountNumber: data.accountNumber,
+        accountName: data.accountName,
+        isMobile: data.isMobile,
+        allowMissingName: true,
+      });
+    } else {
+      toast.success(t("transfer.qrFilled"));
+      if (!data.bankCode) toast.message(t("transfer.qrSelectBank"));
+    }
+  }
+
+  async function verifyDestination(overrides?: {
+    bankCode?: string;
+    accountNumber?: string;
+    accountName?: string;
+    isMobile?: boolean;
+    allowMissingName?: boolean;
+  }) {
+    const useMobile = overrides?.isMobile ?? isMobile;
+    const useBank = (overrides?.bankCode ?? bank).trim();
+    const useName = (overrides?.accountName ?? accName).trim();
+    const useNumber = (
+      overrides?.accountNumber ?? (useMobile ? phone : accNo)
+    ).trim();
+    const useBankMeta = banks.find((b) => b.bank_code === useBank) || selectedBank;
+
     if (accountPending) {
       toast.error(t("account.pending"));
       return;
     }
-    if (!bank) {
+    if (!useBank) {
       toast.error(
-        isMobile ? t("transfer.enterBankAndPhone") : t("transfer.enterBankAndName"),
+        useMobile ? t("transfer.enterBankAndPhone") : t("transfer.enterBankAndName"),
       );
       return;
     }
-    if (isMobile) {
-      const digits = phone.replace(/\D/g, "");
+    if (useMobile) {
+      const digits = useNumber.replace(/\D/g, "");
       if (digits.length < 10) {
         toast.error(t("transfer.invalidNepaliMobile"));
         return;
       }
     } else {
-      if (!accName.trim()) {
+      if (!useName && !overrides?.allowMissingName) {
         toast.error(t("transfer.enterBankAndName"));
         return;
       }
-      if (accNo.trim().length < 5) {
+      if (useNumber.length < 5) {
         toast.error(t("transfer.enterValidAccount"));
         return;
       }
@@ -408,12 +471,12 @@ function Transfer() {
     setVerifying(true);
     try {
       const res = await apiClient.verifyBank({
-        bank_code: bank,
-        bank_name: selectedBank?.bank_name || "",
-        // Phone transfers: name is not required — provider returns the registered holder.
-        ...(isMobile ? {} : { account_name: accName.trim() }),
-        account_number: destinationNumber,
-        is_mobile: isMobile,
+        bank_code: useBank,
+        bank_name: useBankMeta?.bank_name || "",
+        // Phone / QR: do not send a printed name — provider returns the registered holder.
+        ...(useMobile || overrides?.allowMissingName || !useName ? {} : { account_name: useName }),
+        account_number: useNumber,
+        is_mobile: useMobile,
       });
       if (!res.data?.verified) {
         setVerified(false);
@@ -430,10 +493,17 @@ function Transfer() {
         toast.error(t("transfer.dontMatch"));
         return;
       }
-      const confirmedBankCode = res.data.bank_code || bank;
-      const confirmedNumber = (res.data.account_number || destinationNumber).trim();
-      if (res.data.bank_code && res.data.bank_code !== bank) {
+      const confirmedBankCode = res.data.bank_code || useBank;
+      const confirmedNumber = (res.data.account_number || useNumber).trim();
+      if (res.data.bank_code && res.data.bank_code !== useBank) {
         setBank(res.data.bank_code);
+      } else if (useBank && useBank !== bank) {
+        setBank(useBank);
+      }
+      if (useMobile) {
+        setPhone(confirmedNumber);
+      } else {
+        setAccNo(confirmedNumber);
       }
       setAccName(originalName);
       setVerifiedDetails({
@@ -445,12 +515,16 @@ function Transfer() {
           confirmedBankCode,
         account_name: originalName,
         account_number: confirmedNumber,
-        is_mobile: isMobile,
+        is_mobile: useMobile,
       });
       setVerified(true);
       setVerifyStatus("verified");
+      if (pendingQrAmountRef.current) {
+        setAmount(pendingQrAmountRef.current);
+        pendingQrAmountRef.current = "";
+      }
       toast.success(
-        isMobile
+        useMobile
           ? t("transfer.verifiedPhone", { name: originalName })
           : res.message || t("transfer.accountVerified"),
       );
@@ -550,7 +624,7 @@ function Transfer() {
           <Tabs
             value={method}
             onValueChange={(v) => setMethod(v as TransferMethod)}
-            className="mb-4"
+            className="mb-3"
           >
             <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl">
               <TabsTrigger value="bank" className="rounded-lg" disabled={!transfersEnabled}>
@@ -561,6 +635,17 @@ function Transfer() {
               </TabsTrigger>
             </TabsList>
           </Tabs>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="mb-4 h-12 w-full rounded-xl"
+            disabled={!transfersEnabled}
+            onClick={() => setScannerOpen(true)}
+          >
+            <QrCode className="size-4" />
+            {t("transfer.scanQr")}
+          </Button>
 
           <form
             className="space-y-4"
@@ -635,7 +720,7 @@ function Transfer() {
                       !bank ||
                       phone.replace(/\D/g, "").length < 10
                     }
-                    onClick={verifyDestination}
+                    onClick={() => void verifyDestination()}
                   >
                     {verifying ? "…" : t("transfer.verify")}
                   </Button>
@@ -678,10 +763,11 @@ function Transfer() {
                       verifying ||
                       !transfersEnabled ||
                       !bank ||
-                      !accName.trim() ||
                       !accNo.trim()
                     }
-                    onClick={verifyDestination}
+                    onClick={() =>
+                      void verifyDestination({ allowMissingName: !accName.trim() })
+                    }
                   >
                     {verifying ? "…" : t("transfer.verify")}
                   </Button>
@@ -969,6 +1055,12 @@ function Transfer() {
           </Button>
         </SheetContent>
       </Sheet>
+
+      <BankQrScanner
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onScan={applyScannedQr}
+      />
 
       <TransactionPinDialog
         open={pinOpen}

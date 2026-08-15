@@ -296,7 +296,7 @@ export const messages = {
     "services.topup": "Mobile Top-Up",
     "services.topupDesc": "NTC · NCELL recharge",
     "services.transfer": "Bank Transfer",
-    "services.transferDesc": "Send to any Nepali bank",
+    "services.transferDesc": "Send to any Nepali bank or scan a QR",
     "services.unavailablePending": "Unavailable while account is Pending",
     "services.unavailable": "Currently unavailable",
     "services.depositAccount": "Company deposit account",
@@ -373,11 +373,24 @@ export const messages = {
     "transfer.pendingTitle": "Transfer submitted",
     "transfer.pendingBody": "Your transfer is being processed. Status will update automatically.",
     "transfer.workflowHint":
-      "Select bank → enter details → verify → review charge → confirm transfer.",
+      "Scan a bank QR or select bank → enter details → verify → review charge → confirm transfer.",
     "transfer.selectBank": "Select Bank",
     "transfer.loadingBanks": "Loading banks…",
     "transfer.searchBank": "Search bank…",
     "transfer.noBank": "No bank found.",
+    "transfer.scanQr": "Scan bank QR",
+    "transfer.scanQrTitle": "Scan bank QR",
+    "transfer.scanQrBody":
+      "Align a NepalPay or bank-account QR inside the frame, or upload a photo of the code.",
+    "transfer.takeQrPhoto": "Take photo",
+    "transfer.uploadQr": "Upload image",
+    "transfer.qrCameraHelp":
+      "Allow camera access to scan, or take/upload a photo of the QR code.",
+    "transfer.qrFilled": "Recipient details filled from the QR code",
+    "transfer.qrInvalid": "Could not read that QR code. Try again or enter details manually.",
+    "transfer.qrNotBank":
+      "This QR does not contain bank account details. Use a bank or NepalPay account QR.",
+    "transfer.qrSelectBank": "Select the destination bank, then verify the account.",
 
     "topup.title": "Mobile Top-Up",
     "topup.failed": "Top-up failed",
@@ -1397,7 +1410,7 @@ export const messages = {
     "services.topup": "मोबाइल टप-अप",
     "services.topupDesc": "NTC · NCELL रिचार्ज",
     "services.transfer": "बैंक ट्रान्सफर",
-    "services.transferDesc": "कुनै पनि नेपाली बैंकमा पठाउनुहोस्",
+    "services.transferDesc": "कुनै पनि नेपाली बैंकमा पठाउनुहोस् वा QR स्क्यान गर्नुहोस्",
     "services.unavailablePending": "खाता पेन्डिङ हुँदा उपलब्ध छैन",
     "services.unavailable": "अहिले उपलब्ध छैन",
     "services.depositAccount": "कम्पनी जम्मा खाता",
@@ -1474,11 +1487,24 @@ export const messages = {
     "transfer.pendingTitle": "ट्रान्सफर पेश भयो",
     "transfer.pendingBody": "तपाईंको ट्रान्सफर प्रक्रियामा छ। स्थिति स्वतः अपडेट हुन्छ।",
     "transfer.workflowHint":
-      "बैंक छान्नुहोस् → विवरण हाल्नुहोस् → प्रमाणित गर्नुहोस् → शुल्क हेर्नुहोस् → पुष्टि गर्नुहोस्।",
+      "बैंक QR स्क्यान गर्नुहोस् वा बैंक छान्नुहोस् → विवरण हाल्नुहोस् → प्रमाणित गर्नुहोस् → शुल्क हेर्नुहोस् → पुष्टि गर्नुहोस्।",
     "transfer.selectBank": "बैंक छान्नुहोस्",
     "transfer.loadingBanks": "बैंक लोड हुँदै…",
     "transfer.searchBank": "बैंक खोज्नुहोस्…",
     "transfer.noBank": "बैंक फेला परेन।",
+    "transfer.scanQr": "बैंक QR स्क्यान गर्नुहोस्",
+    "transfer.scanQrTitle": "बैंक QR स्क्यान",
+    "transfer.scanQrBody":
+      "नेपालपे वा बैंक खाताको QR फ्रेमभित्र मिलाउनुहोस्, वा कोडको फोटो अपलोड गर्नुहोस्।",
+    "transfer.takeQrPhoto": "फोटो खिच्नुहोस्",
+    "transfer.uploadQr": "तस्बिर अपलोड",
+    "transfer.qrCameraHelp":
+      "स्क्यान गर्न क्यामेरा अनुमति दिनुहोस्, वा QR कोडको फोटो खिच्नुहोस्/अपलोड गर्नुहोस्।",
+    "transfer.qrFilled": "QR बाट प्राप्तकर्ता विवरण भरियो",
+    "transfer.qrInvalid": "QR कोड पढ्न सकिएन। फेरि प्रयास गर्नुहोस् वा विवरण आफैं हाल्नुहोस्।",
+    "transfer.qrNotBank":
+      "यो QR मा बैंक खाता विवरण छैन। बैंक वा नेपालपे खाता QR प्रयोग गर्नुहोस्।",
+    "transfer.qrSelectBank": "गन्तव्य बैंक छान्नुहोस्, त्यसपछि खाता प्रमाणित गर्नुहोस्।",
 
     "topup.title": "मोबाइल टप-अप",
     "topup.failed": "टप-अप असफल",
