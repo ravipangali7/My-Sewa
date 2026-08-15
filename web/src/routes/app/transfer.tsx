@@ -105,6 +105,7 @@ function Transfer() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const skipMethodResetRef = useRef(false);
   const pendingQrAmountRef = useRef("");
+  const pendingQrVerifyRef = useRef(false);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -232,6 +233,22 @@ function Transfer() {
     setCashback("0.00");
     setTotalDebited("0.00");
   }
+
+  useEffect(() => {
+    if (!pendingQrVerifyRef.current || !bank || verifying || verified) return;
+    const number = (method === "phone" ? phone : accNo).trim();
+    if (!number) return;
+    pendingQrVerifyRef.current = false;
+    void verifyDestination({
+      bankCode: bank,
+      accountNumber: number,
+      accountName: accName,
+      isMobile: method === "phone",
+      allowMissingName: true,
+    });
+    // verifyDestination is a function declaration in this render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bank, accNo, phone, method, accName, verifying, verified]);
 
   useEffect(() => {
     setRemarks((prev) =>
@@ -388,13 +405,13 @@ function Transfer() {
     },
   });
 
-  function applyScannedQr(raw: string) {
+  function applyScannedQr(raw: string): boolean {
     const parsed = parseBankQr(raw, banks);
     if (!parsed.ok) {
       toast.error(
         parsed.reason === "not_bank" ? t("transfer.qrNotBank") : t("transfer.qrInvalid"),
       );
-      return;
+      return false;
     }
     const data = parsed.data;
     const nextMethod: TransferMethod = data.isMobile ? "phone" : "bank";
@@ -414,6 +431,7 @@ function Transfer() {
     setAccName(data.accountName);
     pendingQrAmountRef.current = data.amount;
     if (data.bankCode && data.accountNumber) {
+      pendingQrVerifyRef.current = false;
       void verifyDestination({
         bankCode: data.bankCode,
         accountNumber: data.accountNumber,
@@ -422,9 +440,11 @@ function Transfer() {
         allowMissingName: true,
       });
     } else {
+      pendingQrVerifyRef.current = Boolean(data.accountNumber);
       toast.success(t("transfer.qrFilled"));
       if (!data.bankCode) toast.message(t("transfer.qrSelectBank"));
     }
+    return true;
   }
 
   async function verifyDestination(overrides?: {
@@ -568,27 +588,7 @@ function Transfer() {
     }
   }
 
-  return (
-    <UserShell
-      title={t("transfer.title")}
-      back="/app"
-      headerTrailing={
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
-            "hover:bg-white/25",
-            "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
-          )}
-          onClick={() => setSearchOpen(true)}
-          aria-label={t("transfer.searchTitle")}
-        >
-          <Search className="size-4" />
-        </Button>
-      }
-    >
+  const transferMain = (
       <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
         {accountPending ? (
           <div className="lg:col-span-2">
@@ -636,6 +636,7 @@ function Transfer() {
             </TabsList>
           </Tabs>
 
+          {!scannerOpen ? (
           <Button
             type="button"
             variant="outline"
@@ -646,6 +647,7 @@ function Transfer() {
             <QrCode className="size-4" />
             {t("transfer.scanQr")}
           </Button>
+          ) : null}
 
           <form
             className="space-y-4"
@@ -1018,6 +1020,30 @@ function Transfer() {
           )}
         </section>
       </div>
+  );
+
+  return (
+    <UserShell
+      title={t("transfer.title")}
+      back="/app"
+      headerTrailing={
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "size-10 shrink-0 rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur",
+            "hover:bg-white/25",
+            "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
+          )}
+          onClick={() => setSearchOpen(true)}
+          aria-label={t("transfer.searchTitle")}
+        >
+          <Search className="size-4" />
+        </Button>
+      }
+    >
+      {scannerOpen ? null : transferMain}
       <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
         <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5">
           <SheetHeader className="mb-4 text-left">
@@ -1060,7 +1086,9 @@ function Transfer() {
         open={scannerOpen}
         onOpenChange={setScannerOpen}
         onScan={applyScannedQr}
-      />
+      >
+        {transferMain}
+      </BankQrScanner>
 
       <TransactionPinDialog
         open={pinOpen}
