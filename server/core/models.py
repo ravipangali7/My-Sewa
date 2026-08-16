@@ -157,6 +157,73 @@ def _ensure_settings_app_update_columns():
     return True
 
 
+_remittance_citizenship_columns_ready = False
+
+
+def _record_remittance_citizenship_migration():
+    from django.db.migrations.recorder import MigrationRecorder
+
+    recorder = MigrationRecorder(connection)
+    name = '0040_remittance_citizenship_images'
+    if recorder.migration_qs.filter(app='core', name=name).exists():
+        return
+    if recorder.migration_qs.filter(app='core', name='0039_wallet_transaction_block_statement').exists():
+        recorder.record_applied('core', name)
+
+
+def _ensure_remittance_citizenship_columns():
+    """Add remittance citizenship image columns if deploy skipped migrate 0040."""
+    global _remittance_citizenship_columns_ready
+    if _remittance_citizenship_columns_ready:
+        return False
+
+    table = 'core_remittancetransaction'
+    try:
+        names = connection.introspection.table_names()
+        if table not in names:
+            return False
+        with connection.cursor() as cursor:
+            existing = {
+                col.name
+                for col in connection.introspection.get_table_description(cursor, table)
+            }
+    except Exception:
+        return False
+
+    needed = ('citizenship_front', 'citizenship_back')
+    missing = [name for name in needed if name not in existing]
+    if not missing:
+        _remittance_citizenship_columns_ready = True
+        _record_remittance_citizenship_migration()
+        return False
+
+    from django.apps import apps
+
+    model = apps.get_model('core', 'RemittanceTransaction')
+    try:
+        with connection.schema_editor() as schema_editor:
+            for name in missing:
+                schema_editor.add_field(model, model._meta.get_field(name))
+    except Exception:
+        try:
+            with connection.cursor() as cursor:
+                existing = {
+                    col.name
+                    for col in connection.introspection.get_table_description(cursor, table)
+                }
+            if all(name in existing for name in needed):
+                _remittance_citizenship_columns_ready = True
+                _record_remittance_citizenship_migration()
+                return False
+        except Exception:
+            pass
+        raise
+
+    _remittance_citizenship_columns_ready = True
+    _record_remittance_citizenship_migration()
+    return True
+
+
 def _ensure_electricity_bill_table():
     """
     Create core_electricitybilltransaction if deploy skipped migrate 0031.

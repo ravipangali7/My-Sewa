@@ -5,7 +5,7 @@ import json
 import re
 from datetime import date
 from decimal import Decimal
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, ProgrammingError, transaction
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.hashers import make_password
@@ -1270,8 +1270,8 @@ class RemittanceTransactionSerializer(serializers.ModelSerializer):
     last_name = serializers.CharField(source='user.last_name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     citizenship_review_pending = serializers.SerializerMethodField()
-    citizenship_front = serializers.ImageField(read_only=True)
-    citizenship_back = serializers.ImageField(read_only=True)
+    citizenship_front = serializers.SerializerMethodField()
+    citizenship_back = serializers.SerializerMethodField()
 
     class Meta:
         model = RemittanceTransaction
@@ -1297,6 +1297,37 @@ class RemittanceTransactionSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         )
         read_only_fields = fields
+
+    def _absolute_media_url(self, file_field):
+        try:
+            if not file_field:
+                return None
+            url = file_field.url
+        except (ValueError, OSError, AttributeError):
+            return None
+        request = self.context.get('request')
+        if request:
+            try:
+                return request.build_absolute_uri(url)
+            except (ValueError, OSError):
+                return url
+        return url
+
+    def get_citizenship_front(self, obj):
+        if 'citizenship_front' in obj.get_deferred_fields():
+            return None
+        try:
+            return self._absolute_media_url(getattr(obj, 'citizenship_front', None))
+        except (ValueError, OSError, AttributeError, ProgrammingError, OperationalError):
+            return None
+
+    def get_citizenship_back(self, obj):
+        if 'citizenship_back' in obj.get_deferred_fields():
+            return None
+        try:
+            return self._absolute_media_url(getattr(obj, 'citizenship_back', None))
+        except (ValueError, OSError, AttributeError, ProgrammingError, OperationalError):
+            return None
 
     def get_citizenship_review_pending(self, obj) -> bool:
         lookup = obj.lookup_response if isinstance(obj.lookup_response, dict) else {}

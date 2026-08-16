@@ -2688,6 +2688,12 @@ def admin_update_community_electricity_status(request, bill_id):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_list_remittances(request):
+    from ..models import _ensure_remittance_citizenship_columns
+    try:
+        _ensure_remittance_citizenship_columns()
+    except Exception:
+        pass
+
     qs = RemittanceTransaction.objects.select_related('user').order_by('-created_at')
     q = (request.query_params.get('q') or '').strip()
     start, end = _parse_date_range(request)
@@ -2707,7 +2713,25 @@ def admin_list_remittances(request):
         )
     qs = _apply_created_range(qs, start, end)
 
+    def _serialize_list(queryset):
+        return {
+            'items': RemittanceTransactionSerializer(
+                queryset, many=True, context={'request': request},
+            ).data,
+            'stats': {
+                'total': queryset.count(),
+                'success': queryset.filter(status='success').count(),
+                'pending': queryset.filter(status='pending').count(),
+                'failed': queryset.filter(status='failed').count(),
+            },
+            'summary': _amount_summary(queryset, direction='credit'),
+        }
+
     if _is_csv_export(request):
+        try:
+            rows = list(qs)
+        except (ProgrammingError, OperationalError):
+            rows = list(qs.defer('citizenship_front', 'citizenship_back'))
         return _csv_response(
             'admin-remittances.csv',
             [
@@ -2722,29 +2746,42 @@ def admin_list_remittances(request):
                     r.total_credited, r.merchant_txn_id, r.provider_txn_id or '', r.status,
                     r.created_at.isoformat() if r.created_at else '',
                 ]
-                for r in qs
+                for r in rows
             ],
         )
 
-    return Response({
-        'items': RemittanceTransactionSerializer(qs, many=True, context={'request': request}).data,
-        'stats': {
-            'total': qs.count(),
-            'success': qs.filter(status='success').count(),
-            'pending': qs.filter(status='pending').count(),
-            'failed': qs.filter(status='failed').count(),
-        },
-        'summary': _amount_summary(qs, direction='credit'),
-    })
+    try:
+        return Response(_serialize_list(qs))
+    except (ProgrammingError, OperationalError):
+        from django.db import connection
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+        return Response(_serialize_list(qs.defer('citizenship_front', 'citizenship_back')))
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_get_remittance(request, remittance_id):
+    from ..models import _ensure_remittance_citizenship_columns
+    try:
+        _ensure_remittance_citizenship_columns()
+    except Exception:
+        pass
     try:
         rem = RemittanceTransaction.objects.select_related('user').get(pk=remittance_id)
     except RemittanceTransaction.DoesNotExist:
         return Response({'error': 'Remittance not found'}, status=status.HTTP_404_NOT_FOUND)
+    except (ProgrammingError, OperationalError):
+        try:
+            rem = (
+                RemittanceTransaction.objects.select_related('user')
+                .defer('citizenship_front', 'citizenship_back')
+                .get(pk=remittance_id)
+            )
+        except RemittanceTransaction.DoesNotExist:
+            return Response({'error': 'Remittance not found'}, status=status.HTTP_404_NOT_FOUND)
     return Response(AdminRemittanceSerializer(rem, context={'request': request}).data)
 
 

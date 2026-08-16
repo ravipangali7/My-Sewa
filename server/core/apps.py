@@ -15,6 +15,7 @@ class CoreConfig(AppConfig):
             from core.models import (
                 _ensure_authtoken_table,
                 _ensure_electricity_bill_table,
+                _ensure_remittance_citizenship_columns,
                 _ensure_settings_app_update_columns,
                 _ensure_settings_table,
             )
@@ -23,5 +24,6 @@ class CoreConfig(AppConfig):
             _ensure_settings_table()
             _ensure_settings_app_update_columns()
             _ensure_electricity_bill_table()
+            _ensure_remittance_citizenship_columns()
         except Exception:
             pass

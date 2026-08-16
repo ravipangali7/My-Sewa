@@ -2442,3 +2442,53 @@ class RemittanceCitizenshipReceiveGateTests(TestCase):
         self.assertEqual(txn.status, 'failed')
         self.assertFalse((txn.lookup_response or {}).get('himalpay_received'))
 
+
+class AdminRemittanceListTests(TestCase):
+    """Admin remittance ledger must serialize without 500s."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            phone='9800000301',
+            password='testpass123',
+            email='admin-rem@example.com',
+            is_staff=True,
+        )
+        self.user = User.objects.create_user(
+            phone='9800000302',
+            password='testpass123',
+            email='user-rem@example.com',
+            first_name='Ram',
+            last_name='Thapa',
+        )
+        self.client = APIClient()
+
+    def test_admin_list_remittances_returns_items_and_summary(self):
+        from .models import RemittanceTransaction
+
+        RemittanceTransaction.objects.create(
+            user=self.user,
+            ref_no='S100ADMIN1',
+            samsara_link_id='link-admin-1',
+            amount=Decimal('2500.00'),
+            total_credited=Decimal('2500.00'),
+            sender_name='Sita Sharma',
+            receiver_name='Ram Thapa',
+            status='success',
+            merchant_txn_id='MYSEWA_REM_ADMIN1',
+            lookup_response={'himalpay_received': True, 'citizenship_review_pending': True},
+        )
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.get(reverse('admin_list_remittances'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content[:500])
+        body = resp.json()
+        self.assertEqual(body['stats']['total'], 1)
+        self.assertEqual(body['stats']['success'], 1)
+        self.assertEqual(len(body['items']), 1)
+        item = body['items'][0]
+        self.assertEqual(item['ref_no'], 'S100ADMIN1')
+        self.assertEqual(item['phone'], '9800000302')
+        self.assertTrue(item['citizenship_review_pending'])
+        self.assertIsNone(item['citizenship_front'])
+        self.assertIsNone(item['citizenship_back'])
+        self.assertIn('total_credit', body['summary'])
+
