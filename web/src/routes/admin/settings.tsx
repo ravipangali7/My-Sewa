@@ -1449,7 +1449,7 @@ function SettingsPage() {
 
               <SettingsPanel
                 title="HimalPay reseller"
-                description="API key used for top-ups, account verification, and bank transfers. Stored server-side only — never exposed to customers. Saved separately from deposit accounts."
+                description="API key used for top-ups, account verification, and outbound bank transfers. Stored server-side only — never exposed to customers. This reseller API cannot accept bank-app QR payments into individual Mysewa wallets."
                 onSave={saveHimalpay}
                 saving={saving}
               >
@@ -1620,6 +1620,25 @@ function SettingsPage() {
                       >
                         Balance: {himalpayStatusQuery.data.balance_message}
                       </p>
+                    ) : null}
+                    {himalpayStatusQuery.data?.inbound_qr_reason ? (
+                      <div className="mt-3 rounded-lg border border-border/70 bg-background/60 p-3">
+                        <p className="text-sm font-medium">
+                          Bank-to-wallet QR:{" "}
+                          {himalpayStatusQuery.data.inbound_qr_supported
+                            ? "Available"
+                            : "Not available on this account"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {himalpayStatusQuery.data.inbound_qr_reason}
+                        </p>
+                        {himalpayStatusQuery.data.inbound_qr_hinted_services?.length ? (
+                          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                            Hinted services:{" "}
+                            {himalpayStatusQuery.data.inbound_qr_hinted_services.join(", ")}
+                          </p>
+                        ) : null}
+                      </div>
                     ) : null}
                     <Button
                       type="button"

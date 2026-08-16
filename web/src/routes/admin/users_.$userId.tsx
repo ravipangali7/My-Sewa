@@ -209,6 +209,10 @@ function UserDetailPage() {
           <div className="min-w-0 overflow-x-clip rounded-xl border border-border bg-surface">
             <div className="border-b border-border px-4 py-3 sm:px-5">
               <h2 className="text-sm font-semibold">{t("scan.myQr")}</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Same payload as the user My QR. HimalPay Reseller API cannot accept
+                interoperable bank-app QR payments into this wallet.
+              </p>
             </div>
             <MySewaPaymentQrCard
               qrSrc={qr.qrSrc}

@@ -1358,6 +1358,9 @@ export const apiClient = {
       balance_source?: string | null;
       balance_total_rupees?: number | null;
       balance_message?: string;
+      inbound_qr_supported?: boolean;
+      inbound_qr_reason?: string;
+      inbound_qr_hinted_services?: string[];
     }>("/api/admin/himalpay/status/"),
 
   adminStatement: (filters?: {
