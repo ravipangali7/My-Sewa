@@ -2,8 +2,8 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   House,
   ArrowLeftRight,
+  ScanLine,
   HandCoins,
-  Clock3,
   UserRound,
   ArrowLeft,
 } from "lucide-react";
@@ -34,17 +34,17 @@ const TABS = [
     prominent: false,
   },
   {
+    to: "/app/scan",
+    labelKey: "nav.scan" as const satisfies MessageKey,
+    icon: ScanLine,
+    match: (p: string) => p.startsWith("/app/scan"),
+    prominent: true,
+  },
+  {
     to: "/app/remittance",
     labelKey: "nav.remittance" as const satisfies MessageKey,
     icon: HandCoins,
     match: (p: string) => p.startsWith("/app/remittance"),
-    prominent: true,
-  },
-  {
-    to: "/app/history",
-    labelKey: "nav.history" as const satisfies MessageKey,
-    icon: Clock3,
-    match: (p: string) => p.startsWith("/app/history"),
     prominent: false,
   },
   {
@@ -64,6 +64,8 @@ export function UserShell({
   headerLeading,
   headerTrailing,
   hideHeader = false,
+  hideNav = false,
+  disablePullToRefresh = false,
 }: {
   title: string;
   children: ReactNode;
@@ -72,6 +74,8 @@ export function UserShell({
   headerLeading?: ReactNode;
   headerTrailing?: ReactNode;
   hideHeader?: boolean;
+  hideNav?: boolean;
+  disablePullToRefresh?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
@@ -223,19 +227,33 @@ export function UserShell({
           className={cn(
             // Mobile: height follows content only (no flex-1 growth → no blank
             // overscroll). Desktop: flex-1 + overflow scroller inside fixed shell.
-            "min-w-0 max-w-full overscroll-y-none lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-y-contain lg:px-8 lg:pb-10",
-            // pb-safe clears fixed bottom nav + home-indicator; desktop uses lg:pb-10.
-            hideHeader ? "px-0 pb-safe lg:pb-10" : "px-3 pb-safe sm:px-4 lg:pb-10",
+            "min-w-0 max-w-full overscroll-y-none lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-y-contain",
+            hideHeader && hideNav
+              ? "relative h-dvh overflow-hidden p-0 lg:h-auto lg:overflow-hidden lg:px-0 lg:pb-0"
+              : hideHeader
+                ? "px-0 pb-safe lg:px-8 lg:pb-10"
+                : "px-3 pb-safe sm:px-4 lg:px-8 lg:pb-10",
           )}
         >
-          <PullToRefresh onRefresh={handlePullRefresh} className="min-w-0 w-full max-w-full overscroll-y-none">
+          <PullToRefresh
+            onRefresh={handlePullRefresh}
+            disabled={disablePullToRefresh}
+            className={cn(
+              "min-w-0 w-full max-w-full overscroll-y-none",
+              hideHeader && hideNav && "h-full",
+            )}
+          >
             <div
               className={cn(
                 "mx-auto min-w-0 w-full max-w-full",
-                hideHeader ? "max-w-lg lg:max-w-6xl" : "max-w-6xl",
+                hideHeader && hideNav
+                  ? "h-full max-w-none"
+                  : hideHeader
+                    ? "max-w-lg lg:max-w-6xl"
+                    : "max-w-6xl",
               )}
             >
-              {maintenance ? (
+              {maintenance && !(hideHeader && hideNav) ? (
                 <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100">
                   <p className="font-medium">{t("maintenance.title")}</p>
                   <p className="mt-0.5 text-[13px] opacity-90">{maintenanceMessage}</p>
@@ -246,6 +264,7 @@ export function UserShell({
           </PullToRefresh>
         </main>
 
+        {!hideNav ? (
         <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
           <div className="border-t border-border/40 bg-surface/92 shadow-[0_-8px_32px_-12px_rgb(16_24_40_/_0.14)] backdrop-blur-xl supports-[backdrop-filter]:bg-surface/80">
             <ul className="mx-auto grid max-w-lg grid-cols-5 items-end px-1.5 pt-1.5 pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
@@ -336,6 +355,7 @@ export function UserShell({
             </ul>
           </div>
         </nav>
+        ) : null}
       </div>
     </div>
   );

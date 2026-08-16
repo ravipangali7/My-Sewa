@@ -8,7 +8,12 @@ export type ParsedBankQr = {
   accountName: string;
   amount: string;
   isMobile: boolean;
+  /** True when the payload identifies a MySewa wallet (receive / load). */
+  isMySewaWallet: boolean;
 };
+
+/** EMV merchant GUID encoded in personal MySewa receive-QR codes. */
+export const MYSEWA_QR_GUID = "mysewa.com.np";
 
 export type ParseBankQrResult =
   | { ok: true; data: ParsedBankQr }
@@ -80,6 +85,20 @@ function digitsOnly(value: string): string {
   return value.replace(/\D/g, "");
 }
 
+export function last10Digits(value: string): string {
+  return digitsOnly(value).slice(-10);
+}
+
+export function phonesMatch(a: string, b: string): boolean {
+  const left = last10Digits(a);
+  const right = last10Digits(b);
+  return left.length === 10 && left === right;
+}
+
+function isMySewaBrand(value: string): boolean {
+  return /my\s*sewa/i.test(value);
+}
+
 function isNepaliMobile(value: string): boolean {
   const digits = digitsOnly(value);
   return NEPALI_MOBILE_RE.test(digits) || NEPALI_MOBILE_RE.test(value.trim());
@@ -118,7 +137,12 @@ function parseJsonPayload(raw: string): Partial<ParsedBankQr> | null {
       accountNumber: pickJsonValue(obj, JSON_KEYS.accountNumber),
       accountName: pickJsonValue(obj, JSON_KEYS.accountName),
       amount: pickJsonValue(obj, JSON_KEYS.amount),
-      isMobile: obj.is_mobile === true || obj.isMobile === true,
+      isMobile: obj["is_mobile"] === true || obj["isMobile"] === true,
+      isMySewaWallet:
+        obj["is_mysewa"] === true ||
+        obj["isMySewa"] === true ||
+        isMySewaBrand(pickJsonValue(obj, JSON_KEYS.bankName)) ||
+        isMySewaBrand(pickJsonValue(obj, JSON_KEYS.bankCode)),
     };
   } catch {
     return null;
@@ -225,6 +249,9 @@ function parseEmvPayload(raw: string): Partial<ParsedBankQr> {
     if (!nestedRaw) continue;
     const nested = parseTlv(nestedRaw);
     const guid = nested["00"] || "";
+    if (isMySewaBrand(guid) || guid.toLowerCase().includes(MYSEWA_QR_GUID)) {
+      out.isMySewaWallet = true;
+    }
     for (const [sub, value] of Object.entries(nested)) {
       if (sub === "00") continue;
       consider(value, guid);
@@ -263,6 +290,7 @@ function mergeParts(...parts: Array<Partial<ParsedBankQr> | null | undefined>): 
     if (part.accountName && !out.accountName) out.accountName = part.accountName;
     if (part.amount && !out.amount) out.amount = part.amount;
     if (part.isMobile) out.isMobile = true;
+    if (part.isMySewaWallet) out.isMySewaWallet = true;
   }
   return out;
 }
@@ -276,7 +304,12 @@ function finalize(
   const amountRaw = String(partial.amount || "").trim().replace(/,/g, "");
   const amount = /^\d+(?:\.\d{1,2})?$/.test(amountRaw) && Number(amountRaw) > 0 ? amountRaw : "";
 
-  let isMobile = Boolean(partial.isMobile);
+  const isMySewaWallet =
+    Boolean(partial.isMySewaWallet) ||
+    isMySewaBrand(String(partial.bankName || "")) ||
+    isMySewaBrand(String(partial.bankCode || ""));
+
+  let isMobile = Boolean(partial.isMobile) || isMySewaWallet;
   if (!isMobile && isNepaliMobile(accountNumber) && !partial.bankCode) {
     isMobile = true;
   }
@@ -287,8 +320,9 @@ function finalize(
     accountNumber = accountNumber.replace(/[\s-]/g, "");
   }
 
-  const matched =
-    matchBank(banks, partial.bankCode || "") || matchBank(banks, partial.bankName || "");
+  const matched = isMySewaWallet
+    ? undefined
+    : matchBank(banks, partial.bankCode || "") || matchBank(banks, partial.bankName || "");
 
   if (!accountNumber) {
     return { ok: false, reason: "not_bank" };
@@ -303,12 +337,15 @@ function finalize(
   return {
     ok: true,
     data: {
-      bankCode: matched?.bank_code || normalizeBankCode(partial.bankCode || ""),
-      bankName: matched?.bank_name || String(partial.bankName || "").trim(),
+      bankCode: isMySewaWallet ? "" : matched?.bank_code || normalizeBankCode(partial.bankCode || ""),
+      bankName: isMySewaWallet
+        ? "MySewa"
+        : matched?.bank_name || String(partial.bankName || "").trim(),
       accountNumber,
       accountName,
       amount,
       isMobile,
+      isMySewaWallet,
     },
   };
 }
@@ -342,17 +379,53 @@ export function parseBankQr(raw: string, banks: BankOption[] = []): ParseBankQrR
   return { ok: false, reason: "not_qr" };
 }
 
-/** Payload encoded in the signed-in user's shareable MySewa account QR. */
+function emvTlv(tag: string, value: string): string {
+  const payload = String(value || "");
+  return `${tag}${String(payload.length).padStart(2, "0")}${payload}`;
+}
+
+/** CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) used by EMVCo QR tag 63. */
+export function crc16Ccitt(data: string): string {
+  let crc = 0xffff;
+  for (let i = 0; i < data.length; i++) {
+    crc ^= data.charCodeAt(i) << 8;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc & 0x8000) !== 0 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4, "0");
+}
+
+function emvMerchantName(name: string): string {
+  const trimmed = String(name || "").trim();
+  const ascii = trimmed.replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim();
+  const usable = ascii || "Mysewa";
+  return usable.slice(0, 25);
+}
+
+/**
+ * Personal receive-QR payload. Encoded as an EMVCo Nepal (NPR) merchant QR so
+ * MySewa and other payment apps that read account/mobile TLV can send value
+ * into this user's MySewa wallet (identified by their mobile number).
+ */
 export function buildMySewaAccountQr(details: {
   accountName: string;
   accountNumber: string;
 }): string {
-  return JSON.stringify({
-    bank_name: "MySewa",
-    account_name: details.accountName,
-    account_number: details.accountNumber,
-    name: details.accountName,
-    phone: details.accountNumber,
-    is_mobile: true,
-  });
+  const phone = last10Digits(details.accountNumber) || String(details.accountNumber || "").trim();
+  const merchant = emvMerchantName(details.accountName);
+  const mai = emvTlv("00", MYSEWA_QR_GUID) + emvTlv("01", phone);
+  const additional = emvTlv("01", phone);
+  const body =
+    emvTlv("00", "01") +
+    emvTlv("01", "11") +
+    emvTlv("26", mai) +
+    emvTlv("52", "0000") +
+    emvTlv("53", "524") +
+    emvTlv("58", "NP") +
+    emvTlv("59", merchant) +
+    emvTlv("60", "KATHMANDU") +
+    emvTlv("62", additional) +
+    "6304";
+  return body + crc16Ccitt(body);
 }

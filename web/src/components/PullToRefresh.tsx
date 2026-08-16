@@ -186,7 +186,7 @@ export function PullToRefresh({
       </div>
 
       <div
-        className="min-w-0 w-full max-w-full"
+        className={cn("min-w-0 w-full max-w-full", className?.includes("h-full") && "h-full")}
         style={{
           transform: pull > 0 ? `translateY(${pull}px)` : undefined,
           transition: armed.current ? undefined : "transform 180ms ease-out",

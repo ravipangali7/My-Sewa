@@ -5,7 +5,6 @@ import { ChevronRight, QrCode, Search } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { BankCombobox } from "@/components/BankCombobox";
-import { BankQrScanner } from "@/components/BankQrScanner";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +13,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toastApiError, toastApiMessage } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
-import { parseBankQr } from "@/lib/bank-qr";
+import { parseBankQr, phonesMatch } from "@/lib/bank-qr";
 import { mergeBankLists, matchBank, normalizeBankCode } from "@/lib/nepali-banks";
 import type { BankOption, BankTransferTransaction } from "@/lib/types";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
@@ -31,6 +30,7 @@ import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
+import { peekStashedQr, takeStashedQr } from "@/lib/scanned-qr";
 
 function displayTransferTotal(item: BankTransferTransaction) {
   const total = Number(item.total_debited);
@@ -107,6 +107,7 @@ function Transfer() {
   const [pinError, setPinError] = useState<string | null>(null);
   const skipMethodResetRef = useRef(false);
   const pendingQrAmountRef = useRef("");
+  const appliedStashRef = useRef(false);
   const [walletPhone, setWalletPhone] = useState("");
   const [walletRecipient, setWalletRecipient] = useState<{
     phone: string;
@@ -297,15 +298,17 @@ function Transfer() {
     setTotalDebited("0.00");
   }
 
-  async function lookupWalletUser() {
-    const raw = walletPhone.replace(/\D/g, "");
+  async function lookupWalletUser(phoneOverride?: string) {
+    const source = phoneOverride ?? walletPhone;
+    const raw = source.replace(/\D/g, "");
     if (raw.length < 10) {
       toast.error(t("transfer.invalidNepaliMobile"));
       return;
     }
+    if (phoneOverride) setWalletPhone(phoneOverride);
     setWalletLooking(true);
     try {
-      const res = await apiClient.lookupWalletTransfer({ phone: walletPhone.trim() });
+      const res = await apiClient.lookupWalletTransfer({ phone: source.trim() });
       setWalletRecipient(res);
       toast.success(t("transfer.verifiedAs", { name: res.name || res.phone }));
     } catch (err) {
@@ -534,6 +537,20 @@ function Transfer() {
       return false;
     }
     const data = parsed.data;
+    if (data.isMySewaWallet) {
+      if (user?.phone && phonesMatch(data.accountNumber, user.phone)) {
+        toast.message(t("scan.ownQr"));
+        return false;
+      }
+      if (method !== "wallet") {
+        skipMethodResetRef.current = true;
+        setMethod("wallet");
+      }
+      setWalletPhone(data.accountNumber);
+      setWalletRecipient(null);
+      void lookupWalletUser(data.accountNumber);
+      return true;
+    }
     const resolvedBank = resolveBankCode(data.bankCode, data.bankName);
     const nextMethod: TransferMethod = data.isMobile ? "phone" : "bank";
     if (nextMethod !== method) {
@@ -558,6 +575,29 @@ function Transfer() {
     }
     return true;
   }
+
+  useEffect(() => {
+    if (appliedStashRef.current) return;
+    const raw = peekStashedQr();
+    if (!raw) return;
+    const parsed = parseBankQr(raw, banks);
+    if (!parsed.ok) {
+      if (banksQuery.isLoading) return;
+      takeStashedQr();
+      appliedStashRef.current = true;
+      toast.error(
+        parsed.reason === "not_bank" ? t("transfer.qrNotBank") : t("transfer.qrInvalid"),
+      );
+      return;
+    }
+    if (!parsed.data.isMySewaWallet && !parsed.data.isMobile && banksQuery.isLoading) {
+      return;
+    }
+    takeStashedQr();
+    appliedStashRef.current = true;
+    applyScannedQr(raw);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [banks, banksQuery.isLoading]);
 
   async function verifyDestination(overrides?: {
     bankCode?: string;
@@ -1303,11 +1343,6 @@ function Transfer() {
   );
 
   return (
-    <BankQrScanner
-      onScan={applyScannedQr}
-      onClose={() => navigate({ to: "/app" })}
-    >
-      {({ showScanner }) => (
     <UserShell
       title={t("transfer.title")}
       back="/app"
@@ -1322,7 +1357,7 @@ function Transfer() {
               "hover:bg-white/25",
               "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
             )}
-            onClick={showScanner}
+            onClick={() => navigate({ to: "/app/scan" })}
             aria-label={t("transfer.scanQr")}
           >
             <QrCode className="size-4" />
@@ -1344,22 +1379,6 @@ function Transfer() {
         </div>
       }
     >
-      <Tabs
-        value="manual"
-        onValueChange={(value) => {
-          if (value === "scanner") showScanner();
-        }}
-        className="mb-4"
-      >
-        <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl">
-          <TabsTrigger value="scanner" className="rounded-lg">
-            {t("transfer.tabScanner")}
-          </TabsTrigger>
-          <TabsTrigger value="manual" className="rounded-lg">
-            {t("transfer.tabManual")}
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
       {transferMain}
       <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
         <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5">
@@ -1414,8 +1433,6 @@ function Transfer() {
         }}
       />
     </UserShell>
-      )}
-    </BankQrScanner>
   );
 }
 
