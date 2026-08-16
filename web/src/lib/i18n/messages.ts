@@ -435,7 +435,6 @@ export const messages = {
     "scan.sloganDo": "गरौं",
     "scan.gallery": "ADD QR CODE FROM GALLERY",
     "scan.myQr": "My QR",
-    "scan.favoriteQr": "Favorite QR",
     "scan.expand": "Show My QR",
     "scan.collapse": "Hide My QR",
     "scan.showToReceive": "Show this QR code to receive money",
@@ -443,8 +442,6 @@ export const messages = {
     "scan.share": "SHARE",
     "scan.shareTitle": "Mysewa QR",
     "scan.shareText": "Pay {name} on Mysewa ({phone})",
-    "scan.favoriteEmpty": "No favorite QR codes yet.",
-    "scan.favoriteEmptyHint": "Save a scanned QR here later to pay faster.",
     "scan.ownQr": "This is your Mysewa QR code.",
     "scan.zoom": "Zoom {n}×",
 
@@ -1622,7 +1619,6 @@ export const messages = {
     "scan.sloganDo": "गरौं",
     "scan.gallery": "ग्यालरीबाट QR कोड थप्नुहोस्",
     "scan.myQr": "मेरो QR",
-    "scan.favoriteQr": "मनपर्ने QR",
     "scan.expand": "मेरो QR देखाउनुहोस्",
     "scan.collapse": "मेरो QR लुकाउनुहोस्",
     "scan.showToReceive": "पैसा प्राप्त गर्न यो QR कोड देखाउनुहोस्",
@@ -1630,8 +1626,6 @@ export const messages = {
     "scan.share": "सेयर",
     "scan.shareTitle": "Mysewa QR",
     "scan.shareText": "Mysewa मा {name} लाई भुक्तानी गर्नुहोस् ({phone})",
-    "scan.favoriteEmpty": "अहिले कुनै मनपर्ने QR छैन।",
-    "scan.favoriteEmptyHint": "छिटो भुक्तानीका लागि स्क्यान गरेको QR पछि यहाँ सेभ गर्न सकिन्छ।",
     "scan.ownQr": "यो तपाईंको Mysewa QR कोड हो।",
     "scan.zoom": "जुम {n}×",
 

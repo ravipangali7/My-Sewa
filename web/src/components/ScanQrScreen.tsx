@@ -25,6 +25,7 @@ import {
   waitForNativeCameraPermission,
   waitForNativeFileBridge,
 } from "@/lib/native-app";
+import { dataUrlToBytes, renderMyQrCardPng } from "@/lib/my-qr-card";
 import { toDataURL } from "@/lib/qrcode";
 import { stashScannedQr } from "@/lib/scanned-qr";
 import { cn } from "@/lib/utils";
@@ -34,9 +35,9 @@ type BarcodeDetectorLike = {
 };
 
 const ZOOM_LEVELS = [1, 2, 3] as const;
-const COLLAPSED_SHEET = 92;
-const MY_QR_TAB = "mine" as const;
-const FAVORITE_TAB = "favorite" as const;
+const COLLAPSED_SHEET = 64;
+const SHEET_EASE = "transform 380ms cubic-bezier(0.32, 0.72, 0, 1)";
+const DRAG_ARM = 8;
 
 function getBarcodeDetector(): BarcodeDetectorLike | null {
   const Ctor = (
@@ -116,14 +117,6 @@ function stopStream(stream: MediaStream | null) {
   }
 }
 
-function dataUrlToBytes(dataUrl: string): Uint8Array {
-  const base64 = dataUrl.split(",")[1] || "";
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
 function sendViaNativeBridge(
   bytes: Uint8Array,
   filename: string,
@@ -153,6 +146,23 @@ function sendViaNativeBridge(
     /* ignore */
   }
   return false;
+}
+
+function bindScanVideo(el: HTMLVideoElement | null) {
+  if (!el) return;
+  el.muted = true;
+  el.defaultMuted = true;
+  el.controls = false;
+  el.playsInline = true;
+  el.disablePictureInPicture = true;
+  el.setAttribute("playsinline", "true");
+  el.setAttribute("webkit-playsinline", "true");
+  el.setAttribute("x-webkit-airplay", "deny");
+  el.setAttribute("disablepictureinpicture", "true");
+  el.setAttribute("controlslist", "nodownload nofullscreen noremoteplayback");
+  if ("disableRemotePlayback" in el) {
+    (el as HTMLVideoElement & { disableRemotePlayback: boolean }).disableRemotePlayback = true;
+  }
 }
 
 function ScanPhoneMark() {
@@ -189,30 +199,34 @@ export function ScanQrScreen({
   const handledRef = useRef(false);
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
+  const sheetYRef = useRef(0);
   const dragRef = useRef({
     active: false,
+    armed: false,
     startY: 0,
-    startH: COLLAPSED_SHEET,
+    startOffset: 0,
   });
+  const cardCacheRef = useRef<string | null>(null);
 
   const [cameraError, setCameraError] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [livePreview, setLivePreview] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
   const [zoom, setZoom] = useState<1 | 2 | 3>(1);
   const [hwZoom, setHwZoom] = useState<{ min: number; max: number } | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheetH, setSheetH] = useState(COLLAPSED_SHEET);
-  const [dragging, setDragging] = useState(false);
-  const [viewportH, setViewportH] = useState(800);
-  const [sheetTab, setSheetTab] = useState<typeof MY_QR_TAB | typeof FAVORITE_TAB>(MY_QR_TAB);
+  const [viewportH, setViewportH] = useState(() =>
+    typeof window !== "undefined" ? window.innerHeight : 800,
+  );
 
-  const displayName =
-    (user?.nickname || "").trim() ||
-    [user?.first_name, user?.last_name].filter(Boolean).join(" ") ||
-    user?.phone ||
-    t("common.user");
+  const legalName = [user?.first_name, user?.last_name].filter(Boolean).join(" ");
+  const nickname = (user?.nickname || "").trim();
+  const displayName = nickname || legalName || user?.phone || t("common.user");
+  const username = nickname && legalName && nickname !== legalName ? nickname : "";
   const phone = user?.phone || "";
+  const logoSrc = logoUrl || "/logo.png";
+  const hint = t("scan.showToReceive");
 
   const qrPayload = useMemo(() => {
     if (!phone) return "";
@@ -231,10 +245,23 @@ export function ScanQrScreen({
     }
   }, [qrPayload]);
 
-  const expandedH = Math.max(
-    360,
-    Math.round(Math.min(viewportH * 0.74, viewportH - 88)),
+  useEffect(() => {
+    cardCacheRef.current = null;
+  }, [qrSrc, logoSrc, displayName, username, phone, hint]);
+
+  const expandedH = Math.round(
+    Math.min(Math.max(viewportH * 0.58, 420), viewportH - 96),
   );
+  const closedOffset = Math.max(0, expandedH - COLLAPSED_SHEET);
+
+  const applySheetY = useCallback((y: number, animate: boolean) => {
+    const el = sheetRef.current;
+    const next = Math.max(0, Math.min(closedOffset, y));
+    sheetYRef.current = next;
+    if (!el) return;
+    el.style.transition = animate ? SHEET_EASE : "none";
+    el.style.transform = `translate3d(0, ${next}px, 0)`;
+  }, [closedOffset]);
 
   useEffect(() => {
     const update = () => setViewportH(window.innerHeight);
@@ -244,9 +271,20 @@ export function ScanQrScreen({
   }, []);
 
   useEffect(() => {
-    if (dragging) return;
-    setSheetH(sheetOpen ? expandedH : COLLAPSED_SHEET);
-  }, [dragging, expandedH, sheetOpen]);
+    applySheetY(sheetOpen ? 0 : closedOffset, false);
+    // Only re-clamp when the viewport size changes — never cancel an in-flight snap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closedOffset]);
+
+  const openSheet = useCallback((animate = true) => {
+    setSheetOpen(true);
+    applySheetY(0, animate);
+  }, [applySheetY]);
+
+  const closeSheet = useCallback((animate = true) => {
+    setSheetOpen(false);
+    applySheetY(closedOffset, animate);
+  }, [applySheetY, closedOffset]);
 
   const emit = useCallback(
     (raw: string) => {
@@ -280,6 +318,7 @@ export function ScanQrScreen({
     const video = videoRef.current;
     if (video) video.srcObject = null;
     setScanning(false);
+    setLivePreview(false);
     setTorchOn(false);
     setTorchSupported(false);
     setHwZoom(null);
@@ -333,7 +372,6 @@ export function ScanQrScreen({
         return;
       }
       setCameraError(false);
-      setScanning(true);
       try {
         await waitForNativeCameraPermission();
         if (cancelled) return;
@@ -363,14 +401,21 @@ export function ScanQrScreen({
         }
         const video = videoRef.current;
         if (video) {
+          bindScanVideo(video);
           video.srcObject = stream;
-          await video.play().catch(() => undefined);
+          try {
+            await video.play();
+          } catch {
+            /* overlay stays until onPlaying */
+          }
         }
+        setScanning(true);
         void loop();
       } catch {
         if (!cancelled) {
           setCameraError(true);
           setScanning(false);
+          setLivePreview(false);
         }
       }
     };
@@ -423,54 +468,69 @@ export function ScanQrScreen({
     toast.error(t("transfer.qrInvalid"));
   }
 
-  function snapSheet(height: number) {
-    const mid = (COLLAPSED_SHEET + expandedH) / 2;
-    const open = height >= mid;
-    setSheetOpen(open);
-    setSheetH(open ? expandedH : COLLAPSED_SHEET);
-  }
-
   function onSheetPointerDown(event: React.PointerEvent) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (event.target instanceof Element && event.target.closest("button, a")) return;
     dragRef.current = {
       active: true,
+      armed: false,
       startY: event.clientY,
-      startH: sheetH,
+      startOffset: sheetYRef.current,
     };
-    setDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function onSheetPointerMove(event: React.PointerEvent) {
     const drag = dragRef.current;
     if (!drag.active) return;
-    const next = Math.max(
-      COLLAPSED_SHEET,
-      Math.min(expandedH, drag.startH + (drag.startY - event.clientY)),
-    );
-    setSheetH(next);
+    const dy = event.clientY - drag.startY;
+    if (!drag.armed) {
+      if (Math.abs(dy) < DRAG_ARM) return;
+      drag.armed = true;
+    }
+    applySheetY(drag.startOffset + dy, false);
   }
 
   function onSheetPointerUp() {
-    if (!dragRef.current.active) return;
-    dragRef.current.active = false;
-    setDragging(false);
-    snapSheet(sheetH);
+    const drag = dragRef.current;
+    if (!drag.active) return;
+    drag.active = false;
+    if (!drag.armed) return;
+    const mid = closedOffset * 0.45;
+    if (sheetYRef.current <= mid) openSheet(true);
+    else closeSheet(true);
+  }
+
+  async function cardPng(): Promise<string> {
+    if (cardCacheRef.current) return cardCacheRef.current;
+    if (!qrSrc) throw new Error("qr");
+    const png = await renderMyQrCardPng({
+      qrSrc,
+      logoUrl: logoSrc,
+      name: displayName,
+      username,
+      phone,
+      hint,
+    });
+    cardCacheRef.current = png;
+    return png;
   }
 
   async function downloadQr() {
-    if (!qrSrc) return;
-    const filename = "mysewa-qr.png";
     try {
-      const bytes = dataUrlToBytes(qrSrc);
+      const png = await cardPng();
+      const filename = "mysewa-qr.png";
+      const bytes = dataUrlToBytes(png);
       if (isMySewaNativeApp()) await waitForNativeFileBridge();
       if (sendViaNativeBridge(bytes, filename, "image/png", "download")) {
         toast.success(t("transfer.shareQrSaved"));
         return;
       }
       const a = document.createElement("a");
-      a.href = qrSrc;
+      a.href = png;
       a.download = filename;
       a.rel = "noopener";
+      a.style.display = "none";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -481,12 +541,12 @@ export function ScanQrScreen({
   }
 
   async function shareQr() {
-    if (!qrSrc) return;
     try {
-      const bytes = dataUrlToBytes(qrSrc);
+      const png = await cardPng();
+      const bytes = dataUrlToBytes(png);
       if (isMySewaNativeApp()) await waitForNativeFileBridge();
       if (sendViaNativeBridge(bytes, "mysewa-qr.png", "image/png", "share")) return;
-      const blob = await (await fetch(qrSrc)).blob();
+      const blob = await (await fetch(png)).blob();
       const file = new File([blob], "mysewa-qr.png", { type: "image/png" });
       const title = t("scan.shareTitle");
       const text = t("scan.shareText", { name: displayName, phone });
@@ -495,12 +555,11 @@ export function ScanQrScreen({
         share?: (data: ShareData) => Promise<void>;
       };
       if (typeof nav.share === "function") {
-        const withFile: ShareData = { title, text, files: [file] };
         if (!nav.canShare || nav.canShare({ files: [file] })) {
-          await nav.share(withFile);
+          await nav.share({ title, text, files: [file] });
           return;
         }
-        await nav.share({ title, text });
+        await nav.share({ title, text, files: [file] });
         return;
       }
       await downloadQr();
@@ -513,17 +572,35 @@ export function ScanQrScreen({
   return (
     <div className="relative h-full min-h-0 overflow-hidden bg-black max-lg:fixed max-lg:inset-0 max-lg:z-40">
       <video
-        ref={videoRef}
+        ref={(el) => {
+          videoRef.current = el;
+          bindScanVideo(el);
+        }}
         className={cn(
-          "absolute inset-0 size-full object-cover transition-transform duration-200",
-          cameraError || !scanning ? "opacity-0" : "opacity-100",
+          "mysewa-scan-video absolute inset-0 size-full object-cover",
+          livePreview ? "opacity-100" : "opacity-0",
         )}
         style={hwZoom ? undefined : { transform: `scale(${zoom})` }}
         playsInline
         muted
-        autoPlay
+        autoPlay={false}
+        controls={false}
+        disablePictureInPicture
+        preload="none"
+        tabIndex={-1}
+        aria-hidden
+        onPlaying={() => setLivePreview(true)}
+        onCanPlay={(event) => {
+          if (!event.currentTarget.paused) setLivePreview(true);
+        }}
       />
-      <div className="absolute inset-0 bg-black/35" />
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-0 bg-black",
+          livePreview && !cameraError && "hidden",
+        )}
+      />
+      <div className="pointer-events-none absolute inset-0 bg-black/30" />
 
       <div className="relative z-10 flex h-full min-h-0 flex-col">
         <div className="flex items-center justify-between px-4 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-2">
@@ -564,7 +641,7 @@ export function ScanQrScreen({
             </p>
             <div className="mt-1 flex items-center gap-2">
               <img
-                src={logoUrl || "/logo.png"}
+                src={logoSrc}
                 alt="Mysewa"
                 className="size-9 rounded-md object-cover shadow-[0_2px_10px_rgba(0,0,0,0.35)]"
                 onError={(event) => {
@@ -596,9 +673,9 @@ export function ScanQrScreen({
           className="flex min-h-0 flex-1 flex-col items-center justify-center px-8"
           style={{ paddingBottom: COLLAPSED_SHEET + 12 }}
         >
-          <div className="relative aspect-square w-[min(72vw,17.5rem)] overflow-hidden rounded-[18px] border-[3px] border-brand-accent bg-black/25">
+          <div className="relative aspect-square w-[min(68vw,16.5rem)] overflow-hidden rounded-[18px] border-[3px] border-brand-accent bg-black">
             {scanning && !cameraError ? (
-              <div className="mysewa-qr-scan-line absolute inset-x-3 h-[2px] rounded-full bg-red-500 shadow-[0_0_12px_2px_rgba(239,68,68,0.85)]" />
+              <div className="mysewa-qr-scan-line absolute inset-x-3 h-0.5 rounded-full bg-red-500 shadow-[0_0_12px_2px_rgba(239,68,68,0.85)]" />
             ) : (
               <div className="flex h-full items-center justify-center px-5 text-center text-[13px] leading-5 text-white/85">
                 {t("transfer.qrCameraHelp")}
@@ -606,7 +683,7 @@ export function ScanQrScreen({
             )}
           </div>
 
-          <div className="mt-5 inline-flex items-center rounded-full bg-white p-1 shadow-[0_6px_18px_rgba(0,0,0,0.28)]">
+          <div className="mt-4 inline-flex items-center rounded-full bg-white p-1 shadow-[0_6px_18px_rgba(0,0,0,0.28)]">
             {ZOOM_LEVELS.map((level) => {
               const active = zoom === level;
               return (
@@ -629,17 +706,14 @@ export function ScanQrScreen({
 
         <div
           ref={sheetRef}
-          className={cn(
-            "absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-hidden rounded-t-[22px] bg-white shadow-[0_-12px_40px_rgba(0,0,0,0.28)]",
-            !dragging && "transition-[height] duration-300 ease-out",
-          )}
+          className="absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-hidden rounded-t-[22px] bg-white will-change-transform shadow-[0_-12px_40px_rgba(0,0,0,0.28)]"
           style={{
-            height: sheetH + 8,
-            paddingBottom: "max(8px, var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)))",
+            height: expandedH,
+            transform: `translate3d(0, ${closedOffset}px, 0)`,
           }}
         >
           <div
-            className="flex shrink-0 touch-none items-end gap-5 px-5 pt-1"
+            className="flex shrink-0 touch-none items-center px-5"
             onPointerDown={onSheetPointerDown}
             onPointerMove={onSheetPointerMove}
             onPointerUp={onSheetPointerUp}
@@ -647,49 +721,16 @@ export function ScanQrScreen({
           >
             <button
               type="button"
-              onClick={() => {
-                setSheetTab(MY_QR_TAB);
-                if (!sheetOpen) {
-                  setSheetOpen(true);
-                  setSheetH(expandedH);
-                }
-              }}
-              className={cn(
-                "border-b-[3px] pb-2 pt-3 text-[15px] font-semibold",
-                sheetTab === MY_QR_TAB
-                  ? "border-brand-accent text-brand-accent"
-                  : "border-transparent text-zinc-700",
-              )}
+              onClick={() => (sheetOpen ? undefined : openSheet(true))}
+              className="border-b-[3px] border-brand-accent pb-2 pt-3 text-[15px] font-semibold text-brand-accent"
             >
               {t("scan.myQr")}
             </button>
             <button
               type="button"
-              onClick={() => {
-                setSheetTab(FAVORITE_TAB);
-                if (!sheetOpen) {
-                  setSheetOpen(true);
-                  setSheetH(expandedH);
-                }
-              }}
-              className={cn(
-                "border-b-[3px] pb-2 pt-3 text-[15px] font-semibold",
-                sheetTab === FAVORITE_TAB
-                  ? "border-brand-accent text-brand-accent"
-                  : "border-transparent text-zinc-700",
-              )}
-            >
-              {t("scan.favoriteQr")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const next = !sheetOpen;
-                setSheetOpen(next);
-                setSheetH(next ? expandedH : COLLAPSED_SHEET);
-              }}
+              onClick={() => (sheetOpen ? closeSheet(true) : openSheet(true))}
               aria-label={sheetOpen ? t("scan.collapse") : t("scan.expand")}
-              className="mb-2 ml-auto inline-flex size-8 items-center justify-center rounded-full bg-brand-accent text-white shadow-sm"
+              className="mb-1 ml-auto inline-flex size-8 items-center justify-center rounded-full bg-brand-accent text-white shadow-sm"
             >
               {sheetOpen ? (
                 <ChevronDown className="size-4" strokeWidth={2.6} />
@@ -699,68 +740,72 @@ export function ScanQrScreen({
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            {sheetTab === MY_QR_TAB ? (
-              <div className="flex min-h-full flex-col items-center px-6 pb-2 pt-4">
-                {qrSrc ? (
-                  <img
-                    src={qrSrc}
-                    alt={t("scan.myQr")}
-                    className="size-[min(58vw,16.5rem)] bg-white"
-                  />
-                ) : (
-                  <div className="flex size-[min(58vw,16.5rem)] items-center justify-center bg-muted text-sm text-muted-foreground">
-                    {t("common.loading")}
-                  </div>
-                )}
-                <div className="mt-3 flex items-center gap-2">
-                  <img
-                    src={logoUrl || "/logo.png"}
-                    alt=""
-                    className="size-7 rounded-full object-cover"
-                    onError={(event) => {
-                      event.currentTarget.src = "/logo.png";
-                    }}
-                  />
-                  <span className="text-[18px] font-bold leading-none">
-                    <span className="text-ocean">My</span>
-                    <span className="text-brand">sewa</span>
-                  </span>
+          <div
+            className="flex min-h-0 flex-1 flex-col"
+            onPointerDown={onSheetPointerDown}
+            onPointerMove={onSheetPointerMove}
+            onPointerUp={onSheetPointerUp}
+            onPointerCancel={onSheetPointerUp}
+          >
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2.5 px-6 py-3">
+              {qrSrc ? (
+                <img
+                  src={qrSrc}
+                  alt={t("scan.myQr")}
+                  className="size-[min(48vw,13.5rem)] bg-white"
+                />
+              ) : (
+                <div className="flex size-[min(48vw,13.5rem)] items-center justify-center bg-muted text-sm text-muted-foreground">
+                  {t("common.loading")}
                 </div>
-                <p className="mt-3 text-[17px] font-semibold text-zinc-800">{displayName}</p>
+              )}
+              <div className="flex items-center gap-2">
+                <img
+                  src={logoSrc}
+                  alt="Mysewa"
+                  className="size-7 rounded-full object-cover"
+                  onError={(event) => {
+                    event.currentTarget.src = "/logo.png";
+                  }}
+                />
+                <span className="text-[18px] font-bold leading-none">
+                  <span className="text-ocean">My</span>
+                  <span className="text-brand">sewa</span>
+                </span>
+              </div>
+              <div className="text-center">
+                <p className="text-[17px] font-semibold text-zinc-800">{displayName}</p>
+                {username ? (
+                  <p className="mt-0.5 text-[13px] font-medium text-zinc-500">{username}</p>
+                ) : null}
                 <p className="mt-0.5 text-[14px] text-zinc-500">{phone}</p>
-                <p className="mt-3 text-center text-[12px] text-zinc-400">
-                  {t("scan.showToReceive")}
-                </p>
-                <div className="mt-auto flex w-full items-stretch border-t border-zinc-200 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => void downloadQr()}
-                    className="flex flex-1 items-center justify-center gap-2 py-3 text-[12px] font-semibold tracking-[0.04em] text-brand-accent"
-                  >
-                    <Download className="size-4" strokeWidth={2.2} />
-                    {t("scan.downloadQr")}
-                  </button>
-                  <span className="w-px bg-zinc-200" />
-                  <button
-                    type="button"
-                    onClick={() => void shareQr()}
-                    className="flex flex-1 items-center justify-center gap-2 py-3 text-[12px] font-semibold tracking-[0.04em] text-brand-accent"
-                  >
-                    <Share2 className="size-4" strokeWidth={2.2} />
-                    {t("scan.share")}
-                  </button>
-                </div>
+                <p className="mt-2 text-[12px] text-zinc-400">{hint}</p>
               </div>
-            ) : (
-              <div className="flex min-h-[16rem] flex-col items-center justify-center px-8 text-center">
-                <div className="mb-3 inline-flex size-12 items-center justify-center rounded-full bg-brand-soft text-brand">
-                  <QrCode className="size-5" />
-                </div>
-                <p className="text-[15px] font-medium text-zinc-800">{t("scan.favoriteEmpty")}</p>
-                <p className="mt-1 text-[13px] text-zinc-500">{t("scan.favoriteEmptyHint")}</p>
-              </div>
-            )}
+            </div>
+            <div
+              className="mt-1 flex w-full shrink-0 items-stretch border-t border-zinc-200"
+              style={{
+                paddingBottom: "max(4px, var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)))",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => void downloadQr()}
+                className="flex flex-1 items-center justify-center gap-2 py-3 text-[12px] font-semibold tracking-[0.04em] text-brand-accent"
+              >
+                <Download className="size-4" strokeWidth={2.2} />
+                {t("scan.downloadQr")}
+              </button>
+              <span className="w-px bg-zinc-200" />
+              <button
+                type="button"
+                onClick={() => void shareQr()}
+                className="flex flex-1 items-center justify-center gap-2 py-3 text-[12px] font-semibold tracking-[0.04em] text-brand-accent"
+              >
+                <Share2 className="size-4" strokeWidth={2.2} />
+                {t("scan.share")}
+              </button>
+            </div>
           </div>
         </div>
       </div>
