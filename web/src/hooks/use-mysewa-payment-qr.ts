@@ -6,8 +6,8 @@ import { toDataURL } from "@/lib/qrcode";
 const QR_RENDER = { width: 640, color: { dark: "#1C1C1E", light: "#FFFFFF" } } as const;
 
 /**
- * Encode and rasterize the same personal payment QR used in the Mysewa app
- * and on Super Admin user details.
+ * Encode and rasterize the same personal Mysewa QR used in the app
+ * and on Super Admin user details (in-app wallet transfers only).
  */
 export function useMySewaPaymentQr(
   user: MySewaQrUser | null | undefined,

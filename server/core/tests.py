@@ -9,7 +9,12 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from .serializers import ResetPasswordSerializer
-from .services.himalpay import HimalPayAPI, HimalPayError
+from .services.himalpay import (
+    HimalPayAPI,
+    HimalPayError,
+    assess_inbound_bank_qr_capability,
+    looks_like_inbound_qr_service_name,
+)
 from .views.bank_transfer_views import _resolve_destination_bank
 
 User = get_user_model()
@@ -123,6 +128,36 @@ class RupeesPaisaConversionTests(SimpleTestCase):
         self.assertEqual(nested['bonus_balance_in_rupees'], 1.0)
         self.assertEqual(nested['total_balance_in_rupees'], 50001.0)
         self.assertTrue(HimalPayAPI._balance_payload_has_amounts(nested))
+
+
+class InboundBankQrCapabilityTests(SimpleTestCase):
+    """Reseller API must not be treated as bank-QR collection into MySewa wallets."""
+
+    def test_documented_reseller_services_are_not_inbound_qr(self):
+        self.assertFalse(looks_like_inbound_qr_service_name('BANK_TRANSFER'))
+        self.assertFalse(looks_like_inbound_qr_service_name('SAMSARA_PAY'))
+        self.assertFalse(looks_like_inbound_qr_service_name('NTC'))
+
+    def test_capability_is_unsupported_without_inventing_endpoints(self):
+        result = assess_inbound_bank_qr_capability([
+            {'name': 'NTC'},
+            {'name': 'BANK_TRANSFER'},
+            {'name': 'SAMSARA_PAY'},
+        ])
+        self.assertFalse(result['supported'])
+        self.assertEqual(result['hinted_service_names'], [])
+        self.assertIn('Reseller API', result['reason'])
+        self.assertIn('does not generate NepalPay/Fonepay merchant QRs', result['reason'])
+
+    def test_hinted_names_are_reported_but_not_treated_as_supported(self):
+        result = assess_inbound_bank_qr_capability([
+            {'name': 'NTC'},
+            {'name': 'NEPALPAY_QR'},
+        ])
+        self.assertFalse(result['supported'])
+        self.assertEqual(result['hinted_service_names'], ['NEPALPAY_QR'])
+        self.assertIn('NEPALPAY_QR', result['reason'])
+        self.assertIn('will not call them', result['reason'])
 
 
 class BankCodeResolveTests(SimpleTestCase):

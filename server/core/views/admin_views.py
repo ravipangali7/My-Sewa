@@ -86,7 +86,9 @@ from ..services.himalpay import (
     HimalPayAPI,
     HimalPayError,
     admin_himalpay_ip_hint,
+    assess_inbound_bank_qr_capability,
     get_outbound_public_ip,
+    is_route_not_found_error,
 )
 from ..services.app_config import get_app_config, require_user_feature
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
@@ -3164,10 +3166,9 @@ def admin_himalpay_status(request):
     Returns the outbound public IP that must be on the HimalPay IP Allowlist,
     probes reseller services, and checks whether balance is readable via API key.
     """
-    from ..services.himalpay import is_route_not_found_error
-
     outbound_ip = get_outbound_public_ip(force=True)
     himalpay = HimalPayAPI()
+    inbound_qr = assess_inbound_bank_qr_capability([])
     result = {
         'outbound_ip': outbound_ip,
         'base_url': himalpay.base_url,
@@ -3183,6 +3184,9 @@ def admin_himalpay_status(request):
         'balance_source': None,
         'balance_total_rupees': None,
         'balance_message': '',
+        'inbound_qr_supported': inbound_qr['supported'],
+        'inbound_qr_reason': inbound_qr['reason'],
+        'inbound_qr_hinted_services': inbound_qr['hinted_service_names'],
     }
 
     if himalpay.bypass_api:
@@ -3204,8 +3208,14 @@ def admin_himalpay_status(request):
     try:
         services = himalpay.list_services()
         count = len(services) if isinstance(services, list) else 0
+        inbound_qr = assess_inbound_bank_qr_capability(
+            services if isinstance(services, list) else []
+        )
         result['ok'] = True
         result['services_count'] = count
+        result['inbound_qr_supported'] = inbound_qr['supported']
+        result['inbound_qr_reason'] = inbound_qr['reason']
+        result['inbound_qr_hinted_services'] = inbound_qr['hinted_service_names']
         result['message'] = (
             f'Connected to HimalPay with API key. {count} reseller service(s) available.'
         )

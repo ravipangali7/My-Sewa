@@ -1,4 +1,9 @@
-from .himalpay import HimalPayAPI, HimalPayError, get_outbound_public_ip
+from .himalpay import (
+    HimalPayAPI,
+    HimalPayError,
+    assess_inbound_bank_qr_capability,
+    get_outbound_public_ip,
+)
 from .service_hub import ServiceHubAPI
 from .app_config import (
     get_app_config,
@@ -12,6 +17,7 @@ from . import notifications
 __all__ = [
     'HimalPayAPI',
     'HimalPayError',
+    'assess_inbound_bank_qr_capability',
     'get_outbound_public_ip',
     'ServiceHubAPI',
     'get_app_config',

@@ -101,6 +101,94 @@ RESELLER_LEDGER_UNAVAILABLE_MSG = (
     'Admin → Settings → HimalPay so MySewa can read /users/me/wallet.'
 )
 
+# Official HimalPay Reseller + Checkout docs do not define bank-app scan-to-pay
+# collection into per-user wallets. Names that *might* hint at QR/acquiring are
+# reported for Super Admin — they are never called without documented payloads.
+_INBOUND_QR_NAME_HINTS = (
+    'qr',
+    'nqr',
+    'nepalpay',
+    'fonepay',
+    'fps',
+    'merchant_qr',
+    'collect',
+    'collection',
+    'acquire',
+    'acquiring',
+    'incoming',
+    'inbound',
+)
+
+INBOUND_BANK_QR_UNSUPPORTED_REASON = (
+    'This HimalPay account uses the Digital Wallet Reseller API (X-API-Key). '
+    'That API debits the reseller wallet for bills, top-ups, and BANK_TRANSFER, '
+    'and the only documented credit/load is SAMSARA remittance payout. '
+    'It does not generate NepalPay/Fonepay merchant QRs, does not create a unique '
+    'HimalPay/N-Cash destination per MySewa user, and does not send inbound '
+    'collection webhooks. N-Cash Merchant Checkout (X-Checkout-API-Key) is a '
+    'separate N-Cash wallet redirect — not a bank-app scan QR — and is not '
+    'configured here. Bank app → scan user QR → pay → auto-credit that MySewa '
+    'wallet cannot be implemented until HimalPay enables per-user interoperable '
+    'QR acquiring plus inbound payment verification on this account.'
+)
+
+
+def _service_names(services: Optional[List] = None) -> List[str]:
+    names: List[str] = []
+    for item in services or []:
+        if isinstance(item, dict):
+            name = str(item.get('name') or '').strip()
+        else:
+            name = str(item or '').strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def looks_like_inbound_qr_service_name(name: str) -> bool:
+    """Heuristic only — does not mean HimalPay documented an inbound QR API."""
+    lowered = (name or '').strip().lower()
+    if not lowered:
+        return False
+    # Outbound bank transfer and remittance load are not inbound QR collection.
+    if lowered in {
+        'bank_transfer',
+        'bank_transfer_list',
+        'bank_transfer_verification',
+        'samsara_get',
+        'samsara_pay',
+    }:
+        return False
+    return any(hint in lowered for hint in _INBOUND_QR_NAME_HINTS)
+
+
+def assess_inbound_bank_qr_capability(services: Optional[List] = None) -> Dict[str, Any]:
+    """
+    Report whether official HimalPay APIs can accept interoperable bank-QR
+    payments into individual MySewa wallets.
+
+    Never invents endpoints or payloads. ``supported`` stays False unless
+    HimalPay documents a real inbound QR/collection API for this account.
+    """
+    names = _service_names(services)
+    hinted = [name for name in names if looks_like_inbound_qr_service_name(name)]
+    reason = INBOUND_BANK_QR_UNSUPPORTED_REASON
+    if hinted:
+        listed = ', '.join(hinted[:12])
+        reason = (
+            f'Reseller service list includes name(s) that might relate to QR or '
+            f'collection ({listed}). HimalPay has not documented request/response '
+            f'payloads, unique per-user destinations, or inbound webhooks for those '
+            f'services, so MySewa will not call them. '
+            f'{INBOUND_BANK_QR_UNSUPPORTED_REASON}'
+        )
+    return {
+        'supported': False,
+        'reason': reason,
+        'checkout_api_configured': False,
+        'hinted_service_names': hinted,
+    }
+
 
 # User-facing copy for known HimalPay error_code values (see himalpay-api.md).
 _HIMALPAY_CODE_MESSAGES: Dict[int, str] = {

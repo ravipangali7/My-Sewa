@@ -265,8 +265,8 @@ function parseEmvPayload(raw: string): Partial<ParsedBankQr> {
   const additional = tlv["62"] ? parseTlv(tlv["62"]) : {};
   for (const value of Object.values(additional)) consider(value);
 
-  // Mysewa marker lives in tag 62 (not 26–51) so bank Scan-to-Pay does not
-  // treat this QR as an unknown merchant scheme.
+  // Mysewa GUID in tags 26–51 marks this as an in-app wallet QR, not a
+  // HimalPay/NepalPay merchant destination. Tag 62 still carries the phone.
   const mysewaMarker = `${additional["50"] || ""} ${additional["99"] || ""}`;
   if (isMySewaBrand(mysewaMarker) || mysewaMarker.toLowerCase().includes(MYSEWA_QR_GUID)) {
     out.isMySewaWallet = true;
@@ -277,8 +277,7 @@ function parseEmvPayload(raw: string): Partial<ParsedBankQr> {
 
   if (swifts[0]) out.bankCode = swifts[0];
 
-  // In-app Mysewa transfers always target the wallet mobile, even when tag 26
-  // also carries a bank account for IBFT from banking apps.
+  // In-app Mysewa transfers always target the wallet mobile encoded in tag 62.
   const walletMobile =
     (additional["02"] && isNepaliMobile(additional["02"]) && last10Digits(additional["02"])) ||
     (additional["01"] && isNepaliMobile(additional["01"]) && last10Digits(additional["01"])) ||
@@ -443,41 +442,24 @@ export function emvCrcValid(payload: string): boolean {
 export const MYSEWA_QR_MARKER = "MYSEWA";
 
 /**
- * Personal receive-QR payload (NepalQR / EMVCo MPM, static, NPR).
+ * Personal Mysewa receive-QR payload (EMVCo MPM, static, NPR).
  *
- * Bank "Scan to Pay" apps (Fonepay / NEPALPAY / SmartQR) treat any unknown
- * reverse-domain GUID in tags 26–51 as a merchant scheme, look it up on their
- * network, and show SYSTEM ERROR when it is not enrolled. This payload therefore
- * matches a Nepali bank Share/account QR that those apps parse locally as an
- * IBFT / mobile transfer — never as a Fonepay/NCHL merchant:
- *   - Tag 26: 00 = SWIFT (when known) or destination account/mobile; 01 = account
- *   - Tag 52 = 0000 (P2P / account, not a merchant MCC)
- *   - Tag 59 / 62.02: account-holder name and mobile
- *   - Tag 62.50: Mysewa marker so this app still recognises its own QR
- * Optional `bankCode` (SWIFT) + `bankAccountNumber` encode a real bank
- * account QR. Never invent a SWIFT — a fake BIC can misroute a transfer.
+ * This identifies a Mysewa wallet for in-app Scan → Pay wallet transfers.
+ * It is not a HimalPay/NepalPay/Fonepay merchant QR: the current HimalPay
+ * Reseller API cannot accept interoperable bank-app payments into individual
+ * Mysewa wallets. Tag 26 uses the Mysewa GUID so banking apps do not treat
+ * the payload as a fake IBFT / Share account QR (which can misroute funds).
  */
 export function buildMySewaAccountQr(details: {
   accountName: string;
   accountNumber: string;
-  bankCode?: string;
-  bankAccountNumber?: string;
   city?: string;
 }): string {
   const phone = last10Digits(details.accountNumber) || String(details.accountNumber || "").trim();
   const merchant = emvMerchantName(details.accountName);
   const city = emvCity(details.city || "KATHMANDU");
-  const swift = normalizeBankCode(details.bankCode || "");
-  const bankAccount = String(details.bankAccountNumber || "")
-    .replace(/[\s-]/g, "")
-    .trim();
-  const destinationAccount = bankAccount || phone;
 
-  // Bank Share QRs: 00 = BIC/SWIFT (when known), 01 = account/mobile.
-  // Keep tag 26 numeric-or-BIC only — a dotted GUID triggers merchant lookup.
-  const accountMai = swift
-    ? emvTlv("00", swift) + emvTlv("01", destinationAccount)
-    : emvTlv("00", destinationAccount) + emvTlv("01", destinationAccount);
+  const accountMai = emvTlv("00", MYSEWA_QR_GUID) + emvTlv("01", phone);
 
   const additional =
     emvTlv("01", phone) +
