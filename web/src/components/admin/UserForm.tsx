@@ -231,7 +231,7 @@ export function UserForm({
       <div className="space-y-3 rounded-lg border border-border p-4">
         <p className="text-sm font-medium">Feature access</p>
         <p className="text-xs text-muted-foreground">
-          Grant or revoke this user's ability to perform fund transfers and wallet adjustments.
+          Grant or revoke this user's ability to perform fund transfers and wallet transfers.
         </p>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -249,9 +249,12 @@ export function UserForm({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <Label htmlFor="can_wallet_adjust" className="font-normal">
-              Wallet Adjustment
+              Wallet Transfer
             </Label>
-            <p className="text-xs text-muted-foreground">Manual load or debit wallets</p>
+            <p className="text-xs text-muted-foreground">
+              Send wallet balance to another MySewa user. Staff with this enabled can also
+              manually load or debit wallets.
+            </p>
           </div>
           <Switch
             id="can_wallet_adjust"

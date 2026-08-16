@@ -136,6 +136,8 @@ function txnDetailPath(row: StatementLedgerRow): string | null {
       return `/admin/deposits/${ms.txn_id}`;
     case "wallet_adjustment":
       return row.user_id ? `/admin/wallets` : null;
+    case "wallet_transfer":
+      return row.user_id ? `/admin/wallets` : null;
     default:
       return null;
   }

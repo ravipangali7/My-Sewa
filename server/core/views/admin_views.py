@@ -27,6 +27,7 @@ from rest_framework.views import APIView
 from ..models import (
     Wallet,
     WalletAdjustment,
+    WalletTransfer,
     Deposit,
     Settings,
     TopupTransaction,
@@ -51,6 +52,7 @@ from ..serializers import (
     AdminUserWriteSerializer,
     AdminWalletSerializer,
     WalletAdjustmentSerializer,
+    WalletTransferSerializer,
     WalletAdjustmentWriteSerializer,
     DepositSerializer,
     TopupTransactionSerializer,
@@ -882,11 +884,26 @@ def admin_user_report(request, user_id):
     # Debits are stored as negative signed amounts; report absolute debit total.
     adjustment_debits = abs(_sum_field(debit_adj))
 
+    wallet_transfer_debits = Decimal('0.00')
+    wallet_transfer_credits = Decimal('0.00')
+    try:
+        wt_sent = _apply_created_range(
+            WalletTransfer.objects.filter(sender=user, status='success'), start, end,
+        )
+        wt_received = _apply_created_range(
+            WalletTransfer.objects.filter(recipient=user, status='success'), start, end,
+        )
+        wallet_transfer_debits = _sum_field(wt_sent)
+        wallet_transfer_credits = _sum_field(wt_received)
+    except (OperationalError, ProgrammingError):
+        pass
+
     total_wallet_credits = (
-        deposit_credits + remittance_credits + adjustment_credits
+        deposit_credits + remittance_credits + adjustment_credits + wallet_transfer_credits
     )
     total_wallet_debits = (
-        topup_debits + transfer_debits + internet_debits + datapack_debits + adjustment_debits
+        topup_debits + transfer_debits + internet_debits + datapack_debits
+        + adjustment_debits + wallet_transfer_debits
     )
 
     transaction_volume = (
@@ -1206,6 +1223,8 @@ def admin_wallet_transactions(request, wallet_id):
         'community_electricity': 'community_electricity',
         'adjustment': 'wallet_adjustments',
         'wallet_adjustment': 'wallet_adjustments',
+        'wallet_transfer': 'wallet_transfers',
+        'wallet_transfers': 'wallet_transfers',
     }
     type_key = type_aliases.get(type_raw) if type_raw and type_raw != 'all' else None
 
@@ -1242,6 +1261,15 @@ def admin_wallet_transactions(request, wallet_id):
     electricity_bills = _bucket(ElectricityBillTransaction)
     community_electricity = _bucket(CommunityElectricityTransaction)
     adjustments = _bucket(WalletAdjustment)
+    try:
+        wallet_transfers = _apply_created_range(
+            WalletTransfer.objects.filter(Q(sender=user) | Q(recipient=user)).order_by('-created_at'),
+            start,
+            end,
+        )
+        wallet_transfers.exists()
+    except (OperationalError, ProgrammingError):
+        wallet_transfers = WalletTransfer.objects.none()
 
     payload = {
         'deposits': _ser(DepositSerializer, deposits),
@@ -1256,9 +1284,17 @@ def admin_wallet_transactions(request, wallet_id):
             CommunityElectricityTransactionSerializer, community_electricity
         ),
         'wallet_adjustments': _ser(WalletAdjustmentSerializer, adjustments),
+        'wallet_transfers': [],
         'wallet_id': wallet.id,
         'user_id': user.id,
     }
+
+    try:
+        payload['wallet_transfers'] = WalletTransferSerializer(
+            wallet_transfers, many=True, context={'viewer': user},
+        ).data
+    except (OperationalError, ProgrammingError):
+        payload['wallet_transfers'] = []
 
     if type_key:
         for key in (
@@ -1266,6 +1302,7 @@ def admin_wallet_transactions(request, wallet_id):
             'internet_bills', 'data_packs', 'water_bills', 'electricity_bills',
             'community_electricity',
             'wallet_adjustments',
+            'wallet_transfers',
         ):
             if key != type_key:
                 payload[key] = []
@@ -1295,6 +1332,8 @@ _TXN_KIND_ALIASES = {
     'adjustment': 'wallet_adjustment',
     'wallet_adjustment': 'wallet_adjustment',
     'wallet_adjustments': 'wallet_adjustment',
+    'wallet_transfer': 'wallet_transfer',
+    'wallet_transfers': 'wallet_transfer',
 }
 
 
@@ -1346,7 +1385,7 @@ def _apply_mixed_status(qs, status_filter, *, kind):
     """Filter status across deposit (approved/rejected), adjustments (always success), and provider txns."""
     if not status_filter or status_filter == 'all':
         return qs
-    if kind == 'wallet_adjustment':
+    if kind in ('wallet_adjustment', 'wallet_transfer'):
         if status_filter in ('success', 'approved'):
             return qs
         return qs.none()
@@ -1598,6 +1637,73 @@ def admin_transaction_history(request):
             ),
         ))
 
+    if type_key in (None, 'wallet_transfer'):
+        extra = None
+        if q:
+            extra = (
+                Q(reference__icontains=q)
+                | Q(remarks__icontains=q)
+                | Q(sender__phone__icontains=q)
+                | Q(recipient__phone__icontains=q)
+                | Q(sender__first_name__icontains=q)
+                | Q(sender__last_name__icontains=q)
+                | Q(recipient__first_name__icontains=q)
+                | Q(recipient__last_name__icontains=q)
+                | _maybe_id_query(q, 'id')
+            )
+        try:
+            wt_qs = WalletTransfer.objects.select_related(
+                'sender', 'sender__wallet', 'recipient', 'recipient__wallet',
+            ).order_by('-created_at')
+            wt_qs.exists()
+            wt_qs = _apply_created_range(wt_qs, start, end)
+            wt_qs = _apply_mixed_status(wt_qs, status_filter, kind='wallet_transfer')
+            if extra is not None:
+                wt_qs = wt_qs.filter(extra)
+        except (OperationalError, ProgrammingError):
+            wt_qs = WalletTransfer.objects.none()
+
+        def _wallet_transfer_rows(obj):
+            detail = (
+                f'{obj.sender.phone} → {obj.recipient.phone}'
+                + (f' · {obj.remarks}' if (obj.remarks or '').strip() else '')
+            )
+            sender_row = {
+                'id': f'wallet_transfer-{obj.id}-out',
+                'record_id': obj.id,
+                'kind': 'wallet_transfer',
+                'amount': _money_str(obj.amount) or '0.00',
+                'credit': False,
+                'status': obj.status or 'success',
+                'reference': (obj.reference or '').strip(),
+                'detail': detail,
+                'balance_before': _money_str(obj.sender_balance_before),
+                'balance_after': _money_str(obj.sender_balance_after),
+                'created_at': _iso_dt(obj.created_at),
+                **_user_ledger_fields(obj.sender),
+            }
+            recipient_row = {
+                'id': f'wallet_transfer-{obj.id}-in',
+                'record_id': obj.id,
+                'kind': 'wallet_transfer',
+                'amount': _money_str(obj.amount) or '0.00',
+                'credit': True,
+                'status': obj.status or 'success',
+                'reference': (obj.reference or '').strip(),
+                'detail': detail,
+                'balance_before': _money_str(obj.recipient_balance_before),
+                'balance_after': _money_str(obj.recipient_balance_after),
+                'created_at': _iso_dt(obj.created_at),
+                **_user_ledger_fields(obj.recipient),
+            }
+            return [sender_row, recipient_row]
+
+        sources.append((
+            'wallet_transfer',
+            wt_qs,
+            _wallet_transfer_rows,
+        ))
+
     rows = []
     type_counts = {
         'all': 0,
@@ -1611,13 +1717,16 @@ def admin_transaction_history(request):
         'electricity': 0,
         'community_electricity': 0,
         'wallet_adjustment': 0,
+        'wallet_transfer': 0,
     }
     for kind, qs, mapper in sources:
         for obj in qs:
-            row = mapper(obj)
-            rows.append(row)
-            type_counts[kind] += 1
-            type_counts['all'] += 1
+            mapped = mapper(obj)
+            mapped_rows = mapped if isinstance(mapped, list) else [mapped]
+            for row in mapped_rows:
+                rows.append(row)
+                type_counts[kind] += 1
+                type_counts['all'] += 1
 
     rows.sort(key=lambda r: r['created_at'] or '', reverse=True)
 
@@ -2588,6 +2697,8 @@ def admin_list_remittances(request):
     if q:
         qs = qs.filter(
             Q(user__phone__icontains=q)
+            | Q(user__first_name__icontains=q)
+            | Q(user__last_name__icontains=q)
             | Q(ref_no__icontains=q)
             | Q(sender_name__icontains=q)
             | Q(receiver_name__icontains=q)
@@ -2600,12 +2711,14 @@ def admin_list_remittances(request):
         return _csv_response(
             'admin-remittances.csv',
             [
-                'id', 'phone', 'ref_no', 'sender_name', 'receiver_name', 'amount',
+                'id', 'phone', 'user_name', 'ref_no', 'sender_name', 'receiver_name', 'amount',
                 'total_credited', 'merchant_txn_id', 'provider_txn_id', 'status', 'created_at',
             ],
             [
                 [
-                    r.id, r.user.phone, r.ref_no, r.sender_name, r.receiver_name, r.amount,
+                    r.id, r.user.phone,
+                    ' '.join(p for p in (r.user.first_name, r.user.last_name) if p).strip(),
+                    r.ref_no, r.sender_name, r.receiver_name, r.amount,
                     r.total_credited, r.merchant_txn_id, r.provider_txn_id or '', r.status,
                     r.created_at.isoformat() if r.created_at else '',
                 ]
@@ -2614,7 +2727,7 @@ def admin_list_remittances(request):
         )
 
     return Response({
-        'items': RemittanceTransactionSerializer(qs, many=True).data,
+        'items': RemittanceTransactionSerializer(qs, many=True, context={'request': request}).data,
         'stats': {
             'total': qs.count(),
             'success': qs.filter(status='success').count(),
@@ -2632,7 +2745,7 @@ def admin_get_remittance(request, remittance_id):
         rem = RemittanceTransaction.objects.select_related('user').get(pk=remittance_id)
     except RemittanceTransaction.DoesNotExist:
         return Response({'error': 'Remittance not found'}, status=status.HTTP_404_NOT_FOUND)
-    return Response(AdminRemittanceSerializer(rem).data)
+    return Response(AdminRemittanceSerializer(rem, context={'request': request}).data)
 
 
 @api_view(['POST', 'PATCH'])
@@ -2656,7 +2769,7 @@ def admin_update_remittance_status(request, remittance_id):
 
     return Response({
         'message': f'Remittance status updated to {rem.status}',
-        'data': RemittanceTransactionSerializer(rem).data,
+        'data': RemittanceTransactionSerializer(rem, context={'request': request}).data,
     })
 
 

@@ -21,7 +21,8 @@ export type ActivityKind =
   | "water"
   | "electricity"
   | "community_electricity"
-  | "wallet_adjustment";
+  | "wallet_adjustment"
+  | "wallet_transfer";
 export type WalletAdjustmentType = "credit" | "debit";
 
 /** Account approval status — pending users can log in but cannot transact. */
@@ -534,6 +535,8 @@ export interface RemittanceTransaction {
   beneficiary_mobile_no: string;
   beneficiary_dob: string;
   remittance_purpose: string;
+  citizenship_front?: string | null;
+  citizenship_back?: string | null;
   status: TxnStatus;
   status_display: string;
   citizenship_review_pending?: boolean;
@@ -793,6 +796,30 @@ export interface WalletAdjustment {
   reference: string | null;
 }
 
+export interface WalletTransfer {
+  id: number;
+  amount: string;
+  remarks: string;
+  status: TxnStatus;
+  reference: string;
+  created_at: string;
+  sender: number;
+  sender_phone: string;
+  sender_name: string;
+  recipient: number;
+  recipient_phone: string;
+  recipient_name: string;
+  direction: "sent" | "received";
+  counterparty_phone: string;
+  counterparty_name: string;
+  balance_before: string;
+  balance_after: string;
+  sender_balance_before: string;
+  sender_balance_after: string;
+  recipient_balance_before: string;
+  recipient_balance_after: string;
+}
+
 export interface WalletTransactions {
   deposits: Deposit[];
   remittances?: RemittanceTransaction[];
@@ -804,6 +831,7 @@ export interface WalletTransactions {
   electricity_bills?: ElectricityBillTransaction[];
   community_electricity?: CommunityElectricityTransaction[];
   wallet_adjustments?: WalletAdjustment[];
+  wallet_transfers?: WalletTransfer[];
   summary?: AmountSummary;
 }
 

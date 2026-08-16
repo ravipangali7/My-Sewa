@@ -61,7 +61,7 @@ function KindIcon({ item }: { item: ActivityItem }) {
   if (item.kind === "deposit") return <Download className="size-[18px]" strokeWidth={2.25} />;
   if (item.kind === "remittance") return <ArrowDownToLine className="size-[18px]" strokeWidth={2.25} />;
   if (item.kind === "topup") return <Smartphone className="size-[18px]" strokeWidth={2.25} />;
-  if (item.kind === "transfer") return <Send className="size-[18px]" strokeWidth={2.25} />;
+  if (item.kind === "transfer" || item.kind === "wallet_transfer") return <Send className="size-[18px]" strokeWidth={2.25} />;
   if (item.kind === "internet") return <Wifi className="size-[18px]" strokeWidth={2.25} />;
   if (item.kind === "data_pack") return <Signal className="size-[18px]" strokeWidth={2.25} />;
   if (item.kind === "water") return <Droplets className="size-[18px]" strokeWidth={2.25} />;

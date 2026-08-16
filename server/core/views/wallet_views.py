@@ -4,7 +4,7 @@ Wallet views: Get balance, transaction history
 from decimal import Decimal
 import logging
 
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.db.utils import OperationalError, ProgrammingError
 from django.utils import timezone
 from rest_framework import status
@@ -23,6 +23,7 @@ from ..models import (
     CommunityElectricityTransaction,
     DataPackTransaction,
     WalletAdjustment,
+    WalletTransfer,
     _ensure_electricity_bill_table,
 )
 from ..serializers import (
@@ -37,6 +38,7 @@ from ..serializers import (
     CommunityElectricityTransactionSerializer,
     DataPackTransactionSerializer,
     WalletAdjustmentSerializer,
+    WalletTransferSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,6 +73,19 @@ def _user_ordered(model, user):
             except Exception:
                 logger.exception('Failed to self-heal electricity bill table')
         return model.objects.none()
+
+
+def _wallet_transfers_ordered(user):
+    qs = (
+        WalletTransfer.objects.filter(Q(sender=user) | Q(recipient=user))
+        .select_related('sender', 'recipient')
+        .order_by('-created_at')
+    )
+    try:
+        qs.exists()
+        return qs
+    except (OperationalError, ProgrammingError):
+        return WalletTransfer.objects.none()
 
 
 def _serialize_many(serializer_cls, qs):
@@ -128,6 +143,7 @@ def get_transaction_history(request):
             'community_electricity': [],
             'data_packs': [],
             'wallet_adjustments': [],
+            'wallet_transfers': [],
             'summary': {
                 'total_volume': 0,
                 'total_credit': 0,
@@ -157,6 +173,7 @@ def _transaction_history_payload(request):
     community_electricity = _user_ordered(CommunityElectricityTransaction, request.user)
     data_packs = _user_ordered(DataPackTransaction, request.user)
     adjustments = _user_ordered(WalletAdjustment, request.user)
+    wallet_transfers = _wallet_transfers_ordered(request.user)
 
     today = timezone.localdate()
     month_start = today.replace(day=1)
@@ -172,19 +189,23 @@ def _transaction_history_payload(request):
     success_packs = data_packs.filter(status='success')
     credit_adjustments = adjustments.filter(adjustment_type='credit')
     debit_adjustments = adjustments.filter(adjustment_type='debit')
+    sent_wallet_transfers = wallet_transfers.filter(sender=request.user, status='success')
+    received_wallet_transfers = wallet_transfers.filter(recipient=request.user, status='success')
 
     deposit_credit = _sum_or_zero(approved_deposits)
     remittance_credit = _sum_or_zero(success_remittances, 'total_credited')
     if remittance_credit == 0:
         remittance_credit = _sum_or_zero(success_remittances)
     adjustment_credit = _sum_or_zero(credit_adjustments)
+    wallet_transfer_credit = _sum_or_zero(received_wallet_transfers)
 
     def _debit(qs):
         total = _sum_or_zero(qs, 'total_debited')
         return total if total else _sum_or_zero(qs)
 
     adjustment_debit = abs(_sum_or_zero(debit_adjustments))
-    total_credit = deposit_credit + remittance_credit + adjustment_credit
+    wallet_transfer_debit = _sum_or_zero(sent_wallet_transfers)
+    total_credit = deposit_credit + remittance_credit + adjustment_credit + wallet_transfer_credit
     total_debit = (
         _debit(success_topups)
         + _debit(success_transfers)
@@ -194,6 +215,7 @@ def _transaction_history_payload(request):
         + _debit(success_community)
         + _debit(success_packs)
         + adjustment_debit
+        + wallet_transfer_debit
     )
 
     today_credit = (
@@ -203,6 +225,7 @@ def _transaction_history_payload(request):
             or _sum_or_zero(success_remittances.filter(created_at__date=today))
         )
         + _sum_or_zero(credit_adjustments.filter(created_at__date=today))
+        + _sum_or_zero(received_wallet_transfers.filter(created_at__date=today))
     )
     today_debit = (
         _debit(success_topups.filter(created_at__date=today))
@@ -213,6 +236,7 @@ def _transaction_history_payload(request):
         + _debit(success_community.filter(created_at__date=today))
         + _debit(success_packs.filter(created_at__date=today))
         + abs(_sum_or_zero(debit_adjustments.filter(created_at__date=today)))
+        + _sum_or_zero(sent_wallet_transfers.filter(created_at__date=today))
     )
     month_credit = (
         _sum_or_zero(approved_deposits.filter(created_at__date__gte=month_start))
@@ -221,6 +245,7 @@ def _transaction_history_payload(request):
             or _sum_or_zero(success_remittances.filter(created_at__date__gte=month_start))
         )
         + _sum_or_zero(credit_adjustments.filter(created_at__date__gte=month_start))
+        + _sum_or_zero(received_wallet_transfers.filter(created_at__date__gte=month_start))
     )
     month_debit = (
         _debit(success_topups.filter(created_at__date__gte=month_start))
@@ -231,7 +256,15 @@ def _transaction_history_payload(request):
         + _debit(success_community.filter(created_at__date__gte=month_start))
         + _debit(success_packs.filter(created_at__date__gte=month_start))
         + abs(_sum_or_zero(debit_adjustments.filter(created_at__date__gte=month_start)))
+        + _sum_or_zero(sent_wallet_transfers.filter(created_at__date__gte=month_start))
     )
+
+    try:
+        wallet_transfer_payload = WalletTransferSerializer(
+            wallet_transfers, many=True, context={'viewer': request.user, 'request': request},
+        ).data
+    except (OperationalError, ProgrammingError):
+        wallet_transfer_payload = []
 
     return Response({
         'deposits': _serialize_many(DepositSerializer, deposits),
@@ -246,6 +279,7 @@ def _transaction_history_payload(request):
         ),
         'data_packs': _serialize_many(DataPackTransactionSerializer, data_packs),
         'wallet_adjustments': _serialize_many(WalletAdjustmentSerializer, adjustments),
+        'wallet_transfers': wallet_transfer_payload,
         'summary': {
             'total_volume': _money(total_credit + total_debit),
             'total_credit': _money(total_credit),

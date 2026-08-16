@@ -16,6 +16,7 @@ const ACTIVITY_PREFIX_BY_KIND: Record<ActivityKind, string> = {
   electricity: "nea",
   community_electricity: "ce",
   wallet_adjustment: "adj",
+  wallet_transfer: "wt",
 };
 
 export function activityIdForKind(kind: ActivityKind, id: number) {

@@ -38,6 +38,14 @@ import { downloadCsvExport } from "@/lib/list-query";
 const LIST_PAGE = 1;
 const LIST_PAGE_SIZE = 50;
 
+function remittanceUserName(r: {
+  first_name?: string;
+  last_name?: string;
+  phone: string;
+}) {
+  return [r.first_name, r.last_name].filter(Boolean).join(" ").trim() || r.phone;
+}
+
 export const Route = createFileRoute("/admin/remittances")({
   head: () => ({
     meta: [
@@ -149,7 +157,7 @@ function RemittancesPage() {
             }
           }}
           exporting={exporting}
-          searchPlaceholder="Search phone, ref no, sender…"
+          searchPlaceholder="Search phone, name, ref no, sender, receiver…"
           exportLabel="Download CSV"
           statsLabels={{
             total: "Total",
@@ -172,6 +180,7 @@ function RemittancesPage() {
                   <TableHead>User</TableHead>
                   <TableHead>Ref</TableHead>
                   <TableHead>Sender</TableHead>
+                  <TableHead>Receiver</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead className="text-right">Credited</TableHead>
                   <TableHead>Status</TableHead>
@@ -185,9 +194,15 @@ function RemittancesPage() {
                       {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}
                     </TableCell>
                     <TableCell className="text-sm">#{r.id}</TableCell>
-                    <TableCell className="text-sm">{r.phone}</TableCell>
+                    <TableCell className="text-sm">
+                      <span className="font-medium">{remittanceUserName(r)}</span>
+                      {remittanceUserName(r) !== r.phone ? (
+                        <span className="mt-0.5 block text-xs text-muted-foreground">{r.phone}</span>
+                      ) : null}
+                    </TableCell>
                     <TableCell className="font-mono text-xs">{r.ref_no}</TableCell>
                     <TableCell className="text-sm">{r.sender_name || "—"}</TableCell>
+                    <TableCell className="text-sm">{r.receiver_name || "—"}</TableCell>
                     <TableCell className="tabular text-right text-sm font-semibold">
                       {formatNPR(r.amount)}
                     </TableCell>
@@ -200,6 +215,30 @@ function RemittancesPage() {
                       {r.citizenship_review_pending ? (
                         <span className="mt-1 block text-[11px] font-medium text-amber-700 dark:text-amber-300">
                           Citizenship review
+                        </span>
+                      ) : null}
+                      {(r.citizenship_front || r.citizenship_back) ? (
+                        <span className="mt-1 flex gap-1">
+                          {r.citizenship_front ? (
+                            <a
+                              href={r.citizenship_front}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] font-medium text-brand hover:underline"
+                            >
+                              Front
+                            </a>
+                          ) : null}
+                          {r.citizenship_back ? (
+                            <a
+                              href={r.citizenship_back}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] font-medium text-brand hover:underline"
+                            >
+                              Back
+                            </a>
+                          ) : null}
                         </span>
                       ) : null}
                     </TableCell>
@@ -220,7 +259,8 @@ function RemittancesPage() {
                       <div className="min-w-0">
                         <p className="font-medium">{r.ref_no}</p>
                         <p className="text-xs text-muted-foreground">
-                          #{r.id} · {r.phone}
+                          #{r.id} · {remittanceUserName(r)}
+                          {remittanceUserName(r) !== r.phone ? ` · ${r.phone}` : ""}
                         </p>
                       </div>
                     </div>
@@ -236,12 +276,37 @@ function RemittancesPage() {
                       },
                       { label: "Sender", value: r.sender_name || "—" },
                       { label: "Receiver", value: r.receiver_name || "—" },
+                      { label: "User", value: remittanceUserName(r) },
                       { label: "When", value: formatDateTime(r.created_at) },
                       ...(r.citizenship_review_pending
                         ? [{ label: "Review", value: "Citizenship mismatch — update soon" }]
                         : []),
                     ]}
                   />
+                  {(r.citizenship_front || r.citizenship_back) ? (
+                    <div className="mt-2 flex gap-3 text-[12px] font-medium">
+                      {r.citizenship_front ? (
+                        <a
+                          href={r.citizenship_front}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-brand hover:underline"
+                        >
+                          Front ID
+                        </a>
+                      ) : null}
+                      {r.citizenship_back ? (
+                        <a
+                          href={r.citizenship_back}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-brand hover:underline"
+                        >
+                          Back ID
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="mt-3">{statusSelect(r.id, r.status)}</div>
                 </AdminMobileCard>
               ))}

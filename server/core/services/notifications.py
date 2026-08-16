@@ -1589,6 +1589,94 @@ def notify_wallet_adjustment(
     )
 
 
+def notify_wallet_transfer(transfer) -> None:
+    """Email + push for both parties after an instant wallet-to-wallet transfer."""
+    cfg = _notif_cfg()
+    site_name = _site_name()
+    amount_display = _fmt_amount(transfer.amount)
+    remarks = (transfer.remarks or '').strip() or '-'
+    ref = transfer.reference or f'#{transfer.id}'
+    sender = transfer.sender
+    recipient = transfer.recipient
+    sender_name = (
+        f'{(sender.first_name or "").strip()} {(sender.last_name or "").strip()}'.strip()
+        or sender.phone
+    )
+    recipient_name = (
+        f'{(recipient.first_name or "").strip()} {(recipient.last_name or "").strip()}'.strip()
+        or recipient.phone
+    )
+
+    sender_rows: List[Row] = [
+        ('Type', 'Wallet transfer sent'),
+        ('Recipient', f'{recipient_name} ({recipient.phone})'),
+        ('Amount', amount_display),
+        ('New balance', _fmt_amount(transfer.sender_balance_after)),
+        ('Remarks', remarks),
+        ('Reference', ref),
+        ('Date', _format_when(getattr(transfer, 'created_at', None))),
+        ('Status', 'Success'),
+    ]
+    recipient_rows: List[Row] = [
+        ('Type', 'Wallet transfer received'),
+        ('Sender', f'{sender_name} ({sender.phone})'),
+        ('Amount', amount_display),
+        ('New balance', _fmt_amount(transfer.recipient_balance_after)),
+        ('Remarks', remarks),
+        ('Reference', ref),
+        ('Date', _format_when(getattr(transfer, 'created_at', None))),
+        ('Status', 'Success'),
+    ]
+
+    if cfg.get('email_on_transfer', True) and _user_email(sender):
+        _send_txn_email(
+            recipients=[sender.email],
+            subject=f'[{site_name}] Wallet transfer sent',
+            text_intro=(
+                f'{amount_display} was sent to {recipient_name} ({recipient.phone}).'
+            ),
+            title='Wallet transfer sent',
+            subtitle=f'{amount_display} was transferred from your MySewa wallet.',
+            amount_display=amount_display,
+            status='success',
+            status_label='Sent',
+            rows=sender_rows,
+            greeting=f'Hi {getattr(sender, "first_name", "") or "there"},',
+            copy_admin=False,
+        )
+    if cfg.get('email_on_wallet_credit', True) and _user_email(recipient):
+        _send_txn_email(
+            recipients=[recipient.email],
+            subject=f'[{site_name}] Wallet transfer received',
+            text_intro=(
+                f'{amount_display} was received from {sender_name} ({sender.phone}).'
+            ),
+            title='Wallet transfer received',
+            subtitle=f'{amount_display} was added to your MySewa wallet.',
+            amount_display=amount_display,
+            status='success',
+            status_label='Received',
+            rows=recipient_rows,
+            greeting=f'Hi {getattr(recipient, "first_name", "") or "there"},',
+            copy_admin=False,
+        )
+
+    _push(
+        sender,
+        f'{site_name}: Wallet transfer sent',
+        f'{amount_display} sent to {recipient.phone}.',
+        event='wallet_transfer',
+        extra={'amount': transfer.amount, 'ref': ref, 'direction': 'sent'},
+    )
+    _push(
+        recipient,
+        f'{site_name}: Wallet transfer received',
+        f'{amount_display} received from {sender.phone}.',
+        event='wallet_transfer',
+        extra={'amount': transfer.amount, 'ref': ref, 'direction': 'received'},
+    )
+
+
 def notify_remittance_citizenship_review(remittance) -> None:
     """
     Separate admin email when citizenship matching failed twice and the
@@ -1611,6 +1699,14 @@ def notify_remittance_citizenship_review(remittance) -> None:
         ('Reference no.', remittance.ref_no or '-'),
         ('Amount', _fmt_amount(remittance.amount)),
         ('User', getattr(user, 'phone', '-') or '-'),
+        ('User name', (
+            ' '.join(
+                p for p in (
+                    getattr(user, 'first_name', ''),
+                    getattr(user, 'last_name', ''),
+                ) if p
+            ).strip() or '-'
+        )),
         ('Receiver name', remittance.receiver_name or '-'),
         ('Citizenship no.', remittance.beneficiary_citizenship_number or '-'),
         ('Date of birth', remittance.beneficiary_dob or '-'),
@@ -1629,8 +1725,8 @@ def notify_remittance_citizenship_review(remittance) -> None:
             recipients=admin_emails,
             subject=f'[{site_name}] Remittance pending citizenship review #{remittance.id}',
             text_intro=(
-                f'Remittance {remittance.ref_no} was submitted as pending because '
-                'citizenship image matching failed twice. Please review and update '
+                f'Remittance {remittance.ref_no} was received from HimalPay and is pending '
+                'because citizenship image matching failed twice. Please review and update '
                 'the details very soon.'
             ),
             title='Citizenship review needed',

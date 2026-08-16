@@ -4,12 +4,15 @@ Compare remittance (sender-provided) citizenship data against OCR from front + b
 from __future__ import annotations
 
 import logging
+import os
 import re
 import unicodedata
 from difflib import SequenceMatcher
 from typing import Any, Optional
 
 from django.core.cache import cache
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 
 from .bs_ad import dates_equal, normalize_date_to_ad_iso, normalize_nepali_digits
 from .citizenship_ocr import CombinedCitizenshipOcr, extract_citizenship_from_images
@@ -336,6 +339,52 @@ def ticket_key(user_id, ref_no: str) -> str:
     return f'{TICKET_CACHE_PREFIX}:{user_id}:{str(ref_no or "").strip().upper()}'
 
 
+def _citizenship_image_ext(uploaded, default: str = '.jpg') -> str:
+    name = getattr(uploaded, 'name', '') or ''
+    ext = os.path.splitext(name)[1].lower()
+    if ext == '.jpeg':
+        ext = '.jpg'
+    if ext in ('.jpg', '.png', '.webp', '.gif'):
+        return ext
+    content_type = (getattr(uploaded, 'content_type', '') or '').lower()
+    if 'png' in content_type:
+        return '.png'
+    if 'webp' in content_type:
+        return '.webp'
+    return default
+
+
+def citizenship_image_storage_path(user_id, ref_no: str, side: str, ext: str) -> str:
+    ref = re.sub(r'[^A-Za-z0-9_-]+', '_', str(ref_no or 'unknown').strip().upper())
+    return f'remittance_citizenship/{user_id}/{ref}/{side}{ext}'
+
+
+def persist_citizenship_images(user_id, ref_no: str, front, back) -> dict[str, str]:
+    """Keep the original uploaded citizenship photos in storage for later attach."""
+    paths: dict[str, str] = {}
+    for side, uploaded in (('front', front), ('back', back)):
+        if not uploaded:
+            continue
+        try:
+            uploaded.seek(0)
+        except Exception:
+            pass
+        data = uploaded.read() if hasattr(uploaded, 'read') else uploaded
+        try:
+            uploaded.seek(0)
+        except Exception:
+            pass
+        if not data:
+            continue
+        ext = _citizenship_image_ext(uploaded)
+        name = citizenship_image_storage_path(user_id, ref_no, side, ext)
+        if default_storage.exists(name):
+            default_storage.delete(name)
+        saved = default_storage.save(name, ContentFile(data))
+        paths[side] = saved
+    return paths
+
+
 def store_verification_ticket(user_id, ref_no: str, result: dict[str, Any]) -> None:
     if not ref_no:
         return
@@ -349,6 +398,7 @@ def store_verification_ticket(user_id, ref_no: str, result: dict[str, Any]) -> N
             'attempts': int(result.get('attempt_count') or 0),
             'pending_review_allowed': bool(result.get('pending_review_allowed')),
             'ocr': result.get('ocr') or {},
+            'image_paths': result.get('image_paths') or {},
         },
         TICKET_TTL_SECONDS,
     )
@@ -360,6 +410,8 @@ def apply_attempt_state(user_id, ref_no: str, result: dict[str, Any]) -> dict[st
     may be submitted as pending for admin review.
     """
     prev = load_verification_ticket(user_id, ref_no) or {}
+    if not result.get('image_paths') and prev.get('image_paths'):
+        result['image_paths'] = prev.get('image_paths')
     if result.get('allowed'):
         attempts = 0
         pending_review = False

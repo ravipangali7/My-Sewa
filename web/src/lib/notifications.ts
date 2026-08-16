@@ -146,6 +146,30 @@ function detailRows(
       { label: t("common.date"), value: formatDateTime(adj.created_at) },
     ];
   }
+  if (item.kind === "wallet_transfer") {
+    const wt = (tx.wallet_transfers ?? []).find((x) => `wt-${x.id}` === item.id);
+    if (!wt) return [];
+    const received = wt.direction === "received";
+    return [
+      {
+        label: t("common.type"),
+        value: received
+          ? t("activity.walletTransferReceived")
+          : t("activity.walletTransferSent"),
+      },
+      {
+        label: received ? t("transfer.walletFrom") : t("transfer.walletTo"),
+        value: wt.counterparty_name
+          ? `${wt.counterparty_name} · ${wt.counterparty_phone}`
+          : wt.counterparty_phone,
+      },
+      { label: t("common.amount"), value: formatNPR(wt.amount) },
+      { label: t("common.status"), value: translateStatus(wt.status, t) },
+      { label: t("common.remarks"), value: wt.remarks || "—" },
+      { label: t("common.txnId"), value: wt.reference, mono: true },
+      { label: t("common.date"), value: formatDateTime(wt.created_at) },
+    ];
+  }
   const b = tx.bank_transfers.find((x) => `bt-${x.id}` === item.id);
   if (!b) return [];
   return [
@@ -244,6 +268,18 @@ function notificationCopy(
       body: t("notif.walletAdjustmentBody", {
         amount: formatNPR(item.amount),
         note: item.subtitle || "—",
+      }),
+    };
+  }
+  if (item.kind === "wallet_transfer") {
+    const received = item.credit;
+    return {
+      title: received
+        ? t("activity.walletTransferReceived")
+        : t("activity.walletTransferSent"),
+      body: t("notif.walletTransferBody", {
+        subtitle: item.subtitle,
+        amount: formatNPR(item.amount),
       }),
     };
   }

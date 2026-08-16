@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
-import { isAccountPending, canFundTransfer, isWalletBlocked } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer, canWalletAdjust, isWalletBlocked } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -58,7 +58,7 @@ export const Route = createFileRoute("/app/transfer")({
   component: Transfer,
 });
 
-type TransferMethod = "bank" | "phone";
+type TransferMethod = "bank" | "phone" | "wallet";
 
 type VerifiedDestination = {
   bank_code: string;
@@ -69,9 +69,6 @@ type VerifiedDestination = {
 };
 
 type VerifyResult = "verified" | "failed" | "abort";
-
-const QR_VERIFY_MAX_ATTEMPTS = 5;
-const QR_VERIFY_RETRY_GAP_MS = 1000;
 
 function Transfer() {
   const navigate = useNavigate();
@@ -108,12 +105,15 @@ function Transfer() {
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
-  const [qrFilled, setQrFilled] = useState(false);
-  const [qrVerifyAttempt, setQrVerifyAttempt] = useState(0);
   const skipMethodResetRef = useRef(false);
   const pendingQrAmountRef = useRef("");
-  const pendingQrVerifyRef = useRef(false);
-  const qrVerifyGenerationRef = useRef(0);
+  const [walletPhone, setWalletPhone] = useState("");
+  const [walletRecipient, setWalletRecipient] = useState<{
+    phone: string;
+    name: string;
+    business_name?: string;
+  } | null>(null);
+  const [walletLooking, setWalletLooking] = useState(false);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -124,6 +124,8 @@ function Transfer() {
     settingsQuery.data?.config?.payment?.transfers_enabled !== false &&
     !accountPending &&
     canFundTransfer(user);
+  const walletTransfersEnabled = !accountPending && canWalletAdjust(user);
+  const anyTransferEnabled = transfersEnabled || walletTransfersEnabled;
   const depositsEnabled =
     settingsQuery.data?.config?.payment?.deposits_enabled !== false && !accountPending;
   const minTransfer = settingsQuery.data?.config?.transactions?.min_transfer ?? 10;
@@ -164,10 +166,36 @@ function Transfer() {
     queryFn: () => apiClient.transferHistory(debounced),
     ...liveQueryOptions(),
   });
+  const walletHistoryQuery = useQuery({
+    queryKey: ["wallet-transfers", debounced],
+    queryFn: () => apiClient.walletTransferHistory(debounced),
+    ...liveQueryOptions(),
+  });
   const transferItems = useMemo(
     () => sortByLatestFirst(historyQuery.data?.items ?? []),
     [historyQuery.data?.items],
   );
+  const walletTransferItems = useMemo(
+    () => sortByLatestFirst(walletHistoryQuery.data?.items ?? []),
+    [walletHistoryQuery.data?.items],
+  );
+  const recentRows = useMemo(() => {
+    const bank = transferItems.map((item) => ({
+      kind: "bank" as const,
+      at: item.created_at,
+      id: `bt-${item.id}`,
+      item,
+    }));
+    const wallet = walletTransferItems.map((item) => ({
+      kind: "wallet" as const,
+      at: item.created_at,
+      id: `wt-${item.id}`,
+      item,
+    }));
+    return [...bank, ...wallet].sort(
+      (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
+    );
+  }, [transferItems, walletTransferItems]);
   const transferStats = historyQuery.data?.stats;
 
   // Auto-poll HimalPay status for pending transfers (wallet-service-reseller-status)
@@ -206,17 +234,11 @@ function Transfer() {
   const walletBlocked = isWalletBlocked(walletQuery.data);
   const totalDue = Number(totalDebited) || amt;
   const insufficient =
-    amt >= minTransfer && totalDue > 0 && walletBalance < totalDue;
+    method === "wallet"
+      ? amt >= minTransfer && walletBalance < amt
+      : amt >= minTransfer && totalDue > 0 && walletBalance < totalDue;
   const isMobile = method === "phone";
   const destinationNumber = isMobile ? phone.trim() : accNo.trim();
-  const showVerifyButton = !qrFilled;
-  const qrVerifyingLabel =
-    qrFilled && verifying
-      ? t("transfer.verifyingQrRetry", {
-          attempt: Math.max(qrVerifyAttempt, 1),
-          max: QR_VERIFY_MAX_ATTEMPTS,
-        })
-      : null;
 
   function resolveBankCode(code: string, name = "") {
     const matched = matchBank(banks, code) || matchBank(banks, name);
@@ -240,15 +262,17 @@ function Transfer() {
   }, [banks, bank]);
 
   useEffect(() => {
+    if (!transfersEnabled && walletTransfersEnabled && method !== "wallet") {
+      setMethod("wallet");
+    }
+  }, [transfersEnabled, walletTransfersEnabled, method]);
+
+  useEffect(() => {
     if (skipMethodResetRef.current) {
       skipMethodResetRef.current = false;
       return;
     }
-    qrVerifyGenerationRef.current += 1;
-    pendingQrVerifyRef.current = false;
-    setQrVerifyAttempt(0);
     setVerifying(false);
-    setQrFilled(false);
     setVerified(false);
     setVerifyStatus("idle");
     setVerifiedDetails(null);
@@ -257,12 +281,12 @@ function Transfer() {
     setCashback("0.00");
     setTotalDebited("0.00");
     if (method === "phone") setAccName("");
+    if (method !== "wallet") {
+      setWalletRecipient(null);
+    }
   }, [method]);
 
   function resetVerification() {
-    qrVerifyGenerationRef.current += 1;
-    pendingQrVerifyRef.current = false;
-    setQrVerifyAttempt(0);
     setVerifying(false);
     setVerified(false);
     setVerifyStatus("idle");
@@ -273,39 +297,27 @@ function Transfer() {
     setTotalDebited("0.00");
   }
 
-  useEffect(() => {
-    return () => {
-      qrVerifyGenerationRef.current += 1;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!pendingQrVerifyRef.current || !qrFilled || verifying || verified) return;
-    const number = (method === "phone" ? phone : accNo).trim();
-    const resolvedBank = resolveBankCode(bank);
-    if (!number) return;
-    if (!resolvedBank) return;
-    if (!banks.length && banksQuery.isLoading) return;
-    void verifyDestinationFromQr({
-      bankCode: resolvedBank,
-      accountNumber: number,
-      accountName: accName,
-      isMobile: method === "phone",
-      allowMissingName: true,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    qrFilled,
-    bank,
-    accNo,
-    phone,
-    method,
-    accName,
-    verifying,
-    verified,
-    banks,
-    banksQuery.isLoading,
-  ]);
+  async function lookupWalletUser() {
+    const raw = walletPhone.replace(/\D/g, "");
+    if (raw.length < 10) {
+      toast.error(t("transfer.invalidNepaliMobile"));
+      return;
+    }
+    setWalletLooking(true);
+    try {
+      const res = await apiClient.lookupWalletTransfer({ phone: walletPhone.trim() });
+      setWalletRecipient(res);
+      toast.success(t("transfer.verifiedAs", { name: res.name || res.phone }));
+    } catch (err) {
+      setWalletRecipient(null);
+      toastApiError(err, {
+        title: t("transfer.walletNotFound"),
+        fallback: t("transfer.walletNotFound"),
+      });
+    } finally {
+      setWalletLooking(false);
+    }
+  }
 
   useEffect(() => {
     setRemarks((prev) =>
@@ -315,6 +327,13 @@ function Transfer() {
   }, [locale]);
 
   useEffect(() => {
+    if (method === "wallet") {
+      const next = Number(amount) || 0;
+      setCharge("0.00");
+      setCashback("0.00");
+      setTotalDebited(next > 0 ? next.toFixed(2) : "0.00");
+      return;
+    }
     if (!transfersEnabled || !verified || amt < minTransfer) {
       setCharge("0.00");
       setCashback("0.00");
@@ -346,7 +365,7 @@ function Transfer() {
     }, 350);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [amt, transfersEnabled, minTransfer, verified]);
+  }, [amt, amount, transfersEnabled, minTransfer, verified, method]);
 
   const selectedBank = banks.find((b) => b.bank_code === bank);
 
@@ -386,6 +405,28 @@ function Transfer() {
     mutationFn: (transaction_pin: string) => {
       if (accountPending) throw new Error(t("account.pending"));
       if (walletBlocked) throw new Error(t("account.walletBlocked"));
+      if (method === "wallet") {
+        if (!walletTransfersEnabled) throw new Error(t("transfer.walletDisabledError"));
+        if (!walletRecipient) throw new Error(t("transfer.walletFindFirst"));
+        if (amt < minTransfer) throw new Error(t("transfer.minError", { min: minTransfer }));
+        if (maxTransfer > 0 && amt > maxTransfer) {
+          throw new Error(t("transfer.maxError", { max: maxTransfer }));
+        }
+        if (walletBalance < amt) {
+          throw new Error(
+            t("transfer.insufficient", {
+              required: formatNPR(amt),
+              available: formatNPR(walletBalance),
+            }),
+          );
+        }
+        return apiClient.createWalletTransfer({
+          recipient_phone: walletRecipient.phone,
+          amount: Number(amt.toFixed(2)),
+          remarks: remarks || t("transfer.defaultRemarks"),
+          transaction_pin,
+        });
+      }
       if (!transfersEnabled) throw new Error(t("transfer.disabledError"));
       if (amt < minTransfer) throw new Error(t("transfer.minError", { min: minTransfer }));
       if (maxTransfer > 0 && amt > maxTransfer) {
@@ -415,15 +456,35 @@ function Transfer() {
     onSuccess: (res) => {
       setPinOpen(false);
       setPinError(null);
-      const isPending = res.data.status === "pending";
+      if (method === "wallet" && "direction" in res.data) {
+        toast.success(res.message || t("transfer.walletSuccess"), {
+          description: t("transfer.debited", {
+            amount: formatNPR(res.data.amount),
+          }),
+        });
+        setWalletPhone("");
+        setWalletRecipient(null);
+        setAmount("");
+        setLastReceiptId(activityIdForKind("wallet_transfer", res.data.id));
+        queryClient.invalidateQueries({ queryKey: ["transfers"] });
+        queryClient.invalidateQueries({ queryKey: ["wallet-transfers"] });
+        queryClient.invalidateQueries({ queryKey: ["wallet"] });
+        return;
+      }
+      const bankRes = res as {
+        message?: string;
+        pending_message?: string;
+        data: BankTransferTransaction;
+      };
+      const isPending = bankRes.data.status === "pending";
       if (isPending) {
-        toast.message(res.message || t("transfer.pendingTitle"), {
-          description: res.pending_message || t("transfer.pendingBody"),
+        toast.message(bankRes.message || t("transfer.pendingTitle"), {
+          description: bankRes.pending_message || t("transfer.pendingBody"),
         });
       } else {
-        toast.success(res.message || t("transfer.submitted"), {
+        toast.success(bankRes.message || t("transfer.submitted"), {
           description: t("transfer.debited", {
-            amount: formatNPR(res.data.total_debited || totalDebited),
+            amount: formatNPR(bankRes.data.total_debited || totalDebited),
           }),
         });
       }
@@ -436,6 +497,7 @@ function Transfer() {
       setVerifiedDetails(null);
       pendingQrAmountRef.current = "";
       queryClient.invalidateQueries({ queryKey: ["transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["wallet-transfers"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
     onError: (err) => {
@@ -479,7 +541,6 @@ function Transfer() {
       setMethod(nextMethod);
     }
     resetVerification();
-    setQrFilled(true);
     setBank(resolvedBank);
     if (data.isMobile) {
       setPhone(data.accountNumber);
@@ -490,68 +551,21 @@ function Transfer() {
     }
     setAccName(data.accountName);
     pendingQrAmountRef.current = data.amount;
-    pendingQrVerifyRef.current = true;
-    if (resolvedBank && data.accountNumber) {
-      if (banks.length || !banksQuery.isLoading) {
-        void verifyDestinationFromQr({
-          bankCode: resolvedBank,
-          accountNumber: data.accountNumber,
-          accountName: data.accountName,
-          isMobile: data.isMobile,
-          allowMissingName: true,
-        });
-      }
-    } else if (!resolvedBank) {
+    if (!resolvedBank) {
       toast.message(t("transfer.qrSelectBank"));
+    } else {
+      toast.message(t("transfer.qrFilled"));
     }
     return true;
   }
 
-  async function verifyDestinationFromQr(overrides: {
+  async function verifyDestination(overrides?: {
     bankCode?: string;
     accountNumber?: string;
     accountName?: string;
     isMobile?: boolean;
     allowMissingName?: boolean;
-  }) {
-    pendingQrVerifyRef.current = false;
-    const generation = ++qrVerifyGenerationRef.current;
-    setVerifying(true);
-    setQrVerifyAttempt(1);
-    try {
-      for (let attempt = 1; attempt <= QR_VERIFY_MAX_ATTEMPTS; attempt++) {
-        if (qrVerifyGenerationRef.current !== generation) return;
-        setQrVerifyAttempt(attempt);
-        const result = await verifyDestination(overrides, {
-          silent: attempt < QR_VERIFY_MAX_ATTEMPTS,
-          manageVerifying: false,
-        });
-        if (qrVerifyGenerationRef.current !== generation) return;
-        if (result === "verified" || result === "abort") return;
-        if (attempt < QR_VERIFY_MAX_ATTEMPTS) {
-          await new Promise((resolve) => setTimeout(resolve, QR_VERIFY_RETRY_GAP_MS));
-        }
-      }
-    } finally {
-      if (qrVerifyGenerationRef.current === generation) {
-        setVerifying(false);
-        setQrVerifyAttempt(0);
-      }
-    }
-  }
-
-  async function verifyDestination(
-    overrides?: {
-      bankCode?: string;
-      accountNumber?: string;
-      accountName?: string;
-      isMobile?: boolean;
-      allowMissingName?: boolean;
-    },
-    options?: { silent?: boolean; manageVerifying?: boolean },
-  ): Promise<VerifyResult> {
-    const silent = options?.silent ?? false;
-    const manageVerifying = options?.manageVerifying ?? true;
+  }): Promise<VerifyResult> {
     const useMobile = overrides?.isMobile ?? isMobile;
     const useBank = resolveBankCode(
       overrides?.bankCode ?? bank,
@@ -562,7 +576,6 @@ function Transfer() {
       overrides?.accountNumber ?? (useMobile ? phone : accNo)
     ).trim();
     const useBankMeta = banks.find((b) => b.bank_code === useBank) || selectedBank;
-    pendingQrVerifyRef.current = false;
 
     if (accountPending) {
       toast.error(t("account.pending"));
@@ -594,7 +607,7 @@ function Transfer() {
         return "abort";
       }
     }
-    if (manageVerifying) setVerifying(true);
+    setVerifying(true);
     try {
       const res = await apiClient.verifyBank({
         bank_code: useBank,
@@ -605,22 +618,18 @@ function Transfer() {
         is_mobile: useMobile,
       });
       if (!res.data?.verified) {
-        if (!silent) {
-          setVerified(false);
-          setVerifyStatus("unverified");
-          setVerifiedDetails(null);
-          toast.error(t("transfer.dontMatch"));
-        }
+        setVerified(false);
+        setVerifyStatus("unverified");
+        setVerifiedDetails(null);
+        toast.error(t("transfer.dontMatch"));
         return "failed";
       }
       const originalName = (res.data.account_name || "").trim();
       if (!originalName) {
-        if (!silent) {
-          setVerified(false);
-          setVerifyStatus("unverified");
-          setVerifiedDetails(null);
-          toast.error(t("transfer.dontMatch"));
-        }
+        setVerified(false);
+        setVerifyStatus("unverified");
+        setVerifiedDetails(null);
+        toast.error(t("transfer.dontMatch"));
         return "failed";
       }
       const confirmedBankCode = res.data.bank_code || useBank;
@@ -660,45 +669,43 @@ function Transfer() {
       );
       return "verified";
     } catch (err) {
-      if (!silent) {
-        setVerified(false);
-        setVerifyStatus("unverified");
-        setVerifiedDetails(null);
-        const body =
-          err instanceof ApiError && err.body && typeof err.body === "object"
-            ? (err.body as Record<string, unknown>)
-            : null;
-        const errorCode = body?.error_code;
-        const serviceBlocked =
-          errorCode === 7000 ||
-          errorCode === "7000" ||
-          String(body?.error_type || "")
-            .toLowerCase()
-            .includes("walletservicenotallowed");
-        const mismatch =
-          !serviceBlocked &&
-          err instanceof ApiError &&
-          (body?.mismatch === true ||
-            err.message === "Don't Match" ||
-            err.message === "Account details do not match." ||
-            err.message.toLowerCase().includes("don't match") ||
-            err.message.toLowerCase().includes("do not match"));
-        toastApiError(err, {
-          title: mismatch
-            ? t("transfer.dontMatch")
-            : serviceBlocked
-              ? t("transfer.verifyUnavailable")
-              : t("transfer.verifyFailed"),
-          fallback: mismatch
-            ? t("transfer.dontMatch")
-            : serviceBlocked
-              ? t("transfer.verifyUnavailable")
-              : t("transfer.verifyFailed"),
-        });
-      }
+      setVerified(false);
+      setVerifyStatus("unverified");
+      setVerifiedDetails(null);
+      const body =
+        err instanceof ApiError && err.body && typeof err.body === "object"
+          ? (err.body as Record<string, unknown>)
+          : null;
+      const errorCode = body?.error_code;
+      const serviceBlocked =
+        errorCode === 7000 ||
+        errorCode === "7000" ||
+        String(body?.error_type || "")
+          .toLowerCase()
+          .includes("walletservicenotallowed");
+      const mismatch =
+        !serviceBlocked &&
+        err instanceof ApiError &&
+        (body?.mismatch === true ||
+          err.message === "Don't Match" ||
+          err.message === "Account details do not match." ||
+          err.message.toLowerCase().includes("don't match") ||
+          err.message.toLowerCase().includes("do not match"));
+      toastApiError(err, {
+        title: mismatch
+          ? t("transfer.dontMatch")
+          : serviceBlocked
+            ? t("transfer.verifyUnavailable")
+            : t("transfer.verifyFailed"),
+        fallback: mismatch
+          ? t("transfer.dontMatch")
+          : serviceBlocked
+            ? t("transfer.verifyUnavailable")
+            : t("transfer.verifyFailed"),
+      });
       return "failed";
     } finally {
-      if (manageVerifying) setVerifying(false);
+      setVerifying(false);
     }
   }
 
@@ -709,7 +716,7 @@ function Transfer() {
             <AccountPendingBanner />
           </div>
         ) : null}
-        {!transfersEnabled && !accountPending ? (
+        {!anyTransferEnabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
             <p className="text-[15px] font-medium text-destructive">{t("transfer.disabledTitle")}</p>
             <p className="mt-1 text-[13px] text-muted-foreground">{t("transfer.disabledBody")}</p>
@@ -740,16 +747,133 @@ function Transfer() {
             onValueChange={(v) => setMethod(v as TransferMethod)}
             className="mb-3"
           >
-            <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl">
+            <TabsList className="grid h-11 w-full grid-cols-3 rounded-xl">
               <TabsTrigger value="bank" className="rounded-lg" disabled={!transfersEnabled}>
                 {t("transfer.tabBank")}
               </TabsTrigger>
               <TabsTrigger value="phone" className="rounded-lg" disabled={!transfersEnabled}>
                 {t("transfer.tabPhone")}
               </TabsTrigger>
+              <TabsTrigger value="wallet" className="rounded-lg" disabled={!walletTransfersEnabled}>
+                {t("transfer.tabWallet")}
+              </TabsTrigger>
             </TabsList>
           </Tabs>
 
+          {method === "wallet" ? (
+            <form
+              className="space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!walletRecipient) {
+                  toast.error(t("transfer.walletFindFirst"));
+                  return;
+                }
+                setPinError(null);
+                setPinOpen(true);
+              }}
+            >
+              {walletTransfersEnabled ? null : (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {t("transfer.walletDisabledBody")}
+                </p>
+              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="walletPhone">{t("transfer.walletPhone")}</Label>
+                <div className="flex min-w-0 gap-2">
+                  <Input
+                    id="walletPhone"
+                    inputMode="tel"
+                    placeholder={t("transfer.phonePlaceholder")}
+                    value={walletPhone}
+                    onChange={(e) => {
+                      setWalletPhone(e.target.value);
+                      setWalletRecipient(null);
+                    }}
+                    className="h-12 rounded-xl"
+                    disabled={!walletTransfersEnabled}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-12 shrink-0 rounded-xl"
+                    disabled={!walletTransfersEnabled || walletLooking}
+                    onClick={() => void lookupWalletUser()}
+                  >
+                    {walletLooking ? t("transfer.walletLooking") : t("transfer.walletLookup")}
+                  </Button>
+                </div>
+                <p className="text-[12px] text-muted-foreground">{t("transfer.walletPhoneHelp")}</p>
+              </div>
+
+              {walletRecipient ? (
+                <div className="rounded-xl border border-success/30 bg-success/5 px-3 py-2.5">
+                  <p className="text-[12px] text-muted-foreground">{t("transfer.statusVerified")}</p>
+                  <p className="text-[15px] font-medium">
+                    {walletRecipient.name || walletRecipient.phone}
+                  </p>
+                  <p className="text-[13px] text-muted-foreground">{walletRecipient.phone}</p>
+                  {walletRecipient.business_name ? (
+                    <p className="text-[12px] text-muted-foreground">{walletRecipient.business_name}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="space-y-1.5">
+                <Label htmlFor="walletAmount">{t("common.amount")}</Label>
+                <Input
+                  id="walletAmount"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder={t("transfer.minError", { min: minTransfer })}
+                  className="h-12 rounded-xl"
+                  required
+                  disabled={!walletTransfersEnabled || !walletRecipient}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="walletRemarks">{t("transfer.remarks")}</Label>
+                <Input
+                  id="walletRemarks"
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  className="h-12 rounded-xl"
+                  disabled={!walletTransfersEnabled || !walletRecipient}
+                />
+              </div>
+
+              <div className="rounded-xl bg-muted p-3 text-[14px]">
+                <Row label={t("common.amount")} value={formatNPR(amt)} />
+                <div className="mt-2 border-t border-separator pt-2">
+                  <Row label={t("common.totalDebited")} value={formatNPR(amt)} strong />
+                </div>
+                {insufficient ? (
+                  <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
+                    {t("transfer.insufficient", {
+                      required: formatNPR(amt),
+                      available: formatNPR(walletBalance),
+                    })}
+                  </p>
+                ) : null}
+              </div>
+
+              <Button
+                type="submit"
+                disabled={
+                  submitMutation.isPending ||
+                  !walletTransfersEnabled ||
+                  insufficient ||
+                  !walletRecipient ||
+                  amt < minTransfer
+                }
+                className="h-12 w-full rounded-xl text-[17px]"
+              >
+                {submitMutation.isPending ? t("common.processing") : t("transfer.walletConfirm")}
+              </Button>
+            </form>
+          ) : (
           <form
             className="space-y-4"
             onSubmit={(e) => {
@@ -773,8 +897,6 @@ function Transfer() {
                 onChange={(v) => {
                   setBank(v);
                   resetVerification();
-                  if (qrFilled) pendingQrVerifyRef.current = true;
-                  else setQrFilled(false);
                 }}
               />
             </div>
@@ -788,7 +910,6 @@ function Transfer() {
                   onChange={(e) => {
                     setAccName(e.target.value);
                     resetVerification();
-                    setQrFilled(false);
                   }}
                   placeholder={t("transfer.accHolderPlaceholder")}
                   className="h-12 rounded-xl"
@@ -810,34 +931,28 @@ function Transfer() {
                     onChange={(e) => {
                       setPhone(e.target.value);
                       resetVerification();
-                      setQrFilled(false);
                       setAccName("");
                     }}
                     className="h-12 min-w-0 flex-1 rounded-xl"
                     required
                     disabled={!transfersEnabled || !bank}
                   />
-                  {showVerifyButton ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="h-12 shrink-0 rounded-xl"
-                      disabled={
-                        verifying ||
-                        !transfersEnabled ||
-                        !bank ||
-                        phone.replace(/\D/g, "").length < 10
-                      }
-                      onClick={() => void verifyDestination()}
-                    >
-                      {verifying ? "…" : t("transfer.verify")}
-                    </Button>
-                  ) : null}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-12 shrink-0 whitespace-nowrap rounded-xl px-3"
+                    disabled={
+                      verifying ||
+                      !transfersEnabled ||
+                      !bank ||
+                      phone.replace(/\D/g, "").length < 10
+                    }
+                    onClick={() => void verifyDestination()}
+                  >
+                    {verifying ? "…" : t("transfer.verify")}
+                  </Button>
                 </div>
                 <p className="text-[12px] text-muted-foreground">{t("transfer.phoneHelp")}</p>
-                {qrVerifyingLabel ? (
-                  <p className="text-[13px] text-muted-foreground">{qrVerifyingLabel}</p>
-                ) : null}
                 {verifiedDetails ? null : (
                   <VerifyStatusMessage
                     status={verifyStatus}
@@ -861,35 +976,29 @@ function Transfer() {
                     onChange={(e) => {
                       setAccNo(e.target.value);
                       resetVerification();
-                      setQrFilled(false);
                     }}
                     placeholder={t("transfer.accountPlaceholder")}
                     className="h-12 min-w-0 flex-1 rounded-xl"
                     required
                     disabled={!transfersEnabled || !bank}
                   />
-                  {showVerifyButton ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="h-12 shrink-0 rounded-xl"
-                      disabled={
-                        verifying ||
-                        !transfersEnabled ||
-                        !bank ||
-                        !accNo.trim()
-                      }
-                      onClick={() =>
-                        void verifyDestination({ allowMissingName: !accName.trim() })
-                      }
-                    >
-                      {verifying ? "…" : t("transfer.verify")}
-                    </Button>
-                  ) : null}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-12 shrink-0 whitespace-nowrap rounded-xl px-3"
+                    disabled={
+                      verifying ||
+                      !transfersEnabled ||
+                      !bank ||
+                      !accNo.trim()
+                    }
+                    onClick={() =>
+                      void verifyDestination({ allowMissingName: !accName.trim() })
+                    }
+                  >
+                    {verifying ? "…" : t("transfer.verify")}
+                  </Button>
                 </div>
-                {qrVerifyingLabel ? (
-                  <p className="text-[13px] text-muted-foreground">{qrVerifyingLabel}</p>
-                ) : null}
                 {verifiedDetails ? null : (
                   <VerifyStatusMessage
                     status={verifyStatus}
@@ -1014,6 +1123,7 @@ function Transfer() {
               {submitMutation.isPending ? t("common.processing") : t("transfer.confirm")}
             </Button>
           </form>
+          )}
         </section>
 
         <section className="min-w-0">
@@ -1021,15 +1131,17 @@ function Transfer() {
             <div className="mb-3">
               <TransactionResultBanner
                 tone={
-                  transferItems.find(
-                    (x) => activityIdForKind("transfer", x.id) === lastReceiptId,
-                  )?.status === "failed"
-                    ? "danger"
+                  lastReceiptId.startsWith("wt-")
+                    ? "success"
                     : transferItems.find(
                           (x) => activityIdForKind("transfer", x.id) === lastReceiptId,
-                        )?.status === "pending"
-                      ? "warning"
-                      : "success"
+                        )?.status === "failed"
+                      ? "danger"
+                      : transferItems.find(
+                            (x) => activityIdForKind("transfer", x.id) === lastReceiptId,
+                          )?.status === "pending"
+                        ? "warning"
+                        : "success"
                 }
                 title={t("transfer.submitted")}
                 body={t("history.downloadStatement")}
@@ -1060,18 +1172,69 @@ function Transfer() {
               </div>
             </div>
           ) : null}
-          {historyQuery.isLoading ? (
+          {historyQuery.isLoading && walletHistoryQuery.isLoading ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("common.loading")}
             </div>
-          ) : !transferItems.length ? (
+          ) : !recentRows.length ? (
             <div className="inset-group px-4 py-8 text-center text-sm text-muted-foreground">
               {t("transfer.empty")}
             </div>
           ) : (
             <ul className="inset-group min-w-0 divide-y divide-border overflow-hidden">
-              {transferItems.map((b) => (
-                <li key={b.id}>
+              {recentRows.map((row) => {
+                if (row.kind === "wallet") {
+                  const wt = row.item;
+                  const received = wt.direction === "received";
+                  return (
+                    <li key={row.id}>
+                      <div className="flex items-stretch gap-1 px-2 py-1">
+                        <Link
+                          to="/app/history/$activityId"
+                          params={{ activityId: activityIdForKind("wallet_transfer", wt.id) }}
+                          className="min-w-0 flex-1 rounded-lg px-2 py-2 transition-colors active:bg-muted/60"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[15px] font-medium">
+                                {received
+                                  ? t("activity.walletTransferReceived")
+                                  : t("activity.walletTransferSent")}
+                              </p>
+                              <p className="truncate text-[13px] text-muted-foreground">
+                                {wt.counterparty_name
+                                  ? `${wt.counterparty_name} · ${wt.counterparty_phone}`
+                                  : wt.counterparty_phone}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="tabular text-[15px] font-semibold">
+                                {received ? `+ ${formatNPR(wt.amount)}` : formatNPR(wt.amount)}
+                              </p>
+                              <StatusChip status={wt.status} compact className="mt-1" />
+                            </div>
+                            <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+                          </div>
+                          <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                            {wt.reference} · {formatDateTime(wt.created_at)}
+                          </p>
+                        </Link>
+                        <div className="flex shrink-0 flex-col items-end justify-center gap-1 self-center px-2">
+                          <ReceiptDownloadLink
+                            label={t("list.downloadReceipt")}
+                            downloading={receiptDownloading}
+                            onClick={() =>
+                              void downloadReceipt(activityIdForKind("wallet_transfer", wt.id))
+                            }
+                          />
+                        </div>
+                      </div>
+                    </li>
+                  );
+                }
+                const b = row.item;
+                return (
+                <li key={row.id}>
                   <div className="flex items-stretch gap-1 px-2 py-1">
                     <Link
                       to="/app/history/$activityId"
@@ -1131,7 +1294,8 @@ function Transfer() {
                     </div>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </section>

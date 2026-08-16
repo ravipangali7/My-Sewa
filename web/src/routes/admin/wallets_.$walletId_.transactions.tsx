@@ -63,6 +63,7 @@ const TYPE_TABS: { value: TypeTab; label: string }[] = [
   { value: "electricity", label: "Electricity" },
   { value: "community_electricity", label: "Community electricity" },
   { value: "wallet_adjustment", label: "Manual loads / adjustments" },
+  { value: "wallet_transfer", label: "Wallet transfers" },
 ];
 
 const TYPE_LABELS: Record<ActivityKind, string> = {
@@ -76,6 +77,7 @@ const TYPE_LABELS: Record<ActivityKind, string> = {
   electricity: "Electricity",
   community_electricity: "Community electricity",
   wallet_adjustment: "Manual load / adjust",
+  wallet_transfer: "Wallet transfer",
 };
 
 function WalletTransactionsPage() {
@@ -131,6 +133,7 @@ function WalletTransactionsPage() {
       electricity: 0,
       community_electricity: 0,
       wallet_adjustment: 0,
+      wallet_transfer: 0,
     };
     for (const item of all) {
       counts[item.kind] += 1;

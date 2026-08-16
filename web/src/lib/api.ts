@@ -737,6 +737,29 @@ export const apiClient = {
       method: "POST",
       body: { merchant_transaction_id },
     }),
+
+  lookupWalletTransfer: (body: { phone: string }) =>
+    api<{ phone: string; name: string; business_name?: string }>(
+      "/api/wallet-transfer/lookup/",
+      { method: "POST", body },
+    ),
+
+  createWalletTransfer: (body: {
+    recipient_phone: string;
+    amount: number | string;
+    remarks?: string;
+    transaction_pin: string;
+  }) =>
+    api<{ message: string; data: import("./types").WalletTransfer }>(
+      "/api/wallet-transfer/create/",
+      { method: "POST", body },
+    ),
+
+  walletTransferHistory: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").WalletTransfer>>(
+      `/api/wallet-transfer/history/${buildAdminListQuery(filters)}`,
+    ),
+
   lookupRemittance: (body: { ref_no: string }) =>
     api<{
       message: string;
@@ -755,7 +778,7 @@ export const apiClient = {
       formData,
     }),
 
-  receiveRemittance: (body: Record<string, unknown>) =>
+  receiveRemittance: (body: Record<string, unknown> | FormData) =>
     api<{
       message: string;
       pending_message?: string;
@@ -763,7 +786,12 @@ export const apiClient = {
       data: import("./types").RemittanceTransaction;
       himapayResponse?: unknown;
       himalpay_response?: unknown;
-    }>("/api/remittance/receive/", { method: "POST", body }),
+    }>(
+      "/api/remittance/receive/",
+      body instanceof FormData
+        ? { method: "POST", formData: body }
+        : { method: "POST", body },
+    ),
 
   remittanceHistory: (filters?: AdminListFilters) =>
     api<import("./types").AdminListResponse<import("./types").RemittanceTransaction>>(

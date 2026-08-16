@@ -31,7 +31,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
-import { isAccountPending, canFundTransfer, isWalletBlocked } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer, canWalletAdjust, isWalletBlocked } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { toast } from "sonner";
@@ -338,7 +338,10 @@ function WalletHome() {
           {/* Quick actions */}
           <section className="grid shrink-0 grid-cols-3 gap-2.5">
             {ACTIONS.map((a) => {
-              const transferBlocked = a.to === "/app/transfer" && !canFundTransfer(user);
+              const transferBlocked =
+                a.to === "/app/transfer" &&
+                !canFundTransfer(user) &&
+                !canWalletAdjust(user);
               const outbound =
                 a.to === "/app/transfer" ||
                 a.to === "/app/topup" ||
@@ -360,7 +363,7 @@ function WalletHome() {
                         walletBlocked && outbound && !accountPending
                           ? t("account.walletBlocked")
                           : transferBlocked && !accountPending
-                            ? t("transfer.disabledError")
+                            ? t("transfer.walletDisabledError")
                             : t("account.pending"),
                       )
                     }

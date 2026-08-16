@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ImageIcon, X } from "lucide-react";
+import { Flashlight, FlashlightOff, Images, X } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 import { useT } from "@/lib/i18n";
 import jsQR from "@/lib/jsqr";
 import { waitForNativeCameraPermission } from "@/lib/native-app";
 import { cn } from "@/lib/utils";
-
-type ScannerTab = "scanner" | "manual";
 
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
@@ -114,6 +111,7 @@ export function BankQrScanner({
   children: ReactNode | ((api: { showScanner: () => void; showForm: () => void }) => ReactNode);
 }) {
   const t = useT();
+  const { logoUrl } = useSiteBranding();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
@@ -130,12 +128,13 @@ export function BankQrScanner({
     dx: 0,
     locked: null as null | "x" | "y",
   });
-  const [tab, setTab] = useState<ScannerTab>("scanner");
   const [page, setPage] = useState(0);
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [torchSupported, setTorchSupported] = useState(false);
 
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
@@ -144,7 +143,6 @@ export function BankQrScanner({
     const clamped = next < 0 ? 0 : next > 1 ? 1 : next;
     pageRef.current = clamped;
     setPage(clamped);
-    setTab(clamped === 0 ? "scanner" : "manual");
     setDragX(0);
   }, []);
 
@@ -173,6 +171,8 @@ export function BankQrScanner({
     const video = videoRef.current;
     if (video) video.srcObject = null;
     setScanning(false);
+    setTorchOn(false);
+    setTorchSupported(false);
   }, []);
 
   useEffect(() => {
@@ -254,6 +254,10 @@ export function BankQrScanner({
           return;
         }
         streamRef.current = stream;
+        const track = stream.getVideoTracks()[0];
+        const caps =
+          typeof track?.getCapabilities === "function" ? track.getCapabilities() : undefined;
+        setTorchSupported(Boolean((caps as { torch?: boolean } | undefined)?.torch));
         const video = videoRef.current;
         if (video) {
           video.srcObject = stream;
@@ -274,6 +278,19 @@ export function BankQrScanner({
       stopCamera();
     };
   }, [emit, scannerActive, stopCamera]);
+
+  async function toggleTorch() {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track || !torchSupported) return;
+    const next = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next }] } as never);
+      setTorchOn(next);
+    } catch {
+      setTorchSupported(false);
+      setTorchOn(false);
+    }
+  }
 
   async function onFile(file: File | undefined) {
     if (!file) return;
@@ -363,67 +380,108 @@ export function BankQrScanner({
   }
 
   const scannerPane = (
-    <div className="relative flex h-full min-h-0 flex-col bg-black">
-      <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 px-3 pt-[max(10px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-2">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t("common.goBack")}
-          className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur"
-        >
-          <X className="size-5" />
-        </button>
-        <Tabs
-          value={tab}
-          onValueChange={(value) => goToPage(value === "manual" ? 1 : 0)}
-          className="min-w-0 flex-1"
-        >
-          <TabsList className="grid h-10 w-full grid-cols-2 rounded-full bg-black/45 text-white">
-            <TabsTrigger value="scanner" className="rounded-full text-white data-[state=active]:bg-white data-[state=active]:text-foreground">
-              {t("transfer.tabScanner")}
-            </TabsTrigger>
-            <TabsTrigger value="manual" className="rounded-full text-white data-[state=active]:bg-white data-[state=active]:text-foreground">
-              {t("transfer.tabManual")}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black">
+      <video
+        ref={videoRef}
+        className={cn(
+          "absolute inset-0 size-full object-cover",
+          cameraError || !scanning ? "opacity-0" : "opacity-100",
+        )}
+        playsInline
+        muted
+        autoPlay
+      />
+
+      <div className="relative z-20 flex min-h-0 flex-1 flex-col">
+        <div className="relative z-10 flex items-center justify-between px-3 pt-[max(10px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-1">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("common.goBack")}
+            className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-white"
+          >
+            <X className="size-6" strokeWidth={2.25} />
+          </button>
+          {torchSupported ? (
+            <button
+              type="button"
+              onClick={() => void toggleTorch()}
+              aria-label={torchOn ? t("transfer.torchOff") : t("transfer.torchOn")}
+              className={cn(
+                "inline-flex size-10 shrink-0 items-center justify-center rounded-full text-white",
+                torchOn && "text-brand-accent",
+              )}
+            >
+              {torchOn ? (
+                <Flashlight className="size-5" strokeWidth={2.1} />
+              ) : (
+                <FlashlightOff className="size-5" strokeWidth={2.1} />
+              )}
+            </button>
+          ) : (
+            <span className="size-10 shrink-0" />
+          )}
+        </div>
+
+        <div className="relative z-10 flex flex-col items-center px-6 pt-1 text-center">
+          <div className="flex size-[3.35rem] items-center justify-center rounded-full bg-white shadow-[0_4px_16px_rgba(0,0,0,0.28)]">
+            <img
+              src={logoUrl || "/logo.png"}
+              alt="MySewa"
+              className="size-[2.85rem] rounded-full object-cover"
+              onError={(event) => {
+                event.currentTarget.src = "/logo.png";
+              }}
+            />
+          </div>
+          <p className="mt-2.5 text-[22px] font-semibold leading-none tracking-tight">
+            <span className="text-white">My</span>
+            <span className="text-brand-accent">Sewa</span>
+          </p>
+          <p className="mt-2 max-w-[18rem] text-[13px] leading-snug text-white/90">
+            {t("transfer.adjustQr")}
+          </p>
+        </div>
+
+        <div className="relative z-0 flex min-h-0 flex-1 items-center justify-center px-6 py-4">
+          <div className="relative h-[min(100%,22rem)] min-h-[15.5rem] w-[min(72vw,17.5rem)] shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]">
+            <div className="absolute inset-0 overflow-hidden">
+              {scanning && !cameraError ? (
+                <div className="mysewa-qr-scan-line absolute inset-x-2 h-[2px] rounded-full bg-brand-accent shadow-[0_0_14px_3px_rgba(32,195,106,0.75)]" />
+              ) : cameraError ? (
+                <div className="flex h-full items-center justify-center px-5 text-center text-[13px] leading-5 text-white/85">
+                  {t("transfer.qrCameraHelp")}
+                </div>
+              ) : null}
+            </div>
+            <span className="absolute left-0 top-0 h-9 w-9 rounded-tl-[3px] border-l-[3.5px] border-t-[3.5px] border-white" />
+            <span className="absolute right-0 top-0 h-9 w-9 rounded-tr-[3px] border-r-[3.5px] border-t-[3.5px] border-white" />
+            <span className="absolute bottom-0 left-0 h-9 w-9 rounded-bl-[3px] border-b-[3.5px] border-l-[3.5px] border-white" />
+            <span className="absolute bottom-0 right-0 h-9 w-9 rounded-br-[3px] border-b-[3.5px] border-r-[3.5px] border-white" />
+          </div>
+        </div>
+
+        <div className="relative z-10 flex flex-col items-center gap-4 px-4 pb-[max(1.35rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
+          <button
+            type="button"
+            className="text-[13px] text-white/75"
+            onClick={() => goToPage(1)}
+          >
+            {t("transfer.swipeForDetails")}
+          </button>
+          <button
+            type="button"
+            onClick={() => uploadRef.current?.click()}
+            className="flex flex-col items-center gap-1.5 text-white"
+          >
+            <span className="inline-flex size-12 items-center justify-center rounded-full bg-white/18 text-white backdrop-blur-sm">
+              <Images className="size-5" strokeWidth={1.9} />
+            </span>
+            <span className="text-[12px] font-medium tracking-wide">{t("transfer.gallery")}</span>
+          </button>
+        </div>
       </div>
 
-      <div className="relative min-h-0 flex-1 bg-black">
-        <video
-          ref={videoRef}
-          className={cn(
-            "absolute inset-0 size-full object-cover",
-            cameraError || !scanning ? "opacity-0" : "opacity-100",
-          )}
-          playsInline
-          muted
-          autoPlay
-        />
-        {scanning && !cameraError ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="size-[62%] max-h-[62vw] rounded-3xl border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.38)]" />
-          </div>
-        ) : null}
-      </div>
-      <div className="absolute inset-x-0 bottom-0 z-20 space-y-3 px-4 pb-[max(1.25rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
-        <button
-          type="button"
-          className="w-full text-center text-[13px] text-white/80"
-          onClick={() => goToPage(1)}
-        >
-          {t("transfer.swipeForDetails")}
-        </button>
-        <Button
-          type="button"
-          variant="secondary"
-          className="h-12 w-full rounded-xl"
-          onClick={() => uploadRef.current?.click()}
-        >
-          <ImageIcon className="size-4" />
-          {t("transfer.uploadQr")}
-        </Button>
-      </div>
       <input
         ref={uploadRef}
         type="file"

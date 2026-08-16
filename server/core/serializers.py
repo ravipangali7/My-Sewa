@@ -1,6 +1,7 @@
 """
 DRF Serializers for all models
 """
+import json
 import re
 from datetime import date
 from decimal import Decimal
@@ -12,6 +13,7 @@ from django.contrib.auth import get_user_model
 from .models import (
     Wallet,
     WalletAdjustment,
+    WalletTransfer,
     Deposit,
     Settings,
     TopupTransaction,
@@ -398,6 +400,124 @@ class WalletAdjustmentWriteSerializer(serializers.Serializer):
                 "Provide either adjustment fields or balance, not both."
             )
         return attrs
+
+
+def _user_display_name(user) -> str:
+    full = f"{(user.first_name or '').strip()} {(user.last_name or '').strip()}".strip()
+    if full:
+        return full
+    nick = (getattr(user, 'nickname', None) or '').strip()
+    if nick:
+        return nick
+    biz = (getattr(user, 'business_name', None) or '').strip()
+    if biz:
+        return biz
+    return (user.phone or '').strip()
+
+
+class WalletTransferSerializer(serializers.ModelSerializer):
+    """Wallet-to-wallet transfer as seen by the requesting user."""
+    sender_phone = serializers.CharField(source='sender.phone', read_only=True)
+    sender_name = serializers.SerializerMethodField()
+    recipient_phone = serializers.CharField(source='recipient.phone', read_only=True)
+    recipient_name = serializers.SerializerMethodField()
+    direction = serializers.SerializerMethodField()
+    counterparty_phone = serializers.SerializerMethodField()
+    counterparty_name = serializers.SerializerMethodField()
+    balance_before = serializers.SerializerMethodField()
+    balance_after = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WalletTransfer
+        fields = (
+            'id', 'amount', 'remarks', 'status', 'reference', 'created_at',
+            'sender', 'sender_phone', 'sender_name',
+            'recipient', 'recipient_phone', 'recipient_name',
+            'direction', 'counterparty_phone', 'counterparty_name',
+            'balance_before', 'balance_after',
+            'sender_balance_before', 'sender_balance_after',
+            'recipient_balance_before', 'recipient_balance_after',
+        )
+        read_only_fields = fields
+
+    def _viewer(self):
+        viewer = self.context.get('viewer')
+        if viewer is not None:
+            return viewer
+        request = self.context.get('request')
+        return getattr(request, 'user', None)
+
+    def _is_received(self, obj):
+        viewer = self._viewer()
+        return bool(viewer and obj.recipient_id == getattr(viewer, 'pk', None))
+
+    def get_sender_name(self, obj):
+        return _user_display_name(obj.sender)
+
+    def get_recipient_name(self, obj):
+        return _user_display_name(obj.recipient)
+
+    def get_direction(self, obj):
+        return 'received' if self._is_received(obj) else 'sent'
+
+    def get_counterparty_phone(self, obj):
+        other = obj.sender if self._is_received(obj) else obj.recipient
+        return other.phone or ''
+
+    def get_counterparty_name(self, obj):
+        other = obj.sender if self._is_received(obj) else obj.recipient
+        return _user_display_name(other)
+
+    def get_balance_before(self, obj):
+        value = (
+            obj.recipient_balance_before
+            if self._is_received(obj)
+            else obj.sender_balance_before
+        )
+        return f'{value:.2f}'
+
+    def get_balance_after(self, obj):
+        value = (
+            obj.recipient_balance_after
+            if self._is_received(obj)
+            else obj.sender_balance_after
+        )
+        return f'{value:.2f}'
+
+
+class WalletTransferLookupSerializer(serializers.Serializer):
+    phone = serializers.CharField(required=True, allow_blank=False, max_length=20)
+
+
+class WalletTransferCreateSerializer(serializers.Serializer):
+    recipient_phone = serializers.CharField(required=True, allow_blank=False, max_length=20)
+    amount = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=True, min_value=Decimal('0.01'),
+    )
+    remarks = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, default='',
+    )
+    transaction_pin = serializers.CharField(
+        required=True, write_only=True, min_length=4, max_length=4,
+    )
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Amount must be greater than zero.')
+        from .services.app_config import get_app_config, validate_amount_bounds
+        tx = get_app_config().get('transactions') or {}
+        err = validate_amount_bounds(
+            value,
+            min_amount=tx.get('min_transfer', 10),
+            max_amount=tx.get('max_transfer', 100000),
+            label='Transfer',
+        )
+        if err:
+            raise serializers.ValidationError(err)
+        return value
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
@@ -1150,6 +1270,8 @@ class RemittanceTransactionSerializer(serializers.ModelSerializer):
     last_name = serializers.CharField(source='user.last_name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     citizenship_review_pending = serializers.SerializerMethodField()
+    citizenship_front = serializers.ImageField(read_only=True)
+    citizenship_back = serializers.ImageField(read_only=True)
 
     class Meta:
         model = RemittanceTransaction
@@ -1167,6 +1289,7 @@ class RemittanceTransactionSerializer(serializers.ModelSerializer):
             'beneficiary_id_type', 'beneficiary_id_number',
             'beneficiary_id_issue_date', 'beneficiary_id_issue_by',
             'beneficiary_mobile_no', 'beneficiary_dob', 'remittance_purpose',
+            'citizenship_front', 'citizenship_back',
             'status', 'status_display', 'merchant_txn_id', 'provider_txn_id',
             'reference_id', 'charge', 'cashback', 'total_credited',
             'balance_before', 'balance_after',
@@ -1177,7 +1300,7 @@ class RemittanceTransactionSerializer(serializers.ModelSerializer):
 
     def get_citizenship_review_pending(self, obj) -> bool:
         lookup = obj.lookup_response if isinstance(obj.lookup_response, dict) else {}
-        return bool(lookup.get('citizenship_review_pending'))
+        return bool(lookup.get('citizenship_review_pending') and lookup.get('himalpay_received'))
 
 
 class AdminRemittanceSerializer(RemittanceTransactionSerializer):
@@ -1236,7 +1359,19 @@ class RemittanceReceiveSerializer(serializers.Serializer):
     beneficiary_mobile_no = serializers.CharField(max_length=50, required=True)
     beneficiary_dob = serializers.CharField(max_length=30, required=True)
     remittance_purpose = serializers.CharField(max_length=80, required=False, default='FAMILY_SUPPORT')
-    citizenship_verification = serializers.DictField(required=False, allow_empty=True)
+    citizenship_verification = serializers.JSONField(required=False)
+
+    def validate_citizenship_verification(self, value):
+        if value in (None, '', {}):
+            return {}
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                raise serializers.ValidationError('Invalid citizenship verification payload.')
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('Invalid citizenship verification payload.')
+        return value
 
     def validate_ref_no(self, value):
         value = (value or '').strip()
