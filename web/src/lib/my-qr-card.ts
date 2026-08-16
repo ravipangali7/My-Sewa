@@ -1,4 +1,6 @@
 import { COLORS } from "@/constants/colors";
+import { buildMySewaAccountQr } from "@/lib/bank-qr";
+import { toDataURL } from "@/lib/qrcode";
 
 export type MyQrCardDetails = {
   qrSrc: string;
@@ -8,6 +10,53 @@ export type MyQrCardDetails = {
   phone: string;
   hint: string;
 };
+
+export type MySewaQrPerson = {
+  phone?: string | null | undefined;
+  first_name?: string | null | undefined;
+  last_name?: string | null | undefined;
+  nickname?: string | null | undefined;
+};
+
+export type MySewaQrIdentity = {
+  legalName: string;
+  nickname: string;
+  phone: string;
+  displayName: string;
+  username: string;
+};
+
+/** Same name / phone layout the user sees on My QR in the app. */
+export function getMySewaQrIdentity(
+  person: MySewaQrPerson,
+  fallbackName = "User",
+): MySewaQrIdentity {
+  const legalName = [person.first_name, person.last_name].filter(Boolean).join(" ").trim();
+  const nickname = (person.nickname || "").trim();
+  const phone = String(person.phone || "").trim();
+  const displayName = nickname || legalName || phone || fallbackName;
+  const username = nickname && legalName && nickname !== legalName ? nickname : "";
+  return { legalName, nickname, phone, displayName, username };
+}
+
+/** Payload encoded in the user's payment QR (bank P2P JSON + MySewa markers). */
+export function mySewaQrPayload(person: MySewaQrPerson, fallbackName = "User"): string {
+  const identity = getMySewaQrIdentity(person, fallbackName);
+  if (!identity.phone) return "";
+  return buildMySewaAccountQr({
+    accountName: identity.displayName,
+    accountNumber: identity.phone,
+  });
+}
+
+export function mySewaQrImageSrc(payload: string): string {
+  if (!payload) return "";
+  try {
+    return toDataURL(payload, { width: 640, color: { dark: "#1C1C1E", light: "#FFFFFF" } });
+  } catch {
+    return "";
+  }
+}
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {

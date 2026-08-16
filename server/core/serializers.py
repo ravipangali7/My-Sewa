@@ -175,7 +175,8 @@ class AdminUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = (
-            'id', 'phone', 'email', 'first_name', 'last_name', 'avatar', 'avatar_url',
+            'id', 'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name',
+            'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
             'can_fund_transfer', 'can_wallet_adjust',
             'kyc_status', 'citizenship_number',

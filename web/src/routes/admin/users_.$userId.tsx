@@ -24,6 +24,8 @@ import { formatNPR, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { UserFeesForm } from "@/components/admin/UserFeesForm";
 import { UserTransactionPinForm } from "@/components/admin/UserTransactionPinForm";
+import { MySewaQrCard } from "@/components/MySewaQrCard";
+import { useSiteBranding } from "@/hooks/use-site-branding";
 
 export const Route = createFileRoute("/admin/users_/$userId")({
   head: () => ({
@@ -54,6 +56,7 @@ function UserDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
+  const { logoUrl } = useSiteBranding();
 
   const userQuery = useQuery({
     queryKey: ["admin", "users", id],
@@ -142,61 +145,81 @@ function UserDetailPage() {
 
       {u && (
         <div className="space-y-5">
-        <div className="min-w-0 overflow-x-clip rounded-xl border border-border bg-surface p-4 sm:p-5">
-          <dl>
-              <DetailRow label="ID">{u.id}</DetailRow>
-              <DetailRow label="Phone">{u.phone}</DetailRow>
-              <DetailRow label="First name">{u.first_name || "—"}</DetailRow>
-              <DetailRow label="Last name">{u.last_name || "—"}</DetailRow>
-              <DetailRow label="Email">{u.email || "—"}</DetailRow>
-              <DetailRow label="Account status">
-                <Badge variant={u.account_status === "approved" ? "default" : "secondary"}>
-                  {u.account_status === "approved" ? "Active" : "Pending"}
-                </Badge>
-              </DetailRow>
-              <DetailRow label="Login">
-                <Badge variant={u.is_active ? "default" : "secondary"}>
-                  {u.is_active ? "Enabled" : "Disabled"}
-                </Badge>
-              </DetailRow>
-              <DetailRow label="Role">
-                {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : "Customer"}
-              </DetailRow>
-              <DetailRow label="Staff">{u.is_staff ? "Yes" : "No"}</DetailRow>
-              <DetailRow label="Superuser">{u.is_superuser ? "Yes" : "No"}</DetailRow>
-              <DetailRow label="Fund Transfer">
-                <Badge variant={u.can_fund_transfer !== false ? "default" : "secondary"}>
-                  {u.can_fund_transfer !== false ? "Enabled" : "Disabled"}
-                </Badge>
-              </DetailRow>
-              <DetailRow label="Wallet Transfer">
-                <Badge variant={u.can_wallet_adjust !== false ? "default" : "secondary"}>
-                  {u.can_wallet_adjust !== false ? "Enabled" : "Disabled"}
-                </Badge>
-              </DetailRow>
-              <DetailRow label="Wallet ID">{u.wallet_id ?? "—"}</DetailRow>
-              <DetailRow label="Wallet balance">
-                <span className="tabular">{formatNPR(u.wallet_balance ?? "0.00")}</span>
-              </DetailRow>
-              <DetailRow label="Transaction PIN">
-                <Badge variant={u.has_transaction_pin ? "default" : "secondary"}>
-                  {u.has_transaction_pin ? "Set" : "Not set"}
-                </Badge>
-              </DetailRow>
-              <DetailRow label="Date joined">{formatDateTime(u.date_joined)}</DetailRow>
-              <DetailRow label="Last login">
-                {u.last_login ? formatDateTime(u.last_login) : "Never"}
-              </DetailRow>
-              {u.avatar_url && (
-                <DetailRow label="Avatar">
-                  <img
-                    src={u.avatar_url}
-                    alt=""
-                    className="size-16 rounded-full object-cover"
-                  />
+          <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_20.5rem] lg:items-start">
+            <div className="min-w-0 overflow-x-clip rounded-xl border border-border bg-surface p-4 sm:p-5">
+              <dl>
+                <DetailRow label="ID">{u.id}</DetailRow>
+                <DetailRow label="Phone">{u.phone}</DetailRow>
+                <DetailRow label="First name">{u.first_name || "—"}</DetailRow>
+                <DetailRow label="Last name">{u.last_name || "—"}</DetailRow>
+                <DetailRow label="Email">{u.email || "—"}</DetailRow>
+                <DetailRow label="Account status">
+                  <Badge variant={u.account_status === "approved" ? "default" : "secondary"}>
+                    {u.account_status === "approved" ? "Active" : "Pending"}
+                  </Badge>
                 </DetailRow>
-              )}
-            </dl>
+                <DetailRow label="Login">
+                  <Badge variant={u.is_active ? "default" : "secondary"}>
+                    {u.is_active ? "Enabled" : "Disabled"}
+                  </Badge>
+                </DetailRow>
+                <DetailRow label="Role">
+                  {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : "Customer"}
+                </DetailRow>
+                <DetailRow label="Staff">{u.is_staff ? "Yes" : "No"}</DetailRow>
+                <DetailRow label="Superuser">{u.is_superuser ? "Yes" : "No"}</DetailRow>
+                <DetailRow label="Fund Transfer">
+                  <Badge variant={u.can_fund_transfer !== false ? "default" : "secondary"}>
+                    {u.can_fund_transfer !== false ? "Enabled" : "Disabled"}
+                  </Badge>
+                </DetailRow>
+                <DetailRow label="Wallet Transfer">
+                  <Badge variant={u.can_wallet_adjust !== false ? "default" : "secondary"}>
+                    {u.can_wallet_adjust !== false ? "Enabled" : "Disabled"}
+                  </Badge>
+                </DetailRow>
+                <DetailRow label="Wallet ID">{u.wallet_id ?? "—"}</DetailRow>
+                <DetailRow label="Wallet balance">
+                  <span className="tabular">{formatNPR(u.wallet_balance ?? "0.00")}</span>
+                </DetailRow>
+                <DetailRow label="Transaction PIN">
+                  <Badge variant={u.has_transaction_pin ? "default" : "secondary"}>
+                    {u.has_transaction_pin ? "Set" : "Not set"}
+                  </Badge>
+                </DetailRow>
+                <DetailRow label="Date joined">{formatDateTime(u.date_joined)}</DetailRow>
+                <DetailRow label="Last login">
+                  {u.last_login ? formatDateTime(u.last_login) : "Never"}
+                </DetailRow>
+                {u.avatar_url && (
+                  <DetailRow label="Avatar">
+                    <img
+                      src={u.avatar_url}
+                      alt=""
+                      className="size-16 rounded-full object-cover"
+                    />
+                  </DetailRow>
+                )}
+              </dl>
+            </div>
+            <div className="rounded-xl border border-border bg-surface p-4 sm:p-5">
+              <h2 className="text-base font-semibold">Payment QR</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Same Mysewa QR this user shows in the app. Banks can scan it to start a transfer to
+                this account.
+              </p>
+              <MySewaQrCard
+                className="mt-4"
+                person={{
+                  phone: u.phone,
+                  first_name: u.first_name,
+                  last_name: u.last_name,
+                  nickname: u.nickname,
+                }}
+                logoUrl={logoUrl}
+                hint="Show this QR code to receive money"
+              />
+            </div>
           </div>
           <UserTransactionPinForm
             userId={u.id}
