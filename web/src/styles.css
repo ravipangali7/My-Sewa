@@ -169,6 +169,26 @@
   animation: mysewa-qr-scan 2s ease-in-out infinite alternate;
 }
 
+/* Android / Flutter WebView paints a media play overlay on <video>. Hide it. */
+.mysewa-scan-video {
+  pointer-events: none;
+  background: #000;
+}
+.mysewa-scan-video::-webkit-media-controls,
+.mysewa-scan-video::-webkit-media-controls-enclosure,
+.mysewa-scan-video::-webkit-media-controls-panel,
+.mysewa-scan-video::-webkit-media-controls-start-playback-button,
+.mysewa-scan-video::-webkit-media-controls-overlay-play-button,
+.mysewa-scan-video::-webkit-media-controls-play-button {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 /* Clearance for fixed mobile bottom nav (elevated center FAB + safe area).
  * Sized to the real tab bar (~56–64px content + padding), not an extra
  * viewport chunk — excess here becomes blank overscroll on every page. */
