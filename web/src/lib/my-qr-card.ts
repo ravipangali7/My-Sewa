@@ -9,6 +9,38 @@ export type MyQrCardDetails = {
   hint: string;
 };
 
+/** User fields needed to render / encode a personal Mysewa payment QR. */
+export type MySewaQrUser = {
+  first_name?: string | null;
+  last_name?: string | null;
+  nickname?: string | null;
+  phone?: string | null;
+};
+
+export type MySewaQrIdentity = {
+  legalName: string;
+  nickname: string;
+  displayName: string;
+  username: string;
+  phone: string;
+  /** Account-holder name encoded in the EMV payload (legal name preferred). */
+  payloadName: string;
+};
+
+/** Shared identity for the in-app QR and the Super Admin copy of that QR. */
+export function mySewaQrIdentity(
+  user: MySewaQrUser | null | undefined,
+  fallbackName = "",
+): MySewaQrIdentity {
+  const legalName = [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim();
+  const nickname = String(user?.nickname || "").trim();
+  const phone = String(user?.phone || "").trim();
+  const displayName = nickname || legalName || phone || fallbackName;
+  const username = nickname && legalName && nickname !== legalName ? nickname : "";
+  const payloadName = legalName || nickname || phone || "Mysewa";
+  return { legalName, nickname, displayName, username, phone, payloadName };
+}
+
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();

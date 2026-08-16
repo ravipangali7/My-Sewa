@@ -252,6 +252,8 @@ function parseEmvPayload(raw: string): Partial<ParsedBankQr> {
     if (isMySewaBrand(guid) || guid.toLowerCase().includes(MYSEWA_QR_GUID)) {
       out.isMySewaWallet = true;
     }
+    // Bank Share QRs put SWIFT or the account/mobile in sub-tag 00.
+    consider(guid, guid);
     for (const [sub, value] of Object.entries(nested)) {
       if (sub === "00") continue;
       consider(value, guid);
@@ -400,31 +402,84 @@ function emvMerchantName(name: string): string {
   const trimmed = String(name || "").trim();
   const ascii = trimmed.replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim();
   const usable = ascii || "Mysewa";
-  return usable.slice(0, 25);
+  // NepalQR caps merchant/account-holder name at 23 characters.
+  return usable.slice(0, 23);
+}
+
+function emvCity(city: string): string {
+  const trimmed = String(city || "").trim();
+  const ascii = trimmed.replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim();
+  return (ascii || "KATHMANDU").slice(0, 15);
+}
+
+function emvPostal(postal: string): string {
+  const digits = digitsOnly(postal);
+  return (digits || "44600").slice(0, 10);
+}
+
+/** True when `payload` ends with a valid EMVCo tag-63 CRC. */
+export function emvCrcValid(payload: string): boolean {
+  const text = String(payload || "");
+  if (!/6304[0-9A-Fa-f]{4}$/.test(text)) return false;
+  return crc16Ccitt(text.slice(0, -4)) === text.slice(-4).toUpperCase();
 }
 
 /**
- * Personal receive-QR payload. Encoded as an EMVCo Nepal (NPR) merchant QR so
- * MySewa and other payment apps that read account/mobile TLV can send value
- * into this user's MySewa wallet (identified by their mobile number).
+ * Personal receive-QR payload (NepalQR / EMVCo MPM, static, NPR).
+ *
+ * Bank "Scan to Pay" apps (Fonepay / NEPALPAY / SmartQR) treat an unknown
+ * scheme GUID in tag 26 as a merchant lookup and show SYSTEM ERROR. This
+ * payload therefore puts the destination account in the same TLV slots as a
+ * Nepali bank Share/account QR:
+ *   - Tag 26: account number (mobile) so IBFT parsers can fill a transfer
+ *   - Tag 51: MySewa GUID so this app still recognises its own QR
+ *   - Tag 59 / 62.02: account holder name and mobile
+ * Optional `bankCode` (SWIFT) + `bankAccountNumber` encode a real bank
+ * account QR, which bank apps can pay without a merchant MID.
  */
 export function buildMySewaAccountQr(details: {
   accountName: string;
   accountNumber: string;
+  bankCode?: string;
+  bankAccountNumber?: string;
+  city?: string;
+  postalCode?: string;
 }): string {
   const phone = last10Digits(details.accountNumber) || String(details.accountNumber || "").trim();
   const merchant = emvMerchantName(details.accountName);
-  const mai = emvTlv("00", MYSEWA_QR_GUID) + emvTlv("01", phone);
-  const additional = emvTlv("01", phone);
+  const city = emvCity(details.city || "KATHMANDU");
+  const postal = emvPostal(details.postalCode || "44600");
+  const swift = normalizeBankCode(details.bankCode || "");
+  const bankAccount = String(details.bankAccountNumber || "")
+    .replace(/[\s-]/g, "")
+    .trim();
+  const destinationAccount = bankAccount || phone;
+
+  // Bank Share QRs use tag 26 as: 00 = BIC/SWIFT (when known), 01 = account.
+  // Never invent a SWIFT — a fake BIC can misroute a transfer.
+  const accountMai = swift
+    ? emvTlv("00", swift) + emvTlv("01", destinationAccount)
+    : emvTlv("00", destinationAccount) + emvTlv("01", destinationAccount);
+
+  const mysewaMai = emvTlv("00", MYSEWA_QR_GUID) + emvTlv("01", phone);
+
+  const additional =
+    emvTlv("01", phone) +
+    emvTlv("02", phone) +
+    emvTlv("05", phone) +
+    emvTlv("08", "TRANSFER");
+
   const body =
     emvTlv("00", "01") +
     emvTlv("01", "11") +
-    emvTlv("26", mai) +
+    emvTlv("26", accountMai) +
+    emvTlv("51", mysewaMai) +
     emvTlv("52", "0000") +
     emvTlv("53", "524") +
     emvTlv("58", "NP") +
     emvTlv("59", merchant) +
-    emvTlv("60", "KATHMANDU") +
+    emvTlv("60", city) +
+    emvTlv("61", postal) +
     emvTlv("62", additional) +
     "6304";
   return body + crc16Ccitt(body);
