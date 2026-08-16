@@ -155,6 +155,7 @@ function UserDetailPage() {
               <DetailRow label="Phone">{u.phone}</DetailRow>
               <DetailRow label="First name">{u.first_name || "—"}</DetailRow>
               <DetailRow label="Last name">{u.last_name || "—"}</DetailRow>
+              <DetailRow label="Nickname">{u.nickname || "—"}</DetailRow>
               <DetailRow label="Email">{u.email || "—"}</DetailRow>
               <DetailRow label="Account status">
                 <Badge variant={u.account_status === "approved" ? "default" : "secondary"}>

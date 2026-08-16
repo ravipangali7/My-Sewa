@@ -223,6 +223,7 @@ function parseEmvPayload(raw: string): Partial<ParsedBankQr> {
     if (!v) return;
     const lowerGuid = guid.toLowerCase();
     if (v.length <= 3 && /^\d+$/.test(v)) return;
+    if (isMySewaBrand(v) || v.toLowerCase().includes(MYSEWA_QR_GUID)) return;
     if (isSwift(v) || NEPAL_SWIFT_RE.test(v.toUpperCase())) {
       swifts.push(v);
       return;
@@ -264,11 +265,30 @@ function parseEmvPayload(raw: string): Partial<ParsedBankQr> {
   const additional = tlv["62"] ? parseTlv(tlv["62"]) : {};
   for (const value of Object.values(additional)) consider(value);
 
+  // Mysewa marker lives in tag 62 (not 26–51) so bank Scan-to-Pay does not
+  // treat this QR as an unknown merchant scheme.
+  const mysewaMarker = `${additional["50"] || ""} ${additional["99"] || ""}`;
+  if (isMySewaBrand(mysewaMarker) || mysewaMarker.toLowerCase().includes(MYSEWA_QR_GUID)) {
+    out.isMySewaWallet = true;
+  }
+
   if (tlv["59"]) out.accountName = tlv["59"].trim();
   if (tlv["54"] && /^\d+(?:\.\d{1,2})?$/.test(tlv["54"])) out.amount = tlv["54"];
 
   if (swifts[0]) out.bankCode = swifts[0];
-  if (accounts[0]) {
+
+  // In-app Mysewa transfers always target the wallet mobile, even when tag 26
+  // also carries a bank account for IBFT from banking apps.
+  const walletMobile =
+    (additional["02"] && isNepaliMobile(additional["02"]) && last10Digits(additional["02"])) ||
+    (additional["01"] && isNepaliMobile(additional["01"]) && last10Digits(additional["01"])) ||
+    mobiles[0] ||
+    "";
+
+  if (out.isMySewaWallet && walletMobile) {
+    out.accountNumber = walletMobile;
+    out.isMobile = true;
+  } else if (accounts[0]) {
     out.accountNumber = accounts[0];
   } else if (mobiles[0] && !swifts[0]) {
     out.accountNumber = mobiles[0];
@@ -412,11 +432,6 @@ function emvCity(city: string): string {
   return (ascii || "KATHMANDU").slice(0, 15);
 }
 
-function emvPostal(postal: string): string {
-  const digits = digitsOnly(postal);
-  return (digits || "44600").slice(0, 10);
-}
-
 /** True when `payload` ends with a valid EMVCo tag-63 CRC. */
 export function emvCrcValid(payload: string): boolean {
   const text = String(payload || "");
@@ -424,18 +439,23 @@ export function emvCrcValid(payload: string): boolean {
   return crc16Ccitt(text.slice(0, -4)) === text.slice(-4).toUpperCase();
 }
 
+/** Marker stored in EMV tag 62 sub-tag 50 (not in merchant-account tags 26–51). */
+export const MYSEWA_QR_MARKER = "MYSEWA";
+
 /**
  * Personal receive-QR payload (NepalQR / EMVCo MPM, static, NPR).
  *
- * Bank "Scan to Pay" apps (Fonepay / NEPALPAY / SmartQR) treat an unknown
- * scheme GUID in tag 26 as a merchant lookup and show SYSTEM ERROR. This
- * payload therefore puts the destination account in the same TLV slots as a
- * Nepali bank Share/account QR:
- *   - Tag 26: account number (mobile) so IBFT parsers can fill a transfer
- *   - Tag 51: MySewa GUID so this app still recognises its own QR
- *   - Tag 59 / 62.02: account holder name and mobile
+ * Bank "Scan to Pay" apps (Fonepay / NEPALPAY / SmartQR) treat any unknown
+ * reverse-domain GUID in tags 26–51 as a merchant scheme, look it up on their
+ * network, and show SYSTEM ERROR when it is not enrolled. This payload therefore
+ * matches a Nepali bank Share/account QR that those apps parse locally as an
+ * IBFT / mobile transfer — never as a Fonepay/NCHL merchant:
+ *   - Tag 26: 00 = SWIFT (when known) or destination account/mobile; 01 = account
+ *   - Tag 52 = 0000 (P2P / account, not a merchant MCC)
+ *   - Tag 59 / 62.02: account-holder name and mobile
+ *   - Tag 62.50: Mysewa marker so this app still recognises its own QR
  * Optional `bankCode` (SWIFT) + `bankAccountNumber` encode a real bank
- * account QR, which bank apps can pay without a merchant MID.
+ * account QR. Never invent a SWIFT — a fake BIC can misroute a transfer.
  */
 export function buildMySewaAccountQr(details: {
   accountName: string;
@@ -443,43 +463,36 @@ export function buildMySewaAccountQr(details: {
   bankCode?: string;
   bankAccountNumber?: string;
   city?: string;
-  postalCode?: string;
 }): string {
   const phone = last10Digits(details.accountNumber) || String(details.accountNumber || "").trim();
   const merchant = emvMerchantName(details.accountName);
   const city = emvCity(details.city || "KATHMANDU");
-  const postal = emvPostal(details.postalCode || "44600");
   const swift = normalizeBankCode(details.bankCode || "");
   const bankAccount = String(details.bankAccountNumber || "")
     .replace(/[\s-]/g, "")
     .trim();
   const destinationAccount = bankAccount || phone;
 
-  // Bank Share QRs use tag 26 as: 00 = BIC/SWIFT (when known), 01 = account.
-  // Never invent a SWIFT — a fake BIC can misroute a transfer.
+  // Bank Share QRs: 00 = BIC/SWIFT (when known), 01 = account/mobile.
+  // Keep tag 26 numeric-or-BIC only — a dotted GUID triggers merchant lookup.
   const accountMai = swift
     ? emvTlv("00", swift) + emvTlv("01", destinationAccount)
     : emvTlv("00", destinationAccount) + emvTlv("01", destinationAccount);
 
-  const mysewaMai = emvTlv("00", MYSEWA_QR_GUID) + emvTlv("01", phone);
-
   const additional =
     emvTlv("01", phone) +
     emvTlv("02", phone) +
-    emvTlv("05", phone) +
-    emvTlv("08", "TRANSFER");
+    emvTlv("50", MYSEWA_QR_MARKER);
 
   const body =
     emvTlv("00", "01") +
     emvTlv("01", "11") +
     emvTlv("26", accountMai) +
-    emvTlv("51", mysewaMai) +
     emvTlv("52", "0000") +
     emvTlv("53", "524") +
     emvTlv("58", "NP") +
     emvTlv("59", merchant) +
     emvTlv("60", city) +
-    emvTlv("61", postal) +
     emvTlv("62", additional) +
     "6304";
   return body + crc16Ccitt(body);
