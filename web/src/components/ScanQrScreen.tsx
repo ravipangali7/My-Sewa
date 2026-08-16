@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -10,14 +10,12 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { MySewaPaymentQrCard } from "@/components/MySewaPaymentQrCard";
+import { useMySewaPaymentQr } from "@/hooks/use-mysewa-payment-qr";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { useAuth } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import {
-  buildMySewaAccountQr,
-  parseBankQr,
-  phonesMatch,
-} from "@/lib/bank-qr";
+import { parseBankQr, phonesMatch } from "@/lib/bank-qr";
 import jsQR from "@/lib/jsqr";
 import {
   hasNativeFileBridge,
@@ -26,7 +24,6 @@ import {
   waitForNativeFileBridge,
 } from "@/lib/native-app";
 import { dataUrlToBytes, renderMyQrCardPng } from "@/lib/my-qr-card";
-import { toDataURL } from "@/lib/qrcode";
 import { stashScannedQr } from "@/lib/scanned-qr";
 import { cn } from "@/lib/utils";
 
@@ -192,6 +189,8 @@ export function ScanQrScreen({
   const t = useT();
   const { user } = useAuth();
   const { logoUrl } = useSiteBranding();
+  const fallbackName = t("common.user");
+  const { displayName, username, phone, qrSrc } = useMySewaPaymentQr(user, fallbackName);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
@@ -220,30 +219,8 @@ export function ScanQrScreen({
     typeof window !== "undefined" ? window.innerHeight : 800,
   );
 
-  const legalName = [user?.first_name, user?.last_name].filter(Boolean).join(" ");
-  const nickname = (user?.nickname || "").trim();
-  const displayName = nickname || legalName || user?.phone || t("common.user");
-  const username = nickname && legalName && nickname !== legalName ? nickname : "";
-  const phone = user?.phone || "";
   const logoSrc = logoUrl || "/logo.png";
   const hint = t("scan.showToReceive");
-
-  const qrPayload = useMemo(() => {
-    if (!phone) return "";
-    return buildMySewaAccountQr({
-      accountName: displayName,
-      accountNumber: phone,
-    });
-  }, [displayName, phone]);
-
-  const qrSrc = useMemo(() => {
-    if (!qrPayload) return "";
-    try {
-      return toDataURL(qrPayload, { width: 640, color: { dark: "#1C1C1E", light: "#FFFFFF" } });
-    } catch {
-      return "";
-    }
-  }, [qrPayload]);
 
   useEffect(() => {
     cardCacheRef.current = null;
@@ -758,41 +735,17 @@ export function ScanQrScreen({
             onPointerUp={onSheetPointerUp}
             onPointerCancel={onSheetPointerUp}
           >
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2.5 px-6 py-3">
-              {qrSrc ? (
-                <img
-                  src={qrSrc}
-                  alt={t("scan.myQr")}
-                  className="size-[min(48vw,13.5rem)] bg-white"
-                />
-              ) : (
-                <div className="flex size-[min(48vw,13.5rem)] items-center justify-center bg-muted text-sm text-muted-foreground">
-                  {t("common.loading")}
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <img
-                  src={logoSrc}
-                  alt="Mysewa"
-                  className="size-7 rounded-full object-cover"
-                  onError={(event) => {
-                    event.currentTarget.src = "/logo.png";
-                  }}
-                />
-                <span className="text-[18px] font-bold leading-none">
-                  <span className="text-ocean">My</span>
-                  <span className="text-brand">sewa</span>
-                </span>
-              </div>
-              <div className="text-center">
-                <p className="text-[17px] font-semibold text-zinc-800">{displayName}</p>
-                {username ? (
-                  <p className="mt-0.5 text-[13px] font-medium text-zinc-500">{username}</p>
-                ) : null}
-                <p className="mt-0.5 text-[14px] text-zinc-500">{phone}</p>
-                <p className="mt-2 text-[12px] text-zinc-400">{hint}</p>
-              </div>
-            </div>
+            <MySewaPaymentQrCard
+              className="min-h-0 flex-1"
+              qrSrc={qrSrc}
+              logoUrl={logoSrc}
+              name={displayName}
+              username={username}
+              phone={phone}
+              hint={hint}
+              qrAlt={t("scan.myQr")}
+              emptyLabel={t("common.loading")}
+            />
             <div
               className="mt-1 flex w-full shrink-0 items-stretch border-t border-zinc-200"
               style={{
