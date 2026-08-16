@@ -12,7 +12,7 @@ export type ParsedBankQr = {
   isMySewaWallet: boolean;
 };
 
-/** EMV merchant GUID encoded in personal MySewa receive-QR codes. */
+/** EMV merchant GUID used in older personal MySewa receive-QR codes. */
 export const MYSEWA_QR_GUID = "mysewa.com.np";
 
 export type ParseBankQrResult =
@@ -379,53 +379,40 @@ export function parseBankQr(raw: string, banks: BankOption[] = []): ParseBankQrR
   return { ok: false, reason: "not_qr" };
 }
 
-function emvTlv(tag: string, value: string): string {
-  const payload = String(value || "");
-  return `${tag}${String(payload.length).padStart(2, "0")}${payload}`;
-}
-
-/** CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) used by EMVCo QR tag 63. */
-export function crc16Ccitt(data: string): string {
-  let crc = 0xffff;
-  for (let i = 0; i < data.length; i++) {
-    crc ^= data.charCodeAt(i) << 8;
-    for (let bit = 0; bit < 8; bit++) {
-      crc = (crc & 0x8000) !== 0 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
-    }
-  }
-  return crc.toString(16).toUpperCase().padStart(4, "0");
-}
-
-function emvMerchantName(name: string): string {
+function paymentAccountName(name: string): string {
   const trimmed = String(name || "").trim();
-  const ascii = trimmed.replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim();
-  const usable = ascii || "Mysewa";
-  return usable.slice(0, 25);
+  const ascii = trimmed
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (ascii || "Mysewa").slice(0, 60);
 }
 
 /**
- * Personal receive-QR payload. Encoded as an EMVCo Nepal (NPR) merchant QR so
- * MySewa and other payment apps that read account/mobile TLV can send value
- * into this user's MySewa wallet (identified by their mobile number).
+ * Personal receive-QR payload for this MySewa user.
+ *
+ * Nepali mobile-banking apps (Fonepay / NepalPay / smartQR) treat EMVCo
+ * merchant QRs as network merchant lookups. A custom GUID such as
+ * `mysewa.com.np` is not a registered Fonepay/NCHL merchant, so those apps
+ * show SYSTEM ERROR after a successful parse.
+ *
+ * Bank "Scan or Share" P2P QRs instead encode the destination account as
+ * JSON (`accountNumber`, `accountName`, `bankCode`). For a MySewa wallet the
+ * account is the user's mobile number, which banks can use to start a
+ * transfer-to-mobile / deposit flow. `bankName` + `is_mysewa` keep MySewa
+ * scans routing as a wallet receive rather than a HimalPay bank transfer.
  */
 export function buildMySewaAccountQr(details: {
   accountName: string;
   accountNumber: string;
 }): string {
   const phone = last10Digits(details.accountNumber) || String(details.accountNumber || "").trim();
-  const merchant = emvMerchantName(details.accountName);
-  const mai = emvTlv("00", MYSEWA_QR_GUID) + emvTlv("01", phone);
-  const additional = emvTlv("01", phone);
-  const body =
-    emvTlv("00", "01") +
-    emvTlv("01", "11") +
-    emvTlv("26", mai) +
-    emvTlv("52", "0000") +
-    emvTlv("53", "524") +
-    emvTlv("58", "NP") +
-    emvTlv("59", merchant) +
-    emvTlv("60", "KATHMANDU") +
-    emvTlv("62", additional) +
-    "6304";
-  return body + crc16Ccitt(body);
+  return JSON.stringify({
+    accountNumber: phone,
+    accountName: paymentAccountName(details.accountName),
+    bankName: "MySewa",
+    phone,
+    isMobile: true,
+    is_mysewa: true,
+  });
 }
