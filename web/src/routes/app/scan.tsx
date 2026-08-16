@@ -6,11 +6,10 @@ import { useT } from "@/lib/i18n";
 export const Route = createFileRoute("/app/scan")({
   head: () => ({
     meta: [
-      { title: "Scan QR — Pay or Receive | MySewa" },
+      { title: "Scan QR — Pay | MySewa" },
       {
         name: "description",
-        content:
-          "Scan a bank or wallet QR to pay, or show your Mysewa QR so others can load money into your wallet.",
+        content: "Scan a bank or wallet QR to pay from your Mysewa wallet.",
       },
       { property: "og:title", content: "Scan QR — MySewa" },
     ],
