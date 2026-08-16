@@ -600,10 +600,9 @@ export function ScanQrScreen({
           livePreview && !cameraError && "hidden",
         )}
       />
-      <div className="pointer-events-none absolute inset-0 bg-black/30" />
 
       <div className="relative z-10 flex h-full min-h-0 flex-col">
-        <div className="flex items-center justify-between px-4 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-2">
+        <div className="relative z-20 flex items-center justify-between px-4 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-2">
           <button
             type="button"
             onClick={() => void toggleTorch()}
@@ -634,7 +633,7 @@ export function ScanQrScreen({
           </button>
         </div>
 
-        <div className="flex flex-col items-center px-4 pt-1">
+        <div className="relative z-20 flex flex-col items-center px-4 pt-1">
           <div className="relative flex flex-col items-center">
             <p className="text-[13px] font-semibold tracking-wide text-white">
               {t("scan.sloganLeave")}
@@ -673,9 +672,21 @@ export function ScanQrScreen({
           className="flex min-h-0 flex-1 flex-col items-center justify-center px-8"
           style={{ paddingBottom: COLLAPSED_SHEET + 12 }}
         >
-          <div className="relative aspect-square w-[min(68vw,16.5rem)] overflow-hidden rounded-[18px] border-[3px] border-brand-accent bg-black">
+          <div
+            className={cn(
+              "relative aspect-square w-[min(68vw,16.5rem)] rounded-[18px] border-[3px] border-brand-accent",
+              (!scanning || cameraError) && "bg-black/40",
+            )}
+            style={
+              scanning && !cameraError
+                ? { boxShadow: "0 0 0 100vmax rgba(0,0,0,0.3)" }
+                : undefined
+            }
+          >
             {scanning && !cameraError ? (
-              <div className="mysewa-qr-scan-line absolute inset-x-3 h-0.5 rounded-full bg-red-500 shadow-[0_0_12px_2px_rgba(239,68,68,0.85)]" />
+              <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[15px]">
+                <div className="mysewa-qr-scan-line absolute inset-x-3 h-0.5 rounded-full bg-red-500 shadow-[0_0_12px_2px_rgba(239,68,68,0.85)]" />
+              </div>
             ) : (
               <div className="flex h-full items-center justify-center px-5 text-center text-[13px] leading-5 text-white/85">
                 {t("transfer.qrCameraHelp")}
@@ -683,7 +694,7 @@ export function ScanQrScreen({
             )}
           </div>
 
-          <div className="mt-4 inline-flex items-center rounded-full bg-white p-1 shadow-[0_6px_18px_rgba(0,0,0,0.28)]">
+          <div className="relative z-20 mt-4 inline-flex items-center rounded-full bg-white p-1 shadow-[0_6px_18px_rgba(0,0,0,0.28)]">
             {ZOOM_LEVELS.map((level) => {
               const active = zoom === level;
               return (
