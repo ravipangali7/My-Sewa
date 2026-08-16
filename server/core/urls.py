@@ -6,6 +6,7 @@ from .views import (
     settings_views,
     topup_views,
     bank_transfer_views,
+    wallet_transfer_views,
     remittance_views,
     internet_views,
     water_views,
@@ -105,6 +106,23 @@ urlpatterns = [
     path('api/bank-transfer/create/', bank_transfer_views.create_bank_transfer, name='bank_transfer_create'),
     path('api/bank-transfer/history/', bank_transfer_views.bank_transfer_history, name='bank_transfer_history'),
     path('api/bank-transfer/status/', bank_transfer_views.bank_transfer_status, name='bank_transfer_status'),
+
+    # Wallet-to-wallet transfer (MySewa user → MySewa user)
+    path(
+        'api/wallet-transfer/lookup/',
+        wallet_transfer_views.lookup_wallet_transfer_recipient,
+        name='wallet_transfer_lookup',
+    ),
+    path(
+        'api/wallet-transfer/create/',
+        wallet_transfer_views.create_wallet_transfer,
+        name='wallet_transfer_create',
+    ),
+    path(
+        'api/wallet-transfer/history/',
+        wallet_transfer_views.wallet_transfer_history,
+        name='wallet_transfer_history',
+    ),
 
     # Remittance endpoints (HimalPay Samsara)
     path('api/remittance/lookup/', remittance_views.lookup_remittance, name='remittance_lookup'),

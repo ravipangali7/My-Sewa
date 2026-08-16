@@ -107,7 +107,9 @@ function HistoryPage() {
     const end = toDayEnd(filters.endDate);
 
     const filtered = all.filter((item) => {
-      if (filters.kind !== "all" && item.kind !== (filters.kind as ActivityKind)) {
+      if (filters.kind === "transfer") {
+        if (item.kind !== "transfer" && item.kind !== "wallet_transfer") return false;
+      } else if (filters.kind !== "all" && item.kind !== (filters.kind as ActivityKind)) {
         return false;
       }
       if (filters.status !== "all" && item.status !== filters.status) {

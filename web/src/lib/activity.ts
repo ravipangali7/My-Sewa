@@ -11,6 +11,7 @@ import type {
   ElectricityBillTransaction,
   CommunityElectricityTransaction,
   WalletAdjustment,
+  WalletTransfer,
   WalletTransactions,
 } from "./types";
 import { OPERATORS } from "./constants";
@@ -31,6 +32,7 @@ const DEBIT_KINDS = new Set<ActivityKind>([
   "electricity",
   "community_electricity",
   "wallet_adjustment",
+  "wallet_transfer",
 ]);
 
 function adjustmentDisplayAmount(a: WalletAdjustment): string {
@@ -182,6 +184,26 @@ export function buildActivity(
         balance_after: a.balance_after,
       };
     }),
+    ...(tx.wallet_transfers ?? []).map((wt: WalletTransfer) => {
+      const received = wt.direction === "received";
+      return {
+        id: `wt-${wt.id}`,
+        kind: "wallet_transfer" as const,
+        title: received
+          ? t("activity.walletTransferReceived")
+          : t("activity.walletTransferSent"),
+        subtitle:
+          wt.counterparty_name
+            ? `${wt.counterparty_name} · ${wt.counterparty_phone}`
+            : wt.counterparty_phone,
+        amount: wt.amount,
+        credit: received,
+        status: wt.status,
+        created_at: wt.created_at,
+        balance_before: wt.balance_before,
+        balance_after: wt.balance_after,
+      };
+    }),
   ];
   // Always newest-first so History, home, wallet history, and notifications agree.
   return sortByLatestFirst(items);
@@ -195,7 +217,8 @@ export function isWalletCredit(item: ActivityItem): boolean {
   if (
     item.kind === "deposit" ||
     item.kind === "remittance" ||
-    item.kind === "wallet_adjustment"
+    item.kind === "wallet_adjustment" ||
+    item.kind === "wallet_transfer"
   ) {
     return true;
   }
@@ -706,6 +729,39 @@ export function buildActivityStatement(
         adj.adjustment_type === "credit"
           ? t("history.walletCredit")
           : t("history.walletDebit"),
+      footer: t("history.footer"),
+      details,
+    };
+  }
+
+  if (item.kind === "wallet_transfer") {
+    const wt = (tx.wallet_transfers ?? []).find((x) => `wt-${x.id}` === id);
+    if (!wt) return undefined;
+    const received = wt.direction === "received";
+    const reference = wt.reference || `#${wt.id}`;
+    const details: StatementRow[] = [];
+    pushDetail(details, t("history.referenceCode"), reference, { mono: true });
+    pushDetail(details, t("history.dateTime"), formatDateTime(wt.created_at));
+    pushDetail(details, t("history.channel"), t("history.channelOnline"));
+    pushDetail(details, t("history.serviceName"), t("notif.typeWalletTransfer"));
+    pushDetail(details, t("common.status"), translateStatus(wt.status, t));
+    pushDetail(
+      details,
+      received ? t("transfer.walletFrom") : t("transfer.walletTo"),
+      wt.counterparty_name
+        ? `${wt.counterparty_name} · ${wt.counterparty_phone}`
+        : wt.counterparty_phone,
+    );
+    pushDetail(details, t("common.amountNpr"), formatNPR(wt.amount));
+    pushDetail(details, t("history.balanceBefore"), formatNPR(wt.balance_before));
+    pushDetail(details, t("history.balanceAfter"), formatNPR(wt.balance_after));
+    pushDetail(details, t("common.remarks"), wt.remarks?.trim() || "—");
+    pushDetail(details, t("history.initiator"), initiator, { skipEmpty: true });
+    return {
+      item,
+      reference,
+      headlineAmount: formatNPR(wt.amount),
+      amountCaption: received ? t("history.walletCredit") : t("history.walletDebit"),
       footer: t("history.footer"),
       details,
     };

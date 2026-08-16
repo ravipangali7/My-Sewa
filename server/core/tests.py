@@ -1829,6 +1829,124 @@ class UserFeatureAccessTests(TestCase):
         self.assertEqual(resp.json().get('code'), 'wallet_adjustment_forbidden')
 
 
+class WalletTransferTests(TestCase):
+    """MySewa user-to-user wallet transfers gated by can_wallet_adjust."""
+
+    def setUp(self):
+        from django.contrib.auth.hashers import make_password
+        from .models import Wallet
+
+        self.sender = User.objects.create_user(
+            phone='9800000301',
+            password='testpass123',
+            email='sender-wt@example.com',
+            first_name='Sender',
+            last_name='One',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        self.sender.transaction_pin = make_password('1234')
+        self.sender.save(update_fields=['transaction_pin'])
+        self.recipient = User.objects.create_user(
+            phone='9800000302',
+            password='testpass123',
+            email='recipient-wt@example.com',
+            first_name='Recipient',
+            last_name='Two',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        Wallet.objects.get_or_create(
+            user=self.sender, defaults={'balance': Decimal('500.00')},
+        )
+        sender_wallet = Wallet.objects.get(user=self.sender)
+        sender_wallet.balance = Decimal('500.00')
+        sender_wallet.save(update_fields=['balance'])
+        Wallet.objects.get_or_create(
+            user=self.recipient, defaults={'balance': Decimal('10.00')},
+        )
+        recipient_wallet = Wallet.objects.get(user=self.recipient)
+        recipient_wallet.balance = Decimal('10.00')
+        recipient_wallet.save(update_fields=['balance'])
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.sender)
+
+    def test_lookup_recipient_by_phone(self):
+        resp = self.client.post(
+            reverse('wallet_transfer_lookup'),
+            {'phone': '9800000302'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json().get('phone'), '9800000302')
+        self.assertIn('Recipient', resp.json().get('name') or '')
+
+    def test_cannot_lookup_self(self):
+        resp = self.client.post(
+            reverse('wallet_transfer_lookup'),
+            {'phone': '9800000301'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json().get('code'), 'self_transfer')
+
+    def test_transfer_moves_balance(self):
+        from .models import Wallet, WalletTransfer
+
+        resp = self.client.post(
+            reverse('wallet_transfer_create'),
+            {
+                'recipient_phone': '9800000302',
+                'amount': '125.50',
+                'remarks': 'Test send',
+                'transaction_pin': '1234',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        data = resp.json().get('data') or {}
+        self.assertEqual(data.get('direction'), 'sent')
+        self.assertEqual(data.get('counterparty_phone'), '9800000302')
+        self.sender.wallet.refresh_from_db()
+        self.recipient.wallet.refresh_from_db()
+        self.assertEqual(self.sender.wallet.balance, Decimal('374.50'))
+        self.assertEqual(self.recipient.wallet.balance, Decimal('135.50'))
+        self.assertEqual(WalletTransfer.objects.count(), 1)
+
+        self.client.force_authenticate(user=self.recipient)
+        history = self.client.get(reverse('wallet_transfer_history'))
+        self.assertEqual(history.status_code, status.HTTP_200_OK)
+        items = history.json().get('items') or []
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].get('direction'), 'received')
+
+    def test_insufficient_balance(self):
+        resp = self.client.post(
+            reverse('wallet_transfer_create'),
+            {
+                'recipient_phone': '9800000302',
+                'amount': '9999',
+                'transaction_pin': '1234',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json().get('error'), 'Insufficient balance')
+
+    def test_disabled_flag_blocks_transfer(self):
+        self.sender.can_wallet_adjust = False
+        self.sender.save(update_fields=['can_wallet_adjust'])
+        resp = self.client.post(
+            reverse('wallet_transfer_create'),
+            {
+                'recipient_phone': '9800000302',
+                'amount': '10',
+                'transaction_pin': '1234',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.json().get('code'), 'wallet_adjustment_forbidden')
+
+
 class CitizenshipMatchingTests(SimpleTestCase):
     """OCR parse + remittance sender-data vs citizenship-image matching."""
 
@@ -2022,6 +2140,9 @@ class RemittanceCitizenshipReceiveGateTests(TestCase):
         cfg = settings.get_config()
         cfg['payment']['citizenship_matching_enabled'] = True
         cfg['payment']['remittances_enabled'] = True
+        cfg.setdefault('remittance', {})
+        cfg['remittance']['payout_agent_pan_number'] = '123456789'
+        cfg['remittance']['teller_contact'] = '9800000000'
         settings.config = cfg
         settings.save()
 
@@ -2142,6 +2263,7 @@ class RemittanceCitizenshipReceiveGateTests(TestCase):
 
     def test_second_mismatch_allows_pending_review_receive(self):
         from unittest.mock import patch
+        from .models import RemittanceTransaction, Wallet
         from .services.citizenship_verify import (
             build_form_record,
             store_verification_ticket,
@@ -2168,9 +2290,20 @@ class RemittanceCitizenshipReceiveGateTests(TestCase):
                 'ocr': {'name': 'SITA SHARMA', 'citizenship_number': '11-22-33-44556'},
             },
         )
-        with patch(
-            'core.services.notifications.notify_remittance_citizenship_review'
-        ) as notify:
+        fake_success = {
+            'status': 'SUCCESS',
+            'amount': 10000,
+            'charge': 0,
+            'cashback': 0,
+            'total_credited': 10000,
+            'transaction_id': 'HP-CIT-1',
+            'reference_id': 'S100CITIZEN1',
+            'message': 'SAMSARA_PAY load successful',
+        }
+        with patch.object(HimalPayAPI, 'receive_remittance', return_value=fake_success) as pay, \
+             patch(
+                 'core.services.notifications.notify_remittance_citizenship_review'
+             ) as notify:
             resp = self.client.post(
                 reverse('remittance_receive'),
                 self.receive_payload,
@@ -2181,5 +2314,131 @@ class RemittanceCitizenshipReceiveGateTests(TestCase):
         self.assertEqual(body.get('code'), 'citizenship_review_pending')
         self.assertEqual(body.get('data', {}).get('status'), 'pending')
         self.assertTrue(body.get('data', {}).get('citizenship_review_pending'))
+        self.assertFalse(body.get('data', {}).get('wallet_credited'))
+        pay.assert_called_once()
         notify.assert_called_once()
+        txn = RemittanceTransaction.objects.get(ref_no='S100CITIZEN1')
+        self.assertEqual(txn.status, 'pending')
+        self.assertFalse(txn.wallet_credited)
+        self.assertTrue((txn.lookup_response or {}).get('himalpay_received'))
+        wallet = Wallet.objects.get(user=self.user)
+        self.assertEqual(wallet.balance, Decimal('0.00'))
+
+    def test_second_mismatch_keeps_uploaded_images_and_requires_himalpay_first(self):
+        from io import BytesIO
+        from PIL import Image
+        from unittest.mock import patch
+        from .models import RemittanceTransaction
+        from .services.citizenship_ocr import CombinedCitizenshipOcr
+
+        def png_file(name):
+            buf = BytesIO()
+            Image.new('RGB', (48, 48), 'white').save(buf, format='PNG')
+            buf.seek(0)
+            buf.name = name
+            return buf
+
+        ocr = CombinedCitizenshipOcr(
+            name='SITA SHARMA',
+            citizenship_number='11-22-33-44556',
+            dob='1990-01-01',
+            issue_date='2010-01-01',
+            issue_place='Lalitpur',
+            confidence=0.8,
+        )
+        with patch(
+            'core.services.citizenship_verify.extract_citizenship_from_images',
+            return_value=ocr,
+        ):
+            for _ in range(2):
+                front = png_file('front.png')
+                back = png_file('back.png')
+                resp = self.client.post(
+                    reverse('remittance_verify_citizenship'),
+                    {
+                        'ref_no': 'S100CITIZEN1',
+                        'name': 'Ram Bahadur Thapa',
+                        'citizenship_number': '28-01-75-01234',
+                        'dob': '1988-05-28',
+                        'issue_date': '2008-11-23',
+                        'issue_place': 'Kathmandu',
+                        'front': front,
+                        'back': back,
+                    },
+                    format='multipart',
+                )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(resp.json().get('data', {}).get('pending_review_allowed'))
+
+        fake_success = {
+            'status': 'SUCCESS',
+            'amount': 10000,
+            'charge': 0,
+            'cashback': 0,
+            'total_credited': 10000,
+            'transaction_id': 'HP-CIT-2',
+            'reference_id': 'S100CITIZEN1',
+            'message': 'ok',
+        }
+        front = png_file('front.png')
+        back = png_file('back.png')
+        payload = dict(self.receive_payload)
+        payload['front'] = front
+        payload['back'] = back
+        with patch.object(HimalPayAPI, 'receive_remittance', return_value=fake_success), \
+             patch('core.services.notifications.notify_remittance_citizenship_review'):
+            resp = self.client.post(
+                reverse('remittance_receive'),
+                payload,
+                format='multipart',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED)
+        txn = RemittanceTransaction.objects.get(ref_no='S100CITIZEN1')
+        self.assertTrue(txn.citizenship_front)
+        self.assertTrue(txn.citizenship_back)
+        self.assertEqual(txn.status, 'pending')
+        self.assertTrue((txn.lookup_response or {}).get('himalpay_received'))
+
+    def test_citizenship_review_stays_failed_when_himalpay_fails(self):
+        from unittest.mock import patch
+        from .models import RemittanceTransaction
+        from .services.citizenship_verify import (
+            build_form_record,
+            store_verification_ticket,
+            verification_fingerprint,
+        )
+
+        form = build_form_record(
+            name='Ram Bahadur Thapa',
+            citizenship_number='28-01-75-01234',
+            dob='1988-05-28',
+            issue_date='2008-11-23',
+            issue_place='Kathmandu',
+        )
+        store_verification_ticket(
+            self.user.id,
+            'S100CITIZEN1',
+            {
+                'allowed': False,
+                'match_status': 'MISMATCH',
+                'fingerprint': verification_fingerprint(form),
+                'message': 'Citizenship details do not match.',
+                'attempt_count': 2,
+                'pending_review_allowed': True,
+            },
+        )
+        with patch.object(
+            HimalPayAPI,
+            'receive_remittance',
+            side_effect=HimalPayError('Payout failed', status_code=400),
+        ):
+            resp = self.client.post(
+                reverse('remittance_receive'),
+                self.receive_payload,
+                format='json',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        txn = RemittanceTransaction.objects.get(ref_no='S100CITIZEN1')
+        self.assertEqual(txn.status, 'failed')
+        self.assertFalse((txn.lookup_response or {}).get('himalpay_received'))
 

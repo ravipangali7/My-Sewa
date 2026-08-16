@@ -241,7 +241,7 @@ function ReceiveRemittance() {
       "beneficiary_id_issue_by",
       "beneficiary_dob",
     ];
-    if (citizenshipKeys.includes(key)) {
+    if (citizenshipKeys.includes(key) && !verification?.pending_review_allowed) {
       setVerification(null);
     }
   };
@@ -419,7 +419,7 @@ function ReceiveRemittance() {
         }
       }
 
-      return apiClient.receiveRemittance({
+      const payload = {
         ref_no: lookup.ref_no,
         samsara_link_id: lookup.samsara_link_id,
         // Rupees; server converts to paisa (×100) for HimalPay SAMSARA_PAY load.
@@ -452,17 +452,37 @@ function ReceiveRemittance() {
               }
             : undefined,
         transaction_pin,
-      });
+      };
+
+      if (citizenshipFront || citizenshipBack) {
+        const fd = new FormData();
+        for (const [key, value] of Object.entries(payload)) {
+          if (value == null || value === "") continue;
+          if (typeof value === "object") {
+            fd.append(key, JSON.stringify(value));
+          } else {
+            fd.append(key, String(value));
+          }
+        }
+        if (citizenshipFront) fd.append("front", citizenshipFront);
+        if (citizenshipBack) fd.append("back", citizenshipBack);
+        return apiClient.receiveRemittance(fd);
+      }
+      return apiClient.receiveRemittance(payload);
     },
     onSuccess: (res) => {
       setPinOpen(false);
       setPinError(null);
-      const isPendingReview =
-        res.data?.status === "pending" || res.code === "citizenship_review_pending";
+      const isPendingReview = res.code === "citizenship_review_pending";
+      const isPending = res.data?.status === "pending";
       const credited = res.data?.total_credited ?? res.data?.amount;
       if (isPendingReview) {
         toast.message(res.message || t("remittance.pendingReviewTitle"), {
           description: res.pending_message || t("remittance.pendingReviewBody"),
+        });
+      } else if (isPending) {
+        toast.message(res.message || t("remittance.processingTitle"), {
+          description: res.pending_message || t("remittance.processingBody"),
         });
       } else {
         toast.success(res.message || t("remittance.credited"), {
@@ -669,6 +689,7 @@ function ReceiveRemittance() {
                     hint={t("remittance.citizenshipUploadHint")}
                     preview={frontPreview}
                     file={citizenshipFront}
+                    locked={pendingReviewAllowed}
                     onChange={(file) => setCitizenshipFile("front", file)}
                   />
                   <CitizenshipUploadSlot
@@ -676,6 +697,7 @@ function ReceiveRemittance() {
                     hint={t("remittance.citizenshipUploadHint")}
                     preview={backPreview}
                     file={citizenshipBack}
+                    locked={pendingReviewAllowed}
                     onChange={(file) => setCitizenshipFile("back", file)}
                   />
                 </div>
@@ -685,6 +707,7 @@ function ReceiveRemittance() {
                   className="h-11 w-full rounded-xl"
                   disabled={
                     verifyMutation.isPending ||
+                    pendingReviewAllowed ||
                     !citizenshipFront ||
                     !citizenshipBack ||
                     !remittancesEnabled
@@ -991,7 +1014,10 @@ function ReceiveRemittance() {
                         </span>
                       </p>
                       <p className="truncate text-[13px] text-muted-foreground">
-                        {r.sender_name || t("remittance.sender")} · {formatDateTime(r.created_at)}
+                        {[r.sender_name || t("remittance.sender"), r.receiver_name]
+                          .filter(Boolean)
+                          .join(" → ")}{" "}
+                        · {formatDateTime(r.created_at)}
                       </p>
                     </div>
                     <StatusChip status={r.status} className="shrink-0" />
@@ -1113,12 +1139,14 @@ function CitizenshipUploadSlot({
   hint,
   preview,
   file,
+  locked,
   onChange,
 }: {
   label: string;
   hint: string;
   preview: string | null;
   file: File | null;
+  locked?: boolean;
   onChange: (file: File | null) => void;
 }) {
   const inputId = `citizenship-${label.replace(/\s+/g, "-").toLowerCase()}`;
@@ -1130,14 +1158,16 @@ function CitizenshipUploadSlot({
       {preview ? (
         <div className="relative overflow-hidden rounded-xl border border-border bg-background">
           <img src={preview} alt={label} className="h-36 w-full object-cover" />
-          <button
-            type="button"
-            className="absolute right-2 top-2 inline-flex size-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow"
-            onClick={() => onChange(null)}
-            aria-label="Remove"
-          >
-            <X className="size-4" />
-          </button>
+          {!locked ? (
+            <button
+              type="button"
+              className="absolute right-2 top-2 inline-flex size-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow"
+              onClick={() => onChange(null)}
+              aria-label="Remove"
+            >
+              <X className="size-4" />
+            </button>
+          ) : null}
           <p className="truncate px-2 py-1.5 text-[11px] text-muted-foreground">
             {file?.name}
           </p>
@@ -1156,6 +1186,7 @@ function CitizenshipUploadSlot({
         type="file"
         accept="image/jpeg,image/png,image/webp,image/*"
         className="sr-only"
+        disabled={locked}
         onChange={(e) => {
           const next = e.target.files?.[0] ?? null;
           onChange(next);

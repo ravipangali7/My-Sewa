@@ -169,7 +169,7 @@ function UserDetailPage() {
                   {u.can_fund_transfer !== false ? "Enabled" : "Disabled"}
                 </Badge>
               </DetailRow>
-              <DetailRow label="Wallet Adjustment">
+              <DetailRow label="Wallet Transfer">
                 <Badge variant={u.can_wallet_adjust !== false ? "default" : "secondary"}>
                   {u.can_wallet_adjust !== false ? "Enabled" : "Disabled"}
                 </Badge>

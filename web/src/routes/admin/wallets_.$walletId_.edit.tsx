@@ -216,8 +216,8 @@ function EditWalletPage() {
           >
             {!allowAdjust ? (
               <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                Wallet adjustment is disabled for your account. Ask a Super Admin to enable it on
-                the Users page.
+                Wallet adjustment is disabled for your account. Ask a Super Admin to enable
+                Wallet Transfer on the Users page.
               </p>
             ) : null}
             <div className="space-y-1.5">

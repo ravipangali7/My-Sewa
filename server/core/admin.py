@@ -5,6 +5,7 @@ from django.db import transaction
 from .models import (
     Wallet,
     WalletAdjustment,
+    WalletTransfer,
     Deposit,
     Settings,
     TopupTransaction,
@@ -111,6 +112,27 @@ class WalletAdjustmentAdmin(admin.ModelAdmin):
         'wallet', 'user', 'amount', 'adjustment_type',
         'balance_before', 'balance_after', 'reason', 'created_by',
         'created_at', 'reference',
+    )
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(WalletTransfer)
+class WalletTransferAdmin(admin.ModelAdmin):
+    list_display = (
+        'sender', 'recipient', 'amount', 'status', 'reference', 'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    search_fields = (
+        'sender__phone', 'recipient__phone', 'reference', 'remarks',
+    )
+    readonly_fields = (
+        'sender', 'recipient', 'amount', 'remarks', 'status', 'reference',
+        'sender_balance_before', 'sender_balance_after',
+        'recipient_balance_before', 'recipient_balance_after',
+        'created_at',
     )
     ordering = ('-created_at',)
 
@@ -349,8 +371,8 @@ class BankTransferTransactionAdmin(admin.ModelAdmin):
 @admin.register(RemittanceTransaction)
 class RemittanceTransactionAdmin(admin.ModelAdmin):
     list_display = (
-        'user', 'ref_no', 'amount', 'status', 'total_credited',
-        'merchant_txn_id', 'created_at',
+        'user', 'ref_no', 'sender_name', 'receiver_name', 'amount', 'status',
+        'total_credited', 'merchant_txn_id', 'created_at',
     )
     list_filter = ('status', 'created_at')
     search_fields = (

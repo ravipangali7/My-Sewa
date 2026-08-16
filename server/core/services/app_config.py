@@ -241,7 +241,7 @@ _USER_FEATURE_MESSAGES = {
     ),
     'wallet_adjustment': (
         'can_wallet_adjust',
-        'Wallet adjustment is disabled for this account.',
+        'Wallet transfer is disabled for this account.',
         'wallet_adjustment_forbidden',
     ),
 }

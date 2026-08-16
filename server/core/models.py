@@ -308,7 +308,10 @@ class CustomUser(AbstractUser):
     can_wallet_adjust = models.BooleanField(
         default=True,
         db_index=True,
-        help_text="When enabled, this user can perform wallet adjustments (manual load / debit).",
+        help_text=(
+            "When enabled, this user can transfer wallet balance to another MySewa user. "
+            "Staff with this enabled can also perform admin wallet adjustments (manual load / debit)."
+        ),
     )
     transaction_pin = models.CharField(
         max_length=128,
@@ -471,6 +474,51 @@ class WalletAdjustment(models.Model):
         verbose_name = "Wallet Adjustment"
         verbose_name_plural = "Wallet Adjustments"
         ordering = ['-created_at']
+
+
+class WalletTransfer(models.Model):
+    """Instant MySewa wallet-to-wallet transfer between two users."""
+    STATUS_CHOICES = [
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+    ]
+
+    sender = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='wallet_transfers_sent',
+    )
+    recipient = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='wallet_transfers_received',
+    )
+    amount = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    remarks = models.CharField(max_length=255, blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='success')
+    reference = models.CharField(max_length=100, unique=True)
+    sender_balance_before = models.DecimalField(max_digits=12, decimal_places=2)
+    sender_balance_after = models.DecimalField(max_digits=12, decimal_places=2)
+    recipient_balance_before = models.DecimalField(max_digits=12, decimal_places=2)
+    recipient_balance_after = models.DecimalField(max_digits=12, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return (
+            f"{self.sender.phone} → {self.recipient.phone} "
+            f"Rs. {self.amount} ({self.status})"
+        )
+
+    class Meta:
+        verbose_name = "Wallet Transfer"
+        verbose_name_plural = "Wallet Transfers"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['sender', '-created_at']),
+            models.Index(fields=['recipient', '-created_at']),
+        ]
 
 
 def default_app_config():
@@ -847,6 +895,32 @@ class BankTransferTransaction(models.Model):
         ordering = ['-created_at']
 
 
+def remittance_citizenship_upload_to(instance, filename, side):
+    import os
+    import re
+
+    ext = os.path.splitext(filename or '')[1].lower() or '.jpg'
+    if ext == '.jpeg':
+        ext = '.jpg'
+    if ext not in ('.jpg', '.png', '.webp', '.gif'):
+        ext = '.jpg'
+    ref = re.sub(
+        r'[^A-Za-z0-9_-]+',
+        '_',
+        str(getattr(instance, 'ref_no', '') or 'unknown').strip().upper(),
+    )
+    user_id = getattr(instance, 'user_id', None) or 'unknown'
+    return f'remittance_citizenship/{user_id}/{ref}/{side}{ext}'
+
+
+def remittance_citizenship_front_upload(instance, filename):
+    return remittance_citizenship_upload_to(instance, filename, 'front')
+
+
+def remittance_citizenship_back_upload(instance, filename):
+    return remittance_citizenship_upload_to(instance, filename, 'back')
+
+
 class RemittanceTransaction(models.Model):
     """Inbound remittance payout via HimalPay Samsara (SAMSARA_GET / SAMSARA_PAY)."""
     STATUS_CHOICES = [
@@ -898,6 +972,18 @@ class RemittanceTransaction(models.Model):
     beneficiary_mobile_no = models.CharField(max_length=50, blank=True, default='')
     beneficiary_dob = models.CharField(max_length=30, blank=True, default='')
     remittance_purpose = models.CharField(max_length=80, blank=True, default='FAMILY_SUPPORT')
+    citizenship_front = models.ImageField(
+        upload_to=remittance_citizenship_front_upload,
+        blank=True,
+        null=True,
+        help_text='Citizenship front image kept after matching fails for admin review.',
+    )
+    citizenship_back = models.ImageField(
+        upload_to=remittance_citizenship_back_upload,
+        blank=True,
+        null=True,
+        help_text='Citizenship back image kept after matching fails for admin review.',
+    )
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     merchant_txn_id = models.CharField(max_length=100, unique=True)

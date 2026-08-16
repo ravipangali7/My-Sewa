@@ -111,7 +111,7 @@ function UsersPage() {
       });
     },
     onSuccess: (_data, vars) => {
-      const label = vars.field === "can_fund_transfer" ? "Fund Transfer" : "Wallet Adjustment";
+      const label = vars.field === "can_fund_transfer" ? "Fund Transfer" : "Wallet Transfer";
       toast.success(vars.value ? `${label} enabled` : `${label} disabled`);
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
     },
@@ -294,7 +294,7 @@ function UsersPage() {
                 <TableHead>Account</TableHead>
                 <TableHead>Login</TableHead>
                 <TableHead>Fund Transfer</TableHead>
-                <TableHead>Wallet Adjustment</TableHead>
+                <TableHead>Wallet Transfer</TableHead>
                 <TableHead>Date joined</TableHead>
                 <TableHead>Last login</TableHead>
                 <TableHead className="text-right">Wallet balance</TableHead>
@@ -327,7 +327,7 @@ function UsersPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>{accessToggle(u, "can_fund_transfer", "Fund Transfer")}</TableCell>
-                  <TableCell>{accessToggle(u, "can_wallet_adjust", "Wallet Adjustment")}</TableCell>
+                  <TableCell>{accessToggle(u, "can_wallet_adjust", "Wallet Transfer")}</TableCell>
                   <TableCell className="text-sm">{formatDate(u.date_joined)}</TableCell>
                   <TableCell className="text-sm">
                     {u.last_login ? formatDate(u.last_login) : "—"}
@@ -388,8 +388,8 @@ function UsersPage() {
                         value: accessToggle(u, "can_fund_transfer", "Fund Transfer"),
                       },
                       {
-                        label: "Wallet Adjustment",
-                        value: accessToggle(u, "can_wallet_adjust", "Wallet Adjustment"),
+                        label: "Wallet Transfer",
+                        value: accessToggle(u, "can_wallet_adjust", "Wallet Transfer"),
                       },
                     ]}
                   />

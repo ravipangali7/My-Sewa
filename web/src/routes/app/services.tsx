@@ -16,7 +16,7 @@ import { DepositAccountsPanel } from "@/components/DepositAccountsPanel";
 import { apiClient } from "@/lib/api";
 import { settingsQueryOptions } from "@/lib/refresh";
 import { useAuth } from "@/lib/auth";
-import { isAccountPending, canFundTransfer, isWalletBlocked } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer, canWalletAdjust, isWalletBlocked } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useT } from "@/lib/i18n";
 
@@ -147,10 +147,10 @@ function Services() {
           : t("services.transferDesc"),
       icon: Send,
       enabled:
-        payment?.transfers_enabled !== false &&
         !accountPending &&
         !walletBlocked &&
-        canFundTransfer(user),
+        (canFundTransfer(user) || canWalletAdjust(user)) &&
+        (payment?.transfers_enabled !== false || canWalletAdjust(user)),
     },
   ];
 
