@@ -43,6 +43,7 @@ import { Route as AppLoadRouteImport } from './routes/app/load'
 import { Route as AppNotificationsRouteImport } from './routes/app/notifications'
 import { Route as AppProfileRouteImport } from './routes/app/profile'
 import { Route as AppRemittanceRouteImport } from './routes/app/remittance'
+import { Route as AppScanRouteImport } from './routes/app/scan'
 import { Route as AppServicesRouteImport } from './routes/app/services'
 import { Route as AppTopupRouteImport } from './routes/app/topup'
 import { Route as AppTransferRouteImport } from './routes/app/transfer'
@@ -242,6 +243,11 @@ const AppRemittanceRoute = AppRemittanceRouteImport.update({
   path: '/app/remittance',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppScanRoute = AppScanRouteImport.update({
+  id: '/app/scan',
+  path: '/app/scan',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppServicesRoute = AppServicesRouteImport.update({
   id: '/app/services',
   path: '/app/services',
@@ -416,6 +422,7 @@ export interface FileRoutesByFullPath {
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/remittance': typeof AppRemittanceRoute
+  '/app/scan': typeof AppScanRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
@@ -479,6 +486,7 @@ export interface FileRoutesByTo {
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/remittance': typeof AppRemittanceRoute
+  '/app/scan': typeof AppScanRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
@@ -543,6 +551,7 @@ export interface FileRoutesById {
   '/app/notifications': typeof AppNotificationsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/remittance': typeof AppRemittanceRoute
+  '/app/scan': typeof AppScanRoute
   '/app/services': typeof AppServicesRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
@@ -608,6 +617,7 @@ export interface FileRouteTypes {
     | '/app/notifications'
     | '/app/profile'
     | '/app/remittance'
+    | '/app/scan'
     | '/app/services'
     | '/app/topup'
     | '/app/transfer'
@@ -671,6 +681,7 @@ export interface FileRouteTypes {
     | '/app/notifications'
     | '/app/profile'
     | '/app/remittance'
+    | '/app/scan'
     | '/app/services'
     | '/app/topup'
     | '/app/transfer'
@@ -734,6 +745,7 @@ export interface FileRouteTypes {
     | '/app/notifications'
     | '/app/profile'
     | '/app/remittance'
+    | '/app/scan'
     | '/app/services'
     | '/app/topup'
     | '/app/transfer'
@@ -798,6 +810,7 @@ export interface RootRouteChildren {
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppProfileRoute: typeof AppProfileRoute
   AppRemittanceRoute: typeof AppRemittanceRoute
+  AppScanRoute: typeof AppScanRoute
   AppServicesRoute: typeof AppServicesRoute
   AppTopupRoute: typeof AppTopupRoute
   AppTransferRoute: typeof AppTransferRoute
@@ -1069,6 +1082,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRemittanceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/scan': {
+      id: '/app/scan'
+      path: '/app/scan'
+      fullPath: '/app/scan'
+      preLoaderRoute: typeof AppScanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/services': {
       id: '/app/services'
       path: '/app/services'
@@ -1294,6 +1314,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppNotificationsRoute: AppNotificationsRoute,
   AppProfileRoute: AppProfileRoute,
   AppRemittanceRoute: AppRemittanceRoute,
+  AppScanRoute: AppScanRoute,
   AppServicesRoute: AppServicesRoute,
   AppTopupRoute: AppTopupRoute,
   AppTransferRoute: AppTransferRoute,
