@@ -17,7 +17,12 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from ..models import Wallet, WalletTransfer, BankTransferTransaction
+from ..models import (
+    Wallet,
+    WalletTransfer,
+    BankTransferTransaction,
+    _ensure_wallet_transfer_table,
+)
 from ..serializers import (
     WalletTransferSerializer,
     WalletTransferLookupSerializer,
@@ -70,6 +75,7 @@ def _get_or_create_wallet(user):
 
 
 def _wallet_transfers_qs(user):
+    _ensure_wallet_transfer_table()
     return (
         WalletTransfer.objects.filter(Q(sender=user) | Q(recipient=user))
         .select_related('sender', 'recipient')
@@ -130,6 +136,7 @@ def lookup_wallet_transfer_recipient(request):
 @permission_classes([IsAuthenticated])
 def create_wallet_transfer(request):
     """Debit the sender and credit another MySewa user instantly."""
+    _ensure_wallet_transfer_table()
     blocked = require_user_feature(request.user, 'wallet_adjustment')
     if blocked:
         return blocked

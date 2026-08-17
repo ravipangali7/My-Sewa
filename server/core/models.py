@@ -294,6 +294,69 @@ def _ensure_push_notification_table():
     return True
 
 
+_wallet_transfer_table_ready = False
+
+
+def _record_wallet_transfer_migrations():
+    from django.db.migrations.recorder import MigrationRecorder
+
+    recorder = MigrationRecorder(connection)
+    if not recorder.migration_qs.filter(app='core', name='0040_wallet_transfer').exists():
+        if recorder.migration_qs.filter(
+            app='core', name='0039_wallet_transaction_block_statement',
+        ).exists():
+            recorder.record_applied('core', '0040_wallet_transfer')
+    if (
+        recorder.migration_qs.filter(app='core', name='0040_wallet_transfer').exists()
+        and recorder.migration_qs.filter(
+            app='core', name='0040_remittance_citizenship_images',
+        ).exists()
+        and not recorder.migration_qs.filter(
+            app='core', name='0041_merge_wallet_transfer_and_citizenship_images',
+        ).exists()
+    ):
+        recorder.record_applied('core', '0041_merge_wallet_transfer_and_citizenship_images')
+
+
+def _ensure_wallet_transfer_table():
+    """
+    Create core_wallettransfer if deploy skipped migrate 0040.
+    /api/wallet-transfer/history/ queries this model; a missing table 500s the endpoint.
+    """
+    global _wallet_transfer_table_ready
+    if _wallet_transfer_table_ready:
+        return False
+
+    table = 'core_wallettransfer'
+    try:
+        names = connection.introspection.table_names()
+        if table in names:
+            _record_wallet_transfer_migrations()
+            _wallet_transfer_table_ready = True
+            return False
+        if 'core_customuser' not in names:
+            return False
+    except Exception:
+        return False
+
+    from django.apps import apps
+
+    model = apps.get_model('core', 'WalletTransfer')
+    try:
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(model)
+    except Exception:
+        if table in connection.introspection.table_names():
+            _record_wallet_transfer_migrations()
+            _wallet_transfer_table_ready = True
+            return False
+        raise
+
+    _record_wallet_transfer_migrations()
+    _wallet_transfer_table_ready = True
+    return True
+
+
 class CustomUserManager(BaseUserManager):
     """Custom user manager where phone is the unique identifier"""
     

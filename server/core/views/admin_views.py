@@ -898,7 +898,19 @@ def admin_user_report(request, user_id):
         wallet_transfer_debits = _sum_field(wt_sent)
         wallet_transfer_credits = _sum_field(wt_received)
     except (OperationalError, ProgrammingError):
-        pass
+        try:
+            from ..models import _ensure_wallet_transfer_table
+            _ensure_wallet_transfer_table()
+            wt_sent = _apply_created_range(
+                WalletTransfer.objects.filter(sender=user, status='success'), start, end,
+            )
+            wt_received = _apply_created_range(
+                WalletTransfer.objects.filter(recipient=user, status='success'), start, end,
+            )
+            wallet_transfer_debits = _sum_field(wt_sent)
+            wallet_transfer_credits = _sum_field(wt_received)
+        except Exception:
+            pass
 
     total_wallet_credits = (
         deposit_credits + remittance_credits + adjustment_credits + wallet_transfer_credits
@@ -1271,7 +1283,17 @@ def admin_wallet_transactions(request, wallet_id):
         )
         wallet_transfers.exists()
     except (OperationalError, ProgrammingError):
-        wallet_transfers = WalletTransfer.objects.none()
+        try:
+            from ..models import _ensure_wallet_transfer_table
+            _ensure_wallet_transfer_table()
+            wallet_transfers = _apply_created_range(
+                WalletTransfer.objects.filter(Q(sender=user) | Q(recipient=user)).order_by('-created_at'),
+                start,
+                end,
+            )
+            wallet_transfers.exists()
+        except Exception:
+            wallet_transfers = WalletTransfer.objects.none()
 
     payload = {
         'deposits': _ser(DepositSerializer, deposits),
@@ -1663,7 +1685,19 @@ def admin_transaction_history(request):
             if extra is not None:
                 wt_qs = wt_qs.filter(extra)
         except (OperationalError, ProgrammingError):
-            wt_qs = WalletTransfer.objects.none()
+            try:
+                from ..models import _ensure_wallet_transfer_table
+                _ensure_wallet_transfer_table()
+                wt_qs = WalletTransfer.objects.select_related(
+                    'sender', 'sender__wallet', 'recipient', 'recipient__wallet',
+                ).order_by('-created_at')
+                wt_qs.exists()
+                wt_qs = _apply_created_range(wt_qs, start, end)
+                wt_qs = _apply_mixed_status(wt_qs, status_filter, kind='wallet_transfer')
+                if extra is not None:
+                    wt_qs = wt_qs.filter(extra)
+            except Exception:
+                wt_qs = WalletTransfer.objects.none()
 
         def _wallet_transfer_rows(obj):
             detail = (
