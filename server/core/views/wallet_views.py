@@ -25,6 +25,7 @@ from ..models import (
     WalletAdjustment,
     WalletTransfer,
     _ensure_electricity_bill_table,
+    _ensure_wallet_transfer_table,
 )
 from ..serializers import (
     WalletSerializer,
@@ -84,7 +85,20 @@ def _wallet_transfers_ordered(user):
     try:
         qs.exists()
         return qs
-    except (OperationalError, ProgrammingError):
+    except (OperationalError, ProgrammingError) as exc:
+        msg = str(exc).lower()
+        if 'wallettransfer' in msg or 'core_wallettransfer' in msg:
+            try:
+                _ensure_wallet_transfer_table()
+                qs = (
+                    WalletTransfer.objects.filter(Q(sender=user) | Q(recipient=user))
+                    .select_related('sender', 'recipient')
+                    .order_by('-created_at')
+                )
+                qs.exists()
+                return qs
+            except Exception:
+                logger.exception('Failed to self-heal wallet transfer table')
         return WalletTransfer.objects.none()
 
 

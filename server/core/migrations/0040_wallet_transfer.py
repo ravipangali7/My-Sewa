@@ -6,6 +6,34 @@ import django.core.validators
 import django.db.models.deletion
 
 
+class CreateModelIfMissing(migrations.CreateModel):
+    """Skip CREATE TABLE if the app already created it before migrate ran."""
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        model = to_state.apps.get_model(app_label, self.name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        if model._meta.db_table in schema_editor.connection.introspection.table_names():
+            return
+        schema_editor.create_model(model)
+
+
+class AddIndexIfMissing(migrations.AddIndex):
+    """Skip CREATE INDEX if the table already has this index name."""
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        model = to_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        table = model._meta.db_table
+        connection = schema_editor.connection
+        with connection.cursor() as cursor:
+            constraints = connection.introspection.get_constraints(cursor, table)
+        if self.index.name in constraints:
+            return
+        super().database_forwards(app_label, schema_editor, from_state, to_state)
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -25,7 +53,7 @@ class Migration(migrations.Migration):
                 ),
             ),
         ),
-        migrations.CreateModel(
+        CreateModelIfMissing(
             name='WalletTransfer',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -63,11 +91,11 @@ class Migration(migrations.Migration):
                 'ordering': ['-created_at'],
             },
         ),
-        migrations.AddIndex(
+        AddIndexIfMissing(
             model_name='wallettransfer',
             index=models.Index(fields=['sender', '-created_at'], name='core_wallet_sender__9c1e2a_idx'),
         ),
-        migrations.AddIndex(
+        AddIndexIfMissing(
             model_name='wallettransfer',
             index=models.Index(fields=['recipient', '-created_at'], name='core_wallet_recipie_4b8f3c_idx'),
         ),
