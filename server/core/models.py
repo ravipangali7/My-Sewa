@@ -646,8 +646,8 @@ class WalletTransfer(models.Model):
         verbose_name_plural = "Wallet Transfers"
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['sender', '-created_at']),
-            models.Index(fields=['recipient', '-created_at']),
+            models.Index(fields=['sender', '-created_at'], name='core_wallet_sender__bf643e_idx'),
+            models.Index(fields=['recipient', '-created_at'], name='core_wallet_recipie_d42619_idx'),
         ]
 
 
@@ -1801,8 +1801,11 @@ class StatementDiscrepancy(models.Model):
         verbose_name_plural = 'Statement Discrepancies'
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['status', 'issue_type']),
-            models.Index(fields=['transaction_uuid', 'issue_type', 'status']),
+            models.Index(fields=['status', 'issue_type'], name='core_statem_status_e45676_idx'),
+            models.Index(
+                fields=['transaction_uuid', 'issue_type', 'status'],
+                name='core_statem_transac_8f8213_idx',
+            ),
         ]
 
 
