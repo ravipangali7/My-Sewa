@@ -212,11 +212,6 @@ function RemittancesPage() {
                     <TableCell>{statusSelect(r.id, r.status)}</TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                       {formatDateTime(r.created_at)}
-                      {r.citizenship_review_pending ? (
-                        <span className="mt-1 block text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                          Citizenship review
-                        </span>
-                      ) : null}
                       {(r.citizenship_front || r.citizenship_back) ? (
                         <span className="mt-1 flex gap-1">
                           {r.citizenship_front ? (
@@ -278,9 +273,6 @@ function RemittancesPage() {
                       { label: "Receiver", value: r.receiver_name || "—" },
                       { label: "User", value: remittanceUserName(r) },
                       { label: "When", value: formatDateTime(r.created_at) },
-                      ...(r.citizenship_review_pending
-                        ? [{ label: "Review", value: "Citizenship mismatch — update soon" }]
-                        : []),
                     ]}
                   />
                   {(r.citizenship_front || r.citizenship_back) ? (

@@ -126,7 +126,11 @@ urlpatterns = [
 
     # Remittance endpoints (HimalPay Samsara)
     path('api/remittance/lookup/', remittance_views.lookup_remittance, name='remittance_lookup'),
-    path('api/remittance/verify-citizenship/', remittance_views.verify_citizenship, name='remittance_verify_citizenship'),
+    path(
+        'api/public/remittance-documents/<str:merchant_txn_id>/<str:side>/',
+        remittance_views.remittance_public_document,
+        name='remittance_public_document',
+    ),
     path('api/remittance/receive/', remittance_views.receive_remittance, name='remittance_receive'),
     path('api/remittance/history/', remittance_views.remittance_history, name='remittance_history'),
     path('api/remittance/status/', remittance_views.remittance_status, name='remittance_status'),

@@ -858,62 +858,16 @@ export const messages = {
     "remittance.empty": "No remittances received yet.",
     "remittance.searchTitle": "Search remittances",
     "remittance.searchPlaceholder": "Search ref no, sender, amount…",
-    "remittance.citizenshipVerifyTitle": "Citizenship verification",
+    "remittance.citizenshipVerifyTitle": "Citizenship images",
     "remittance.citizenshipVerifyHelp":
-      "Upload Front and Back of the citizenship certificate. English details (name, date of birth, issue date, issuing district, citizenship number) are filled automatically. If English is not readable, Nepali text is converted to English. After 2 unsuccessful matches you can submit the remittance as pending for admin review.",
+      "Upload front and back photos of the beneficiary's citizenship certificate. These images are sent to HimalPay with the remittance payout.",
     "remittance.citizenshipFront": "Citizenship front",
     "remittance.citizenshipBack": "Citizenship back",
     "remittance.citizenshipUploadHint": "JPG, PNG, or WEBP",
     "remittance.citizenshipBothRequired": "Upload both citizenship Front and Back images.",
-    "remittance.verifyCitizenship": "Verify citizenship",
-    "remittance.verifyCitizenshipAgain": "Scan again",
-    "remittance.verifyingCitizenship": "Reading citizenship…",
-    "remittance.autoFetchingDetails":
-      "Reading English details from both sides. If English is missing, Nepali text is converted.",
-    "remittance.verifyRequired": "Upload citizenship Front and Back so we can read the details.",
-    "remittance.citizenshipMatchingDisabled":
-      "Citizenship image matching is currently disabled. Fill the form and continue.",
-    "remittance.verifyMismatch":
-      "Citizenship details do not match. Upload clearer photos and try again. After 2 attempts you can submit as pending for admin review.",
-    "remittance.verifyPartial":
-      "Citizenship details only partially match. Correct the form or upload clearer front and back images.",
-    "remittance.verifySuccess": "Citizenship details match. You can receive this remittance.",
-    "remittance.verifyPendingReview":
-      "Citizenship did not match after 2 attempts. The uploaded images will be kept. After HimalPay receives the remittance it will stay pending for admin review.",
-    "remittance.verifyFailed": "Citizenship verification failed",
-    "remittance.convertedFromNepali": "Some fields were converted from Nepali to English.",
-    "remittance.attemptsRemaining":
-      "Match attempt {remaining} of {max} remaining. After 2 unsuccessful matches this remittance can be submitted as pending.",
-    "remittance.attemptsExhausted":
-      "Two match attempts failed. The uploaded images are kept. Submit to receive via HimalPay — it will then stay pending for admin review.",
-    "remittance.submitPendingReview": "Submit {amount} as pending for review",
-    "remittance.pendingReviewTitle": "Remittance pending review",
-    "remittance.pendingReviewBody":
-      "Citizenship details did not match. The remittance has been received from HimalPay and is pending admin review.",
     "remittance.processingTitle": "Remittance is being processed",
     "remittance.processingBody":
       "HimalPay is still receiving this remittance. Status will update once the money has been received.",
-    "remittance.receiverNameRequired":
-      "This remittance has no receiver name to match. Look up the remittance again.",
-    "remittance.verifyFillKycFirst":
-      "Fill citizenship number, date of birth, issue date, and issuing district, then verify the images.",
-    "remittance.matchStatus": "Match status",
-    "remittance.confidence": "Confidence",
-    "remittance.ocrConfidence": "OCR confidence",
-    "remittance.fieldMatch": "Field matches",
-    "remittance.ocrErrors": "OCR notes",
-    "remittance.mismatchReasons": "Why it did not match",
-    "remittance.submittedValue": "Remittance / form",
-    "remittance.scannedValue": "Citizenship scan",
-    "remittance.match.match": "Match",
-    "remittance.match.partial": "Partial",
-    "remittance.match.mismatch": "Mismatch",
-    "remittance.match.missing": "Missing",
-    "remittance.field.name": "Name",
-    "remittance.field.citizenship_number": "Citizenship number",
-    "remittance.field.dob": "Date of birth",
-    "remittance.field.issue_date": "Issue date",
-    "remittance.field.issue_place": "Issue place",
 
     "profile.title": "Profile",
     "profile.loading": "Loading profile…",
@@ -2036,62 +1990,16 @@ export const messages = {
     "remittance.empty": "अहिले कुनै रेमिटेन्स प्राप्त भएको छैन।",
     "remittance.searchTitle": "रेमिटेन्स खोज्नुहोस्",
     "remittance.searchPlaceholder": "सन्दर्भ नम्बर, पठाउने, रकम खोज्नुहोस्…",
-    "remittance.citizenshipVerifyTitle": "नागरिकता प्रमाणीकरण",
+    "remittance.citizenshipVerifyTitle": "नागरिकता फोटो",
     "remittance.citizenshipVerifyHelp":
-      "नागरिकताको अगाडि र पछाडि फोटो अपलोड गर्नुहोस्। अंग्रेजी विवरण (नाम, जन्म मिति, जारी मिति, जारी जिल्ला, नागरिकता नम्बर) स्वतः भरिन्छ। अंग्रेजी नभेटिएमा नेपालीबाट अंग्रेजीमा रूपान्तरण गरिन्छ। २ पटक नमिलेमा रेमिटेन्स पेन्डिङमा पठाउन सकिन्छ, एडमिनले चाँडै समीक्षा गर्छन्।",
+      "लाभग्राहीको नागरिकताको अगाडि र पछाडि फोटो अपलोड गर्नुहोस्। यी फोटो रेमिटेन्स भुक्तानीसँग हिमालपेलाई पठाइन्छ।",
     "remittance.citizenshipFront": "नागरिकता अगाडि",
     "remittance.citizenshipBack": "नागरिकता पछाडि",
     "remittance.citizenshipUploadHint": "JPG, PNG, वा WEBP",
     "remittance.citizenshipBothRequired": "नागरिकताको अगाडि र पछाडि दुवै फोटो अपलोड गर्नुहोस्।",
-    "remittance.verifyCitizenship": "नागरिकता प्रमाणित गर्नुहोस्",
-    "remittance.verifyCitizenshipAgain": "फेरि स्क्यान गर्नुहोस्",
-    "remittance.verifyingCitizenship": "नागरिकता पढ्दै…",
-    "remittance.autoFetchingDetails":
-      "दुवै तर्फबाट अंग्रेजी विवरण पढिँदैछ। अंग्रेजी नभए नेपालीलाई अंग्रेजीमा रूपान्तरण गरिन्छ।",
-    "remittance.verifyRequired": "विवरण पढ्न नागरिकताको अगाडि र पछाडि फोटो अपलोड गर्नुहोस्।",
-    "remittance.citizenshipMatchingDisabled":
-      "नागरिकता छवि मिलान अहिले अक्षम छ। फारम भरेर अगाडि बढ्नुहोस्।",
-    "remittance.verifyMismatch":
-      "नागरिकता विवरण मिलेन। स्पष्ट फोटो अपलोड गरेर फेरि प्रयास गर्नुहोस्। २ पटक नमिलेमा पेन्डिङमा पठाउन सकिन्छ।",
-    "remittance.verifyPartial":
-      "नागरिकता विवरण आंशिक मात्र मिल्यो। फारम सच्याउनुहोस् वा अगाडि र पछाडिका स्पष्ट फोटो अपलोड गर्नुहोस्।",
-    "remittance.verifySuccess": "नागरिकता विवरण मिल्यो। तपाईं यो रेमिटेन्स प्राप्त गर्न सक्नुहुन्छ।",
-    "remittance.verifyPendingReview":
-      "२ पटक प्रयास गर्दा पनि नागरिकता मिलेन। अपलोड गरिएका फोटो जस्ताको तस्तै राखिन्छन्। हिमालपेले रकम प्राप्त गरेपछि एडमिन समीक्षाका लागि पेन्डिङमा रहन्छ।",
-    "remittance.verifyFailed": "नागरिकता प्रमाणीकरण असफल",
-    "remittance.convertedFromNepali": "केही फिल्ड नेपालीबाट अंग्रेजीमा रूपान्तरण गरिएका हुन्।",
-    "remittance.attemptsRemaining":
-      "{max} मध्ये {remaining} प्रयास बाँकी। २ पटक नमिलेमा यो रेमिटेन्स पेन्डिङमा पठाउन सकिन्छ।",
-    "remittance.attemptsExhausted":
-      "दुई पटक मिलान असफल भयो। अपलोड गरिएका फोटो राखिएका छन्। हिमालपेमार्फत प्राप्त गर्नुहोस् — त्यसपछि एडमिन समीक्षाका लागि पेन्डिङमा रहन्छ।",
-    "remittance.submitPendingReview": "{amount} पेन्डिङ समीक्षाका लागि पठाउनुहोस्",
-    "remittance.pendingReviewTitle": "रेमिटेन्स समीक्षाको प्रतीक्षामा",
-    "remittance.pendingReviewBody":
-      "नागरिकता विवरण मिलेन। हिमालपेबाट रकम प्राप्त भइसकेको छ र एडमिन समीक्षाको प्रतीक्षामा छ।",
     "remittance.processingTitle": "रेमिटेन्स प्रक्रियामा छ",
     "remittance.processingBody":
       "हिमालपेले अझै यो रेमिटेन्स प्राप्त गर्दैछ। रकम आएपछि स्थिति अपडेट हुन्छ।",
-    "remittance.receiverNameRequired":
-      "यो रेमिटेन्समा मिलान गर्ने प्राप्तकर्ता नाम छैन। फेरि खोजी गर्नुहोस्।",
-    "remittance.verifyFillKycFirst":
-      "नागरिकता नम्बर, जन्म मिति, जारी मिति र जारी जिल्ला भरेर त्यसपछि फोटो प्रमाणित गर्नुहोस्।",
-    "remittance.matchStatus": "मिल्ने अवस्था",
-    "remittance.confidence": "विश्वास्यता",
-    "remittance.ocrConfidence": "OCR विश्वास्यता",
-    "remittance.fieldMatch": "फिल्ड मिलान",
-    "remittance.ocrErrors": "OCR नोटहरू",
-    "remittance.mismatchReasons": "नमिल्नुको कारण",
-    "remittance.submittedValue": "रेमिटेन्स / फारम",
-    "remittance.scannedValue": "नागरिकता स्क्यान",
-    "remittance.match.match": "मिल्यो",
-    "remittance.match.partial": "आंशिक",
-    "remittance.match.mismatch": "नमिल्ने",
-    "remittance.match.missing": "छुटेको",
-    "remittance.field.name": "नाम",
-    "remittance.field.citizenship_number": "नागरिकता नम्बर",
-    "remittance.field.dob": "जन्म मिति",
-    "remittance.field.issue_date": "जारी मिति",
-    "remittance.field.issue_place": "जारी स्थान",
 
     "profile.title": "प्रोफाइल",
     "profile.loading": "प्रोफाइल लोड हुँदै…",

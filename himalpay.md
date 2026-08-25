@@ -1,7 +1,7 @@
 # HimalPay Reseller API - Integration Guide
 
 > Source: [https://uat.himalpay.com.np/docs/reseller](https://uat.himalpay.com.np/docs/reseller)
-> Captured: 2026-08-09 (regenerated clean UTF-8 from live UAT docs)
+> Captured: 2026-08-25 (updated remittance SAMSARA_PAY document_front_link / document_back_link from live UAT docs)
 > Environment: **UAT**
 > Base URL: `https://uatapi.himalpay.com.np/api/v1`
 
@@ -3446,13 +3446,19 @@ curl --request POST \
     "payout_payment_number": "234234",
     "payout_payment_bank_name": "LAXMI BANK LIMITED",
     "payout_payment_bank_branch": "KALIMATI",
-    "remittance_purpose": "FAMILY_SUPPORT"
+    "remittance_purpose": "FAMILY_SUPPORT",
+    "document_front_link": "https://your-storage.example.com/kyc/document_front/photo.png",
+    "document_back_link": "https://your-storage.example.com/kyc/document_back/photo.png"
   }
 }'
 
 ```
 
 [!IMPORTANT]`merchant_transaction_id` is required for resellers on this endpoint, just as it is for payments, and must be unique across all your transactions. Use it later with`/transactions/wallet-service-reseller-status` to check the load's status.
+
+> [!NOTE]`document_front_link` and `document_back_link` (inside `data`) are **required** when your reseller account is of the **Merchant** user type. Both must be publicly accessible URLs pointing to the beneficiary's identity document images.
+
+> [!NOTE] MySewa handling: The receive flow requires citizenship front and back uploads. After the remittance row is saved, MySewa sends public `document_front_link` / `document_back_link` URLs (`/api/public/remittance-documents/<merchant_txn_id>/front|back/`) on SAMSARA_PAY so HimalPay can fetch the images.
 
 Response (Amounts in paisa):
 

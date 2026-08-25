@@ -26,14 +26,14 @@ import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-s
 import { isAccountPending } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
-import { useI18n, type MessageKey } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { ListPageToolbar, ReceiptDownloadLink, TransactionResultBanner } from "@/components/list/ListPageToolbar";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
 import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { cn } from "@/lib/utils";
-import type { CitizenshipVerificationResult, RemittanceLookup } from "@/lib/types";
+import type { RemittanceLookup } from "@/lib/types";
 
 export const Route = createFileRoute("/app/remittance")({
   head: () => ({
@@ -148,7 +148,6 @@ function ReceiveRemittance() {
   const [citizenshipBack, setCitizenshipBack] = useState<File | null>(null);
   const [frontPreview, setFrontPreview] = useState<string | null>(null);
   const [backPreview, setBackPreview] = useState<string | null>(null);
-  const [verification, setVerification] = useState<CitizenshipVerificationResult | null>(null);
   const previewUrlsRef = useRef<string[]>([]);
 
   const trackPreview = (url: string | null | undefined) => {
@@ -163,7 +162,6 @@ function ReceiveRemittance() {
   }, []);
 
   const setCitizenshipFile = (side: "front" | "back", file: File | null) => {
-    setVerification(null);
     if (side === "front") {
       setCitizenshipFront(file);
       setFrontPreview((prev) => {
@@ -196,7 +194,6 @@ function ReceiveRemittance() {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
-    setVerification(null);
   };
 
   const settingsQuery = useQuery({
@@ -206,8 +203,6 @@ function ReceiveRemittance() {
   });
   const remittancesEnabled =
     settingsQuery.data?.config?.payment?.remittances_enabled !== false && !accountPending;
-  const citizenshipMatchingEnabled =
-    settingsQuery.data?.config?.payment?.citizenship_matching_enabled === true;
 
   const historyQuery = useQuery({
     queryKey: ["remittances", debounced],
@@ -233,17 +228,6 @@ function ReceiveRemittance() {
 
   const setField = <K extends keyof KycForm>(key: K, value: KycForm[K]) => {
     setKyc((prev) => ({ ...prev, [key]: value }));
-    const citizenshipKeys: Array<keyof KycForm> = [
-      "beneficiary_citizenship_number",
-      "beneficiary_citizenship_issuing_district",
-      "beneficiary_id_number",
-      "beneficiary_id_issue_date",
-      "beneficiary_id_issue_by",
-      "beneficiary_dob",
-    ];
-    if (citizenshipKeys.includes(key) && !verification?.pending_review_allowed) {
-      setVerification(null);
-    }
   };
 
   const lookupMutation = useMutation({
@@ -279,122 +263,13 @@ function ReceiveRemittance() {
     },
   });
 
-  const verificationAllowsReceive =
-    Boolean(verification) &&
-    verification?.match_status === "MATCH" &&
-    verification?.allowed !== false;
-  const pendingReviewAllowed = Boolean(verification?.pending_review_allowed);
-  const canSubmitRemittance = verificationAllowsReceive || pendingReviewAllowed;
-
-  const applyExtractedCitizenship = (data: CitizenshipVerificationResult) => {
-    const src = data.form || data.extracted || data.ocr;
-    if (!src) return;
-    setKyc((prev) => ({
-      ...prev,
-      beneficiary_citizenship_number:
-        src.citizenship_number || prev.beneficiary_citizenship_number,
-      beneficiary_id_number:
-        src.citizenship_number || prev.beneficiary_id_number || prev.beneficiary_citizenship_number,
-      beneficiary_dob: src.dob || prev.beneficiary_dob,
-      beneficiary_id_issue_date: src.issue_date || prev.beneficiary_id_issue_date,
-      beneficiary_citizenship_issuing_district:
-        src.issue_place || prev.beneficiary_citizenship_issuing_district,
-      beneficiary_id_issue_by: src.issue_place || prev.beneficiary_id_issue_by,
-    }));
-  };
-
-  const verifyMutation = useMutation({
-    mutationFn: async (mode: "auto" | "manual" = "manual") => {
-      if (accountPending) throw new Error(t("account.pending"));
-      if (!remittancesEnabled) throw new Error(t("remittance.disabledError"));
-      if (!citizenshipMatchingEnabled) {
-        throw new Error(t("remittance.citizenshipMatchingDisabled"));
-      }
-      if (!lookup?.ref_no) throw new Error(t("remittance.lookupFirst"));
-      if (!String(lookup.receiver_name || "").trim()) {
-        throw new Error(t("remittance.receiverNameRequired"));
-      }
-      if (!citizenshipFront || !citizenshipBack) {
-        throw new Error(t("remittance.citizenshipBothRequired"));
-      }
-
-      const autoFill = mode === "auto";
-      const fd = new FormData();
-      fd.append("front", citizenshipFront);
-      fd.append("back", citizenshipBack);
-      fd.append("ref_no", lookup.ref_no);
-      fd.append("name", lookup.receiver_name.trim());
-      fd.append("citizenship_number", autoFill ? "" : kyc.beneficiary_citizenship_number.trim());
-      fd.append("dob", autoFill ? "" : kyc.beneficiary_dob.trim());
-      fd.append("issue_date", autoFill ? "" : kyc.beneficiary_id_issue_date.trim());
-      fd.append(
-        "issue_place",
-        autoFill
-          ? ""
-          : (
-              kyc.beneficiary_citizenship_issuing_district ||
-              kyc.beneficiary_id_issue_by ||
-              ""
-            ).trim(),
-      );
-      return apiClient.verifyRemittanceCitizenship(fd);
-    },
-    onSuccess: (response) => {
-      const data = response.data;
-      setVerification(data);
-      applyExtractedCitizenship(data);
-      if (data.match_status === "MATCH" && data.allowed !== false) {
-        toast.success(response.message || t("remittance.verifySuccess"));
-      } else if (data.pending_review_allowed) {
-        toast.message(response.message || t("remittance.verifyPendingReview"));
-      } else if (data.match_status === "PARTIAL MATCH") {
-        toast.error(response.message || t("remittance.verifyPartial"));
-      } else {
-        toast.error(response.message || t("remittance.verifyMismatch"));
-      }
-    },
-    onError: (err) => {
-      if (err instanceof ApiError && err.body && typeof err.body === "object") {
-        const body = err.body as {
-          data?: CitizenshipVerificationResult;
-          message?: string;
-        };
-        if (body.data?.match_status) {
-          setVerification(body.data);
-          applyExtractedCitizenship(body.data);
-        }
-      }
-      toastApiError(err, { fallback: t("remittance.verifyFailed") });
-    },
-  });
-
-  useEffect(() => {
-    if (!citizenshipMatchingEnabled || !remittancesEnabled || accountPending) return;
-    if (!citizenshipFront || !citizenshipBack) return;
-    if (!lookup?.ref_no || !String(lookup.receiver_name || "").trim()) return;
-    verifyMutation.mutate("auto");
-    // Re-scan only when both images change, not when mutation state updates.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [citizenshipFront, citizenshipBack, lookup?.ref_no, citizenshipMatchingEnabled]);
-
   const receiveMutation = useMutation({
     mutationFn: async (transaction_pin: string) => {
       if (!lookup) throw new Error(t("remittance.lookupFirst"));
       if (accountPending) throw new Error(t("account.pending"));
       if (!remittancesEnabled) throw new Error(t("remittance.disabledError"));
-      if (citizenshipMatchingEnabled) {
-        if (!citizenshipFront || !citizenshipBack) {
-          throw new Error(t("remittance.citizenshipBothRequired"));
-        }
-        if (!verification) throw new Error(t("remittance.verifyRequired"));
-        if (!canSubmitRemittance) {
-          throw new Error(
-            verification.message ||
-              (verification.match_status === "PARTIAL MATCH"
-                ? t("remittance.verifyPartial")
-                : t("remittance.verifyMismatch")),
-          );
-        }
+      if (!citizenshipFront || !citizenshipBack) {
+        throw new Error(t("remittance.citizenshipBothRequired"));
       }
 
       const required: Array<[keyof KycForm, string]> = [
@@ -438,49 +313,24 @@ function ReceiveRemittance() {
         ...kyc,
         beneficiary_id_number:
           kyc.beneficiary_id_number || kyc.beneficiary_citizenship_number,
-        citizenship_verification:
-          citizenshipMatchingEnabled && verification
-            ? {
-                match_status: verification.match_status,
-                allowed: verification.allowed,
-                confidence_score: verification.confidence_score,
-                ocr_confidence: verification.ocr_confidence,
-                fields: verification.fields,
-                ocr: verification.ocr,
-                ocr_errors: verification.ocr_errors,
-                mismatch_messages: verification.mismatch_messages,
-              }
-            : undefined,
         transaction_pin,
       };
 
-      if (citizenshipFront || citizenshipBack) {
-        const fd = new FormData();
-        for (const [key, value] of Object.entries(payload)) {
-          if (value == null || value === "") continue;
-          if (typeof value === "object") {
-            fd.append(key, JSON.stringify(value));
-          } else {
-            fd.append(key, String(value));
-          }
-        }
-        if (citizenshipFront) fd.append("front", citizenshipFront);
-        if (citizenshipBack) fd.append("back", citizenshipBack);
-        return apiClient.receiveRemittance(fd);
+      const fd = new FormData();
+      for (const [key, value] of Object.entries(payload)) {
+        if (value == null || value === "") continue;
+        fd.append(key, String(value));
       }
-      return apiClient.receiveRemittance(payload);
+      fd.append("front", citizenshipFront);
+      fd.append("back", citizenshipBack);
+      return apiClient.receiveRemittance(fd);
     },
     onSuccess: (res) => {
       setPinOpen(false);
       setPinError(null);
-      const isPendingReview = res.code === "citizenship_review_pending";
       const isPending = res.data?.status === "pending";
       const credited = res.data?.total_credited ?? res.data?.amount;
-      if (isPendingReview) {
-        toast.message(res.message || t("remittance.pendingReviewTitle"), {
-          description: res.pending_message || t("remittance.pendingReviewBody"),
-        });
-      } else if (isPending) {
+      if (isPending) {
         toast.message(res.message || t("remittance.processingTitle"), {
           description: res.pending_message || t("remittance.processingBody"),
         });
@@ -643,24 +493,9 @@ function ReceiveRemittance() {
               className="space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (citizenshipMatchingEnabled) {
-                  if (!citizenshipFront || !citizenshipBack) {
-                    toast.error(t("remittance.citizenshipBothRequired"));
-                    return;
-                  }
-                  if (!verification) {
-                    toast.error(t("remittance.verifyRequired"));
-                    return;
-                  }
-                  if (!canSubmitRemittance) {
-                    toast.error(
-                      verification.message ||
-                        (verification.match_status === "PARTIAL MATCH"
-                          ? t("remittance.verifyPartial")
-                          : t("remittance.verifyMismatch")),
-                    );
-                    return;
-                  }
+                if (!citizenshipFront || !citizenshipBack) {
+                  toast.error(t("remittance.citizenshipBothRequired"));
+                  return;
                 }
                 setPinError(null);
                 setPinOpen(true);
@@ -673,7 +508,6 @@ function ReceiveRemittance() {
                 })}
               </p>
 
-              {citizenshipMatchingEnabled ? (
               <div className="space-y-3 rounded-xl border border-border/70 bg-muted/30 p-3">
                 <div>
                   <p className="text-[14px] font-semibold">
@@ -689,7 +523,6 @@ function ReceiveRemittance() {
                     hint={t("remittance.citizenshipUploadHint")}
                     preview={frontPreview}
                     file={citizenshipFront}
-                    locked={pendingReviewAllowed}
                     onChange={(file) => setCitizenshipFile("front", file)}
                   />
                   <CitizenshipUploadSlot
@@ -697,39 +530,10 @@ function ReceiveRemittance() {
                     hint={t("remittance.citizenshipUploadHint")}
                     preview={backPreview}
                     file={citizenshipBack}
-                    locked={pendingReviewAllowed}
                     onChange={(file) => setCitizenshipFile("back", file)}
                   />
                 </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="h-11 w-full rounded-xl"
-                  disabled={
-                    verifyMutation.isPending ||
-                    pendingReviewAllowed ||
-                    !citizenshipFront ||
-                    !citizenshipBack ||
-                    !remittancesEnabled
-                  }
-                  onClick={() => verifyMutation.mutate("manual")}
-                >
-                  {verifyMutation.isPending
-                    ? t("remittance.verifyingCitizenship")
-                    : verification
-                      ? t("remittance.verifyCitizenshipAgain")
-                      : t("remittance.verifyCitizenship")}
-                </Button>
-                {verifyMutation.isPending && !verification ? (
-                  <p className="text-[12px] text-muted-foreground">
-                    {t("remittance.autoFetchingDetails")}
-                  </p>
-                ) : null}
-                {verification ? (
-                  <CitizenshipVerificationPanel verification={verification} t={t} />
-                ) : null}
               </div>
-              ) : null}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label={t("remittance.gender")}>
@@ -943,15 +747,14 @@ function ReceiveRemittance() {
                 disabled={
                   receiveMutation.isPending ||
                   !remittancesEnabled ||
-                  (citizenshipMatchingEnabled && !canSubmitRemittance)
+                  !citizenshipFront ||
+                  !citizenshipBack
                 }
                 className="h-12 w-full rounded-xl text-[17px]"
               >
                 {receiveMutation.isPending
                   ? t("common.submitting")
-                  : pendingReviewAllowed
-                    ? t("remittance.submitPendingReview", { amount: formatNPR(lookup.amount) })
-                    : t("remittance.confirmReceive", { amount: formatNPR(lookup.amount) })}
+                  : t("remittance.confirmReceive", { amount: formatNPR(lookup.amount) })}
               </Button>
             </form>
           ) : null}
@@ -976,14 +779,14 @@ function ReceiveRemittance() {
                   remittanceItems.find(
                     (x) => activityIdForKind("remittance", x.id) === lastReceiptId,
                   )?.status === "pending"
-                    ? t("remittance.pendingReviewTitle")
+                    ? t("remittance.processingTitle")
                     : t("remittance.credited")
                 }
                 body={
                   remittanceItems.find(
                     (x) => activityIdForKind("remittance", x.id) === lastReceiptId,
                   )?.status === "pending"
-                    ? t("remittance.pendingReviewBody")
+                    ? t("remittance.processingBody")
                     : t("history.downloadStatement")
                 }
                 receiptLabel={t("history.downloadPdf")}
@@ -1139,14 +942,12 @@ function CitizenshipUploadSlot({
   hint,
   preview,
   file,
-  locked,
   onChange,
 }: {
   label: string;
   hint: string;
   preview: string | null;
   file: File | null;
-  locked?: boolean;
   onChange: (file: File | null) => void;
 }) {
   const inputId = `citizenship-${label.replace(/\s+/g, "-").toLowerCase()}`;
@@ -1158,16 +959,14 @@ function CitizenshipUploadSlot({
       {preview ? (
         <div className="relative overflow-hidden rounded-xl border border-border bg-background">
           <img src={preview} alt={label} className="h-36 w-full object-cover" />
-          {!locked ? (
-            <button
-              type="button"
-              className="absolute right-2 top-2 inline-flex size-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow"
-              onClick={() => onChange(null)}
-              aria-label="Remove"
-            >
-              <X className="size-4" />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="absolute right-2 top-2 inline-flex size-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow"
+            onClick={() => onChange(null)}
+            aria-label="Remove"
+          >
+            <X className="size-4" />
+          </button>
           <p className="truncate px-2 py-1.5 text-[11px] text-muted-foreground">
             {file?.name}
           </p>
@@ -1186,123 +985,12 @@ function CitizenshipUploadSlot({
         type="file"
         accept="image/jpeg,image/png,image/webp,image/*"
         className="sr-only"
-        disabled={locked}
         onChange={(e) => {
           const next = e.target.files?.[0] ?? null;
           onChange(next);
           e.target.value = "";
         }}
       />
-    </div>
-  );
-}
-
-function CitizenshipVerificationPanel({
-  verification,
-  t,
-}: {
-  verification: CitizenshipVerificationResult;
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string;
-}) {
-  const tone =
-    verification.match_status === "MATCH"
-      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
-      : verification.pending_review_allowed || verification.match_status === "PARTIAL MATCH"
-        ? "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-100"
-        : "border-destructive/30 bg-destructive/10 text-destructive";
-
-  const fieldLabel = (field: string): string => {
-    const key = `remittance.field.${field}` as MessageKey;
-    try {
-      return t(key);
-    } catch {
-      return field;
-    }
-  };
-
-  const statusLabel = (status: string): string => {
-    const key = `remittance.match.${status}` as MessageKey;
-    try {
-      return t(key);
-    } catch {
-      return status;
-    }
-  };
-
-  return (
-    <div className={cn("space-y-2 rounded-xl border p-3 text-[13px]", tone)}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-semibold">
-          {t("remittance.matchStatus")}: {verification.match_status}
-        </p>
-        <p className="tabular">
-          {t("remittance.confidence")}: {Math.round(verification.confidence_score * 100)}%
-        </p>
-      </div>
-      <p className="text-[12px] opacity-80">
-        {t("remittance.ocrConfidence")}: {Math.round(verification.ocr_confidence * 100)}%
-      </p>
-      {verification.message ? (
-        <p className="text-[12px] font-medium">{verification.message}</p>
-      ) : null}
-      {verification.extracted_from_nepali ? (
-        <p className="text-[12px] opacity-80">{t("remittance.convertedFromNepali")}</p>
-      ) : null}
-      {typeof verification.attempt_count === "number" &&
-      verification.match_status !== "MATCH" ? (
-        <p className="text-[12px] font-medium">
-          {verification.pending_review_allowed
-            ? t("remittance.attemptsExhausted")
-            : t("remittance.attemptsRemaining", {
-                remaining: verification.attempts_remaining ?? 0,
-                max: verification.max_attempts ?? 2,
-              })}
-        </p>
-      ) : null}
-      <div className="space-y-1.5">
-        <p className="text-[12px] font-medium opacity-80">{t("remittance.fieldMatch")}</p>
-        <ul className="space-y-1">
-          {verification.fields.map((f) => (
-            <li
-              key={f.field}
-              className="flex items-start justify-between gap-2 rounded-lg bg-background/50 px-2 py-1.5"
-            >
-              <span className="min-w-0">
-                <span className="font-medium">{fieldLabel(f.field)}</span>
-                <span className="mt-0.5 block truncate text-[11px] opacity-70">
-                  {t("remittance.submittedValue")}: {f.form_value || "—"}
-                </span>
-                <span className="block truncate text-[11px] opacity-70">
-                  {t("remittance.scannedValue")}: {f.ocr_value || "—"}
-                </span>
-              </span>
-              <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide">
-                {statusLabel(f.status)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      {verification.mismatch_messages?.length ? (
-        <div className="space-y-1">
-          <p className="text-[12px] font-medium opacity-80">{t("remittance.mismatchReasons")}</p>
-          <ul className="list-disc space-y-0.5 pl-4 text-[11px] opacity-90">
-            {verification.mismatch_messages.slice(0, 5).map((err) => (
-              <li key={err}>{err}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      {verification.ocr_errors?.length ? (
-        <div className="space-y-1">
-          <p className="text-[12px] font-medium opacity-80">{t("remittance.ocrErrors")}</p>
-          <ul className="list-disc space-y-0.5 pl-4 text-[11px] opacity-80">
-            {verification.ocr_errors.slice(0, 4).map((err) => (
-              <li key={err}>{err}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
     </div>
   );
 }

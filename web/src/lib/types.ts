@@ -162,8 +162,6 @@ export interface PaymentConfig {
   topups_enabled: boolean;
   transfers_enabled: boolean;
   remittances_enabled: boolean;
-  /** When true, remittance KYC requires citizenship image upload/OCR matching. */
-  citizenship_matching_enabled: boolean;
   internet_bills_enabled: boolean;
   data_packs_enabled: boolean;
   water_bills_enabled: boolean;
@@ -438,62 +436,6 @@ export interface RemittanceLookup {
   send_agent: string;
   txn_date: string;
   status: string;
-}
-
-export type CitizenshipFieldMatchStatus = "match" | "partial" | "mismatch" | "missing";
-export type CitizenshipOverallMatch = "MATCH" | "PARTIAL MATCH" | "MISMATCH";
-
-export interface CitizenshipFieldComparison {
-  field: string;
-  form_value: string;
-  ocr_value: string;
-  status: CitizenshipFieldMatchStatus;
-  score: number;
-  normalized_form?: string;
-  normalized_ocr?: string;
-}
-
-export interface CitizenshipVerificationResult {
-  match_status: CitizenshipOverallMatch;
-  allowed?: boolean;
-  confidence_score: number;
-  fields: CitizenshipFieldComparison[];
-  form: {
-    name: string;
-    citizenship_number: string;
-    dob: string;
-    issue_date: string;
-    issue_place: string;
-  };
-  ocr: {
-    name: string;
-    citizenship_number: string;
-    dob: string;
-    issue_date: string;
-    issue_place: string;
-  };
-  ocr_detail?: {
-    front?: Record<string, unknown>;
-    back?: Record<string, unknown>;
-    confidence?: number;
-    errors?: string[];
-  };
-  ocr_errors: string[];
-  ocr_confidence: number;
-  mismatch_messages?: string[];
-  message?: string;
-  attempt_count?: number;
-  max_attempts?: number;
-  attempts_remaining?: number;
-  pending_review_allowed?: boolean;
-  extracted_from_nepali?: boolean;
-  extracted?: {
-    name: string;
-    citizenship_number: string;
-    dob: string;
-    issue_date: string;
-    issue_place: string;
-  };
 }
 
 export interface RemittanceTransaction {

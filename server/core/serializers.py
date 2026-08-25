@@ -1,7 +1,6 @@
 """
 DRF Serializers for all models
 """
-import json
 import re
 from datetime import date
 from decimal import Decimal
@@ -1391,19 +1390,6 @@ class RemittanceReceiveSerializer(serializers.Serializer):
     beneficiary_mobile_no = serializers.CharField(max_length=50, required=True)
     beneficiary_dob = serializers.CharField(max_length=30, required=True)
     remittance_purpose = serializers.CharField(max_length=80, required=False, default='FAMILY_SUPPORT')
-    citizenship_verification = serializers.JSONField(required=False)
-
-    def validate_citizenship_verification(self, value):
-        if value in (None, '', {}):
-            return {}
-        if isinstance(value, str):
-            try:
-                value = json.loads(value)
-            except (TypeError, ValueError, json.JSONDecodeError):
-                raise serializers.ValidationError('Invalid citizenship verification payload.')
-        if not isinstance(value, dict):
-            raise serializers.ValidationError('Invalid citizenship verification payload.')
-        return value
 
     def validate_ref_no(self, value):
         value = (value or '').strip()
@@ -1469,46 +1455,6 @@ class RemittanceReceiveSerializer(serializers.Serializer):
 
     def validate_beneficiary_dob(self, value):
         return self._require_text(value, 'Date of birth')
-
-
-class CitizenshipVerifySerializer(serializers.Serializer):
-    """Remittance/form citizenship fields compared against OCR of front/back images."""
-    ref_no = serializers.CharField(max_length=100, required=True)
-    name = serializers.CharField(max_length=200, required=True)
-    citizenship_number = serializers.CharField(
-        max_length=100, required=False, allow_blank=True, default=''
-    )
-    dob = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
-    issue_date = serializers.CharField(
-        max_length=30, required=False, allow_blank=True, default=''
-    )
-    issue_place = serializers.CharField(
-        max_length=100, required=False, allow_blank=True, default=''
-    )
-
-    def _require(self, value, label):
-        value = (value or '').strip()
-        if not value:
-            raise serializers.ValidationError(f'{label} is required.')
-        return value
-
-    def validate_ref_no(self, value):
-        return self._require(value, 'Remittance reference number')
-
-    def validate_name(self, value):
-        return self._require(value, 'Receiver name')
-
-    def validate_citizenship_number(self, value):
-        return (value or '').strip()
-
-    def validate_dob(self, value):
-        return (value or '').strip()
-
-    def validate_issue_date(self, value):
-        return (value or '').strip()
-
-    def validate_issue_place(self, value):
-        return (value or '').strip()
 
 
 class InternetBillTransactionSerializer(serializers.ModelSerializer):

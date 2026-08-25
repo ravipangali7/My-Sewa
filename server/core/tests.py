@@ -1982,189 +1982,17 @@ class WalletTransferTests(TestCase):
         self.assertEqual(resp.json().get('code'), 'wallet_adjustment_forbidden')
 
 
-class CitizenshipMatchingTests(SimpleTestCase):
-    """OCR parse + remittance sender-data vs citizenship-image matching."""
-
-    FRONT_TEXT = """
-    GOVERNMENT OF NEPAL
-    Citizenship Certificate
-    Name: RAM BAHADUR THAPA
-    Citizenship No: 28-01-75-01234
-    Date of Birth: 2045-02-15
-    Sex: Male
-    """
-
-    BACK_TEXT = """
-    Date of Issue: 2065-08-10
-    Place of Issue: Kathmandu
-    District: Kathmandu
-    """
-
-    def test_parse_front_and_back_fields(self):
-        from .services.citizenship_ocr import parse_citizenship_text
-
-        front = parse_citizenship_text(self.FRONT_TEXT, side='front')
-        back = parse_citizenship_text(self.BACK_TEXT, side='back')
-        self.assertEqual(front.name.upper(), 'RAM BAHADUR THAPA')
-        self.assertEqual(front.citizenship_number, '28-01-75-01234')
-        self.assertTrue(front.dob)
-        self.assertEqual(back.issue_place, 'Kathmandu')
-        self.assertTrue(back.issue_date)
-
-    def test_does_not_treat_dates_as_citizenship_number(self):
-        from .services.citizenship_ocr import parse_citizenship_text
-
-        parsed = parse_citizenship_text(
-            'Date of Birth: 2045-02-15\nDate of Issue: 2065-08-10\n',
-            side='front',
-        )
-        self.assertFalse(parsed.citizenship_number)
-
-    def test_match_sender_receiver_name_and_form_against_ocr(self):
-        from .services.citizenship_ocr import CombinedCitizenshipOcr, parse_citizenship_text
-        from .services.citizenship_verify import build_form_record, verify_citizenship
-
-        front = parse_citizenship_text(self.FRONT_TEXT, side='front')
-        back = parse_citizenship_text(self.BACK_TEXT, side='back')
-        ocr = CombinedCitizenshipOcr(
-            name=front.name,
-            citizenship_number=front.citizenship_number,
-            dob=front.dob,
-            issue_date=back.issue_date,
-            issue_place=back.issue_place,
-            confidence=0.9,
-        )
-        form = build_form_record(
-            name='Ram Bahadur Thapa',
-            citizenship_number='28-01-75-01234',
-            dob=front.dob,
-            issue_date=back.issue_date,
-            issue_place='Kathmandu District',
-        )
-        result = verify_citizenship(form=form, ocr=ocr)
-        self.assertEqual(result['match_status'], 'MATCH')
-        self.assertTrue(result['allowed'])
-
-    def test_nepali_fields_convert_to_english(self):
-        from .services.citizenship_ocr import parse_citizenship_text
-        from .services.nepali_latin import lookup_district, to_english_field
-
-        self.assertEqual(lookup_district('काठमाडौं'), 'Kathmandu')
-        self.assertEqual(to_english_field('राम बहादुर थापा', kind='name'), 'Ram Bahadur Thapa')
-
-        parsed = parse_citizenship_text(
-            'नाम: राम बहादुर थापा\n'
-            'नागरिकता नं: २८-०१-७५-०१२३४\n'
-            'जन्म मिति: २०४५-०२-१५\n'
-            'जारी मिति: २०६५-०८-१०\n'
-            'जारी जिल्ला: काठमाडौं\n',
-            side='front',
-        )
-        self.assertEqual(parsed.name, 'Ram Bahadur Thapa')
-        self.assertEqual(parsed.citizenship_number, '28-01-75-01234')
-        self.assertEqual(parsed.issue_place, 'Kathmandu')
-        self.assertTrue(parsed.dob)
-        self.assertTrue(parsed.issue_date)
-
-    def test_prefers_english_over_nepali(self):
-        from .services.citizenship_ocr import parse_citizenship_text
-
-        parsed = parse_citizenship_text(
-            'Name: RAM BAHADUR THAPA\nनाम: सीता शर्मा\n'
-            'Citizenship No: 28-01-75-01234\n'
-            'Place of Issue: Lalitpur\nजिल्ला: काठमाडौं\n',
-            side='front',
-        )
-        self.assertEqual(parsed.name.upper(), 'RAM BAHADUR THAPA')
-        self.assertEqual(parsed.issue_place, 'Lalitpur')
-
-    def test_mismatch_blocks_when_receiver_name_differs(self):
-        from .services.citizenship_ocr import CombinedCitizenshipOcr
-        from .services.citizenship_verify import build_form_record, verify_citizenship
-
-        ocr = CombinedCitizenshipOcr(
-            name='RAM BAHADUR THAPA',
-            citizenship_number='28-01-75-01234',
-            dob='1988-05-28',
-            issue_date='2008-11-23',
-            issue_place='Kathmandu',
-            confidence=0.9,
-        )
-        form = build_form_record(
-            name='Sita Sharma',
-            citizenship_number='28-01-75-01234',
-            dob='1988-05-28',
-            issue_date='2008-11-23',
-            issue_place='Kathmandu',
-        )
-        result = verify_citizenship(form=form, ocr=ocr)
-        self.assertEqual(result['match_status'], 'MISMATCH')
-        self.assertFalse(result['allowed'])
-        self.assertTrue(result['mismatch_messages'])
-
-    def test_citizenship_number_ignores_dashes_and_ocr_confusables(self):
-        from .services.citizenship_verify import citizenship_numbers_equal
-
-        self.assertTrue(citizenship_numbers_equal('28-01-75-01234', '28017501234'))
-        self.assertTrue(citizenship_numbers_equal('28-01-75-01234', '28-0I-75-O1234'))
-        self.assertFalse(citizenship_numbers_equal('28-01-75-01234', '99-01-75-01234'))
-
-    def test_receive_ticket_required_and_fingerprint_must_match(self):
-        from .services.citizenship_verify import (
-            build_form_record,
-            receive_block_reason,
-            store_verification_ticket,
-            verification_fingerprint,
-        )
-
-        cache.clear()
-        form = build_form_record(
-            name='Ram Bahadur Thapa',
-            citizenship_number='28-01-75-01234',
-            dob='1988-05-28',
-            issue_date='2008-11-23',
-            issue_place='Kathmandu',
-        )
-        self.assertIn(
-            'Verify citizenship',
-            receive_block_reason(user_id=9, ref_no='S100TICKET', form=form) or '',
-        )
-        store_verification_ticket(
-            9,
-            'S100TICKET',
-            {
-                'allowed': True,
-                'match_status': 'MATCH',
-                'fingerprint': verification_fingerprint(form),
-                'message': 'ok',
-            },
-        )
-        self.assertIsNone(receive_block_reason(user_id=9, ref_no='S100TICKET', form=form))
-        changed = build_form_record(
-            name='Ram Bahadur Thapa',
-            citizenship_number='99-99-99-99999',
-            dob='1988-05-28',
-            issue_date='2008-11-23',
-            issue_place='Kathmandu',
-        )
-        self.assertIn(
-            'changed after verification',
-            receive_block_reason(user_id=9, ref_no='S100TICKET', form=changed) or '',
-        )
-
-
-class RemittanceCitizenshipReceiveGateTests(TestCase):
-    """Server must block remittance receive unless citizenship MATCH is on file."""
+class RemittanceReceiveDocumentTests(TestCase):
+    """Receive remittance requires citizenship images and sends HimalPay document links."""
 
     def setUp(self):
-        cache.clear()
         from django.contrib.auth.hashers import make_password
         from .models import Settings, Wallet
 
         self.user = User.objects.create_user(
             phone='9800000202',
             password='testpass123',
-            email='citmatch@example.com',
+            email='citdocs@example.com',
             account_status=User.ACCOUNT_STATUS_APPROVED,
         )
         self.user.transaction_pin = make_password('1234')
@@ -2173,7 +2001,6 @@ class RemittanceCitizenshipReceiveGateTests(TestCase):
 
         settings = Settings.load()
         cfg = settings.get_config()
-        cfg['payment']['citizenship_matching_enabled'] = True
         cfg['payment']['remittances_enabled'] = True
         cfg.setdefault('remittance', {})
         cfg['remittance']['payout_agent_pan_number'] = '123456789'
@@ -2205,126 +2032,37 @@ class RemittanceCitizenshipReceiveGateTests(TestCase):
             'transaction_pin': '1234',
         }
 
-    def test_receive_blocked_without_verification_ticket(self):
-        resp = self.client.post(
-            reverse('remittance_receive'),
-            self.receive_payload,
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        body = resp.json()
-        self.assertEqual(body.get('code'), 'citizenship_mismatch')
-        self.assertIn('Verify citizenship', body.get('message') or '')
-
-    def test_receive_blocked_when_ticket_is_mismatch(self):
-        from .services.citizenship_verify import (
-            build_form_record,
-            store_verification_ticket,
-            verification_fingerprint,
-        )
-
-        form = build_form_record(
-            name='Ram Bahadur Thapa',
-            citizenship_number='28-01-75-01234',
-            dob='1988-05-28',
-            issue_date='2008-11-23',
-            issue_place='Kathmandu',
-        )
-        store_verification_ticket(
-            self.user.id,
-            'S100CITIZEN1',
-            {
-                'allowed': False,
-                'match_status': 'MISMATCH',
-                'fingerprint': verification_fingerprint(form),
-                'message': 'Citizenship details do not match the remittance information.',
-            },
-        )
-        resp = self.client.post(
-            reverse('remittance_receive'),
-            self.receive_payload,
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('do not match', (resp.json().get('message') or '').lower())
-
-    def test_verify_mismatch_returns_400_with_field_errors(self):
+    @staticmethod
+    def _png_file(name):
         from io import BytesIO
         from PIL import Image
-        from unittest.mock import patch
-        from .services.citizenship_ocr import CombinedCitizenshipOcr
 
-        def png_file(name):
-            buf = BytesIO()
-            Image.new('RGB', (48, 48), 'white').save(buf, format='PNG')
-            buf.seek(0)
-            buf.name = name
-            return buf
+        buf = BytesIO()
+        Image.new('RGB', (48, 48), 'white').save(buf, format='PNG')
+        buf.seek(0)
+        buf.name = name
+        return buf
 
-        ocr = CombinedCitizenshipOcr(
-            name='SITA SHARMA',
-            citizenship_number='11-22-33-44556',
-            dob='1990-01-01',
-            issue_date='2010-01-01',
-            issue_place='Lalitpur',
-            confidence=0.8,
+    def _multipart(self):
+        payload = dict(self.receive_payload)
+        payload['front'] = self._png_file('front.png')
+        payload['back'] = self._png_file('back.png')
+        return payload
+
+    def test_receive_blocked_without_citizenship_images(self):
+        resp = self.client.post(
+            reverse('remittance_receive'),
+            self.receive_payload,
+            format='json',
         )
-        with patch(
-            'core.services.citizenship_verify.extract_citizenship_from_images',
-            return_value=ocr,
-        ):
-            resp = self.client.post(
-                reverse('remittance_verify_citizenship'),
-                {
-                    'ref_no': 'S100CITIZEN1',
-                    'name': 'Ram Bahadur Thapa',
-                    'citizenship_number': '28-01-75-01234',
-                    'dob': '1988-05-28',
-                    'issue_date': '2008-11-23',
-                    'issue_place': 'Kathmandu',
-                    'front': png_file('front.png'),
-                    'back': png_file('back.png'),
-                },
-                format='multipart',
-            )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         body = resp.json()
-        self.assertEqual(body.get('code'), 'citizenship_mismatch')
-        self.assertEqual(body.get('data', {}).get('match_status'), 'MISMATCH')
-        self.assertFalse(body.get('data', {}).get('allowed'))
-        self.assertTrue(body.get('data', {}).get('mismatch_messages'))
-        self.assertEqual(body.get('data', {}).get('attempt_count'), 1)
-        self.assertFalse(body.get('data', {}).get('pending_review_allowed'))
+        self.assertEqual(body.get('error'), 'Citizenship images required')
 
-    def test_second_mismatch_allows_pending_review_receive(self):
+    def test_receive_sends_document_links_and_credits_wallet(self):
         from unittest.mock import patch
         from .models import RemittanceTransaction, Wallet
-        from .services.citizenship_verify import (
-            build_form_record,
-            store_verification_ticket,
-            verification_fingerprint,
-        )
 
-        form = build_form_record(
-            name='Ram Bahadur Thapa',
-            citizenship_number='28-01-75-01234',
-            dob='1988-05-28',
-            issue_date='2008-11-23',
-            issue_place='Kathmandu',
-        )
-        store_verification_ticket(
-            self.user.id,
-            'S100CITIZEN1',
-            {
-                'allowed': False,
-                'match_status': 'MISMATCH',
-                'fingerprint': verification_fingerprint(form),
-                'message': 'Citizenship details do not match.',
-                'attempt_count': 2,
-                'pending_review_allowed': True,
-                'ocr': {'name': 'SITA SHARMA', 'citizenship_number': '11-22-33-44556'},
-            },
-        )
         fake_success = {
             'status': 'SUCCESS',
             'amount': 10000,
@@ -2335,133 +2073,47 @@ class RemittanceCitizenshipReceiveGateTests(TestCase):
             'reference_id': 'S100CITIZEN1',
             'message': 'SAMSARA_PAY load successful',
         }
-        with patch.object(HimalPayAPI, 'receive_remittance', return_value=fake_success) as pay, \
-             patch(
-                 'core.services.notifications.notify_remittance_citizenship_review'
-             ) as notify:
+        with patch.object(HimalPayAPI, 'receive_remittance', return_value=fake_success) as pay:
             resp = self.client.post(
                 reverse('remittance_receive'),
-                self.receive_payload,
-                format='json',
-            )
-        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED)
-        body = resp.json()
-        self.assertEqual(body.get('code'), 'citizenship_review_pending')
-        self.assertEqual(body.get('data', {}).get('status'), 'pending')
-        self.assertTrue(body.get('data', {}).get('citizenship_review_pending'))
-        self.assertFalse(body.get('data', {}).get('wallet_credited'))
-        pay.assert_called_once()
-        notify.assert_called_once()
-        txn = RemittanceTransaction.objects.get(ref_no='S100CITIZEN1')
-        self.assertEqual(txn.status, 'pending')
-        self.assertFalse(txn.wallet_credited)
-        self.assertTrue((txn.lookup_response or {}).get('himalpay_received'))
-        wallet = Wallet.objects.get(user=self.user)
-        self.assertEqual(wallet.balance, Decimal('0.00'))
-
-    def test_second_mismatch_keeps_uploaded_images_and_requires_himalpay_first(self):
-        from io import BytesIO
-        from PIL import Image
-        from unittest.mock import patch
-        from .models import RemittanceTransaction
-        from .services.citizenship_ocr import CombinedCitizenshipOcr
-
-        def png_file(name):
-            buf = BytesIO()
-            Image.new('RGB', (48, 48), 'white').save(buf, format='PNG')
-            buf.seek(0)
-            buf.name = name
-            return buf
-
-        ocr = CombinedCitizenshipOcr(
-            name='SITA SHARMA',
-            citizenship_number='11-22-33-44556',
-            dob='1990-01-01',
-            issue_date='2010-01-01',
-            issue_place='Lalitpur',
-            confidence=0.8,
-        )
-        with patch(
-            'core.services.citizenship_verify.extract_citizenship_from_images',
-            return_value=ocr,
-        ):
-            for _ in range(2):
-                front = png_file('front.png')
-                back = png_file('back.png')
-                resp = self.client.post(
-                    reverse('remittance_verify_citizenship'),
-                    {
-                        'ref_no': 'S100CITIZEN1',
-                        'name': 'Ram Bahadur Thapa',
-                        'citizenship_number': '28-01-75-01234',
-                        'dob': '1988-05-28',
-                        'issue_date': '2008-11-23',
-                        'issue_place': 'Kathmandu',
-                        'front': front,
-                        'back': back,
-                    },
-                    format='multipart',
-                )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertTrue(resp.json().get('data', {}).get('pending_review_allowed'))
-
-        fake_success = {
-            'status': 'SUCCESS',
-            'amount': 10000,
-            'charge': 0,
-            'cashback': 0,
-            'total_credited': 10000,
-            'transaction_id': 'HP-CIT-2',
-            'reference_id': 'S100CITIZEN1',
-            'message': 'ok',
-        }
-        front = png_file('front.png')
-        back = png_file('back.png')
-        payload = dict(self.receive_payload)
-        payload['front'] = front
-        payload['back'] = back
-        with patch.object(HimalPayAPI, 'receive_remittance', return_value=fake_success), \
-             patch('core.services.notifications.notify_remittance_citizenship_review'):
-            resp = self.client.post(
-                reverse('remittance_receive'),
-                payload,
+                self._multipart(),
                 format='multipart',
             )
-        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content[:500])
+        body = resp.json()
+        self.assertEqual(body.get('data', {}).get('status'), 'success')
+        self.assertTrue(body.get('data', {}).get('wallet_credited'))
+        pay.assert_called_once()
+        sent_data = pay.call_args.kwargs['data']
+        self.assertIn('document_front_link', sent_data)
+        self.assertIn('document_back_link', sent_data)
+        self.assertIn('/api/public/remittance-documents/', sent_data['document_front_link'])
+        self.assertTrue(sent_data['document_front_link'].endswith('/front/'))
+        self.assertTrue(sent_data['document_back_link'].endswith('/back/'))
         txn = RemittanceTransaction.objects.get(ref_no='S100CITIZEN1')
         self.assertTrue(txn.citizenship_front)
         self.assertTrue(txn.citizenship_back)
-        self.assertEqual(txn.status, 'pending')
-        self.assertTrue((txn.lookup_response or {}).get('himalpay_received'))
+        self.assertEqual(txn.status, 'success')
+        wallet = Wallet.objects.get(user=self.user)
+        self.assertEqual(wallet.balance, Decimal('100.00'))
 
-    def test_citizenship_review_stays_failed_when_himalpay_fails(self):
+        public = APIClient()
+        front_resp = public.get(reverse(
+            'remittance_public_document',
+            kwargs={'merchant_txn_id': txn.merchant_txn_id, 'side': 'front'},
+        ))
+        back_resp = public.get(reverse(
+            'remittance_public_document',
+            kwargs={'merchant_txn_id': txn.merchant_txn_id, 'side': 'back'},
+        ))
+        self.assertEqual(front_resp.status_code, 200)
+        self.assertEqual(back_resp.status_code, 200)
+        self.assertGreater(len(b''.join(front_resp.streaming_content)), 0)
+
+    def test_receive_keeps_failed_when_himalpay_fails(self):
         from unittest.mock import patch
         from .models import RemittanceTransaction
-        from .services.citizenship_verify import (
-            build_form_record,
-            store_verification_ticket,
-            verification_fingerprint,
-        )
 
-        form = build_form_record(
-            name='Ram Bahadur Thapa',
-            citizenship_number='28-01-75-01234',
-            dob='1988-05-28',
-            issue_date='2008-11-23',
-            issue_place='Kathmandu',
-        )
-        store_verification_ticket(
-            self.user.id,
-            'S100CITIZEN1',
-            {
-                'allowed': False,
-                'match_status': 'MISMATCH',
-                'fingerprint': verification_fingerprint(form),
-                'message': 'Citizenship details do not match.',
-                'attempt_count': 2,
-                'pending_review_allowed': True,
-            },
-        )
         with patch.object(
             HimalPayAPI,
             'receive_remittance',
@@ -2469,13 +2121,14 @@ class RemittanceCitizenshipReceiveGateTests(TestCase):
         ):
             resp = self.client.post(
                 reverse('remittance_receive'),
-                self.receive_payload,
-                format='json',
+                self._multipart(),
+                format='multipart',
             )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         txn = RemittanceTransaction.objects.get(ref_no='S100CITIZEN1')
         self.assertEqual(txn.status, 'failed')
-        self.assertFalse((txn.lookup_response or {}).get('himalpay_received'))
+        self.assertTrue(txn.citizenship_front)
+        self.assertTrue(txn.citizenship_back)
 
 
 class AdminRemittanceListTests(TestCase):

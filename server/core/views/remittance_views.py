@@ -1,14 +1,23 @@
 """
 Remittance views: HimalPay Samsara SAMSARA_GET / SAMSARA_PAY (inbound credit).
 """
-import uuid
 import logging
+import mimetypes
+import uuid
 from decimal import Decimal
 
+from django.conf import settings as django_settings
+from django.http import FileResponse, Http404
+from django.urls import reverse
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    parser_classes,
+    permission_classes,
+)
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from ..models import RemittanceTransaction, Settings
@@ -16,7 +25,6 @@ from ..serializers import (
     RemittanceTransactionSerializer,
     RemittanceLookupSerializer,
     RemittanceReceiveSerializer,
-    CitizenshipVerifySerializer,
     TransactionStatusSerializer,
 )
 from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_response
@@ -27,17 +35,6 @@ from ..services.app_config import (
 )
 from ..services.notifications import notify_remittance_success
 from ..services.txn_status import apply_inbound_status_change
-from ..services.citizenship_verify import (
-    apply_attempt_state,
-    build_form_record,
-    clear_verification_ticket,
-    is_pending_review_ticket,
-    load_verification_ticket,
-    persist_citizenship_images,
-    receive_block_reason,
-    store_verification_ticket,
-    verify_citizenship_images,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -191,68 +188,75 @@ def _serialized_remittance(txn, request=None):
     return RemittanceTransactionSerializer(txn, context=context).data
 
 
-def _attach_citizenship_images(txn, files, ticket) -> None:
-    """Persist original citizenship photos on the remittance row."""
-    from django.core.files.storage import default_storage
+def _citizenship_file(files, side: str):
+    if not files:
+        return None
+    if side == 'front':
+        return files.get('front') or files.get('citizenship_front')
+    return files.get('back') or files.get('citizenship_back')
 
-    front = None
-    back = None
-    if files:
-        front = files.get('front') or files.get('citizenship_front')
-        back = files.get('back') or files.get('citizenship_back')
+
+def _attach_citizenship_images(txn, files) -> None:
+    """Persist citizenship photos on the remittance row for HimalPay document links."""
+    front = _citizenship_file(files, 'front')
+    back = _citizenship_file(files, 'back')
     if front:
         txn.citizenship_front = front
     if back:
         txn.citizenship_back = back
-
-    paths = (ticket or {}).get('image_paths') or {}
-    if not txn.citizenship_front and paths.get('front') and default_storage.exists(paths['front']):
-        txn.citizenship_front.name = paths['front']
-    if not txn.citizenship_back and paths.get('back') and default_storage.exists(paths['back']):
-        txn.citizenship_back.name = paths['back']
-
     if txn.citizenship_front or txn.citizenship_back:
         txn.save(update_fields=['citizenship_front', 'citizenship_back', 'updated_at'])
 
 
-def _mark_himalpay_received_for_review(txn, ticket=None) -> None:
-    lookup = txn.lookup_response if isinstance(txn.lookup_response, dict) else {}
-    lookup['citizenship_review_pending'] = True
-    lookup['himalpay_received'] = True
-    if ticket:
-        lookup['citizenship_review_reason'] = (
-            ticket.get('message')
-            or lookup.get('citizenship_review_reason')
-            or 'Citizenship details did not match after 2 attempts.'
-        )
-        if ticket.get('ocr'):
-            lookup['citizenship_ocr'] = ticket.get('ocr')
-    txn.lookup_response = lookup
-    txn.status = 'pending'
-    txn.save(update_fields=['lookup_response', 'status', 'updated_at'])
-
-
-def _citizenship_review_pending_response(txn, request=None, himalpay_data=None):
-    from ..services.notifications import notify_remittance_citizenship_review
-
-    notify_remittance_citizenship_review(txn)
-    clear_verification_ticket(txn.user_id, txn.ref_no)
-    payload = {
-        'message': (
-            'Remittance received from HimalPay and submitted as pending. '
-            'Admin will review the citizenship details and update it shortly.'
-        ),
-        'pending_message': (
-            'Citizenship did not match after 2 attempts. '
-            'The remittance has been received and is pending admin review.'
-        ),
-        'code': 'citizenship_review_pending',
-        'data': _serialized_remittance(txn, request),
-    }
-    return Response(
-        with_himapay_response(payload, himalpay_data) if himalpay_data is not None else payload,
-        status=status.HTTP_202_ACCEPTED,
+def _citizenship_document_url(request, merchant_txn_id: str, side: str) -> str:
+    """Public URL HimalPay can fetch as document_front_link / document_back_link."""
+    path = reverse(
+        'remittance_public_document',
+        kwargs={'merchant_txn_id': merchant_txn_id, 'side': side},
     )
+    if request is not None:
+        try:
+            return request.build_absolute_uri(path)
+        except Exception:
+            pass
+    origin = str(getattr(django_settings, 'BACKEND_ORIGIN', '') or '').rstrip('/')
+    return f'{origin}{path}' if origin else path
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+@authentication_classes([])
+def remittance_public_document(request, merchant_txn_id, side):
+    """
+    Unauthenticated identity images for HimalPay SAMSARA_PAY.
+
+    document_front_link / document_back_link must be publicly reachable URLs.
+    """
+    side = (side or '').strip().lower()
+    if side not in ('front', 'back'):
+        raise Http404()
+    merchant_txn_id = (merchant_txn_id or '').strip()
+    if not merchant_txn_id:
+        raise Http404()
+    try:
+        txn = RemittanceTransaction.objects.only(
+            'citizenship_front', 'citizenship_back',
+        ).get(merchant_txn_id=merchant_txn_id)
+    except RemittanceTransaction.DoesNotExist:
+        raise Http404()
+    field = txn.citizenship_front if side == 'front' else txn.citizenship_back
+    if not field:
+        raise Http404()
+    try:
+        handle = field.open('rb')
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        logger.warning(
+            'Remittance document missing merchant=%s side=%s: %s',
+            merchant_txn_id, side, exc,
+        )
+        raise Http404()
+    content_type, _ = mimetypes.guess_type(getattr(field, 'name', '') or '')
+    return FileResponse(handle, content_type=content_type or 'application/octet-stream')
 
 
 @api_view(['POST'])
@@ -442,103 +446,6 @@ def lookup_remittance(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-@parser_classes([MultiPartParser, FormParser])
-def verify_citizenship(request):
-    """
-    OCR citizenship front + back images and compare against remittance/form fields.
-
-    Multipart fields:
-    - front / citizenship_front (required image)
-    - back / citizenship_back (required image)
-    - ref_no (remittance reference)
-    - name (receiver name from the remittance / sender-provided data)
-    - citizenship_number, dob, issue_date, issue_place
-    """
-    blocked = require_feature_enabled('remittances')
-    if blocked:
-        return blocked
-    pending = require_account_approved(request.user)
-    if pending:
-        return pending
-
-    payment = get_app_config().get('payment') or {}
-    if not payment.get('citizenship_matching_enabled', False):
-        return Response(
-            {
-                'error': 'Citizenship matching disabled',
-                'message': (
-                    'Citizenship image matching is currently disabled. '
-                    'Fill the remittance form and continue to receive.'
-                ),
-                'code': 'citizenship_matching_disabled',
-            },
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-    front = request.FILES.get('front') or request.FILES.get('citizenship_front')
-    back = request.FILES.get('back') or request.FILES.get('citizenship_back')
-    if not front or not back:
-        return Response(
-            {
-                'error': 'Citizenship images required',
-                'message': 'Upload both citizenship Front and Back images.',
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    serializer = CitizenshipVerifySerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    data = serializer.validated_data
-    try:
-        result = verify_citizenship_images(
-            front=front,
-            back=back,
-            name=data.get('name') or '',
-            citizenship_number=data.get('citizenship_number') or '',
-            dob=data.get('dob') or '',
-            issue_date=data.get('issue_date') or '',
-            issue_place=data.get('issue_place') or '',
-        )
-    except Exception as exc:
-        logger.exception('Citizenship verification failed')
-        return Response(
-            {
-                'error': 'Verification failed',
-                'message': str(exc) or 'Citizenship OCR verification failed.',
-                'code': 'citizenship_verify_failed',
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    result = apply_attempt_state(request.user.id, data.get('ref_no') or '', result)
-    try:
-        image_paths = persist_citizenship_images(
-            request.user.id,
-            data.get('ref_no') or '',
-            front,
-            back,
-        )
-        if image_paths:
-            result['image_paths'] = image_paths
-            store_verification_ticket(request.user.id, data.get('ref_no') or '', result)
-    except Exception:
-        logger.exception('Could not persist remittance citizenship images')
-    payload = {
-        'message': result.get('message') or f"Citizenship verification: {result['match_status']}",
-        'data': result,
-        'code': 'citizenship_verified' if result.get('allowed') else 'citizenship_mismatch',
-    }
-    if not result.get('allowed'):
-        payload['error'] = 'Citizenship details do not match'
-        return Response(payload, status=status.HTTP_400_BAD_REQUEST)
-
-    return Response(payload, status=status.HTTP_200_OK)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def receive_remittance(request):
     """Step 2: Confirm remittance payout via SAMSARA_PAY and credit wallet."""
@@ -567,37 +474,16 @@ def receive_remittance(request):
     samsara_link_id = data['samsara_link_id']
     amount = HimalPayAPI.normalize_rupees(data['amount'])
 
-    payment = get_app_config().get('payment') or {}
-    citizenship_ticket = None
-    pending_citizenship_review = False
-    if payment.get('citizenship_matching_enabled', False):
-        citizenship_form = build_form_record(
-            name=data.get('receiver_name') or '',
-            citizenship_number=data.get('beneficiary_citizenship_number') or '',
-            dob=data.get('beneficiary_dob') or '',
-            issue_date=data.get('beneficiary_id_issue_date') or '',
-            issue_place=(
-                data.get('beneficiary_citizenship_issuing_district')
-                or data.get('beneficiary_id_issue_by')
-                or ''
-            ),
+    front = _citizenship_file(request.FILES, 'front')
+    back = _citizenship_file(request.FILES, 'back')
+    if not front or not back:
+        return Response(
+            {
+                'error': 'Citizenship images required',
+                'message': 'Upload both citizenship Front and Back images.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
         )
-        blocked = receive_block_reason(
-            user_id=request.user.id,
-            ref_no=ref_no,
-            form=citizenship_form,
-        )
-        if blocked:
-            return Response(
-                {
-                    'error': 'Citizenship verification required',
-                    'message': blocked,
-                    'code': 'citizenship_mismatch',
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        citizenship_ticket = load_verification_ticket(request.user.id, ref_no)
-        pending_citizenship_review = is_pending_review_ticket(citizenship_ticket)
 
     if RemittanceTransaction.objects.filter(ref_no=ref_no, status='success').exists():
         return Response(
@@ -608,22 +494,7 @@ def receive_remittance(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if pending_citizenship_review and RemittanceTransaction.objects.filter(
-        ref_no=ref_no, status='pending'
-    ).exists():
-        return Response(
-            {
-                'error': 'Already pending',
-                'message': (
-                    f'Remittance {ref_no} is already pending admin citizenship review.'
-                ),
-                'code': 'citizenship_review_pending',
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
     agent = _agent_defaults()
-    from django.conf import settings as django_settings
     bypass = getattr(django_settings, 'HIMALPAY_BYPASS_API', False)
     if bypass:
         agent.setdefault('payout_agent_pan_number', agent.get('payout_agent_pan_number') or '123456789')
@@ -660,19 +531,6 @@ def receive_remittance(request):
     if not beneficiary['beneficiary_mobile_no']:
         beneficiary['beneficiary_mobile_no'] = request.user.phone
 
-    citizenship_verification = data.pop('citizenship_verification', None) or {}
-    lookup_payload = {}
-    if citizenship_verification:
-        lookup_payload['citizenship_verification'] = citizenship_verification
-    if pending_citizenship_review:
-        lookup_payload['citizenship_review_pending'] = True
-        lookup_payload['himalpay_received'] = False
-        lookup_payload['citizenship_review_reason'] = (
-            (citizenship_ticket or {}).get('message')
-            or 'Citizenship details did not match after 2 attempts.'
-        )
-        lookup_payload['citizenship_ocr'] = (citizenship_ticket or {}).get('ocr') or {}
-
     txn = RemittanceTransaction.objects.create(
         user=request.user,
         ref_no=ref_no,
@@ -691,15 +549,16 @@ def receive_remittance(request):
         status='pending',
         merchant_txn_id=merchant_txn_id,
         total_credited=amount,
-        lookup_response=lookup_payload,
         **beneficiary,
     )
-    _attach_citizenship_images(txn, request.FILES, citizenship_ticket)
+    _attach_citizenship_images(txn, request.FILES)
 
     pay_data = {
         'samsara_link_id': samsara_link_id,
         **agent,
         **beneficiary,
+        'document_front_link': _citizenship_document_url(request, merchant_txn_id, 'front'),
+        'document_back_link': _citizenship_document_url(request, merchant_txn_id, 'back'),
     }
     meta_data = [
         {
@@ -749,10 +608,6 @@ def receive_remittance(request):
             )
 
         if txn_status == 'success':
-            if pending_citizenship_review:
-                _mark_himalpay_received_for_review(txn, citizenship_ticket)
-                txn.refresh_from_db()
-                return _citizenship_review_pending_response(txn, request, response)
             ok, err = apply_inbound_status_change(txn, 'success')
             if not ok:
                 txn.status = 'pending'
@@ -768,7 +623,6 @@ def receive_remittance(request):
                 )
             txn.refresh_from_db()
             notify_remittance_success(txn)
-            clear_verification_ticket(request.user.id, ref_no)
             return Response(
                 with_himapay_response(
                     {
@@ -864,18 +718,6 @@ def remittance_status(request):
     except RemittanceTransaction.DoesNotExist:
         return Response({'error': 'Remittance not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    lookup = txn.lookup_response if isinstance(txn.lookup_response, dict) else {}
-    citizenship_review = bool(lookup.get('citizenship_review_pending'))
-    himalpay_received = bool(lookup.get('himalpay_received'))
-    if citizenship_review and txn.status == 'pending' and himalpay_received:
-        return Response(
-            {
-                'message': 'Awaiting admin citizenship review',
-                'provider_status': 'pending',
-                'data': _serialized_remittance(txn, request),
-            }
-        )
-
     himalpay = HimalPayAPI()
     try:
         response = himalpay.check_transaction_status(merchant_txn_id)
@@ -883,26 +725,6 @@ def remittance_status(request):
         _apply_load_fields(txn, himalpay, response)
 
         if provider_status == 'success' and txn.status != 'success':
-            if citizenship_review:
-                already_received = bool(
-                    (txn.lookup_response or {}).get('himalpay_received')
-                    if isinstance(txn.lookup_response, dict)
-                    else False
-                )
-                _mark_himalpay_received_for_review(txn)
-                txn.refresh_from_db()
-                if not already_received:
-                    return _citizenship_review_pending_response(txn, request, response)
-                return Response(
-                    with_himapay_response(
-                        {
-                            'message': 'Awaiting admin citizenship review',
-                            'provider_status': 'pending',
-                            'data': _serialized_remittance(txn, request),
-                        },
-                        response,
-                    )
-                )
             apply_inbound_status_change(txn, 'success')
             txn.refresh_from_db()
             notify_remittance_success(txn)

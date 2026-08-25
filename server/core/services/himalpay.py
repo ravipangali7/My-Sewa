@@ -1402,7 +1402,11 @@ class HimalPayAPI:
         data: Dict,
         meta_data: Optional[List] = None,
     ) -> Dict:
-        """Step 2: SAMSARA_PAY — process remittance payout load."""
+        """Step 2: SAMSARA_PAY — process remittance payout load.
+
+        `data` must include beneficiary details plus publicly reachable
+        `document_front_link` and `document_back_link` (Merchant reseller accounts).
+        """
         return self.process_load(
             wallet_service_name=self.SERVICE_SAMSARA_PAY,
             amount_rupees=amount_rupees,

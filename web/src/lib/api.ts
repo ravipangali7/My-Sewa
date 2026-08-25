@@ -769,15 +769,6 @@ export const apiClient = {
       himalpay_response?: unknown;
     }>("/api/remittance/lookup/", { method: "POST", body }),
 
-  verifyRemittanceCitizenship: (formData: FormData) =>
-    api<{
-      message: string;
-      data: import("./types").CitizenshipVerificationResult;
-    }>("/api/remittance/verify-citizenship/", {
-      method: "POST",
-      formData,
-    }),
-
   receiveRemittance: (body: Record<string, unknown> | FormData) =>
     api<{
       message: string;

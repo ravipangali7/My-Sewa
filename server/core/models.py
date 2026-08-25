@@ -668,9 +668,6 @@ def default_app_config():
             'topups_enabled': True,
             'transfers_enabled': True,
             'remittances_enabled': True,
-            # When False, remittance KYC skips citizenship image upload/OCR matching
-            # and uses the old direct form → HimalPay receive flow.
-            'citizenship_matching_enabled': False,
             'internet_bills_enabled': True,
             'data_packs_enabled': True,
             'water_bills_enabled': True,
@@ -769,6 +766,9 @@ def merge_app_config(stored):
     for key, value in stored.items():
         if key not in merged:
             merged[key] = value
+    payment = merged.get('payment')
+    if isinstance(payment, dict):
+        payment.pop('citizenship_matching_enabled', None)
     return merged
 
 
@@ -1106,13 +1106,13 @@ class RemittanceTransaction(models.Model):
         upload_to=remittance_citizenship_front_upload,
         blank=True,
         null=True,
-        help_text='Citizenship front image kept after matching fails for admin review.',
+        help_text='Beneficiary citizenship front image submitted with the remittance payout.',
     )
     citizenship_back = models.ImageField(
         upload_to=remittance_citizenship_back_upload,
         blank=True,
         null=True,
-        help_text='Citizenship back image kept after matching fails for admin review.',
+        help_text='Beneficiary citizenship back image submitted with the remittance payout.',
     )
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
