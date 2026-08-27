@@ -7,6 +7,7 @@ import {
   UserRound,
   ArrowLeft,
   LayoutDashboard,
+  MessageCircle,
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,6 +19,8 @@ import { refreshAppData, settingsQueryOptions } from "@/lib/refresh";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { AuthSessionLoader } from "@/components/AuthSessionLoader";
 import { PullToRefresh } from "@/components/PullToRefresh";
+import { PortalShell } from "@/components/layout/PortalShell";
+import { SupportChatUnreadBadge } from "@/hooks/use-support-chat-unread";
 import { useT, type MessageKey } from "@/lib/i18n";
 
 const TABS = [
@@ -98,8 +101,7 @@ export function UserShell({
   });
   const maintenance = settingsQuery.data?.config?.security?.maintenance_mode;
   const maintenanceMessage =
-    settingsQuery.data?.config?.security?.maintenance_message ||
-    t("maintenance.fallback");
+    settingsQuery.data?.config?.security?.maintenance_message || t("maintenance.fallback");
 
   useEffect(() => {
     if (!token) navigate({ to: "/" });
@@ -124,6 +126,42 @@ export function UserShell({
     (user.nickname || "").trim() ||
     [user.first_name, user.last_name].filter(Boolean).join(" ") ||
     user.phone;
+
+  const isFullscreen = hideHeader && hideNav;
+  if (isNetworkRole(user) && !isFullscreen) {
+    const portalTitle = pathname === "/app" || pathname === "/app/" ? "Wallet" : title;
+    return (
+      <PortalShell
+        title={portalTitle}
+        {...(back ? { back } : {})}
+        {...(onBack ? { onBack } : {})}
+        {...(headerLeading ? { headerLeading } : {})}
+        {...(headerTrailing ? { actions: headerTrailing } : {})}
+        flush={hideHeader}
+        disablePullToRefresh={disablePullToRefresh}
+      >
+        <div
+          className={cn(
+            "mx-auto min-w-0 w-full max-w-full",
+            hideHeader ? "max-w-lg lg:max-w-none" : "max-w-6xl",
+          )}
+        >
+          {maintenance ? (
+            <div
+              className={cn(
+                "mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100",
+                hideHeader && "mx-3 mt-3",
+              )}
+            >
+              <p className="font-medium">{t("maintenance.title")}</p>
+              <p className="mt-0.5 text-[13px] opacity-90">{maintenanceMessage}</p>
+            </div>
+          ) : null}
+          {children}
+        </div>
+      </PortalShell>
+    );
+  }
 
   return (
     // Mobile: document scroll sized to content (single min-h-dvh shell for
@@ -161,6 +199,19 @@ export function UserShell({
               </Link>
             );
           })}
+          <Link
+            to="/app/support-chat"
+            className={cn(
+              "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+              pathname.startsWith("/app/support-chat")
+                ? "bg-brand-soft text-brand-dark"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <MessageCircle className="size-[18px] shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{t("nav.supportChat")}</span>
+            <SupportChatUnreadBadge />
+          </Link>
         </nav>
         {isNetworkRole(user) ? (
           <Link
@@ -192,8 +243,8 @@ export function UserShell({
           <header className="sticky top-0 z-30 max-w-full shrink-0 bg-hero-gradient px-3 pt-[max(14px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-5 sm:px-4 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               {headerLeading ? <div className="shrink-0">{headerLeading}</div> : null}
-              {(back || onBack) && (
-                onBack ? (
+              {(back || onBack) &&
+                (onBack ? (
                   <button
                     type="button"
                     onClick={onBack}
@@ -220,8 +271,7 @@ export function UserShell({
                   >
                     <ArrowLeft className="size-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
                   </Link>
-                )
-              )}
+                ))}
               <h1 className="min-w-0 flex-1 truncate text-[22px] font-bold tracking-tight text-primary-foreground sm:text-[28px] lg:text-[22px] lg:text-foreground">
                 {title}
               </h1>
@@ -276,43 +326,85 @@ export function UserShell({
         </main>
 
         {!hideNav ? (
-        <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
-          <div className="border-t border-border/40 bg-surface/92 shadow-[0_-8px_32px_-12px_rgb(16_24_40_/_0.14)] backdrop-blur-xl supports-[backdrop-filter]:bg-surface/80">
-            <ul className="mx-auto grid max-w-lg grid-cols-5 items-end px-1.5 pt-1.5 pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
-              {TABS.map((tab) => {
-                const active = tab.match(pathname);
-                const label = t(tab.labelKey);
+          <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
+            <div className="border-t border-border/40 bg-surface/92 shadow-[0_-8px_32px_-12px_rgb(16_24_40_/_0.14)] backdrop-blur-xl supports-[backdrop-filter]:bg-surface/80">
+              <ul className="mx-auto grid max-w-lg grid-cols-5 items-end px-1.5 pt-1.5 pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
+                {TABS.map((tab) => {
+                  const active = tab.match(pathname);
+                  const label = t(tab.labelKey);
 
-                if (tab.prominent) {
+                  if (tab.prominent) {
+                    return (
+                      <li key={tab.to} className="relative flex justify-center">
+                        <Link
+                          to={tab.to}
+                          aria-current={active ? "page" : undefined}
+                          aria-label={label}
+                          className={cn(
+                            "group relative -mt-5 flex min-h-[64px] w-full max-w-[4.75rem] flex-col items-center justify-end gap-1 px-0.5 pb-0.5 no-underline outline-none",
+                            "focus-visible:outline-none",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "relative flex size-[3.25rem] items-center justify-center rounded-full bg-brand-gradient text-primary-foreground shadow-[0_10px_24px_-6px_rgb(10_122_75_/_0.55),0_2px_6px_rgb(16_24_40_/_0.12)] ring-[3px] ring-surface transition-all duration-200",
+                              "group-active:scale-[0.96]",
+                              active &&
+                                "shadow-[0_12px_28px_-4px_rgb(10_122_75_/_0.65),0_2px_8px_rgb(16_24_40_/_0.14)] ring-brand/20",
+                            )}
+                          >
+                            <tab.icon
+                              className="size-[1.35rem] shrink-0"
+                              strokeWidth={active ? 2.35 : 2.1}
+                              aria-hidden
+                            />
+                          </span>
+                          <span
+                            className={cn(
+                              "max-w-full truncate text-center text-[10px] font-semibold tracking-[0.01em] leading-none transition-colors duration-200",
+                              active ? "text-brand-dark" : "text-muted-foreground",
+                            )}
+                          >
+                            {label}
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  }
+
                   return (
-                    <li key={tab.to} className="relative flex justify-center">
+                    <li key={tab.to} className="flex justify-center">
                       <Link
                         to={tab.to}
                         aria-current={active ? "page" : undefined}
                         aria-label={label}
                         className={cn(
-                          "group relative -mt-5 flex min-h-[64px] w-full max-w-[4.75rem] flex-col items-center justify-end gap-1 px-0.5 pb-0.5 no-underline outline-none",
-                          "focus-visible:outline-none",
+                          "group relative flex min-h-[56px] w-full max-w-[4.75rem] flex-col items-center justify-center gap-1 px-0.5 pt-1 no-underline outline-none transition-colors duration-200",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+                          "active:scale-[0.97]",
+                          active ? "text-brand" : "text-muted-foreground",
                         )}
                       >
                         <span
                           className={cn(
-                            "relative flex size-[3.25rem] items-center justify-center rounded-full bg-brand-gradient text-primary-foreground shadow-[0_10px_24px_-6px_rgb(10_122_75_/_0.55),0_2px_6px_rgb(16_24_40_/_0.12)] ring-[3px] ring-surface transition-all duration-200",
-                            "group-active:scale-[0.96]",
-                            active &&
-                              "shadow-[0_12px_28px_-4px_rgb(10_122_75_/_0.65),0_2px_8px_rgb(16_24_40_/_0.14)] ring-brand/20",
+                            "flex size-9 items-center justify-center rounded-2xl transition-all duration-200",
+                            active
+                              ? "bg-brand-soft text-brand-dark"
+                              : "bg-transparent text-muted-foreground group-hover:bg-muted/80 group-hover:text-foreground",
                           )}
                         >
                           <tab.icon
-                            className="size-[1.35rem] shrink-0"
-                            strokeWidth={active ? 2.35 : 2.1}
+                            className="size-[1.25rem] shrink-0"
+                            strokeWidth={active ? 2.35 : 1.9}
                             aria-hidden
                           />
                         </span>
                         <span
                           className={cn(
-                            "max-w-full truncate text-center text-[10px] font-semibold tracking-[0.01em] leading-none transition-colors duration-200",
-                            active ? "text-brand-dark" : "text-muted-foreground",
+                            "max-w-full truncate text-center text-[10px] leading-none tracking-[0.01em] transition-colors duration-200",
+                            active
+                              ? "font-semibold text-brand-dark"
+                              : "font-medium text-muted-foreground",
                           )}
                         >
                           {label}
@@ -320,52 +412,10 @@ export function UserShell({
                       </Link>
                     </li>
                   );
-                }
-
-                return (
-                  <li key={tab.to} className="flex justify-center">
-                    <Link
-                      to={tab.to}
-                      aria-current={active ? "page" : undefined}
-                      aria-label={label}
-                      className={cn(
-                        "group relative flex min-h-[56px] w-full max-w-[4.75rem] flex-col items-center justify-center gap-1 px-0.5 pt-1 no-underline outline-none transition-colors duration-200",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
-                        "active:scale-[0.97]",
-                        active ? "text-brand" : "text-muted-foreground",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex size-9 items-center justify-center rounded-2xl transition-all duration-200",
-                          active
-                            ? "bg-brand-soft text-brand-dark"
-                            : "bg-transparent text-muted-foreground group-hover:bg-muted/80 group-hover:text-foreground",
-                        )}
-                      >
-                        <tab.icon
-                          className="size-[1.25rem] shrink-0"
-                          strokeWidth={active ? 2.35 : 1.9}
-                          aria-hidden
-                        />
-                      </span>
-                      <span
-                        className={cn(
-                          "max-w-full truncate text-center text-[10px] leading-none tracking-[0.01em] transition-colors duration-200",
-                          active
-                            ? "font-semibold text-brand-dark"
-                            : "font-medium text-muted-foreground",
-                        )}
-                      >
-                        {label}
-                      </span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </nav>
+                })}
+              </ul>
+            </div>
+          </nav>
         ) : null}
       </div>
     </div>

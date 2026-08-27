@@ -166,8 +166,27 @@ function DealerCustomersPage() {
                       value: [u.first_name, u.last_name].filter(Boolean).join(" ") || "—",
                     },
                     { label: "Wallet", value: formatNPR(u.wallet_balance) },
+                    {
+                      label: "Status",
+                      value: u.wallet_frozen
+                        ? "Frozen"
+                        : u.account_status === "approved"
+                          ? "Active"
+                          : "Pending",
+                    },
+                    { label: "Sub-Agent", value: u.assigned_sub_agent?.phone || "—" },
                   ]}
                 />
+                {canManageWallet ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-3"
+                    onClick={() => freezeMutation.mutate({ id: u.id, frozen: !!u.wallet_frozen })}
+                  >
+                    {u.wallet_frozen ? "Unfreeze" : "Freeze"}
+                  </Button>
+                ) : null}
               </AdminMobileCard>
             ))}
           </AdminMobileCardGrid>

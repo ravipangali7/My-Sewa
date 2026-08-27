@@ -2682,4 +2682,169 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class SupportChatHierarchyTests(TestCase):
+    """Support Chat is limited to Super Admin / Agent / assigned downline pairs."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            phone='9800000501',
+            password='testpass123',
+            email='staff-chat@example.com',
+            is_staff=True,
+            is_superuser=True,
+            first_name='Super',
+            last_name='Admin',
+        )
+        self.dealer = User.objects.create_user(
+            phone='9800000502',
+            password='testpass123',
+            email='dealer-chat@example.com',
+            first_name='Dealer',
+            last_name='One',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_DEALER,
+        )
+        self.agent = User.objects.create_user(
+            phone='9800000503',
+            password='testpass123',
+            email='agent-chat@example.com',
+            first_name='Agent',
+            last_name='One',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_AGENT,
+            assigned_dealer=self.dealer,
+        )
+        self.other_agent = User.objects.create_user(
+            phone='9800000504',
+            password='testpass123',
+            email='agent2-chat@example.com',
+            first_name='Agent',
+            last_name='Two',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_AGENT,
+            assigned_dealer=self.dealer,
+        )
+        self.sub_agent = User.objects.create_user(
+            phone='9800000505',
+            password='testpass123',
+            email='sub-chat@example.com',
+            first_name='Sub',
+            last_name='Agent',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_SUB_AGENT,
+            assigned_dealer=self.dealer,
+            parent_agent=self.agent,
+        )
+        self.customer = User.objects.create_user(
+            phone='9800000506',
+            password='testpass123',
+            email='cust-chat@example.com',
+            first_name='Cust',
+            last_name='Omer',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_CUSTOMER,
+            assigned_dealer=self.dealer,
+            parent_agent=self.agent,
+            assigned_sub_agent=self.sub_agent,
+        )
+        self.stray_customer = User.objects.create_user(
+            phone='9800000507',
+            password='testpass123',
+            email='stray-chat@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_CUSTOMER,
+        )
+        self.client = APIClient()
+
+    def _ids(self, resp):
+        return {item['id'] for item in resp.json().get('items') or []}
+
+    def test_super_admin_can_chat_with_all_users(self):
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.get(reverse('support_chat_contacts'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        ids = self._ids(resp)
+        self.assertIn(self.agent.pk, ids)
+        self.assertIn(self.customer.pk, ids)
+        self.assertIn(self.sub_agent.pk, ids)
+        self.assertIn(self.stray_customer.pk, ids)
+        resp = self.client.post(
+            reverse('support_chat_threads'),
+            {'user_id': self.customer.pk},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        thread_id = resp.json()['id']
+        resp = self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'Hello from super admin'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+
+    def test_agent_can_chat_with_super_admin_and_assigned_users(self):
+        self.client.force_authenticate(user=self.agent)
+        resp = self.client.get(reverse('support_chat_contacts'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        ids = self._ids(resp)
+        self.assertIn(self.staff.pk, ids)
+        self.assertIn(self.sub_agent.pk, ids)
+        self.assertIn(self.customer.pk, ids)
+        self.assertNotIn(self.other_agent.pk, ids)
+        self.assertNotIn(self.stray_customer.pk, ids)
+        resp = self.client.post(
+            reverse('support_chat_threads'),
+            {'user_id': self.staff.pk},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+    def test_sub_agent_only_sees_assigned_agent(self):
+        self.client.force_authenticate(user=self.sub_agent)
+        resp = self.client.get(reverse('support_chat_contacts'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(self._ids(resp), {self.agent.pk})
+        resp = self.client.post(
+            reverse('support_chat_threads'),
+            {'user_id': self.staff.pk},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        resp = self.client.post(
+            reverse('support_chat_threads'),
+            {'user_id': self.customer.pk},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_customer_only_sees_assigned_agent(self):
+        self.client.force_authenticate(user=self.customer)
+        resp = self.client.get(reverse('support_chat_contacts'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(self._ids(resp), {self.agent.pk})
+        resp = self.client.post(
+            reverse('support_chat_threads'),
+            {'user_id': self.other_agent.pk},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.json().get('code'), 'support_chat_forbidden')
+        resp = self.client.post(
+            reverse('support_chat_threads'),
+            {'user_id': self.agent.pk},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        thread_id = resp.json()['id']
+        resp = self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'Need help with my wallet'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        self.client.force_authenticate(user=self.other_agent)
+        resp = self.client.get(reverse('support_chat_messages', args=[thread_id]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
 

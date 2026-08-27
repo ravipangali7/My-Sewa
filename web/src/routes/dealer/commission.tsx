@@ -125,6 +125,8 @@ function DealerCommissionPage() {
                   items={[
                     { label: "Net", value: formatNPR(row.net_commission) },
                     { label: "When", value: formatDateTime(row.created_at) },
+                    { label: "Customer", value: row.source_phone || "—" },
+                    { label: "Amount", value: formatNPR(row.txn_amount) },
                   ]}
                 />
               </AdminMobileCard>

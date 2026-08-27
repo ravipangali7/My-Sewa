@@ -1545,3 +1545,31 @@ export interface ServiceCommissionRule {
   super_admin_rate: string;
   updated_at: string;
 }
+
+export interface SupportChatUser {
+  id: number;
+  phone: string;
+  name: string;
+  role: UserRole | string;
+  role_label: string;
+  is_staff: boolean;
+  is_superuser: boolean;
+  avatar_url: string | null;
+}
+
+export interface SupportChatThread {
+  id: number;
+  other_user: SupportChatUser;
+  last_message_at: string | null;
+  last_message_preview: string;
+  unread_count: number;
+  created_at: string;
+}
+
+export interface SupportChatMessage {
+  id: number;
+  thread: number;
+  sender_id: number;
+  body: string;
+  created_at: string;
+}

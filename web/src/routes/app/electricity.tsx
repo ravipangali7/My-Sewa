@@ -388,7 +388,7 @@ function ElectricityBillPayment() {
       >
         {/* Curved header — home page gradient */}
         <header
-          className="relative px-4 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-7"
+          className="relative px-4 pt-[max(12px,var(--content-safe-top,var(--safe-area-top,env(safe-area-inset-top,0px))))] pb-7"
           style={{ background: HOME_GRADIENT }}
         >
           <div className="flex items-center gap-2">

@@ -146,7 +146,7 @@ function LoginPage() {
         </p>
       </section>
 
-      <section className="flex items-center justify-center px-5 py-12">
+      <section className="flex items-center justify-center px-5 py-12 pt-[max(3rem,calc(3rem+var(--safe-area-top,env(safe-area-inset-top,0px))))] pb-[max(3rem,calc(3rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] lg:py-12">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex flex-col items-center lg:items-start">
             <img src={logoUrl} alt="MySewa" className="size-14 rounded-2xl object-cover lg:hidden" />

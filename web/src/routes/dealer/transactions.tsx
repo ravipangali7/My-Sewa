@@ -90,7 +90,9 @@ function DealerTransactionsPage() {
                 <AdminMobileMeta
                   items={[
                     { label: "Amount", value: formatNPR(row.txn_amount) },
-                    { label: "Service", value: row.txn_type },
+                    { label: "Service", value: row.txn_type_display || row.txn_type },
+                    { label: "When", value: formatDateTime(row.created_at) },
+                    { label: "Status", value: row.status_display || row.status },
                   ]}
                 />
               </AdminMobileCard>

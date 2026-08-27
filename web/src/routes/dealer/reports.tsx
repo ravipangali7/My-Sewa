@@ -3,6 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { PortalShell } from "@/components/layout/PortalShell";
 import { AdminMetricStrip } from "@/components/admin/AdminMetricStrip";
 import {
+  AdminDataList,
+  AdminEmptyState,
+  AdminMobileCard,
+  AdminMobileCardGrid,
+  AdminMobileMeta,
+} from "@/components/admin/AdminDataList";
+import {
   Table,
   TableBody,
   TableCell,
@@ -40,7 +47,7 @@ function DealerReportsPage() {
 
   return (
     <PortalShell title="Reports" description="Sales, commission, TDS and downline performance">
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
         {PERIODS.map((p) => (
           <Button
             key={p.id || "all"}
@@ -67,61 +74,105 @@ function DealerReportsPage() {
               { key: "wallet", label: "Wallet", value: formatNPR(data.wallet_balance) },
             ]}
           />
-          <div className="rounded-xl border border-border bg-surface p-4">
+          <div>
             <h2 className="mb-3 text-sm font-semibold">Service-wise</h2>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Service</TableHead>
-                  <TableHead>Sales</TableHead>
-                  <TableHead>Gross</TableHead>
-                  <TableHead>TDS</TableHead>
-                  <TableHead>Net</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.by_service?.map((row) => (
-                  <TableRow key={row.txn_type}>
-                    <TableCell>{row.txn_type}</TableCell>
-                    <TableCell className="tabular">{formatNPR(row.sales ?? "0")}</TableCell>
-                    <TableCell className="tabular">
-                      {formatNPR(row.gross_commission ?? "0")}
-                    </TableCell>
-                    <TableCell className="tabular">{formatNPR(row.tds_amount ?? "0")}</TableCell>
-                    <TableCell className="tabular">
-                      {formatNPR(row.net_commission ?? "0")}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <AdminDataList
+              isEmpty={!data.by_service?.length}
+              empty={<AdminEmptyState>No service sales in this period.</AdminEmptyState>}
+              table={
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Service</TableHead>
+                      <TableHead>Sales</TableHead>
+                      <TableHead>Gross</TableHead>
+                      <TableHead>TDS</TableHead>
+                      <TableHead>Net</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.by_service?.map((row) => (
+                      <TableRow key={row.txn_type}>
+                        <TableCell>{row.txn_type}</TableCell>
+                        <TableCell className="tabular">{formatNPR(row.sales ?? "0")}</TableCell>
+                        <TableCell className="tabular">
+                          {formatNPR(row.gross_commission ?? "0")}
+                        </TableCell>
+                        <TableCell className="tabular">
+                          {formatNPR(row.tds_amount ?? "0")}
+                        </TableCell>
+                        <TableCell className="tabular">
+                          {formatNPR(row.net_commission ?? "0")}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              }
+              mobile={
+                <AdminMobileCardGrid>
+                  {data.by_service?.map((row) => (
+                    <AdminMobileCard key={row.txn_type}>
+                      <p className="text-sm font-semibold">{row.txn_type}</p>
+                      <AdminMobileMeta
+                        items={[
+                          { label: "Sales", value: formatNPR(row.sales ?? "0") },
+                          { label: "Net", value: formatNPR(row.net_commission ?? "0") },
+                        ]}
+                      />
+                    </AdminMobileCard>
+                  ))}
+                </AdminMobileCardGrid>
+              }
+            />
           </div>
           {data.sub_agent_performance?.length ? (
-            <div className="rounded-xl border border-border bg-surface p-4">
+            <div>
               <h2 className="mb-3 text-sm font-semibold">Sub-Agent performance</h2>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Sub-Agent</TableHead>
-                    <TableHead>Customers</TableHead>
-                    <TableHead>Sales</TableHead>
-                    <TableHead>Commission</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.sub_agent_performance.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell>
-                        {row.name || row.phone}
-                        <div className="text-xs text-muted-foreground">{row.phone}</div>
-                      </TableCell>
-                      <TableCell>{row.customer_count}</TableCell>
-                      <TableCell className="tabular">{formatNPR(row.sales)}</TableCell>
-                      <TableCell className="tabular">{formatNPR(row.commission)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <AdminDataList
+                table={
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Sub-Agent</TableHead>
+                        <TableHead>Customers</TableHead>
+                        <TableHead>Sales</TableHead>
+                        <TableHead>Commission</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.sub_agent_performance.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell>
+                            {row.name || row.phone}
+                            <div className="text-xs text-muted-foreground">{row.phone}</div>
+                          </TableCell>
+                          <TableCell>{row.customer_count}</TableCell>
+                          <TableCell className="tabular">{formatNPR(row.sales)}</TableCell>
+                          <TableCell className="tabular">{formatNPR(row.commission)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                }
+                mobile={
+                  <AdminMobileCardGrid>
+                    {data.sub_agent_performance.map((row) => (
+                      <AdminMobileCard key={row.id}>
+                        <p className="text-sm font-semibold">{row.name || row.phone}</p>
+                        <AdminMobileMeta
+                          items={[
+                            { label: "Phone", value: row.phone },
+                            { label: "Customers", value: String(row.customer_count) },
+                            { label: "Sales", value: formatNPR(row.sales) },
+                            { label: "Commission", value: formatNPR(row.commission) },
+                          ]}
+                        />
+                      </AdminMobileCard>
+                    ))}
+                  </AdminMobileCardGrid>
+                }
+              />
             </div>
           ) : null}
         </div>

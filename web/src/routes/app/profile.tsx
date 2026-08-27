@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Trash2,
   UserRound,
+  MessageCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DateOfBirthDisplay } from "@/components/DateOfBirthField";
@@ -144,7 +145,7 @@ function Profile() {
   return (
     <UserShell title={t("profile.title")} hideHeader>
       <div className="min-w-0 max-w-full overflow-x-clip bg-[#F2F4F7] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
-        <section className="relative bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_32%,#0C6B7A_68%,#0A9B6E_100%)] px-4 pb-8 pt-[max(14px,env(safe-area-inset-top))]">
+        <section className="relative bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_32%,#0C6B7A_68%,#0A9B6E_100%)] px-4 pb-8 pt-[max(14px,var(--content-safe-top,var(--safe-area-top,env(safe-area-inset-top,0px))))]">
           <h1 className="text-[20px] font-medium tracking-tight text-white">{t("profile.title")}</h1>
 
           <div className="mt-5 flex flex-col items-center">
@@ -382,6 +383,20 @@ function Profile() {
 
           <section>
             <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
+              {t("nav.supportChat")}
+            </h2>
+            <div className="space-y-2.5">
+              <SettingsRow
+                to="/app/support-chat"
+                icon={MessageCircle}
+                title={t("nav.supportChat")}
+                subtitle={t("chat.authorizedHint")}
+              />
+            </div>
+          </section>
+
+          <section>
+            <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
               {t("profile.security")}
             </h2>
             <div className="space-y-2.5">
@@ -510,7 +525,7 @@ function SettingsRow({
   title,
   subtitle,
 }: {
-  to: "/app/profile/edit" | "/app/profile/kyc" | "/app/profile/password" | "/app/profile/pin";
+  to: "/app/profile/edit" | "/app/profile/kyc" | "/app/profile/password" | "/app/profile/pin" | "/app/support-chat";
   icon: typeof UserRound;
   title: string;
   subtitle: string;

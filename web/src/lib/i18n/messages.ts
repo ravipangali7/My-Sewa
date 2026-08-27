@@ -79,6 +79,20 @@ export const messages = {
     "nav.profile": "Profile",
     "nav.walletPortal": "Wallet portal",
     "nav.logOut": "Log out",
+    "nav.supportChat": "Support Chat",
+
+    "chat.title": "Support Chat",
+    "chat.searchPlaceholder": "Search people you can chat with",
+    "chat.authorizedHint": "You can only message people in your support hierarchy.",
+    "chat.emptyTitle": "No conversations yet",
+    "chat.emptyBody": "Search for an authorized user to start a Support Chat.",
+    "chat.selectTitle": "Select a conversation",
+    "chat.selectBody": "Choose someone from the list. You can only chat with users you are authorized to contact.",
+    "chat.noMessages": "No messages yet. Say hello.",
+    "chat.typePlaceholder": "Type a message",
+    "chat.send": "Send",
+    "chat.startFailed": "Could not start this conversation.",
+    "chat.sendFailed": "Could not send the message.",
 
     "account.pending":
       "Your account is pending approval. You can browse the app, but remittance, top-up, fund transfer and other transactions stay disabled until an admin activates your account.",
@@ -1215,6 +1229,20 @@ export const messages = {
     "nav.profile": "प्रोफाइल",
     "nav.walletPortal": "वालेट पोर्टल",
     "nav.logOut": "लग आउट",
+    "nav.supportChat": "सहयोग च्याट",
+
+    "chat.title": "सहयोग च्याट",
+    "chat.searchPlaceholder": "च्याट गर्न मिल्ने व्यक्ति खोज्नुहोस्",
+    "chat.authorizedHint": "तपाईं आफ्नो सहयोग तहका व्यक्तिसँग मात्र सन्देश पठाउन सक्नुहुन्छ।",
+    "chat.emptyTitle": "अहिले कुनै कुराकानी छैन",
+    "chat.emptyBody": "सहयोग च्याट सुरु गर्न अनुमति भएको प्रयोगकर्ता खोज्नुहोस्।",
+    "chat.selectTitle": "कुराकानी छान्नुहोस्",
+    "chat.selectBody": "सूचीबाट कसैलाई छान्नुहोस्। तपाईं अनुमति भएका प्रयोगकर्तासँग मात्र च्याट गर्न सक्नुहुन्छ।",
+    "chat.noMessages": "अहिलेसम्म सन्देश छैन। नमस्ते भन्नुहोस्।",
+    "chat.typePlaceholder": "सन्देश लेख्नुहोस्",
+    "chat.send": "पठाउनुहोस्",
+    "chat.startFailed": "यो कुराकानी सुरु गर्न सकिएन।",
+    "chat.sendFailed": "सन्देश पठाउन सकिएन।",
 
     "account.pending":
       "तपाईंको खाता स्वीकृतिको प्रतीक्षामा छ। तपाईं एप हेर्न सक्नुहुन्छ, तर रेमिटेन्स, टप-अप, फन्ड ट्रान्सफर र अन्य कारोबार एडमिनले खाता सक्रिय नगरेसम्म निष्क्रिय रहन्छन्।",

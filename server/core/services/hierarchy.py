@@ -293,3 +293,92 @@ def validate_hierarchy_links(attrs, *, instance=None, actor=None):
             errors['assigned_sub_agent'] = 'The Sub-Agent must belong to the selected Dealer.'
 
     return errors or None
+
+
+def assigned_support_user_id(user) -> int | None:
+    """
+    Direct upline a Sub-Agent or Customer may message:
+    parent Agent when set, otherwise assigned Dealer.
+    """
+    if user is None:
+        return None
+    role = getattr(user, 'role', ROLE_CUSTOMER) or ROLE_CUSTOMER
+    if role in (ROLE_SUB_AGENT, ROLE_CUSTOMER):
+        return getattr(user, 'parent_agent_id', None) or getattr(user, 'assigned_dealer_id', None)
+    return None
+
+
+def admin_actors_qs() -> QuerySet:
+    return User.objects.filter(
+        Q(is_superuser=True) | (Q(is_staff=True) & ~Q(role__in=NETWORK_ROLES))
+    )
+
+
+def can_initiate_support_chat(actor, target) -> bool:
+    """True when actor may start a conversation with target."""
+    if actor is None or target is None:
+        return False
+    if getattr(actor, 'pk', None) == getattr(target, 'pk', None):
+        return False
+    if is_admin_actor(actor):
+        return True
+    if is_admin_actor(target):
+        return getattr(actor, 'role', None) in (ROLE_DEALER, ROLE_AGENT)
+    role = getattr(actor, 'role', ROLE_CUSTOMER) or ROLE_CUSTOMER
+    if role == ROLE_AGENT:
+        return getattr(target, 'parent_agent_id', None) == actor.pk
+    if role == ROLE_DEALER:
+        target_role = getattr(target, 'role', None)
+        if target_role not in (ROLE_SUB_AGENT, ROLE_CUSTOMER):
+            return False
+        if getattr(target, 'assigned_dealer_id', None) != actor.pk:
+            return False
+        return getattr(target, 'parent_agent_id', None) is None
+    if role in (ROLE_SUB_AGENT, ROLE_CUSTOMER):
+        return assigned_support_user_id(actor) == getattr(target, 'pk', None)
+    return False
+
+
+def can_send_support_chat(actor, target) -> bool:
+    """Either party may continue a thread if either may initiate it."""
+    return can_initiate_support_chat(actor, target) or can_initiate_support_chat(target, actor)
+
+
+def support_contacts_qs(actor, q: str = '') -> QuerySet:
+    """Users the actor may search for and start a Support Chat with."""
+    qs = User.objects.exclude(pk=getattr(actor, 'pk', None) or 0).filter(is_active=True)
+    if is_admin_actor(actor):
+        pass
+    else:
+        role = getattr(actor, 'role', ROLE_CUSTOMER) or ROLE_CUSTOMER
+        if role == ROLE_AGENT:
+            qs = qs.filter(
+                Q(pk__in=admin_actors_qs().values('pk'))
+                | Q(parent_agent=actor)
+            )
+        elif role == ROLE_DEALER:
+            qs = qs.filter(
+                Q(pk__in=admin_actors_qs().values('pk'))
+                | (
+                    Q(assigned_dealer=actor)
+                    & Q(parent_agent__isnull=True)
+                    & Q(role__in=(ROLE_SUB_AGENT, ROLE_CUSTOMER))
+                )
+            )
+        elif role in (ROLE_SUB_AGENT, ROLE_CUSTOMER):
+            upline_id = assigned_support_user_id(actor)
+            qs = qs.filter(pk=upline_id) if upline_id else qs.none()
+        else:
+            qs = qs.none()
+
+    q = (q or '').strip()
+    if q:
+        qs = qs.filter(
+            Q(phone__icontains=q)
+            | Q(first_name__icontains=q)
+            | Q(last_name__icontains=q)
+            | Q(email__icontains=q)
+            | Q(nickname__icontains=q)
+            | Q(business_name__icontains=q)
+        )
+    return qs.order_by('first_name', 'last_name', 'phone')

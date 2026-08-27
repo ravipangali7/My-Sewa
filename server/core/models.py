@@ -2231,3 +2231,83 @@ class PushNotification(models.Model):
         verbose_name = 'Push Notification'
         verbose_name_plural = 'Push Notifications'
         ordering = ['-created_at', '-id']
+
+
+class SupportChatThread(models.Model):
+    """1:1 support conversation between two users, keyed by ordered user ids."""
+
+    user_low = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='support_threads_as_low',
+    )
+    user_high = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='support_threads_as_high',
+    )
+    last_message_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    last_message_preview = models.CharField(max_length=240, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'Support chat {self.user_low_id}:{self.user_high_id}'
+
+    class Meta:
+        verbose_name = 'Support Chat Thread'
+        verbose_name_plural = 'Support Chat Threads'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user_low', 'user_high'],
+                name='uniq_support_chat_thread_pair',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user_low', 'last_message_at'], name='core_spt_low_last_idx'),
+            models.Index(fields=['user_high', 'last_message_at'], name='core_spt_high_last_idx'),
+        ]
+
+
+class SupportChatReadState(models.Model):
+    """Per-user last-read cursor for a support thread."""
+
+    thread = models.ForeignKey(
+        SupportChatThread, on_delete=models.CASCADE, related_name='read_states',
+    )
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='support_chat_reads',
+    )
+    last_read_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Support Chat Read State'
+        verbose_name_plural = 'Support Chat Read States'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['thread', 'user'],
+                name='uniq_support_chat_read_user',
+            ),
+        ]
+
+
+class SupportChatMessage(models.Model):
+    thread = models.ForeignKey(
+        SupportChatThread, on_delete=models.CASCADE, related_name='messages',
+    )
+    sender = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='support_chat_messages',
+    )
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return f'Message {self.pk} in thread {self.thread_id}'
+
+    class Meta:
+        verbose_name = 'Support Chat Message'
+        verbose_name_plural = 'Support Chat Messages'
+        ordering = ['created_at', 'id']
+        indexes = [
+            models.Index(fields=['thread', 'created_at'], name='core_spt_msg_thread_idx'),
+        ]

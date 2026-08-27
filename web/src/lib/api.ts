@@ -1319,6 +1319,40 @@ export const apiClient = {
       method: "POST",
       body,
     }),
+
+  supportChatContacts: (q?: string) => {
+    const params = new URLSearchParams();
+    const query = q?.trim();
+    if (query) params.set("q", query);
+    const suffix = params.toString();
+    return api<{ items: import("./types").SupportChatUser[]; count: number }>(
+      `/api/support-chat/contacts/${suffix ? `?${suffix}` : ""}`,
+    );
+  },
+  supportChatUnread: () => api<{ count: number }>("/api/support-chat/unread/"),
+  supportChatThreads: () =>
+    api<{ items: import("./types").SupportChatThread[]; count: number }>(
+      "/api/support-chat/threads/",
+    ),
+  supportChatStartThread: (userId: number) =>
+    api<import("./types").SupportChatThread>("/api/support-chat/threads/", {
+      method: "POST",
+      body: { user_id: userId },
+    }),
+  supportChatMessages: (threadId: number, afterId?: number) => {
+    const params = new URLSearchParams();
+    if (afterId) params.set("after_id", String(afterId));
+    const suffix = params.toString();
+    return api<{ items: import("./types").SupportChatMessage[]; count: number }>(
+      `/api/support-chat/threads/${threadId}/messages/${suffix ? `?${suffix}` : ""}`,
+    );
+  },
+  supportChatSendMessage: (threadId: number, body: string) =>
+    api<import("./types").SupportChatMessage>(
+      `/api/support-chat/threads/${threadId}/messages/`,
+      { method: "POST", body: { body } },
+    ),
+
   dealerDashboard: () => api<import("./types").NetworkDashboard>("/api/dealer/dashboard/"),
   dealerSubAgents: (filters?: AdminListFilters) =>
     api<{ items: import("./types").AdminUser[] }>(

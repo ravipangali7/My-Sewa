@@ -106,7 +106,7 @@ function DealerDashboard() {
       ) : (
         <div className="space-y-4">
           <AdminMetricStrip items={kpis} />
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <Button asChild size="sm">
               <Link to="/dealer/customers">Customers</Link>
             </Button>

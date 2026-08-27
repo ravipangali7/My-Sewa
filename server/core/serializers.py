@@ -35,6 +35,8 @@ from .models import (
     StatementDiscrepancy,
     HomePopup,
     PushNotification,
+    SupportChatThread,
+    SupportChatMessage,
 )
 
 User = get_user_model()
@@ -2468,4 +2470,72 @@ class PushNotificationSerializer(serializers.ModelSerializer):
             return obj.target_phone
         user = obj.target_user
         return getattr(user, 'phone', None) if user else None
+
+
+def support_chat_user_brief(user, request=None):
+    if user is None:
+        return None
+    avatar_url = None
+    if getattr(user, 'avatar', None):
+        try:
+            url = user.avatar.url
+        except ValueError:
+            url = None
+        if url and request:
+            avatar_url = request.build_absolute_uri(url)
+        else:
+            avatar_url = url
+    role = getattr(user, 'role', 'customer') or 'customer'
+    if getattr(user, 'is_superuser', False):
+        role_label = 'Super Admin'
+    elif getattr(user, 'is_staff', False) and role not in ('dealer', 'agent', 'sub_agent'):
+        role_label = 'Admin'
+    elif role == 'dealer':
+        role_label = 'Dealer'
+    elif role == 'agent':
+        role_label = 'Agent'
+    elif role == 'sub_agent':
+        role_label = 'Sub-Agent'
+    else:
+        role_label = 'Customer'
+    return {
+        'id': user.pk,
+        'phone': user.phone,
+        'name': _user_display_name(user),
+        'role': role,
+        'role_label': role_label,
+        'is_staff': bool(getattr(user, 'is_staff', False)),
+        'is_superuser': bool(getattr(user, 'is_superuser', False)),
+        'avatar_url': avatar_url,
+    }
+
+
+class SupportChatMessageSerializer(serializers.ModelSerializer):
+    sender_id = serializers.IntegerField(source='sender.id', read_only=True)
+
+    class Meta:
+        model = SupportChatMessage
+        fields = ('id', 'thread', 'sender_id', 'body', 'created_at')
+        read_only_fields = fields
+
+
+class SupportChatThreadSerializer(serializers.ModelSerializer):
+    other_user = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportChatThread
+        fields = (
+            'id', 'other_user', 'last_message_at', 'last_message_preview',
+            'unread_count', 'created_at',
+        )
+        read_only_fields = fields
+
+    def get_other_user(self, obj):
+        me = self.context.get('actor')
+        other = obj.user_high if me and obj.user_low_id == me.pk else obj.user_low
+        return support_chat_user_brief(other, self.context.get('request'))
+
+    def get_unread_count(self, obj):
+        return int(self.context.get('unread_map', {}).get(obj.pk, 0))
 

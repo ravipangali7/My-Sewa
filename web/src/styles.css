@@ -266,4 +266,17 @@
   html.mysewa-native .mysewa-app-shell {
     min-height: 100dvh;
   }
+
+  /* Dealer / Sub-Agent portal: keep page chips swipeable without trapping document scroll. */
+  .mysewa-portal-tabs {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+  }
+
+  html.mysewa-native .mysewa-portal-header {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 0;
+  }
 }

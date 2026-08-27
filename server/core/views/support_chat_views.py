@@ -1,0 +1,190 @@
+"""Role-scoped Support Chat APIs."""
+from __future__ import annotations
+
+from django.contrib.auth import get_user_model
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from ..models import SupportChatMessage, SupportChatReadState, SupportChatThread
+from ..serializers import SupportChatMessageSerializer, SupportChatThreadSerializer, support_chat_user_brief
+from ..services.hierarchy import can_initiate_support_chat, can_send_support_chat, support_contacts_qs
+from ..services.support_chat import (
+    get_or_create_thread,
+    mark_thread_read,
+    other_participant,
+    threads_for,
+    unread_count_for,
+    user_in_thread,
+)
+
+User = get_user_model()
+
+MAX_MESSAGE_LEN = 4000
+CONTACTS_LIMIT = 50
+MESSAGES_LIMIT = 200
+
+
+def _chat_forbidden():
+    return Response(
+        {
+            'error': 'You are not allowed to chat with this user.',
+            'message': 'You can only message users you are authorized to chat with.',
+            'code': 'support_chat_forbidden',
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _thread_or_404(request, thread_id):
+    try:
+        thread = SupportChatThread.objects.select_related('user_low', 'user_high').get(pk=thread_id)
+    except SupportChatThread.DoesNotExist:
+        return None, Response(
+            {'error': 'Thread not found', 'message': 'Conversation not found.', 'code': 'not_found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if not user_in_thread(thread, request.user):
+        return None, _chat_forbidden()
+    other = other_participant(thread, request.user)
+    if not can_send_support_chat(request.user, other):
+        return None, _chat_forbidden()
+    return thread, None
+
+
+def _unread_map(user, thread_ids):
+    if not thread_ids:
+        return {}
+    reads = {
+        row.thread_id: row.last_read_at
+        for row in SupportChatReadState.objects.filter(user=user, thread_id__in=thread_ids)
+    }
+    unread = {}
+    for thread_id in thread_ids:
+        qs = SupportChatMessage.objects.filter(thread_id=thread_id).exclude(sender=user)
+        last_read = reads.get(thread_id)
+        if last_read:
+            qs = qs.filter(created_at__gt=last_read)
+        unread[thread_id] = qs.count()
+    return unread
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def support_chat_contacts(request):
+    q = (request.query_params.get('q') or '').strip()
+    qs = support_contacts_qs(request.user, q=q)[:CONTACTS_LIMIT]
+    items = [support_chat_user_brief(u, request) for u in qs]
+    return Response({'items': items, 'count': len(items)})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def support_chat_unread(request):
+    return Response({'count': unread_count_for(request.user)})
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def support_chat_threads(request):
+    if request.method == 'POST':
+        raw = request.data.get('user_id')
+        try:
+            target_id = int(raw)
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    'error': 'user_id is required',
+                    'message': 'Select a user to start a conversation.',
+                    'code': 'invalid_user',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            target = User.objects.get(pk=target_id)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found', 'message': 'User not found.', 'code': 'not_found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not can_initiate_support_chat(request.user, target):
+            return _chat_forbidden()
+        thread = get_or_create_thread(request.user, target)
+        unread_map = _unread_map(request.user, [thread.pk])
+        return Response(
+            SupportChatThreadSerializer(
+                thread,
+                context={'request': request, 'actor': request.user, 'unread_map': unread_map},
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    qs = (
+        threads_for(request.user)
+        .select_related('user_low', 'user_high')
+        .order_by('-last_message_at', '-id')
+    )
+    thread_ids = [t.pk for t in qs]
+    unread_map = _unread_map(request.user, thread_ids)
+    data = SupportChatThreadSerializer(
+        qs,
+        many=True,
+        context={'request': request, 'actor': request.user, 'unread_map': unread_map},
+    ).data
+    return Response({'items': data, 'count': len(data)})
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def support_chat_messages(request, thread_id):
+    thread, err = _thread_or_404(request, thread_id)
+    if err:
+        return err
+
+    if request.method == 'POST':
+        body = (request.data.get('body') or '').strip()
+        if not body:
+            return Response(
+                {
+                    'error': 'Message is required',
+                    'message': 'Type a message before sending.',
+                    'code': 'empty_message',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(body) > MAX_MESSAGE_LEN:
+            return Response(
+                {
+                    'error': 'Message is too long',
+                    'message': f'Message cannot exceed {MAX_MESSAGE_LEN} characters.',
+                    'code': 'message_too_long',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        other = other_participant(thread, request.user)
+        if not can_send_support_chat(request.user, other):
+            return _chat_forbidden()
+        msg = SupportChatMessage.objects.create(thread=thread, sender=request.user, body=body)
+        preview = body if len(body) <= 240 else f'{body[:237]}...'
+        thread.last_message_at = msg.created_at
+        thread.last_message_preview = preview
+        thread.save(update_fields=['last_message_at', 'last_message_preview'])
+        mark_thread_read(thread, request.user)
+        return Response(
+            SupportChatMessageSerializer(msg).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    qs = SupportChatMessage.objects.filter(thread=thread).select_related('sender').order_by('created_at', 'id')
+    after_id = (request.query_params.get('after_id') or '').strip()
+    if after_id.isdigit():
+        qs = qs.filter(id__gt=int(after_id))
+        items = list(qs)
+    else:
+        items = list(qs[max(0, qs.count() - MESSAGES_LIMIT):])
+    mark_thread_read(thread, request.user)
+    return Response({
+        'items': SupportChatMessageSerializer(items, many=True).data,
+        'count': len(items),
+    })

@@ -18,6 +18,7 @@ from .views import (
     popup_views,
     hierarchy_views,
     dealer_views,
+    support_chat_views,
 )
 
 urlpatterns = [
@@ -101,6 +102,15 @@ urlpatterns = [
     ),
     path('api/dealer/commissions/', dealer_views.network_commissions, name='dealer_commissions'),
     path('api/dealer/report/', dealer_views.network_report, name='dealer_report'),
+
+    path('api/support-chat/contacts/', support_chat_views.support_chat_contacts, name='support_chat_contacts'),
+    path('api/support-chat/unread/', support_chat_views.support_chat_unread, name='support_chat_unread'),
+    path('api/support-chat/threads/', support_chat_views.support_chat_threads, name='support_chat_threads'),
+    path(
+        'api/support-chat/threads/<int:thread_id>/messages/',
+        support_chat_views.support_chat_messages,
+        name='support_chat_messages',
+    ),
 
     # Wallet endpoints
     path('api/wallet/balance/', wallet_views.get_wallet_balance, name='wallet_balance'),

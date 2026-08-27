@@ -198,8 +198,39 @@ function DealerSubAgentsPage() {
                       value: [u.first_name, u.last_name].filter(Boolean).join(" ") || "—",
                     },
                     { label: "Wallet", value: formatNPR(u.wallet_balance) },
+                    { label: "Status", value: u.is_active ? "Active" : "Inactive" },
                   ]}
                 />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => statusMutation.mutate({ id: u.id, is_active: !u.is_active })}
+                  >
+                    {u.is_active ? "Deactivate" : "Activate"}
+                  </Button>
+                  {canFreeze ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => freezeMutation.mutate({ id: u.id, frozen: !!u.wallet_frozen })}
+                    >
+                      {u.wallet_frozen ? "Unfreeze" : "Freeze"}
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const password = window.prompt("New password (min 8 characters)");
+                      if (password && password.length >= 8) {
+                        resetMutation.mutate({ id: u.id, password });
+                      }
+                    }}
+                  >
+                    Reset password
+                  </Button>
+                </div>
               </AdminMobileCard>
             ))}
           </AdminMobileCardGrid>

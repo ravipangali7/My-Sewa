@@ -30,6 +30,7 @@ import { Route as AdminRemittancesRouteImport } from './routes/admin/remittances
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminStatementRouteImport } from './routes/admin/statement'
+import { Route as AdminSupportChatRouteImport } from './routes/admin/support-chat'
 import { Route as AdminTopupsRouteImport } from './routes/admin/topups'
 import { Route as AdminTransactionHistoryRouteImport } from './routes/admin/transaction-history'
 import { Route as AdminTransfersRouteImport } from './routes/admin/transfers'
@@ -48,6 +49,7 @@ import { Route as AppProfileRouteImport } from './routes/app/profile'
 import { Route as AppRemittanceRouteImport } from './routes/app/remittance'
 import { Route as AppScanRouteImport } from './routes/app/scan'
 import { Route as AppServicesRouteImport } from './routes/app/services'
+import { Route as AppSupportChatRouteImport } from './routes/app/support-chat'
 import { Route as AppTopupRouteImport } from './routes/app/topup'
 import { Route as AppTransferRouteImport } from './routes/app/transfer'
 import { Route as AppWalletHistoryRouteImport } from './routes/app/wallet-history'
@@ -188,6 +190,11 @@ const AdminStatementRoute = AdminStatementRouteImport.update({
   path: '/admin/statement',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminSupportChatRoute = AdminSupportChatRouteImport.update({
+  id: '/admin/support-chat',
+  path: '/admin/support-chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminTopupsRoute = AdminTopupsRouteImport.update({
   id: '/admin/topups',
   path: '/admin/topups',
@@ -276,6 +283,11 @@ const AppScanRoute = AppScanRouteImport.update({
 const AppServicesRoute = AppServicesRouteImport.update({
   id: '/app/services',
   path: '/app/services',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppSupportChatRoute = AppSupportChatRouteImport.update({
+  id: '/app/support-chat',
+  path: '/app/support-chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppTopupRoute = AppTopupRouteImport.update({
@@ -470,6 +482,7 @@ export interface FileRoutesByFullPath {
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/statement': typeof AdminStatementRoute
+  '/admin/support-chat': typeof AdminSupportChatRoute
   '/admin/topups': typeof AdminTopupsRoute
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
   '/admin/transfers': typeof AdminTransfersRoute
@@ -487,6 +500,7 @@ export interface FileRoutesByFullPath {
   '/app/remittance': typeof AppRemittanceRoute
   '/app/scan': typeof AppScanRoute
   '/app/services': typeof AppServicesRoute
+  '/app/support-chat': typeof AppSupportChatRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
   '/app/wallet-history': typeof AppWalletHistoryRoute
@@ -544,6 +558,7 @@ export interface FileRoutesByTo {
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/statement': typeof AdminStatementRoute
+  '/admin/support-chat': typeof AdminSupportChatRoute
   '/admin/topups': typeof AdminTopupsRoute
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
   '/admin/transfers': typeof AdminTransfersRoute
@@ -561,6 +576,7 @@ export interface FileRoutesByTo {
   '/app/remittance': typeof AppRemittanceRoute
   '/app/scan': typeof AppScanRoute
   '/app/services': typeof AppServicesRoute
+  '/app/support-chat': typeof AppSupportChatRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
   '/app/wallet-history': typeof AppWalletHistoryRoute
@@ -619,6 +635,7 @@ export interface FileRoutesById {
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/statement': typeof AdminStatementRoute
+  '/admin/support-chat': typeof AdminSupportChatRoute
   '/admin/topups': typeof AdminTopupsRoute
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
   '/admin/transfers': typeof AdminTransfersRoute
@@ -636,6 +653,7 @@ export interface FileRoutesById {
   '/app/remittance': typeof AppRemittanceRoute
   '/app/scan': typeof AppScanRoute
   '/app/services': typeof AppServicesRoute
+  '/app/support-chat': typeof AppSupportChatRoute
   '/app/topup': typeof AppTopupRoute
   '/app/transfer': typeof AppTransferRoute
   '/app/wallet-history': typeof AppWalletHistoryRoute
@@ -695,6 +713,7 @@ export interface FileRouteTypes {
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/statement'
+    | '/admin/support-chat'
     | '/admin/topups'
     | '/admin/transaction-history'
     | '/admin/transfers'
@@ -712,6 +731,7 @@ export interface FileRouteTypes {
     | '/app/remittance'
     | '/app/scan'
     | '/app/services'
+    | '/app/support-chat'
     | '/app/topup'
     | '/app/transfer'
     | '/app/wallet-history'
@@ -769,6 +789,7 @@ export interface FileRouteTypes {
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/statement'
+    | '/admin/support-chat'
     | '/admin/topups'
     | '/admin/transaction-history'
     | '/admin/transfers'
@@ -786,6 +807,7 @@ export interface FileRouteTypes {
     | '/app/remittance'
     | '/app/scan'
     | '/app/services'
+    | '/app/support-chat'
     | '/app/topup'
     | '/app/transfer'
     | '/app/wallet-history'
@@ -843,6 +865,7 @@ export interface FileRouteTypes {
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/statement'
+    | '/admin/support-chat'
     | '/admin/topups'
     | '/admin/transaction-history'
     | '/admin/transfers'
@@ -860,6 +883,7 @@ export interface FileRouteTypes {
     | '/app/remittance'
     | '/app/scan'
     | '/app/services'
+    | '/app/support-chat'
     | '/app/topup'
     | '/app/transfer'
     | '/app/wallet-history'
@@ -918,6 +942,7 @@ export interface RootRouteChildren {
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminStatementRoute: typeof AdminStatementRoute
+  AdminSupportChatRoute: typeof AdminSupportChatRoute
   AdminTopupsRoute: typeof AdminTopupsRoute
   AdminTransactionHistoryRoute: typeof AdminTransactionHistoryRoute
   AdminTransfersRoute: typeof AdminTransfersRoute
@@ -935,6 +960,7 @@ export interface RootRouteChildren {
   AppRemittanceRoute: typeof AppRemittanceRoute
   AppScanRoute: typeof AppScanRoute
   AppServicesRoute: typeof AppServicesRoute
+  AppSupportChatRoute: typeof AppSupportChatRoute
   AppTopupRoute: typeof AppTopupRoute
   AppTransferRoute: typeof AppTransferRoute
   AppWalletHistoryRoute: typeof AppWalletHistoryRoute
@@ -1121,6 +1147,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminStatementRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/support-chat': {
+      id: '/admin/support-chat'
+      path: '/admin/support-chat'
+      fullPath: '/admin/support-chat'
+      preLoaderRoute: typeof AdminSupportChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/topups': {
       id: '/admin/topups'
       path: '/admin/topups'
@@ -1245,6 +1278,13 @@ declare module '@tanstack/react-router' {
       path: '/app/services'
       fullPath: '/app/services'
       preLoaderRoute: typeof AppServicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/support-chat': {
+      id: '/app/support-chat'
+      path: '/app/support-chat'
+      fullPath: '/app/support-chat'
+      preLoaderRoute: typeof AppSupportChatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/topup': {
@@ -1502,6 +1542,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminStatementRoute: AdminStatementRoute,
+  AdminSupportChatRoute: AdminSupportChatRoute,
   AdminTopupsRoute: AdminTopupsRoute,
   AdminTransactionHistoryRoute: AdminTransactionHistoryRoute,
   AdminTransfersRoute: AdminTransfersRoute,
@@ -1519,6 +1560,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRemittanceRoute: AppRemittanceRoute,
   AppScanRoute: AppScanRoute,
   AppServicesRoute: AppServicesRoute,
+  AppSupportChatRoute: AppSupportChatRoute,
   AppTopupRoute: AppTopupRoute,
   AppTransferRoute: AppTransferRoute,
   AppWalletHistoryRoute: AppWalletHistoryRoute,
@@ -1559,3 +1601,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

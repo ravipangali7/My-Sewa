@@ -28,6 +28,9 @@ from .models import (
     HomePopup,
     HomePopupImpression,
     PushNotification,
+    SupportChatThread,
+    SupportChatMessage,
+    SupportChatReadState,
 )
 
 User = get_user_model()
@@ -649,6 +652,39 @@ class PushNotificationAdmin(admin.ModelAdmin):
         'sent_by', 'sent', 'failed', 'skipped', 'target_count', 'created_at',
     )
     ordering = ('-created_at', '-id')
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(SupportChatThread)
+class SupportChatThreadAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user_low', 'user_high', 'last_message_at', 'created_at')
+    search_fields = ('user_low__phone', 'user_high__phone', 'last_message_preview')
+    readonly_fields = (
+        'user_low', 'user_high', 'last_message_at', 'last_message_preview', 'created_at',
+    )
+    ordering = ('-last_message_at', '-id')
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(SupportChatMessage)
+class SupportChatMessageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'thread', 'sender', 'created_at')
+    search_fields = ('sender__phone', 'body')
+    readonly_fields = ('thread', 'sender', 'body', 'created_at')
+    ordering = ('-created_at', '-id')
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(SupportChatReadState)
+class SupportChatReadStateAdmin(admin.ModelAdmin):
+    list_display = ('id', 'thread', 'user', 'last_read_at')
+    readonly_fields = ('thread', 'user', 'last_read_at', 'updated_at')
 
     def has_add_permission(self, request):
         return False

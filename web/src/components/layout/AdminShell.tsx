@@ -26,6 +26,7 @@ import {
   Handshake,
   GitBranch,
   TrendingUp,
+  MessageCircle,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ import { useAuth } from "@/lib/auth";
 import { homePathForUser } from "@/lib/auth-destination";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { AuthSessionLoader } from "@/components/AuthSessionLoader";
+import { SupportChatUnreadBadge } from "@/hooks/use-support-chat-unread";
 import type { UserProfile } from "@/lib/types";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -66,6 +68,7 @@ const NAV = [
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
   { to: "/admin/statement", label: "Statement", icon: FileSearch },
   { to: "/admin/users", label: "Users", icon: Users },
+  { to: "/admin/support-chat", label: "Support Chat", icon: MessageCircle },
   { to: "/admin/dealers", label: "Dealers", icon: Handshake },
   { to: "/admin/hierarchy", label: "Dealer Hierarchy", icon: GitBranch },
   { to: "/admin/dealer-profit", label: "Dealer Profit", icon: TrendingUp },
@@ -289,8 +292,9 @@ export function AdminShell({
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
-            <item.icon className="size-[18px]" />
-            {item.label}
+            <item.icon className="size-[18px] shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {item.to === "/admin/support-chat" ? <SupportChatUnreadBadge /> : null}
           </Link>
         );
       })}
