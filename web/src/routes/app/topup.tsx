@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
-import { isAccountPending, isWalletBlocked } from "@/lib/account-status";
+import { isAccountPending, isWalletTxnLocked, walletTxnLockMessageKey } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -104,7 +104,8 @@ function TopUp() {
   const amt = Number(amount) || 0;
   const serviceName = productId === 1 ? "NTC" : "NCELL";
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
-  const walletBlocked = isWalletBlocked(walletQuery.data);
+  const walletLocked = isWalletTxnLocked(walletQuery.data, user);
+  const walletLockMessage = t(walletTxnLockMessageKey(walletQuery.data, user));
   const totalDue = Number(totalDebited) || amt;
   const insufficient =
     amt >= minTopup && totalDue > 0 && walletBalance < totalDue;
@@ -248,7 +249,7 @@ function TopUp() {
   const submitMutation = useMutation({
     mutationFn: async (transaction_pin: string) => {
       if (accountPending) throw new Error(t("account.pending"));
-      if (walletBlocked) throw new Error(t("account.walletBlocked"));
+      if (walletLocked) throw new Error(walletLockMessage);
       if (!topupsEnabled) throw new Error(t("topup.disabledError"));
       setTouchedMobile(true);
       if (validateOperatorMobile(productId, mobile)) {
@@ -336,7 +337,7 @@ function TopUp() {
   return (
     <UserShell title={t("topup.title")} back="/app">
       <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
-        {accountPending || walletBlocked ? (
+        {accountPending || walletLocked ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />
           </div>
@@ -523,6 +524,7 @@ function TopUp() {
                 submitMutation.isPending ||
                 feeLoading ||
                 !topupsEnabled ||
+                walletLocked ||
                 !mobileReady ||
                 amt < minTopup ||
                 providerBlocked ||

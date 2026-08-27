@@ -16,7 +16,10 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminCommissionHistoryRouteImport } from './routes/admin/commission-history'
 import { Route as AdminCommunityElectricityRouteImport } from './routes/admin/community-electricity'
 import { Route as AdminDataTopupsRouteImport } from './routes/admin/data-topups'
+import { Route as AdminDealerProfitRouteImport } from './routes/admin/dealer-profit'
+import { Route as AdminDealersRouteImport } from './routes/admin/dealers'
 import { Route as AdminDepositsRouteImport } from './routes/admin/deposits'
+import { Route as AdminHierarchyRouteImport } from './routes/admin/hierarchy'
 import { Route as AdminHimalpayHistoryRouteImport } from './routes/admin/himalpay-history'
 import { Route as AdminInternetRouteImport } from './routes/admin/internet'
 import { Route as AdminKycRouteImport } from './routes/admin/kyc'
@@ -49,6 +52,13 @@ import { Route as AppTopupRouteImport } from './routes/app/topup'
 import { Route as AppTransferRouteImport } from './routes/app/transfer'
 import { Route as AppWalletHistoryRouteImport } from './routes/app/wallet-history'
 import { Route as AppWaterRouteImport } from './routes/app/water'
+import { Route as DealerIndexRouteImport } from './routes/dealer/index'
+import { Route as DealerCommissionRouteImport } from './routes/dealer/commission'
+import { Route as DealerCustomersRouteImport } from './routes/dealer/customers'
+import { Route as DealerProfileRouteImport } from './routes/dealer/profile'
+import { Route as DealerReportsRouteImport } from './routes/dealer/reports'
+import { Route as DealerSubAgentsRouteImport } from './routes/dealer/sub-agents'
+import { Route as DealerTransactionsRouteImport } from './routes/dealer/transactions'
 import { Route as AdminCommunityElectricityCommunityElectricityIdRouteImport } from './routes/admin/community-electricity_.$communityElectricityId'
 import { Route as AdminDataTopupsDataTopupIdRouteImport } from './routes/admin/data-topups_.$dataTopupId'
 import { Route as AdminDepositsDepositIdRouteImport } from './routes/admin/deposits_.$depositId'
@@ -108,9 +118,24 @@ const AdminDataTopupsRoute = AdminDataTopupsRouteImport.update({
   path: '/admin/data-topups',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminDealerProfitRoute = AdminDealerProfitRouteImport.update({
+  id: '/admin/dealer-profit',
+  path: '/admin/dealer-profit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminDealersRoute = AdminDealersRouteImport.update({
+  id: '/admin/dealers',
+  path: '/admin/dealers',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminDepositsRoute = AdminDepositsRouteImport.update({
   id: '/admin/deposits',
   path: '/admin/deposits',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminHierarchyRoute = AdminHierarchyRouteImport.update({
+  id: '/admin/hierarchy',
+  path: '/admin/hierarchy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminHimalpayHistoryRoute = AdminHimalpayHistoryRouteImport.update({
@@ -273,6 +298,41 @@ const AppWaterRoute = AppWaterRouteImport.update({
   path: '/app/water',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DealerIndexRoute = DealerIndexRouteImport.update({
+  id: '/dealer/',
+  path: '/dealer/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DealerCommissionRoute = DealerCommissionRouteImport.update({
+  id: '/dealer/commission',
+  path: '/dealer/commission',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DealerCustomersRoute = DealerCustomersRouteImport.update({
+  id: '/dealer/customers',
+  path: '/dealer/customers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DealerProfileRoute = DealerProfileRouteImport.update({
+  id: '/dealer/profile',
+  path: '/dealer/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DealerReportsRoute = DealerReportsRouteImport.update({
+  id: '/dealer/reports',
+  path: '/dealer/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DealerSubAgentsRoute = DealerSubAgentsRouteImport.update({
+  id: '/dealer/sub-agents',
+  path: '/dealer/sub-agents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DealerTransactionsRoute = DealerTransactionsRouteImport.update({
+  id: '/dealer/transactions',
+  path: '/dealer/transactions',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminCommunityElectricityCommunityElectricityIdRoute =
   AdminCommunityElectricityCommunityElectricityIdRouteImport.update({
     id: '/admin/community-electricity_/$communityElectricityId',
@@ -396,7 +456,10 @@ export interface FileRoutesByFullPath {
   '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
+  '/admin/dealer-profit': typeof AdminDealerProfitRoute
+  '/admin/dealers': typeof AdminDealersRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/hierarchy': typeof AdminHierarchyRoute
   '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
@@ -428,8 +491,15 @@ export interface FileRoutesByFullPath {
   '/app/transfer': typeof AppTransferRoute
   '/app/wallet-history': typeof AppWalletHistoryRoute
   '/app/water': typeof AppWaterRoute
+  '/dealer/commission': typeof DealerCommissionRoute
+  '/dealer/customers': typeof DealerCustomersRoute
+  '/dealer/profile': typeof DealerProfileRoute
+  '/dealer/reports': typeof DealerReportsRoute
+  '/dealer/sub-agents': typeof DealerSubAgentsRoute
+  '/dealer/transactions': typeof DealerTransactionsRoute
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
+  '/dealer/': typeof DealerIndexRoute
   '/admin/community-electricity/$communityElectricityId': typeof AdminCommunityElectricityCommunityElectricityIdRoute
   '/admin/data-topups/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
   '/admin/deposits/$depositId': typeof AdminDepositsDepositIdRoute
@@ -460,7 +530,10 @@ export interface FileRoutesByTo {
   '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
+  '/admin/dealer-profit': typeof AdminDealerProfitRoute
+  '/admin/dealers': typeof AdminDealersRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/hierarchy': typeof AdminHierarchyRoute
   '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
@@ -492,8 +565,15 @@ export interface FileRoutesByTo {
   '/app/transfer': typeof AppTransferRoute
   '/app/wallet-history': typeof AppWalletHistoryRoute
   '/app/water': typeof AppWaterRoute
+  '/dealer/commission': typeof DealerCommissionRoute
+  '/dealer/customers': typeof DealerCustomersRoute
+  '/dealer/profile': typeof DealerProfileRoute
+  '/dealer/reports': typeof DealerReportsRoute
+  '/dealer/sub-agents': typeof DealerSubAgentsRoute
+  '/dealer/transactions': typeof DealerTransactionsRoute
   '/admin': typeof AdminIndexRoute
   '/app': typeof AppIndexRoute
+  '/dealer': typeof DealerIndexRoute
   '/admin/community-electricity/$communityElectricityId': typeof AdminCommunityElectricityCommunityElectricityIdRoute
   '/admin/data-topups/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
   '/admin/deposits/$depositId': typeof AdminDepositsDepositIdRoute
@@ -525,7 +605,10 @@ export interface FileRoutesById {
   '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
+  '/admin/dealer-profit': typeof AdminDealerProfitRoute
+  '/admin/dealers': typeof AdminDealersRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/hierarchy': typeof AdminHierarchyRoute
   '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
@@ -557,8 +640,15 @@ export interface FileRoutesById {
   '/app/transfer': typeof AppTransferRoute
   '/app/wallet-history': typeof AppWalletHistoryRoute
   '/app/water': typeof AppWaterRoute
+  '/dealer/commission': typeof DealerCommissionRoute
+  '/dealer/customers': typeof DealerCustomersRoute
+  '/dealer/profile': typeof DealerProfileRoute
+  '/dealer/reports': typeof DealerReportsRoute
+  '/dealer/sub-agents': typeof DealerSubAgentsRoute
+  '/dealer/transactions': typeof DealerTransactionsRoute
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
+  '/dealer/': typeof DealerIndexRoute
   '/admin/community-electricity_/$communityElectricityId': typeof AdminCommunityElectricityCommunityElectricityIdRoute
   '/admin/data-topups_/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
   '/admin/deposits_/$depositId': typeof AdminDepositsDepositIdRoute
@@ -591,7 +681,10 @@ export interface FileRouteTypes {
     | '/admin/commission-history'
     | '/admin/community-electricity'
     | '/admin/data-topups'
+    | '/admin/dealer-profit'
+    | '/admin/dealers'
     | '/admin/deposits'
+    | '/admin/hierarchy'
     | '/admin/himalpay-history'
     | '/admin/internet'
     | '/admin/kyc'
@@ -623,8 +716,15 @@ export interface FileRouteTypes {
     | '/app/transfer'
     | '/app/wallet-history'
     | '/app/water'
+    | '/dealer/commission'
+    | '/dealer/customers'
+    | '/dealer/profile'
+    | '/dealer/reports'
+    | '/dealer/sub-agents'
+    | '/dealer/transactions'
     | '/admin/'
     | '/app/'
+    | '/dealer/'
     | '/admin/community-electricity/$communityElectricityId'
     | '/admin/data-topups/$dataTopupId'
     | '/admin/deposits/$depositId'
@@ -655,7 +755,10 @@ export interface FileRouteTypes {
     | '/admin/commission-history'
     | '/admin/community-electricity'
     | '/admin/data-topups'
+    | '/admin/dealer-profit'
+    | '/admin/dealers'
     | '/admin/deposits'
+    | '/admin/hierarchy'
     | '/admin/himalpay-history'
     | '/admin/internet'
     | '/admin/kyc'
@@ -687,8 +790,15 @@ export interface FileRouteTypes {
     | '/app/transfer'
     | '/app/wallet-history'
     | '/app/water'
+    | '/dealer/commission'
+    | '/dealer/customers'
+    | '/dealer/profile'
+    | '/dealer/reports'
+    | '/dealer/sub-agents'
+    | '/dealer/transactions'
     | '/admin'
     | '/app'
+    | '/dealer'
     | '/admin/community-electricity/$communityElectricityId'
     | '/admin/data-topups/$dataTopupId'
     | '/admin/deposits/$depositId'
@@ -719,7 +829,10 @@ export interface FileRouteTypes {
     | '/admin/commission-history'
     | '/admin/community-electricity'
     | '/admin/data-topups'
+    | '/admin/dealer-profit'
+    | '/admin/dealers'
     | '/admin/deposits'
+    | '/admin/hierarchy'
     | '/admin/himalpay-history'
     | '/admin/internet'
     | '/admin/kyc'
@@ -751,8 +864,15 @@ export interface FileRouteTypes {
     | '/app/transfer'
     | '/app/wallet-history'
     | '/app/water'
+    | '/dealer/commission'
+    | '/dealer/customers'
+    | '/dealer/profile'
+    | '/dealer/reports'
+    | '/dealer/sub-agents'
+    | '/dealer/transactions'
     | '/admin/'
     | '/app/'
+    | '/dealer/'
     | '/admin/community-electricity_/$communityElectricityId'
     | '/admin/data-topups_/$dataTopupId'
     | '/admin/deposits_/$depositId'
@@ -784,7 +904,10 @@ export interface RootRouteChildren {
   AdminCommissionHistoryRoute: typeof AdminCommissionHistoryRoute
   AdminCommunityElectricityRoute: typeof AdminCommunityElectricityRoute
   AdminDataTopupsRoute: typeof AdminDataTopupsRoute
+  AdminDealerProfitRoute: typeof AdminDealerProfitRoute
+  AdminDealersRoute: typeof AdminDealersRoute
   AdminDepositsRoute: typeof AdminDepositsRoute
+  AdminHierarchyRoute: typeof AdminHierarchyRoute
   AdminHimalpayHistoryRoute: typeof AdminHimalpayHistoryRoute
   AdminInternetRoute: typeof AdminInternetRoute
   AdminKycRoute: typeof AdminKycRoute
@@ -816,8 +939,15 @@ export interface RootRouteChildren {
   AppTransferRoute: typeof AppTransferRoute
   AppWalletHistoryRoute: typeof AppWalletHistoryRoute
   AppWaterRoute: typeof AppWaterRoute
+  DealerCommissionRoute: typeof DealerCommissionRoute
+  DealerCustomersRoute: typeof DealerCustomersRoute
+  DealerProfileRoute: typeof DealerProfileRoute
+  DealerReportsRoute: typeof DealerReportsRoute
+  DealerSubAgentsRoute: typeof DealerSubAgentsRoute
+  DealerTransactionsRoute: typeof DealerTransactionsRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AppIndexRoute: typeof AppIndexRoute
+  DealerIndexRoute: typeof DealerIndexRoute
   AdminCommunityElectricityCommunityElectricityIdRoute: typeof AdminCommunityElectricityCommunityElectricityIdRoute
   AdminDataTopupsDataTopupIdRoute: typeof AdminDataTopupsDataTopupIdRoute
   AdminDepositsDepositIdRoute: typeof AdminDepositsDepositIdRoute
@@ -893,11 +1023,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDataTopupsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/dealer-profit': {
+      id: '/admin/dealer-profit'
+      path: '/admin/dealer-profit'
+      fullPath: '/admin/dealer-profit'
+      preLoaderRoute: typeof AdminDealerProfitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/dealers': {
+      id: '/admin/dealers'
+      path: '/admin/dealers'
+      fullPath: '/admin/dealers'
+      preLoaderRoute: typeof AdminDealersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/deposits': {
       id: '/admin/deposits'
       path: '/admin/deposits'
       fullPath: '/admin/deposits'
       preLoaderRoute: typeof AdminDepositsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/hierarchy': {
+      id: '/admin/hierarchy'
+      path: '/admin/hierarchy'
+      fullPath: '/admin/hierarchy'
+      preLoaderRoute: typeof AdminHierarchyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/himalpay-history': {
@@ -1124,6 +1275,55 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWaterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dealer/': {
+      id: '/dealer/'
+      path: '/dealer'
+      fullPath: '/dealer/'
+      preLoaderRoute: typeof DealerIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dealer/commission': {
+      id: '/dealer/commission'
+      path: '/dealer/commission'
+      fullPath: '/dealer/commission'
+      preLoaderRoute: typeof DealerCommissionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dealer/customers': {
+      id: '/dealer/customers'
+      path: '/dealer/customers'
+      fullPath: '/dealer/customers'
+      preLoaderRoute: typeof DealerCustomersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dealer/profile': {
+      id: '/dealer/profile'
+      path: '/dealer/profile'
+      fullPath: '/dealer/profile'
+      preLoaderRoute: typeof DealerProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dealer/reports': {
+      id: '/dealer/reports'
+      path: '/dealer/reports'
+      fullPath: '/dealer/reports'
+      preLoaderRoute: typeof DealerReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dealer/sub-agents': {
+      id: '/dealer/sub-agents'
+      path: '/dealer/sub-agents'
+      fullPath: '/dealer/sub-agents'
+      preLoaderRoute: typeof DealerSubAgentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dealer/transactions': {
+      id: '/dealer/transactions'
+      path: '/dealer/transactions'
+      fullPath: '/dealer/transactions'
+      preLoaderRoute: typeof DealerTransactionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/community-electricity_/$communityElectricityId': {
       id: '/admin/community-electricity_/$communityElectricityId'
       path: '/admin/community-electricity/$communityElectricityId'
@@ -1288,7 +1488,10 @@ const rootRouteChildren: RootRouteChildren = {
   AdminCommissionHistoryRoute: AdminCommissionHistoryRoute,
   AdminCommunityElectricityRoute: AdminCommunityElectricityRoute,
   AdminDataTopupsRoute: AdminDataTopupsRoute,
+  AdminDealerProfitRoute: AdminDealerProfitRoute,
+  AdminDealersRoute: AdminDealersRoute,
   AdminDepositsRoute: AdminDepositsRoute,
+  AdminHierarchyRoute: AdminHierarchyRoute,
   AdminHimalpayHistoryRoute: AdminHimalpayHistoryRoute,
   AdminInternetRoute: AdminInternetRoute,
   AdminKycRoute: AdminKycRoute,
@@ -1320,8 +1523,15 @@ const rootRouteChildren: RootRouteChildren = {
   AppTransferRoute: AppTransferRoute,
   AppWalletHistoryRoute: AppWalletHistoryRoute,
   AppWaterRoute: AppWaterRoute,
+  DealerCommissionRoute: DealerCommissionRoute,
+  DealerCustomersRoute: DealerCustomersRoute,
+  DealerProfileRoute: DealerProfileRoute,
+  DealerReportsRoute: DealerReportsRoute,
+  DealerSubAgentsRoute: DealerSubAgentsRoute,
+  DealerTransactionsRoute: DealerTransactionsRoute,
   AdminIndexRoute: AdminIndexRoute,
   AppIndexRoute: AppIndexRoute,
+  DealerIndexRoute: DealerIndexRoute,
   AdminCommunityElectricityCommunityElectricityIdRoute:
     AdminCommunityElectricityCommunityElectricityIdRoute,
   AdminDataTopupsDataTopupIdRoute: AdminDataTopupsDataTopupIdRoute,
@@ -1349,13 +1559,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

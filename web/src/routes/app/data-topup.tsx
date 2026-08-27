@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
-import { isAccountPending, isWalletBlocked } from "@/lib/account-status";
+import { isAccountPending, isWalletTxnLocked, walletTxnLockMessageKey } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -144,7 +144,8 @@ function DataTopUp() {
   const mobileReady = normalizedMobile.length === 10 && mobileError === null;
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
-  const walletBlocked = isWalletBlocked(walletQuery.data);
+  const walletBlocked = isWalletTxnLocked(walletQuery.data, user);
+  const walletLockMessage = t(walletTxnLockMessageKey(walletQuery.data, user));
   const pkgAmount = Number(selectedPackage?.amount ?? 0);
   const totalDue = Number(totalDebited) || pkgAmount;
   const insufficient = pkgAmount > 0 && totalDue > 0 && walletBalance < totalDue;
@@ -213,7 +214,7 @@ function DataTopUp() {
     mutationFn: async (transaction_pin: string) => {
       if (!selectedPackage) throw new Error(t("dataTopup.selectPackage"));
       if (accountPending) throw new Error(t("account.pending"));
-      if (walletBlocked) throw new Error(t("account.walletBlocked"));
+      if (walletBlocked) throw new Error(walletLockMessage);
       if (!enabled) throw new Error(t("dataTopup.disabledError"));
       if (insufficient) {
         throw new Error(

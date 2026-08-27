@@ -16,7 +16,7 @@ import { formatNPR, formatDateTime, formatDate, sortByLatestFirst } from "@/lib/
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
-import { isAccountPending } from "@/lib/account-status";
+import { isAccountPending, isWalletFrozen } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n } from "@/lib/i18n";
 import type { TranslateFn } from "@/lib/i18n";
@@ -78,7 +78,7 @@ function todayIsoDate() {
 
 function LoadWallet() {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user, wallet } = useAuth();
   const { t } = useI18n();
   const { logoUrl } = useSiteBranding();
   const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
@@ -91,6 +91,7 @@ function LoadWallet() {
   const [exporting, setExporting] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const accountPending = isAccountPending(user);
+  const walletFrozen = isWalletFrozen(wallet, user);
   const [transactionId, setTransactionId] = useState("");
   const [amount, setAmount] = useState("");
   const [depositDate, setDepositDate] = useState(todayIsoDate);
@@ -118,7 +119,7 @@ function LoadWallet() {
 
   const payment = settingsQuery.data?.config?.payment;
   const security = settingsQuery.data?.config?.security;
-  const depositsEnabled = payment?.deposits_enabled !== false && !accountPending;
+  const depositsEnabled = payment?.deposits_enabled !== false && !accountPending && !walletFrozen;
   const requireScreenshot = security?.require_deposit_screenshot !== false;
   const minDeposit = payment?.min_deposit ?? 100;
   const maxDeposit = payment?.max_deposit ?? 100000;
@@ -137,6 +138,7 @@ function LoadWallet() {
   const createMutation = useMutation({
     mutationFn: async () => {
       if (accountPending) throw new Error(t("account.pending"));
+      if (walletFrozen) throw new Error(t("account.walletFrozen"));
       if (!depositsEnabled) throw new Error(t("load.disabledError"));
       const tid = transactionId.trim();
       if (!tid) throw new Error(t("load.txnIdRequired"));
@@ -199,12 +201,12 @@ function LoadWallet() {
       }
     >
       <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
-        {accountPending ? (
+        {accountPending || walletFrozen ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />
           </div>
         ) : null}
-        {!depositsEnabled && !accountPending ? (
+        {!depositsEnabled && !accountPending && !walletFrozen ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4 lg:col-span-2">
             <p className="text-[15px] font-medium text-destructive">{t("load.disabledTitle")}</p>
             <p className="mt-1 text-[13px] text-muted-foreground">{t("load.disabledBody")}</p>

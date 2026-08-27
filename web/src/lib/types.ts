@@ -111,8 +111,10 @@ export interface UserProfile {
   role?: UserRole;
   assigned_dealer_id?: number | null;
   parent_agent_id?: number | null;
+  assigned_sub_agent_id?: number | null;
   assigned_dealer?: RelatedUserBrief | null;
   parent_agent?: RelatedUserBrief | null;
+  assigned_sub_agent?: RelatedUserBrief | null;
   /** When false, this user cannot perform fund transfers. Defaults to true. */
   can_fund_transfer?: boolean;
   /** When false, this user cannot perform wallet adjustments. Defaults to true. */
@@ -123,6 +125,8 @@ export interface UserProfile {
   wallet_status?: "frozen" | "unfrozen";
   commission_rate?: string | null;
   tds_rate?: string | null;
+  sub_agent_commission_rate?: string | null;
+  super_admin_rate?: string | null;
   /** Whether a transaction PIN is set (never the raw PIN). */
   has_transaction_pin?: boolean;
   date_joined: string;
@@ -200,6 +204,8 @@ export interface PaymentConfig {
 export interface CommissionConfig {
   /** Default percent of transaction amount paid as gross dealer commission. */
   default_commission_rate: number;
+  default_sub_agent_rate?: number;
+  default_super_admin_rate?: number;
   /** Default TDS percent of gross commission when a dealer has no override. */
   default_tds_rate: number;
 }
@@ -870,6 +876,9 @@ export interface AdminUserWritePayload {
   can_remittance_transfer?: boolean;
   commission_rate?: string | number | null;
   tds_rate?: string | number | null;
+  sub_agent_commission_rate?: string | number | null;
+  super_admin_rate?: string | number | null;
+  assigned_sub_agent?: number | null;
   password?: string;
   password2?: string;
 }
@@ -938,6 +947,12 @@ export interface AdminDashboard {
     open_statement_issues?: number;
     commission_today?: number;
     commission_total?: number;
+    total_dealers?: number;
+    total_sub_agents?: number;
+    total_customers?: number;
+    dealer_commission_today?: number;
+    tds_today?: number;
+    super_admin_profit_today?: number;
   };
   summary?: AmountSummary;
   volume_series: Array<{
@@ -1145,6 +1160,9 @@ export interface DealerCommissionItem {
   source_user: number | null;
   source_phone: string | null;
   source_name: string;
+  sub_agent?: number | null;
+  sub_agent_phone?: string | null;
+  sub_agent_name?: string;
   txn_type: string;
   txn_type_display: string;
   txn_id: number;
@@ -1155,6 +1173,10 @@ export interface DealerCommissionItem {
   tds_rate: string;
   tds_amount: string;
   net_commission: string;
+  sub_agent_commission_rate?: string;
+  sub_agent_commission?: string;
+  super_admin_rate?: string;
+  super_admin_profit?: string;
   status: "posted" | "reversed" | string;
   status_display: string;
   created_at: string;
@@ -1165,9 +1187,12 @@ export interface DealerCommissionEarnings {
   gross_commission: number;
   tds_amount: number;
   net_commission: number;
-  today_net: number;
-  monthly_net: number;
-  count: number;
+  today_net?: number;
+  monthly_net?: number;
+  sales?: number;
+  sub_agent_commission?: number;
+  super_admin_profit?: number;
+  count?: number;
 }
 
 export interface DealerCommissionResponse {
@@ -1401,4 +1426,122 @@ export interface HimalPayHistoryResponse {
     debit_amount: string;
   };
   items: HimalPayHistoryItem[];
+}
+
+export interface NetworkDashboard {
+  role?: string;
+  wallet_balance: string;
+  wallet_frozen?: boolean;
+  today_sales: string;
+  today_txn_count: number;
+  today_commission: string;
+  today_gross_commission?: string;
+  total_commission: string;
+  total_gross_commission?: string;
+  total_tds?: string;
+  total_customers: number;
+  total_sub_agents: number;
+  total_sales?: string;
+  success_count?: number;
+  failed_count?: number;
+  super_admin_profit_today?: string;
+  super_admin_profit_total?: string;
+  recent_commissions: DealerCommissionItem[];
+  network?: {
+    total_dealers: number;
+    total_sub_agents: number;
+    total_customers: number;
+    today_sales: string;
+    dealer_commission_today: string;
+    tds_today: string;
+    super_admin_profit_today: string;
+  };
+}
+
+export interface HierarchyNode {
+  id: number;
+  phone: string;
+  name: string;
+  email?: string;
+  role: string;
+  account_status: string;
+  is_active: boolean;
+  wallet_balance: string;
+  wallet_id?: number | null;
+  wallet_frozen?: boolean;
+  wallet_status?: string;
+  customer_count: number;
+  sub_agent_count?: number;
+  transaction_count: number;
+  sales: string;
+  gross_commission?: string;
+  tds_amount?: string;
+  net_commission?: string;
+  super_admin_profit?: string;
+  commission?: string;
+  commission_rate?: string | null;
+  tds_rate?: string | null;
+  parent_agent_id?: number | null;
+  sub_agents?: HierarchyNode[];
+}
+
+export interface DealerProfitRow {
+  id: number;
+  phone: string;
+  name: string;
+  sales: string;
+  success_count: number;
+  failed_count: number;
+  gross_commission: string;
+  tds_amount: string;
+  net_commission: string;
+  sub_agent_commission: string;
+  super_admin_profit: string;
+  wallet_balance: string;
+  wallet_frozen?: boolean;
+}
+
+export interface NetworkReport {
+  user: AdminUser;
+  range: { start_date: string | null; end_date: string | null };
+  wallet_balance: string;
+  total_customers: number;
+  total_sub_agents: number;
+  sales: string;
+  success_count: number;
+  failed_count: number;
+  gross_commission: string;
+  tds_amount: string;
+  net_commission: string;
+  sub_agent_commission: string;
+  super_admin_profit: string;
+  by_service: Array<{
+    txn_type: string;
+    count?: number;
+    sales?: string;
+    gross_commission?: string;
+    tds_amount?: string;
+    net_commission?: string;
+    sub_agent_commission?: string;
+    super_admin_profit?: string;
+  }>;
+  sub_agent_performance: Array<{
+    id: number;
+    phone: string;
+    name: string;
+    customer_count: number;
+    sales: string;
+    success_count: number;
+    commission: string;
+  }>;
+}
+
+export interface ServiceCommissionRule {
+  id: number;
+  dealer: number;
+  txn_type: string;
+  dealer_rate: string;
+  sub_agent_rate: string;
+  super_admin_rate: string;
+  updated_at: string;
 }

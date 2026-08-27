@@ -17,6 +17,7 @@ from .views import (
     kyc_views,
     popup_views,
     hierarchy_views,
+    dealer_views,
 )
 
 urlpatterns = [
@@ -75,6 +76,31 @@ urlpatterns = [
         hierarchy_views.agent_sub_agent_detail,
         name='agent_sub_agent_detail',
     ),
+    path('api/dealer/dashboard/', dealer_views.network_dashboard, name='dealer_dashboard'),
+    path('api/dealer/sub-agents/', dealer_views.network_sub_agents, name='dealer_sub_agents'),
+    path(
+        'api/dealer/sub-agents/<int:user_id>/',
+        dealer_views.network_sub_agent_detail,
+        name='dealer_sub_agent_detail',
+    ),
+    path('api/dealer/customers/', dealer_views.network_customers, name='dealer_customers'),
+    path(
+        'api/dealer/customers/<int:user_id>/',
+        dealer_views.network_customer_detail,
+        name='dealer_customer_detail',
+    ),
+    path(
+        'api/dealer/users/<int:user_id>/freeze/',
+        dealer_views.network_user_freeze,
+        name='dealer_user_freeze',
+    ),
+    path(
+        'api/dealer/users/<int:user_id>/unfreeze/',
+        dealer_views.network_user_unfreeze,
+        name='dealer_user_unfreeze',
+    ),
+    path('api/dealer/commissions/', dealer_views.network_commissions, name='dealer_commissions'),
+    path('api/dealer/report/', dealer_views.network_report, name='dealer_report'),
 
     # Wallet endpoints
     path('api/wallet/balance/', wallet_views.get_wallet_balance, name='wallet_balance'),
@@ -252,6 +278,13 @@ urlpatterns = [
     path('api/admin/transfers/', admin_views.admin_list_transfers, name='admin_list_transfers'),
     path('api/admin/commission-history/', admin_views.admin_commission_history, name='admin_commission_history'),
     path('api/admin/dealer-commissions/', admin_views.admin_dealer_commissions, name='admin_dealer_commissions'),
+    path('api/admin/hierarchy/', dealer_views.admin_hierarchy, name='admin_hierarchy'),
+    path('api/admin/dealer-profit/', dealer_views.admin_dealer_profit, name='admin_dealer_profit'),
+    path(
+        'api/admin/users/<int:user_id>/commission-rules/',
+        dealer_views.admin_service_commission_rules,
+        name='admin_service_commission_rules',
+    ),
     path('api/admin/transfers/<int:transfer_id>/status/', admin_views.admin_update_transfer_status, name='admin_update_transfer_status'),
     path('api/admin/remittances/', admin_views.admin_list_remittances, name='admin_list_remittances'),
     path('api/admin/remittances/<int:remittance_id>/', admin_views.admin_get_remittance, name='admin_get_remittance'),

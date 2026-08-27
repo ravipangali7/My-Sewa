@@ -38,7 +38,19 @@ import {
 import { apiClient } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { COLORS } from "@/constants/colors";
-import { Users, Wallet, Inbox, Smartphone, Banknote, AlertTriangle, Coins } from "lucide-react";
+import {
+  Users,
+  Wallet,
+  Inbox,
+  Smartphone,
+  Banknote,
+  AlertTriangle,
+  Coins,
+  Handshake,
+  UserPlus,
+  TrendingUp,
+  Receipt,
+} from "lucide-react";
 import { adminLiveQueryOptions } from "@/lib/refresh";
 
 export const Route = createFileRoute("/admin/")({
@@ -152,6 +164,47 @@ function AdminDashboard() {
           to: "/admin/commission-history",
         },
         {
+          key: "dealers",
+          label: "Dealers",
+          value: String(dashKpis.total_dealers ?? 0),
+          icon: Handshake,
+          tone: "brand" as const,
+          to: "/admin/dealers",
+        },
+        {
+          key: "subAgents",
+          label: "Sub-Agents",
+          value: String(dashKpis.total_sub_agents ?? 0),
+          icon: UserPlus,
+          tone: "info" as const,
+          to: "/admin/users",
+        },
+        {
+          key: "customers",
+          label: "Customers",
+          value: String(dashKpis.total_customers ?? 0),
+          icon: Users,
+          tone: "default" as const,
+          to: "/admin/users",
+        },
+        {
+          key: "tds",
+          label: "TDS today",
+          value: formatNPR(dashKpis.tds_today ?? 0),
+          icon: Receipt,
+          tone: "warning" as const,
+          to: "/admin/dealer-profit",
+        },
+        {
+          key: "profit",
+          label: "SA profit",
+          value: formatNPR(dashKpis.super_admin_profit_today ?? 0),
+          hint: "Today",
+          icon: TrendingUp,
+          tone: "credit" as const,
+          to: "/admin/dealer-profit",
+        },
+        {
           key: "statement",
           label: "Issues",
           value: String(dashKpis.open_statement_issues ?? 0),
@@ -185,7 +238,7 @@ function AdminDashboard() {
     <AdminShell title="Dashboard" description="Live ops overview" dense>
       {dash.isLoading ? (
         <div className="space-y-3">
-          <AdminMetricStripSkeleton cells={7} />
+          <AdminMetricStripSkeleton cells={12} />
           <AdminMetricStripSkeleton cells={5} />
           <div className="grid gap-3 lg:grid-cols-3">
             <div className="h-52 animate-pulse rounded-lg border border-border bg-surface lg:col-span-2" />

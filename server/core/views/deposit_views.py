@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from ..models import Deposit
 from ..serializers import DepositSerializer, DepositCreateSerializer
-from ..services.app_config import require_feature_enabled, require_account_approved
+from ..services.app_config import require_feature_enabled, require_account_approved, require_wallet_not_frozen
 from ..services.notifications import notify_deposit_submitted
 
 
@@ -26,6 +26,10 @@ def create_deposit(request):
     pending = require_account_approved(request.user)
     if pending:
         return pending
+
+    frozen = require_wallet_not_frozen(request.user)
+    if frozen:
+        return frozen
 
     serializer = DepositCreateSerializer(data=request.data)
     if serializer.is_valid():

@@ -603,17 +603,49 @@ def admin_dashboard(request):
 
     pending = Deposit.objects.filter(status='pending').select_related('user').order_by('-created_at')[:20]
 
+    kpis = {
+        'total_users': total_users,
+        'wallet_float': str(wallet_float),
+        'pending_deposits': pending_count,
+        'topups_today': topups_today,
+        'transfers_today': transfers_today,
+        'open_statement_issues': open_statement_issues,
+        'commission_today': _money(commission_today),
+        'commission_total': _money(commission_total),
+    }
+    try:
+        kpis.update({
+            'total_dealers': User.objects.filter(role='dealer').count(),
+            'total_sub_agents': User.objects.filter(role__in=('agent', 'sub_agent')).count(),
+            'total_customers': User.objects.filter(role='customer').count(),
+            'dealer_commission_today': _money(
+                DealerCommission.objects.filter(
+                    status=DealerCommission.STATUS_POSTED, created_at__date=today,
+                ).aggregate(t=Sum('net_commission'))['t']
+            ),
+            'tds_today': _money(
+                DealerCommission.objects.filter(
+                    status=DealerCommission.STATUS_POSTED, created_at__date=today,
+                ).aggregate(t=Sum('tds_amount'))['t']
+            ),
+            'super_admin_profit_today': _money(
+                DealerCommission.objects.filter(
+                    status=DealerCommission.STATUS_POSTED, created_at__date=today,
+                ).aggregate(t=Sum('super_admin_profit'))['t']
+            ),
+        })
+    except (ProgrammingError, OperationalError):
+        kpis.update({
+            'total_dealers': 0,
+            'total_sub_agents': 0,
+            'total_customers': 0,
+            'dealer_commission_today': 0.0,
+            'tds_today': 0.0,
+            'super_admin_profit_today': 0.0,
+        })
+
     return Response({
-        'kpis': {
-            'total_users': total_users,
-            'wallet_float': str(wallet_float),
-            'pending_deposits': pending_count,
-            'topups_today': topups_today,
-            'transfers_today': transfers_today,
-            'open_statement_issues': open_statement_issues,
-            'commission_today': _money(commission_today),
-            'commission_total': _money(commission_total),
-        },
+        'kpis': kpis,
         'summary': {
             'total_volume': total_credit + total_debit,
             'total_amount': total_credit + total_debit,
@@ -640,6 +672,20 @@ def admin_list_users(request):
             )
         user = serializer.save()
         user = User.objects.select_related('wallet').get(pk=user.pk)
+        try:
+            from ..services.security import log_security_event
+            action = 'dealer_created' if user.role == 'dealer' else (
+                'sub_agent_created' if user.role == 'sub_agent' else 'customer_mapped'
+            )
+            if user.role in ('dealer', 'sub_agent', 'customer', 'agent'):
+                log_security_event(
+                    user=request.user,
+                    action=action if user.role != 'agent' else 'sub_agent_created',
+                    request=request,
+                    details={'target_id': user.pk, 'role': user.role, 'phone': user.phone},
+                )
+        except Exception:
+            pass
         return Response(
             {
                 'message': 'User created successfully',
@@ -649,14 +695,17 @@ def admin_list_users(request):
         )
 
     users = users_in_scope(request.user).select_related(
-        'wallet', 'assigned_dealer', 'parent_agent', 'dealer_commission_config',
+        'wallet', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent', 'dealer_commission_config',
     ).order_by('-date_joined')
     q = (request.query_params.get('q') or '').strip()
     role = (request.query_params.get('role') or '').strip()
+    dealer_id = (request.query_params.get('dealer_id') or '').strip()
     start, end = _parse_date_range(request)
 
     if role in ('customer', 'dealer', 'agent', 'sub_agent'):
         users = users.filter(role=role)
+    if dealer_id.isdigit():
+        users = users.filter(Q(pk=int(dealer_id)) | Q(assigned_dealer_id=int(dealer_id)))
 
     if q:
         users = users.filter(
@@ -740,7 +789,7 @@ def admin_user_detail(request, user_id):
     from ..services.hierarchy import scope_forbidden_response, user_in_scope, users_in_scope
     try:
         user = users_in_scope(request.user).select_related(
-            'wallet', 'assigned_dealer', 'parent_agent', 'dealer_commission_config',
+            'wallet', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent', 'dealer_commission_config',
         ).get(pk=user_id)
     except User.DoesNotExist:
         if User.objects.filter(pk=user_id).exists():
@@ -1080,11 +1129,11 @@ def admin_list_wallets(request):
     if _is_csv_export(request):
         return _csv_response(
             'admin-wallets.csv',
-            ['id', 'user_id', 'phone', 'first_name', 'last_name', 'balance', 'transactions_blocked', 'created_at', 'updated_at'],
+            ['id', 'user_id', 'phone', 'first_name', 'last_name', 'balance', 'is_frozen', 'transactions_blocked', 'created_at', 'updated_at'],
             [
                 [
                     w.id, w.user_id, w.user.phone, w.user.first_name, w.user.last_name, w.balance,
-                    w.transactions_blocked,
+                    w.is_frozen, w.transactions_blocked,
                     w.created_at.isoformat() if w.created_at else '',
                     w.updated_at.isoformat() if w.updated_at else '',
                 ]

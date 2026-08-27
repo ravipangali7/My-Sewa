@@ -24,6 +24,7 @@ import { formatNPR, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { UserFeesForm } from "@/components/admin/UserFeesForm";
 import { UserTransactionPinForm } from "@/components/admin/UserTransactionPinForm";
+import { ServiceCommissionRulesForm } from "@/components/admin/ServiceCommissionRulesForm";
 import { MySewaPaymentQrCard } from "@/components/MySewaPaymentQrCard";
 import { useMySewaPaymentQr } from "@/hooks/use-mysewa-payment-qr";
 import { useSiteBranding } from "@/hooks/use-site-branding";
@@ -182,6 +183,11 @@ function UserDetailPage() {
                   ? `${u.parent_agent.phone}${u.parent_agent.name ? ` (${u.parent_agent.name})` : ""}`
                   : "—"}
               </DetailRow>
+              <DetailRow label="Assigned Sub-Agent">
+                {u.assigned_sub_agent
+                  ? `${u.assigned_sub_agent.phone}${u.assigned_sub_agent.name ? ` (${u.assigned_sub_agent.name})` : ""}`
+                  : "—"}
+              </DetailRow>
               <DetailRow label="Staff">{u.is_staff ? "Yes" : "No"}</DetailRow>
               <DetailRow label="Superuser">{u.is_superuser ? "Yes" : "No"}</DetailRow>
               <DetailRow label="Fund Transfer">
@@ -199,10 +205,16 @@ function UserDetailPage() {
                   {u.can_wallet_adjust !== false ? "Enabled" : "Disabled"}
                 </Badge>
               </DetailRow>
-              {u.role === "dealer" ? (
+              {u.role === "dealer" || u.role === "sub_agent" ? (
                 <>
                   <DetailRow label="Commission rate">{u.commission_rate ?? "0"}%</DetailRow>
-                  <DetailRow label="TDS rate">{u.tds_rate ?? "Global default"}%</DetailRow>
+                  {u.role === "dealer" ? (
+                    <>
+                      <DetailRow label="TDS rate">{u.tds_rate ?? "Global default"}%</DetailRow>
+                      <DetailRow label="Sub-Agent rate">{u.sub_agent_commission_rate ?? "0"}%</DetailRow>
+                      <DetailRow label="Super Admin share">{u.super_admin_rate ?? "0"}%</DetailRow>
+                    </>
+                  ) : null}
                 </>
               ) : null}
               <DetailRow label="Wallet status">
@@ -258,6 +270,7 @@ function UserDetailPage() {
             hasPin={Boolean(u.has_transaction_pin)}
           />
           <UserFeesForm userId={u.id} />
+          <ServiceCommissionRulesForm userId={u.id} enabled={u.role === "dealer"} />
         </div>
       )}
     </AdminShell>

@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Eye, MoreHorizontal, Pencil, Trash2, Users } from "lucide-react";
+import { Eye, MoreHorizontal, Pencil, Snowflake, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { ListPageToolbar } from "@/components/list/ListPageToolbar";
@@ -71,6 +71,7 @@ export const Route = createFileRoute("/admin/wallets")({
 
 function WalletsPage() {
   const [pendingDelete, setPendingDelete] = useState<AdminWallet | null>(null);
+  const [pendingFreeze, setPendingFreeze] = useState<AdminWallet | null>(null);
   const [exporting, setExporting] = useState(false);
   const { filters, setFilters, debounced } = useListFilters();
   const queryClient = useQueryClient();
@@ -92,6 +93,25 @@ function WalletsPage() {
     },
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : "Could not delete wallet");
+    },
+  });
+
+  const freezeMutation = useMutation({
+    mutationFn: (w: AdminWallet) =>
+      w.is_frozen ? apiClient.adminUnfreezeWallet(w.id) : apiClient.adminFreezeWallet(w.id),
+    onSuccess: (res, w) => {
+      toast.success(res.message || (w.is_frozen ? "Wallet unfrozen" : "Wallet frozen"));
+      setPendingFreeze(null);
+      queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
+    },
+    onError: (err, w) => {
+      toast.error(
+        err instanceof ApiError
+          ? err.message
+          : w.is_frozen
+            ? "Could not unfreeze wallet"
+            : "Could not freeze wallet",
+      );
     },
   });
 
@@ -121,7 +141,7 @@ function WalletsPage() {
             <span className="sr-only sm:not-sr-only">Actions</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuItem asChild>
             <Link to="/admin/wallets/$walletId" params={{ walletId }}>
               <Eye className="size-3.5" />
@@ -136,6 +156,13 @@ function WalletsPage() {
             </Link>
           </DropdownMenuItem>
           ) : null}
+          <DropdownMenuItem
+            className={w.is_frozen ? undefined : "text-danger focus:text-danger"}
+            onSelect={() => setPendingFreeze(w)}
+          >
+            <Snowflake className="size-3.5" />
+            {w.is_frozen ? "Unfreeze wallet" : "Wallet Freeze"}
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             className="text-danger focus:text-danger"
@@ -283,6 +310,14 @@ function WalletsPage() {
                         </Link>
                       </Button>
                       ) : null}
+                      <Button
+                        size="sm"
+                        variant={w.is_frozen ? "outline" : "destructive"}
+                        className="flex-1"
+                        onClick={() => setPendingFreeze(w)}
+                      >
+                        {w.is_frozen ? "Unfreeze" : "Freeze"}
+                      </Button>
                     </div>
                   </AdminMobileCard>
                 );
@@ -313,6 +348,30 @@ function WalletsPage() {
               onClick={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!pendingFreeze} onOpenChange={(open) => !open && setPendingFreeze(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingFreeze?.is_frozen ? "Unfreeze this wallet?" : "Freeze this wallet?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingFreeze?.is_frozen
+                ? "Unfreezing restores remittance, fund transfer, and other wallet transactions."
+                : "A frozen wallet cannot debit or credit. The user will not be able to transfer funds or perform any other wallet operations until you unfreeze it."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={freezeMutation.isPending}
+              onClick={() => pendingFreeze && freezeMutation.mutate(pendingFreeze)}
+            >
+              {pendingFreeze?.is_frozen ? "Unfreeze" : "Freeze"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

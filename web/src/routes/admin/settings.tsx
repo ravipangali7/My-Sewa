@@ -133,6 +133,8 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   commission: {
     default_commission_rate: 0,
+    default_sub_agent_rate: 0,
+    default_super_admin_rate: 0,
     default_tds_rate: 15,
   },
   notifications: {
@@ -1170,6 +1172,36 @@ function SettingsPage() {
                       commission: {
                         ...(c.commission ?? DEFAULT_CONFIG.commission!),
                         default_tds_rate: v,
+                      },
+                    }))
+                  }
+                />
+                <NumberField
+                  id="default_sub_agent_rate"
+                  label="Default Sub-Agent commission (%)"
+                  value={config.commission?.default_sub_agent_rate ?? 0}
+                  step="0.01"
+                  onChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      commission: {
+                        ...(c.commission ?? DEFAULT_CONFIG.commission!),
+                        default_sub_agent_rate: v,
+                      },
+                    }))
+                  }
+                />
+                <NumberField
+                  id="default_super_admin_rate"
+                  label="Default Super Admin share (%)"
+                  value={config.commission?.default_super_admin_rate ?? 0}
+                  step="0.01"
+                  onChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      commission: {
+                        ...(c.commission ?? DEFAULT_CONFIG.commission!),
+                        default_super_admin_rate: v,
                       },
                     }))
                   }

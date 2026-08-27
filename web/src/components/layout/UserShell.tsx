@@ -6,11 +6,13 @@ import {
   HandCoins,
   UserRound,
   ArrowLeft,
+  LayoutDashboard,
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { isNetworkRole } from "@/lib/auth-destination";
 import { apiClient } from "@/lib/api";
 import { refreshAppData, settingsQueryOptions } from "@/lib/refresh";
 import { useSiteBranding } from "@/hooks/use-site-branding";
@@ -160,6 +162,15 @@ export function UserShell({
             );
           })}
         </nav>
+        {isNetworkRole(user) ? (
+          <Link
+            to="/dealer"
+            className="mt-4 flex items-center gap-3 rounded-xl bg-brand-soft px-3 py-2.5 text-sm font-medium text-brand-dark"
+          >
+            <LayoutDashboard className="size-[18px]" />
+            Dealer portal
+          </Link>
+        ) : null}
         <div className="mt-auto rounded-xl bg-muted p-3">
           <p className="text-sm font-medium">{displayName}</p>
           <p className="text-xs text-muted-foreground">{user.phone}</p>

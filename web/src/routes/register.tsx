@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "@/lib/auth";
+import { homePathForUser } from "@/lib/auth-destination";
 import { ApiError } from "@/lib/api";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { useT } from "@/lib/i18n";
@@ -28,7 +29,7 @@ export const Route = createFileRoute("/register")({
 
 function RegisterPage() {
   const navigate = useNavigate();
-  const { register, token, user, isStaff, isLoading } = useAuth();
+  const { register, token, user, isLoading } = useAuth();
   const { logoUrl } = useSiteBranding();
   const t = useT();
   const [phone, setPhone] = useState("");
@@ -45,9 +46,9 @@ function RegisterPage() {
 
   useEffect(() => {
     if (token && !isLoading && user) {
-      navigate({ to: isStaff ? "/admin" : "/app" });
+      navigate({ to: homePathForUser(user) });
     }
-  }, [token, isLoading, user, isStaff, navigate]);
+  }, [token, isLoading, user, navigate]);
 
   if (token && (isLoading || user)) {
     return <AuthSessionLoader />;

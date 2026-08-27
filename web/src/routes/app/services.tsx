@@ -44,6 +44,8 @@ function Services() {
   const { user, wallet } = useAuth();
   const accountPending = isAccountPending(user);
   const walletBlocked = isWalletBlocked(wallet);
+  const walletFrozen = isWalletFrozen(wallet, user);
+  const walletLocked = walletFrozen || walletBlocked;
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
@@ -52,103 +54,80 @@ function Services() {
 
   const payment = settingsQuery.data?.config?.payment;
 
+  const lockDesc = (normal: string) =>
+    accountPending
+      ? t("services.unavailablePending")
+      : walletFrozen
+        ? t("account.walletFrozen")
+        : walletBlocked
+          ? t("account.walletBlocked")
+          : normal;
+
   const services = [
     {
       to: "/app/remittance" as const,
       title: t("services.remittance"),
-      desc: accountPending
-        ? t("services.unavailablePending")
-        : t("services.remittanceDesc"),
+      desc: lockDesc(t("services.remittanceDesc")),
       icon: ArrowDownToLine,
-      enabled: payment?.remittances_enabled !== false && !accountPending && canRemittanceTransfer(user) && !isWalletFrozen(wallet, user),
+      enabled: payment?.remittances_enabled !== false && !accountPending && canRemittanceTransfer(user) && !walletFrozen,
     },
     {
       to: "/app/load" as const,
       title: t("services.loadWallet"),
-      desc: accountPending
-        ? t("services.unavailablePending")
-        : t("services.loadDesc"),
+      desc: lockDesc(t("services.loadDesc")),
       icon: Download,
-      enabled: payment?.deposits_enabled !== false && !accountPending,
+      enabled: payment?.deposits_enabled !== false && !accountPending && !walletFrozen,
     },
     {
       to: "/app/topup" as const,
       title: t("services.topup"),
-      desc: accountPending
-        ? t("services.unavailablePending")
-        : walletBlocked
-          ? t("account.walletBlocked")
-          : t("services.topupDesc"),
+      desc: lockDesc(t("services.topupDesc")),
       icon: Smartphone,
-      enabled: payment?.topups_enabled !== false && !accountPending && !walletBlocked,
+      enabled: payment?.topups_enabled !== false && !accountPending && !walletLocked,
     },
     {
       to: "/app/data-topup" as const,
       title: t("services.dataTopup"),
-      desc: accountPending
-        ? t("services.unavailablePending")
-        : walletBlocked
-          ? t("account.walletBlocked")
-          : t("services.dataTopupDesc"),
+      desc: lockDesc(t("services.dataTopupDesc")),
       icon: Signal,
-      enabled: payment?.data_packs_enabled !== false && !accountPending && !walletBlocked,
+      enabled: payment?.data_packs_enabled !== false && !accountPending && !walletLocked,
     },
     {
       to: "/app/internet" as const,
       title: t("services.internet"),
-      desc: accountPending
-        ? t("services.unavailablePending")
-        : walletBlocked
-          ? t("account.walletBlocked")
-          : t("services.internetDesc"),
+      desc: lockDesc(t("services.internetDesc")),
       icon: Wifi,
-      enabled: payment?.internet_bills_enabled !== false && !accountPending && !walletBlocked,
+      enabled: payment?.internet_bills_enabled !== false && !accountPending && !walletLocked,
     },
     {
       to: "/app/water" as const,
       title: t("services.water"),
-      desc: accountPending
-        ? t("services.unavailablePending")
-        : walletBlocked
-          ? t("account.walletBlocked")
-          : t("services.waterDesc"),
+      desc: lockDesc(t("services.waterDesc")),
       icon: Droplets,
-      enabled: payment?.water_bills_enabled !== false && !accountPending && !walletBlocked,
+      enabled: payment?.water_bills_enabled !== false && !accountPending && !walletLocked,
     },
     {
       to: "/app/electricity" as const,
       title: t("services.electricity"),
-      desc: accountPending
-        ? t("services.unavailablePending")
-        : walletBlocked
-          ? t("account.walletBlocked")
-          : t("services.electricityDesc"),
+      desc: lockDesc(t("services.electricityDesc")),
       icon: Zap,
-      enabled: payment?.electricity_bills_enabled !== false && !accountPending && !walletBlocked,
+      enabled: payment?.electricity_bills_enabled !== false && !accountPending && !walletLocked,
     },
     {
       to: "/app/community-electricity" as const,
       title: t("services.communityElectricity"),
-      desc: accountPending
-        ? t("services.unavailablePending")
-        : walletBlocked
-          ? t("account.walletBlocked")
-          : t("services.communityElectricityDesc"),
+      desc: lockDesc(t("services.communityElectricityDesc")),
       icon: Zap,
-      enabled: payment?.community_electricity_enabled !== false && !accountPending && !walletBlocked,
+      enabled: payment?.community_electricity_enabled !== false && !accountPending && !walletLocked,
     },
     {
       to: "/app/transfer" as const,
       title: t("services.transfer"),
-      desc: accountPending
-        ? t("services.unavailablePending")
-        : walletBlocked
-          ? t("account.walletBlocked")
-          : t("services.transferDesc"),
+      desc: lockDesc(t("services.transferDesc")),
       icon: Send,
       enabled:
         !accountPending &&
-        !walletBlocked &&
+        !walletLocked &&
         (canFundTransfer(user) || canWalletAdjust(user)) &&
         (payment?.transfers_enabled !== false || canWalletAdjust(user)),
     },
@@ -180,7 +159,7 @@ function Services() {
                   <span className="min-w-0 flex-1">
                     <span className="block text-[17px] font-medium">{s.title}</span>
                     <span className="block text-[13px] text-muted-foreground">
-                      {accountPending || walletBlocked ? s.desc : t("services.unavailable")}
+                      {accountPending || walletLocked ? s.desc : t("services.unavailable")}
                     </span>
                   </span>
                 </div>
@@ -189,7 +168,7 @@ function Services() {
           ))}
         </ul>
 
-        {payment?.deposits_enabled !== false && !accountPending ? (
+        {payment?.deposits_enabled !== false && !accountPending && !walletFrozen ? (
           <DepositAccountsPanel
             bankDetails={settingsQuery.data?.bank_details ?? null}
             loading={settingsQuery.isLoading}

@@ -23,10 +23,14 @@ import {
   Coins,
   Bell,
   History,
+  Handshake,
+  GitBranch,
+  TrendingUp,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { homePathForUser } from "@/lib/auth-destination";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { AuthSessionLoader } from "@/components/AuthSessionLoader";
 import type { UserProfile } from "@/lib/types";
@@ -62,6 +66,9 @@ const NAV = [
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
   { to: "/admin/statement", label: "Statement", icon: FileSearch },
   { to: "/admin/users", label: "Users", icon: Users },
+  { to: "/admin/dealers", label: "Dealers", icon: Handshake },
+  { to: "/admin/hierarchy", label: "Dealer Hierarchy", icon: GitBranch },
+  { to: "/admin/dealer-profit", label: "Dealer Profit", icon: TrendingUp },
   { to: "/admin/wallets", label: "Wallets", icon: Wallet },
   { to: "/admin/transaction-history", label: "Transaction History", icon: History },
   { to: "/admin/deposits", label: "Manual Deposit", icon: Inbox },
@@ -255,7 +262,7 @@ export function AdminShell({
       return;
     }
     if (!isLoading && user && !isStaff) {
-      navigate({ to: "/app" });
+      navigate({ to: homePathForUser(user) });
     }
   }, [token, isLoading, user, isStaff, navigate]);
 

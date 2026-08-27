@@ -30,7 +30,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
-import { isAccountPending, isWalletBlocked } from "@/lib/account-status";
+import { isAccountPending, isWalletTxnLocked, walletTxnLockMessageKey } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -180,7 +180,8 @@ function WaterBillPayment() {
   );
 
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
-  const walletBlocked = isWalletBlocked(walletQuery.data);
+  const walletBlocked = isWalletTxnLocked(walletQuery.data, user);
+  const walletLockMessage = t(walletTxnLockMessageKey(walletQuery.data, user));
   const payAmount = Number(amount) || 0;
   const totalDue = Number(totalDebited) || payAmount;
   const insufficient = payAmount > 0 && totalDue > 0 && walletBalance < totalDue;
@@ -258,7 +259,7 @@ function WaterBillPayment() {
     mutationFn: async (transaction_pin: string) => {
       if (!selectedCounter || !inquiry) throw new Error(t("water.inquiryRequired"));
       if (accountPending) throw new Error(t("account.pending"));
-      if (walletBlocked) throw new Error(t("account.walletBlocked"));
+      if (walletBlocked) throw new Error(walletLockMessage);
       if (!enabled) throw new Error(t("water.disabledError"));
       if (payAmount <= 0) throw new Error(t("water.amountRequired"));
       if (insufficient) {

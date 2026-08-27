@@ -464,7 +464,7 @@ class CustomUser(AbstractUser):
         choices=ROLE_CHOICES,
         default=ROLE_CUSTOMER,
         db_index=True,
-        help_text="Business hierarchy role: Admin (staff) → Dealer → Agent → Sub-Agent → Customer.",
+        help_text="Business hierarchy role: Super Admin (staff) → Dealer → Agent/Sub-Agent → Customer.",
     )
     assigned_dealer = models.ForeignKey(
         'self',
@@ -482,7 +482,16 @@ class CustomUser(AbstractUser):
         blank=True,
         related_name='sub_agents',
         limit_choices_to={'role': 'agent'},
-        help_text="Parent Agent for Sub-Agent accounts.",
+        help_text="Parent Agent for nested Sub-Agent accounts. Optional when a Dealer creates a Sub-Agent directly.",
+    )
+    assigned_sub_agent = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_customers',
+        limit_choices_to={'role': 'sub_agent'},
+        help_text="Sub-Agent this customer belongs to, if any. Dealer is still assigned_dealer.",
     )
     transaction_pin = models.CharField(
         max_length=128,
@@ -565,6 +574,11 @@ class CustomUser(AbstractUser):
     class Meta:
         verbose_name = "User"
         verbose_name_plural = "Users"
+        indexes = [
+            models.Index(fields=['assigned_dealer', 'role'], name='core_user_dealer_role_idx'),
+            models.Index(fields=['assigned_sub_agent', 'role'], name='core_user_subag_role_idx'),
+            models.Index(fields=['parent_agent', 'role'], name='core_user_parent_role_idx'),
+        ]
 
 
 class Wallet(models.Model):
@@ -766,7 +780,11 @@ def default_app_config():
         'commission': {
             # Percent of transaction amount paid to the customer's assigned Dealer.
             'default_commission_rate': 0,
-            # Nepal TDS on commission; per-dealer config can override.
+            # Default Sub-Agent share of transaction amount when no per-user override exists.
+            'default_sub_agent_rate': 0,
+            # Super Admin remaining share of transaction amount.
+            'default_super_admin_rate': 0,
+            # Nepal TDS on dealer commission; per-dealer config can override.
             'default_tds_rate': 15,
         },
         'notifications': {
@@ -1456,7 +1474,7 @@ class DataPackTransaction(models.Model):
 
 
 class DealerCommissionConfig(models.Model):
-    """Per-dealer commission and TDS rates. Null TDS uses Settings.config.commission."""
+    """Per-dealer (or downline) commission and TDS rates. Null TDS uses Settings.config.commission."""
 
     user = models.OneToOneField(
         CustomUser, on_delete=models.CASCADE, related_name='dealer_commission_config',
@@ -1466,7 +1484,21 @@ class DealerCommissionConfig(models.Model):
         decimal_places=4,
         default=Decimal('0.0000'),
         validators=[MinValueValidator(Decimal('0'))],
-        help_text="Percent of transaction amount paid as gross commission to this Dealer.",
+        help_text="Percent of transaction amount paid as gross commission to this Dealer (or downline user).",
+    )
+    sub_agent_commission_rate = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Default Sub-Agent percent of transaction amount for this Dealer's network.",
+    )
+    super_admin_rate = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Super Admin profit percent of transaction amount generated through this Dealer.",
     )
     tds_rate = models.DecimalField(
         max_digits=7,
@@ -1474,7 +1506,7 @@ class DealerCommissionConfig(models.Model):
         null=True,
         blank=True,
         validators=[MinValueValidator(Decimal('0'))],
-        help_text="Percent TDS deducted from gross commission. Null = use global default.",
+        help_text="Percent TDS deducted from gross dealer commission. Null = use global default.",
     )
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1484,6 +1516,53 @@ class DealerCommissionConfig(models.Model):
     class Meta:
         verbose_name = 'Dealer Commission Config'
         verbose_name_plural = 'Dealer Commission Configs'
+
+
+class ServiceCommissionRule(models.Model):
+    """Service-wise commission split for a Dealer. Historical txn rows snapshot the applied rates."""
+
+    dealer = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='service_commission_rules',
+        limit_choices_to={'role': 'dealer'},
+    )
+    txn_type = models.CharField(max_length=40, db_index=True)
+    dealer_rate = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    sub_agent_rate = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    super_admin_rate = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.dealer.phone} {self.txn_type} D={self.dealer_rate}%'
+
+    class Meta:
+        verbose_name = 'Service Commission Rule'
+        verbose_name_plural = 'Service Commission Rules'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['dealer', 'txn_type'],
+                name='uniq_service_commission_dealer_txn',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['dealer', 'txn_type'], name='core_svcrule_dealer_txn_idx'),
+        ]
 
 
 class DealerCommission(models.Model):
@@ -1526,6 +1605,14 @@ class DealerCommission(models.Model):
         related_name='generated_dealer_commissions',
         help_text="Customer (or agent) whose transaction generated this commission.",
     )
+    sub_agent = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sub_agent_commissions',
+        help_text="Agent or Sub-Agent in the chain at the time of the transaction, if any.",
+    )
     txn_type = models.CharField(max_length=40, choices=TXN_TYPE_CHOICES, db_index=True)
     txn_id = models.PositiveIntegerField()
     reference = models.CharField(max_length=100, blank=True, default='')
@@ -1535,10 +1622,22 @@ class DealerCommission(models.Model):
     tds_rate = models.DecimalField(max_digits=7, decimal_places=4)
     tds_amount = models.DecimalField(max_digits=12, decimal_places=2)
     net_commission = models.DecimalField(max_digits=12, decimal_places=2)
+    sub_agent_commission_rate = models.DecimalField(
+        max_digits=7, decimal_places=4, default=Decimal('0.0000'),
+    )
+    sub_agent_commission = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'),
+    )
+    super_admin_rate = models.DecimalField(
+        max_digits=7, decimal_places=4, default=Decimal('0.0000'),
+    )
+    super_admin_profit = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'),
+    )
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_POSTED, db_index=True,
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -1560,6 +1659,9 @@ class DealerCommission(models.Model):
         indexes = [
             models.Index(fields=['dealer', '-created_at'], name='core_dealerc_dealer__idx'),
             models.Index(fields=['source_user', '-created_at'], name='core_dealerc_source__idx'),
+            models.Index(fields=['sub_agent', '-created_at'], name='core_dealerc_subag__idx'),
+            models.Index(fields=['status', '-created_at'], name='core_dealerc_status__idx'),
+            models.Index(fields=['txn_type', '-created_at'], name='core_dealerc_txn_ty__idx'),
         ]
 
 
@@ -1782,6 +1884,16 @@ class SecurityAuditLog(models.Model):
     ACTION_EMAIL_CHANGED = 'email_changed'
     ACTION_LOGIN_OTP_SENT = 'login_otp_sent'
     ACTION_LOGIN_OTP_VERIFIED = 'login_otp_verified'
+    ACTION_DEALER_CREATED = 'dealer_created'
+    ACTION_DEALER_UPDATED = 'dealer_updated'
+    ACTION_DEALER_STATUS_CHANGED = 'dealer_status_changed'
+    ACTION_SUB_AGENT_CREATED = 'sub_agent_created'
+    ACTION_CUSTOMER_MAPPED = 'customer_mapped'
+    ACTION_CUSTOMER_REASSIGNED = 'customer_reassigned'
+    ACTION_COMMISSION_CHANGED = 'commission_changed'
+    ACTION_TDS_CHANGED = 'tds_changed'
+    ACTION_WALLET_FROZEN = 'wallet_frozen'
+    ACTION_WALLET_UNFROZEN = 'wallet_unfrozen'
     ACTION_CHOICES = [
         (ACTION_TRANSACTION_PIN_SET, 'Transaction PIN Set'),
         (ACTION_TRANSACTION_PIN_CHANGED, 'Transaction PIN Changed'),
@@ -1794,6 +1906,16 @@ class SecurityAuditLog(models.Model):
         (ACTION_EMAIL_CHANGED, 'Email Changed'),
         (ACTION_LOGIN_OTP_SENT, 'Login OTP Sent'),
         (ACTION_LOGIN_OTP_VERIFIED, 'Login OTP Verified'),
+        (ACTION_DEALER_CREATED, 'Dealer Created'),
+        (ACTION_DEALER_UPDATED, 'Dealer Updated'),
+        (ACTION_DEALER_STATUS_CHANGED, 'Dealer Status Changed'),
+        (ACTION_SUB_AGENT_CREATED, 'Sub-Agent Created'),
+        (ACTION_CUSTOMER_MAPPED, 'Customer Mapped'),
+        (ACTION_CUSTOMER_REASSIGNED, 'Customer Reassigned'),
+        (ACTION_COMMISSION_CHANGED, 'Commission Changed'),
+        (ACTION_TDS_CHANGED, 'TDS Changed'),
+        (ACTION_WALLET_FROZEN, 'Wallet Frozen'),
+        (ACTION_WALLET_UNFROZEN, 'Wallet Unfrozen'),
     ]
 
     user = models.ForeignKey(

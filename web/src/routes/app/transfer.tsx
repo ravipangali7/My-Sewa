@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
-import { isAccountPending, canFundTransfer, canWalletAdjust, isWalletBlocked } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer, canWalletAdjust, isWalletTxnLocked, walletTxnLockMessageKey } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -232,7 +232,8 @@ function Transfer() {
   );
   const amt = Number(amount) || 0;
   const walletBalance = Number(walletQuery.data?.balance ?? 0);
-  const walletBlocked = isWalletBlocked(walletQuery.data);
+  const walletLocked = isWalletTxnLocked(walletQuery.data, user);
+  const walletLockMessage = t(walletTxnLockMessageKey(walletQuery.data, user));
   const totalDue = Number(totalDebited) || amt;
   const insufficient =
     method === "wallet"
@@ -407,7 +408,7 @@ function Transfer() {
   const submitMutation = useMutation({
     mutationFn: (transaction_pin: string) => {
       if (accountPending) throw new Error(t("account.pending"));
-      if (walletBlocked) throw new Error(t("account.walletBlocked"));
+      if (walletLocked) throw new Error(walletLockMessage);
       if (method === "wallet") {
         if (!walletTransfersEnabled) throw new Error(t("transfer.walletDisabledError"));
         if (!walletRecipient) throw new Error(t("transfer.walletFindFirst"));
@@ -621,8 +622,8 @@ function Transfer() {
       toast.error(t("account.pending"));
       return "abort";
     }
-    if (walletBlocked) {
-      toast.error(t("account.walletBlocked"));
+    if (walletLocked) {
+      toast.error(walletLockMessage);
       return "abort";
     }
     if (!useBank) {
@@ -751,7 +752,7 @@ function Transfer() {
 
   const transferMain = (
       <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
-        {accountPending || walletBlocked ? (
+        {accountPending || walletLocked ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />
           </div>
@@ -901,12 +902,13 @@ function Transfer() {
 
               <Button
                 type="submit"
-                disabled={
-                  submitMutation.isPending ||
-                  !walletTransfersEnabled ||
-                  insufficient ||
-                  !walletRecipient ||
-                  amt < minTransfer
+              disabled={
+                submitMutation.isPending ||
+                !walletTransfersEnabled ||
+                walletLocked ||
+                insufficient ||
+                !walletRecipient ||
+                amt < minTransfer
                 }
                 className="h-12 w-full rounded-xl text-[17px]"
               >
@@ -1154,6 +1156,7 @@ function Transfer() {
               disabled={
                 submitMutation.isPending ||
                 !transfersEnabled ||
+                walletLocked ||
                 insufficient ||
                 !verified ||
                 amt < minTransfer

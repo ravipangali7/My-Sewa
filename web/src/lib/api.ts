@@ -310,6 +310,9 @@ type AdminListFilters = Partial<{
   role: string;
   dealer_id: string;
   txn_type: string;
+  period: string;
+  sub_agent_id: string;
+  user_id: string;
 }>;
 
 function buildAdminListQuery(filters?: AdminListFilters) {
@@ -321,6 +324,9 @@ function buildAdminListQuery(filters?: AdminListFilters) {
   const role = filters?.role?.trim();
   const dealerId = filters?.dealer_id?.trim();
   const txnType = filters?.txn_type?.trim();
+  const period = filters?.period?.trim();
+  const subAgentId = filters?.sub_agent_id?.trim();
+  const userId = filters?.user_id?.trim();
   if (q) params.set("q", q);
   if (status && status !== "all") params.set("status", status);
   if (startDate) params.set("start_date", startDate);
@@ -328,6 +334,9 @@ function buildAdminListQuery(filters?: AdminListFilters) {
   if (role && role !== "all") params.set("role", role);
   if (dealerId) params.set("dealer_id", dealerId);
   if (txnType) params.set("txn_type", txnType);
+  if (period && period !== "all") params.set("period", period);
+  if (subAgentId) params.set("sub_agent_id", subAgentId);
+  if (userId) params.set("user_id", userId);
   const query = params.toString();
   return query ? `?${query}` : "";
 }
@@ -1310,6 +1319,93 @@ export const apiClient = {
       method: "POST",
       body,
     }),
+  dealerDashboard: () => api<import("./types").NetworkDashboard>("/api/dealer/dashboard/"),
+  dealerSubAgents: (filters?: AdminListFilters) =>
+    api<{ items: import("./types").AdminUser[] }>(
+      `/api/dealer/sub-agents/${buildAdminListQuery(filters)}`,
+    ),
+  dealerCreateSubAgent: (body: import("./types").AdminUserWritePayload) =>
+    api<{ message: string; data: import("./types").AdminUser }>("/api/dealer/sub-agents/", {
+      method: "POST",
+      body,
+    }),
+  dealerGetSubAgent: (id: number) =>
+    api<import("./types").AdminUser>(`/api/dealer/sub-agents/${id}/`),
+  dealerUpdateSubAgent: (id: number, body: Partial<import("./types").AdminUserWritePayload>) =>
+    api<{ message: string; data: import("./types").AdminUser }>(`/api/dealer/sub-agents/${id}/`, {
+      method: "PATCH",
+      body,
+    }),
+  dealerCustomers: (filters?: AdminListFilters) =>
+    api<{ items: import("./types").AdminUser[] }>(
+      `/api/dealer/customers/${buildAdminListQuery(filters)}`,
+    ),
+  dealerCreateCustomer: (body: import("./types").AdminUserWritePayload) =>
+    api<{ message: string; data: import("./types").AdminUser }>("/api/dealer/customers/", {
+      method: "POST",
+      body,
+    }),
+  dealerGetCustomer: (id: number) =>
+    api<import("./types").AdminUser>(`/api/dealer/customers/${id}/`),
+  dealerUpdateCustomer: (id: number, body: Partial<import("./types").AdminUserWritePayload>) =>
+    api<{ message: string; data: import("./types").AdminUser }>(`/api/dealer/customers/${id}/`, {
+      method: "PATCH",
+      body,
+    }),
+  dealerFreezeUser: (id: number, body?: { reason?: string }) =>
+    api<{ message: string; data: import("./types").AdminUser }>(`/api/dealer/users/${id}/freeze/`, {
+      method: "POST",
+      body: body ?? {},
+    }),
+  dealerUnfreezeUser: (id: number) =>
+    api<{ message: string; data: import("./types").AdminUser }>(`/api/dealer/users/${id}/unfreeze/`, {
+      method: "POST",
+    }),
+  dealerCommissions: (filters?: AdminListFilters) =>
+    api<{
+      items: import("./types").DealerCommissionItem[];
+      earnings: import("./types").DealerCommissionEarnings;
+    }>(`/api/dealer/commissions/${buildAdminListQuery(filters)}`),
+  dealerReport: (filters?: AdminListFilters) =>
+    api<import("./types").NetworkReport>(`/api/dealer/report/${buildAdminListQuery(filters)}`),
+  adminHierarchy: (filters?: AdminListFilters) =>
+    api<{ items: import("./types").HierarchyNode[] }>(
+      `/api/admin/hierarchy/${buildAdminListQuery(filters)}`,
+    ),
+  adminDealerProfit: (filters?: AdminListFilters) => {
+    const params = new URLSearchParams(buildAdminListQuery(filters).replace(/^\?/, ""));
+    if (filters?.status === "all") params.set("status", "all");
+    const query = params.toString();
+    return api<{
+      items: import("./types").DealerProfitRow[];
+      totals: Record<string, string>;
+      range: { start_date: string | null; end_date: string | null };
+    }>(`/api/admin/dealer-profit/${query ? `?${query}` : ""}`);
+  },
+  adminServiceCommissionRules: (userId: number) =>
+    api<{
+      dealer_id: number;
+      defaults: {
+        commission_rate: string;
+        sub_agent_commission_rate: string;
+        super_admin_rate: string;
+        tds_rate: string | null;
+      };
+      items: import("./types").ServiceCommissionRule[];
+    }>(`/api/admin/users/${userId}/commission-rules/`),
+  adminSaveServiceCommissionRules: (
+    userId: number,
+    items: Array<{
+      txn_type: string;
+      dealer_rate: string | number;
+      sub_agent_rate: string | number;
+      super_admin_rate: string | number;
+    }>,
+  ) =>
+    api<{ message: string; items: import("./types").ServiceCommissionRule[] }>(
+      `/api/admin/users/${userId}/commission-rules/`,
+      { method: "PUT", body: { items } },
+    ),
   adminUpdateTransferStatus: (id: number, status: import("./types").TxnStatus) =>
     api<{ message: string; data: import("./types").BankTransferTransaction }>(
       `/api/admin/transfers/${id}/status/`,

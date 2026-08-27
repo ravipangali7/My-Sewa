@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/input-otp";
 import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth, type LoginOtpChallenge } from "@/lib/auth";
+import { homePathForUser } from "@/lib/auth-destination";
 import { ApiError } from "@/lib/api";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { useOtpCountdown } from "@/hooks/use-otp-countdown";
@@ -47,7 +48,7 @@ function isPhoneLoginChallenge(challenge: LoginOtpChallenge) {
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { beginLogin, verifyLoginOtp, resendLoginOtp, token, user, isStaff, isLoading } =
+  const { beginLogin, verifyLoginOtp, resendLoginOtp, token, user, isLoading } =
     useAuth();
   const { logoUrl } = useSiteBranding();
   const t = useT();
@@ -78,9 +79,9 @@ function LoginPage() {
 
   useEffect(() => {
     if (token && !isLoading && user) {
-      navigate({ to: isStaff ? "/admin" : "/app" });
+      navigate({ to: homePathForUser(user) });
     }
-  }, [token, isLoading, user, isStaff, navigate]);
+  }, [token, isLoading, user, navigate]);
 
   // Stored token: show loader until profile resolves and redirect, never flash login form.
   if (token && (isLoading || user)) {
@@ -173,10 +174,8 @@ function LoginPage() {
                 try {
                   const result = await beginLogin(trimmed, password);
                   if (result.status === "authenticated") {
-                    const staff =
-                      result.user.is_staff || result.user.is_superuser;
                     toast.success(t("auth.loginSuccess"));
-                    navigate({ to: staff ? "/admin" : "/app" });
+                    navigate({ to: homePathForUser(result.user) });
                     return;
                   }
                   applyChallenge(result.challenge);
@@ -246,9 +245,8 @@ function LoginPage() {
                 setSubmitting(true);
                 try {
                   const profile = await verifyLoginOtp(challenge.challenge_id, otp);
-                  const staff = profile.is_staff || profile.is_superuser;
                   toast.success(t("auth.loginSuccess"));
-                  navigate({ to: staff ? "/admin" : "/app" });
+                  navigate({ to: homePathForUser(profile) });
                 } catch (err) {
                   const msg = err instanceof ApiError ? err.message : t("auth.otpFailed");
                   toast.error(msg);

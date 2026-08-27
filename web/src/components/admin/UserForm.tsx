@@ -27,11 +27,14 @@ export type UserFormValues = {
   role: UserRole;
   assigned_dealer: number | null;
   parent_agent: number | null;
+  assigned_sub_agent: number | null;
   can_fund_transfer: boolean;
   can_wallet_adjust: boolean;
   can_remittance_transfer: boolean;
   commission_rate: string;
   tds_rate: string;
+  sub_agent_commission_rate: string;
+  super_admin_rate: string;
   password: string;
   password2: string;
 };
@@ -49,11 +52,14 @@ function fromUser(user?: AdminUser | null): UserFormValues {
     role: user?.role ?? "customer",
     assigned_dealer: user?.assigned_dealer_id ?? user?.assigned_dealer?.id ?? null,
     parent_agent: user?.parent_agent_id ?? user?.parent_agent?.id ?? null,
+    assigned_sub_agent: user?.assigned_sub_agent_id ?? user?.assigned_sub_agent?.id ?? null,
     can_fund_transfer: user?.can_fund_transfer ?? true,
     can_wallet_adjust: user?.can_wallet_adjust ?? true,
     can_remittance_transfer: user?.can_remittance_transfer ?? true,
     commission_rate: user?.commission_rate ?? "0",
     tds_rate: user?.tds_rate ?? "",
+    sub_agent_commission_rate: user?.sub_agent_commission_rate ?? "0",
+    super_admin_rate: user?.super_admin_rate ?? "0",
     password: "",
     password2: "",
   };
@@ -81,8 +87,18 @@ export function UserForm({
     queryKey: ["admin", "users", "agents"],
     queryFn: () => apiClient.adminUsers({ role: "agent" }),
   });
+  const subAgentsQuery = useQuery({
+    queryKey: ["admin", "users", "sub-agents", values.assigned_dealer],
+    queryFn: () =>
+      apiClient.adminUsers({
+        role: "sub_agent",
+        ...(values.assigned_dealer ? { dealer_id: String(values.assigned_dealer) } : {}),
+      }),
+    enabled: values.role === "customer",
+  });
   const dealers = dealersQuery.data?.items ?? [];
   const agents = agentsQuery.data?.items ?? [];
+  const subAgents = subAgentsQuery.data?.items ?? [];
 
   const set = <K extends keyof UserFormValues>(key: K, value: UserFormValues[K]) => {
     setValues((v) => ({ ...v, [key]: value }));
@@ -106,13 +122,16 @@ export function UserForm({
       role: values.role,
       assigned_dealer: values.role === "dealer" ? null : values.assigned_dealer,
       parent_agent: values.role === "sub_agent" ? values.parent_agent : null,
+      assigned_sub_agent: values.role === "customer" ? values.assigned_sub_agent : null,
       can_fund_transfer: values.can_fund_transfer,
       can_wallet_adjust: values.can_wallet_adjust,
       can_remittance_transfer: values.can_remittance_transfer,
     };
-    if (values.role === "dealer") {
+    if (values.role === "dealer" || values.role === "sub_agent") {
       payload.commission_rate = values.commission_rate || "0";
       payload.tds_rate = values.tds_rate.trim() === "" ? null : values.tds_rate;
+      payload.sub_agent_commission_rate = values.sub_agent_commission_rate || "0";
+      payload.super_admin_rate = values.super_admin_rate || "0";
     }
     if (values.password || mode === "create") {
       payload.password = values.password;
@@ -253,7 +272,10 @@ export function UserForm({
             <Label htmlFor="assigned_dealer">Assigned Dealer</Label>
             <Select
               value={values.assigned_dealer ? String(values.assigned_dealer) : "none"}
-              onValueChange={(v) => set("assigned_dealer", v === "none" ? null : Number(v))}
+              onValueChange={(v) => {
+                const dealerId = v === "none" ? null : Number(v);
+                setValues((prev) => ({ ...prev, assigned_dealer: dealerId, assigned_sub_agent: null }));
+              }}
             >
               <SelectTrigger id="assigned_dealer" className="w-full">
                 <SelectValue placeholder="Select dealer" />
@@ -296,10 +318,36 @@ export function UserForm({
             </Select>
           </div>
         ) : null}
-        {values.role === "dealer" ? (
+        {values.role === "customer" ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="assigned_sub_agent">Assigned Sub-Agent (optional)</Label>
+            <Select
+              value={values.assigned_sub_agent ? String(values.assigned_sub_agent) : "none"}
+              onValueChange={(v) => set("assigned_sub_agent", v === "none" ? null : Number(v))}
+            >
+              <SelectTrigger id="assigned_sub_agent" className="w-full">
+                <SelectValue placeholder="Select sub-agent" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None (dealer only)</SelectItem>
+                {subAgents.map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>
+                    {s.phone}
+                    {s.first_name || s.last_name
+                      ? ` — ${[s.first_name, s.last_name].filter(Boolean).join(" ")}`
+                      : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+        {values.role === "dealer" || values.role === "sub_agent" ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="commission_rate">Commission rate (%)</Label>
+              <Label htmlFor="commission_rate">
+                {values.role === "dealer" ? "Dealer commission rate (%)" : "Commission rate (%)"}
+              </Label>
               <Input
                 id="commission_rate"
                 type="number"
@@ -309,18 +357,44 @@ export function UserForm({
                 onChange={(e) => set("commission_rate", e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="tds_rate">TDS rate (%) — blank uses global default</Label>
-              <Input
-                id="tds_rate"
-                type="number"
-                min="0"
-                step="0.01"
-                value={values.tds_rate}
-                onChange={(e) => set("tds_rate", e.target.value)}
-                placeholder="Global default"
-              />
-            </div>
+            {values.role === "dealer" ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="tds_rate">TDS rate (%) — blank uses global default</Label>
+                  <Input
+                    id="tds_rate"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={values.tds_rate}
+                    onChange={(e) => set("tds_rate", e.target.value)}
+                    placeholder="Global default"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sub_agent_commission_rate">Default sub-agent commission (%)</Label>
+                  <Input
+                    id="sub_agent_commission_rate"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={values.sub_agent_commission_rate}
+                    onChange={(e) => set("sub_agent_commission_rate", e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="super_admin_rate">Super Admin share (%)</Label>
+                  <Input
+                    id="super_admin_rate"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={values.super_admin_rate}
+                    onChange={(e) => set("super_admin_rate", e.target.value)}
+                  />
+                </div>
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>

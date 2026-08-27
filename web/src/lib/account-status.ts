@@ -46,11 +46,26 @@ export function isWalletFrozen(
   return Boolean(user?.wallet_frozen || user?.wallet_status === "frozen");
 }
 
+/** Frozen (all movements) or mismatch-locked (outbound). */
+export function isWalletTxnLocked(
+  wallet?: { transactions_blocked?: boolean; is_frozen?: boolean; wallet_status?: string } | null,
+  user?: UserProfile | null,
+): boolean {
+  return isWalletFrozen(wallet, user) || isWalletBlocked(wallet);
+}
+
+export function walletTxnLockMessageKey(
+  wallet?: { transactions_blocked?: boolean; is_frozen?: boolean; wallet_status?: string } | null,
+  user?: UserProfile | null,
+): "account.walletFrozen" | "account.walletBlocked" {
+  return isWalletFrozen(wallet, user) ? "account.walletFrozen" : "account.walletBlocked";
+}
+
 export function isOutboundLocked(
   user: UserProfile | null | undefined,
   wallet?: { transactions_blocked?: boolean; is_frozen?: boolean; wallet_status?: string } | null,
 ): boolean {
-  return isAccountPending(user) || isWalletBlocked(wallet) || isWalletFrozen(wallet, user);
+  return isAccountPending(user) || isWalletTxnLocked(wallet, user);
 }
 
 export const ACCOUNT_PENDING_MESSAGE =

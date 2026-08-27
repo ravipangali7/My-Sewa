@@ -27,6 +27,7 @@ from .models import (
     UserFeeConfig,
     DealerCommissionConfig,
     DealerCommission,
+    ServiceCommissionRule,
     KYCSubmission,
     KYCDocument,
     KYCAuditLog,
@@ -155,6 +156,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     profile_locked = serializers.SerializerMethodField()
     assigned_dealer = serializers.SerializerMethodField()
     parent_agent = serializers.SerializerMethodField()
+    assigned_sub_agent = serializers.SerializerMethodField()
     wallet_frozen = serializers.SerializerMethodField()
     wallet_status = serializers.SerializerMethodField()
 
@@ -165,16 +167,17 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'date_of_birth',
             'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
-            'role', 'assigned_dealer_id', 'parent_agent_id',
+            'role', 'assigned_dealer_id', 'parent_agent_id', 'assigned_sub_agent_id',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
             'kyc_status', 'citizenship_number', 'kyc_verified', 'profile_locked',
-            'has_transaction_pin', 'assigned_dealer', 'parent_agent',
+            'has_transaction_pin', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'wallet_frozen', 'wallet_status',
             'date_joined', 'last_login',
         )
         read_only_fields = (
             'id', 'phone', 'avatar', 'is_active', 'is_staff', 'is_superuser',
             'account_status', 'role', 'assigned_dealer_id', 'parent_agent_id',
+            'assigned_sub_agent_id',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
             'kyc_status', 'citizenship_number',
             'kyc_verified', 'profile_locked',
@@ -204,6 +207,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def get_parent_agent(self, obj):
         return _related_user_brief(getattr(obj, 'parent_agent', None))
 
+    def get_assigned_sub_agent(self, obj):
+        return _related_user_brief(getattr(obj, 'assigned_sub_agent', None))
+
     def get_wallet_frozen(self, obj):
         wallet = getattr(obj, 'wallet', None)
         return bool(wallet and getattr(wallet, 'is_frozen', False))
@@ -221,10 +227,13 @@ class AdminUserSerializer(serializers.ModelSerializer):
     has_transaction_pin = serializers.SerializerMethodField()
     assigned_dealer = serializers.SerializerMethodField()
     parent_agent = serializers.SerializerMethodField()
+    assigned_sub_agent = serializers.SerializerMethodField()
     wallet_frozen = serializers.SerializerMethodField()
     wallet_status = serializers.SerializerMethodField()
     commission_rate = serializers.SerializerMethodField()
     tds_rate = serializers.SerializerMethodField()
+    sub_agent_commission_rate = serializers.SerializerMethodField()
+    super_admin_rate = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -232,14 +241,14 @@ class AdminUserSerializer(serializers.ModelSerializer):
             'id', 'phone', 'email', 'first_name', 'last_name', 'nickname',
             'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
-            'role', 'assigned_dealer_id', 'parent_agent_id',
-            'assigned_dealer', 'parent_agent',
+            'role', 'assigned_dealer_id', 'parent_agent_id', 'assigned_sub_agent_id',
+            'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
             'kyc_status', 'citizenship_number',
             'date_joined', 'last_login',
             'wallet_id', 'wallet_balance', 'wallet_frozen', 'wallet_status',
             'has_transaction_pin',
-            'commission_rate', 'tds_rate',
+            'commission_rate', 'tds_rate', 'sub_agent_commission_rate', 'super_admin_rate',
         )
         read_only_fields = (
             'id', 'kyc_status', 'citizenship_number',
@@ -274,6 +283,9 @@ class AdminUserSerializer(serializers.ModelSerializer):
     def get_parent_agent(self, obj):
         return _related_user_brief(getattr(obj, 'parent_agent', None))
 
+    def get_assigned_sub_agent(self, obj):
+        return _related_user_brief(getattr(obj, 'assigned_sub_agent', None))
+
     def get_wallet_frozen(self, obj):
         wallet = getattr(obj, 'wallet', None)
         return bool(wallet and getattr(wallet, 'is_frozen', False))
@@ -282,21 +294,32 @@ class AdminUserSerializer(serializers.ModelSerializer):
         wallet = getattr(obj, 'wallet', None)
         return 'frozen' if wallet and getattr(wallet, 'is_frozen', False) else 'unfrozen'
 
+    def _commission_config(self, obj):
+        return getattr(obj, 'dealer_commission_config', None)
+
     def get_commission_rate(self, obj):
-        if getattr(obj, 'role', None) != User.ROLE_DEALER:
-            return None
-        config = getattr(obj, 'dealer_commission_config', None)
+        config = self._commission_config(obj)
         if config is None:
             return None
         return str(config.commission_rate)
 
     def get_tds_rate(self, obj):
-        if getattr(obj, 'role', None) != User.ROLE_DEALER:
-            return None
-        config = getattr(obj, 'dealer_commission_config', None)
+        config = self._commission_config(obj)
         if config is None:
             return None
         return None if config.tds_rate is None else str(config.tds_rate)
+
+    def get_sub_agent_commission_rate(self, obj):
+        config = self._commission_config(obj)
+        if config is None:
+            return None
+        return str(getattr(config, 'sub_agent_commission_rate', 0) or 0)
+
+    def get_super_admin_rate(self, obj):
+        config = self._commission_config(obj)
+        if config is None:
+            return None
+        return str(getattr(config, 'super_admin_rate', 0) or 0)
 
 
 class AdminUserWriteSerializer(serializers.ModelSerializer):
@@ -313,10 +336,19 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
     parent_agent = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), required=False, allow_null=True,
     )
+    assigned_sub_agent = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), required=False, allow_null=True,
+    )
     commission_rate = serializers.DecimalField(
         max_digits=7, decimal_places=4, required=False, allow_null=True, write_only=True,
     )
     tds_rate = serializers.DecimalField(
+        max_digits=7, decimal_places=4, required=False, allow_null=True, write_only=True,
+    )
+    sub_agent_commission_rate = serializers.DecimalField(
+        max_digits=7, decimal_places=4, required=False, allow_null=True, write_only=True,
+    )
+    super_admin_rate = serializers.DecimalField(
         max_digits=7, decimal_places=4, required=False, allow_null=True, write_only=True,
     )
 
@@ -325,9 +357,9 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'phone', 'email', 'first_name', 'last_name',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
-            'role', 'assigned_dealer', 'parent_agent',
+            'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
-            'commission_rate', 'tds_rate',
+            'commission_rate', 'tds_rate', 'sub_agent_commission_rate', 'super_admin_rate',
             'password', 'password2',
         )
         extra_kwargs = {
@@ -401,9 +433,12 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
     def _save_dealer_rates(self, user, validated_data):
         rate = validated_data.pop('commission_rate', serializers.empty)
         tds = validated_data.pop('tds_rate', serializers.empty)
-        if rate is serializers.empty and tds is serializers.empty:
+        sub_rate = validated_data.pop('sub_agent_commission_rate', serializers.empty)
+        sa_rate = validated_data.pop('super_admin_rate', serializers.empty)
+        if all(v is serializers.empty for v in (rate, tds, sub_rate, sa_rate)):
             return
-        if getattr(user, 'role', None) != User.ROLE_DEALER:
+        role = getattr(user, 'role', None)
+        if role not in (User.ROLE_DEALER, User.ROLE_AGENT, User.ROLE_SUB_AGENT):
             return
         config, _ = DealerCommissionConfig.objects.get_or_create(user=user)
         update_fields = ['updated_at']
@@ -413,31 +448,42 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         if tds is not serializers.empty:
             config.tds_rate = tds
             update_fields.append('tds_rate')
+        if sub_rate is not serializers.empty:
+            config.sub_agent_commission_rate = sub_rate if sub_rate is not None else Decimal('0')
+            update_fields.append('sub_agent_commission_rate')
+        if sa_rate is not serializers.empty:
+            config.super_admin_rate = sa_rate if sa_rate is not None else Decimal('0')
+            update_fields.append('super_admin_rate')
         config.save(update_fields=update_fields)
 
     def create(self, validated_data):
         validated_data.pop('password2', None)
         password = validated_data.pop('password')
         phone = validated_data.pop('phone')
-        commission_rate = validated_data.pop('commission_rate', serializers.empty)
-        tds_rate = validated_data.pop('tds_rate', serializers.empty)
+        rates = {
+            'commission_rate': validated_data.pop('commission_rate', serializers.empty),
+            'tds_rate': validated_data.pop('tds_rate', serializers.empty),
+            'sub_agent_commission_rate': validated_data.pop('sub_agent_commission_rate', serializers.empty),
+            'super_admin_rate': validated_data.pop('super_admin_rate', serializers.empty),
+        }
         from .services.hierarchy import apply_hierarchy_defaults
         # Admin-created users default to Active unless explicitly set to Pending.
         validated_data.setdefault('account_status', User.ACCOUNT_STATUS_APPROVED)
         user = User.objects.create_user(phone, password=password, **validated_data)
         apply_hierarchy_defaults(user)
-        user.save(update_fields=['assigned_dealer', 'parent_agent', 'role'])
-        self._save_dealer_rates(user, {
-            'commission_rate': commission_rate,
-            'tds_rate': tds_rate,
-        })
+        user.save(update_fields=['assigned_dealer', 'parent_agent', 'assigned_sub_agent', 'role'])
+        self._save_dealer_rates(user, rates)
         return user
 
     def update(self, instance, validated_data):
         validated_data.pop('password2', None)
         password = validated_data.pop('password', None) or None
-        commission_rate = validated_data.pop('commission_rate', serializers.empty)
-        tds_rate = validated_data.pop('tds_rate', serializers.empty)
+        rates = {
+            'commission_rate': validated_data.pop('commission_rate', serializers.empty),
+            'tds_rate': validated_data.pop('tds_rate', serializers.empty),
+            'sub_agent_commission_rate': validated_data.pop('sub_agent_commission_rate', serializers.empty),
+            'super_admin_rate': validated_data.pop('super_admin_rate', serializers.empty),
+        }
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -449,10 +495,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             instance.set_password(password)
 
         instance.save()
-        self._save_dealer_rates(instance, {
-            'commission_rate': commission_rate,
-            'tds_rate': tds_rate,
-        })
+        self._save_dealer_rates(instance, rates)
         return instance
 
 
@@ -1319,6 +1362,8 @@ class DealerCommissionSerializer(serializers.ModelSerializer):
     dealer_name = serializers.SerializerMethodField()
     source_phone = serializers.CharField(source='source_user.phone', read_only=True, allow_null=True)
     source_name = serializers.SerializerMethodField()
+    sub_agent_phone = serializers.CharField(source='sub_agent.phone', read_only=True, allow_null=True)
+    sub_agent_name = serializers.SerializerMethodField()
     txn_type_display = serializers.CharField(source='get_txn_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
 
@@ -1327,9 +1372,12 @@ class DealerCommissionSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'dealer', 'dealer_phone', 'dealer_name',
             'source_user', 'source_phone', 'source_name',
+            'sub_agent', 'sub_agent_phone', 'sub_agent_name',
             'txn_type', 'txn_type_display', 'txn_id', 'reference',
             'txn_amount', 'commission_rate', 'gross_commission',
             'tds_rate', 'tds_amount', 'net_commission',
+            'sub_agent_commission_rate', 'sub_agent_commission',
+            'super_admin_rate', 'super_admin_profit',
             'status', 'status_display', 'created_at', 'updated_at',
         )
         read_only_fields = fields
@@ -1341,6 +1389,21 @@ class DealerCommissionSerializer(serializers.ModelSerializer):
         if obj.source_user is None:
             return ''
         return _user_display_name(obj.source_user)
+
+    def get_sub_agent_name(self, obj):
+        if obj.sub_agent is None:
+            return ''
+        return _user_display_name(obj.sub_agent)
+
+
+class ServiceCommissionRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServiceCommissionRule
+        fields = (
+            'id', 'dealer', 'txn_type', 'dealer_rate', 'sub_agent_rate',
+            'super_admin_rate', 'updated_at',
+        )
+        read_only_fields = ('id', 'updated_at')
 
 
 class BankAccountVerifySerializer(serializers.Serializer):

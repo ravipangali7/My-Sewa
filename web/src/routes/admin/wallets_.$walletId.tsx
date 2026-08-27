@@ -142,7 +142,7 @@ function WalletDetailPage() {
                   disabled={freezeMutation.isPending || unfreezeMutation.isPending}
                 >
                   <Snowflake className="size-3.5" />
-                  {w.is_frozen ? "Unfreeze wallet" : "Freeze wallet"}
+                  {w.is_frozen ? "Unfreeze wallet" : "Wallet Freeze"}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>

@@ -138,6 +138,10 @@ function EditWalletPage() {
       toast.error("Wallet adjustment is disabled for your account.");
       return;
     }
+    if (w?.is_frozen) {
+      toast.error("This wallet is frozen. Unfreeze it before adding funds or adjusting the balance.");
+      return;
+    }
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
       toast.error("Reason is required for audit trail");
@@ -218,6 +222,12 @@ function EditWalletPage() {
               <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                 Wallet adjustment is disabled for your account. Ask a Super Admin to enable
                 Wallet Transfer on the Users page.
+              </p>
+            ) : null}
+            {w.is_frozen ? (
+              <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                This wallet is frozen. Unfreeze it from the wallet page before adding funds or
+                adjusting the balance.
               </p>
             ) : null}
             <div className="space-y-1.5">
@@ -316,7 +326,7 @@ function EditWalletPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" disabled={updateMutation.isPending || !allowAdjust}>
+              <Button type="submit" disabled={updateMutation.isPending || !allowAdjust || w.is_frozen}>
                 {updateMutation.isPending ? "Saving…" : actionLabel}
               </Button>
               <Button asChild type="button" variant="ghost">

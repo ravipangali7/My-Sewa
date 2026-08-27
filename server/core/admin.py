@@ -17,6 +17,7 @@ from .models import (
     UserFeeConfig,
     DealerCommissionConfig,
     DealerCommission,
+    ServiceCommissionRule,
     DeviceToken,
     KYCSubmission,
     KYCDocument,
@@ -41,7 +42,7 @@ class CustomUserAdminForm(forms.ModelForm):
             'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
             'date_of_birth', 'account_status',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
-            'role', 'assigned_dealer', 'parent_agent',
+            'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'is_active', 'is_staff',
         )
 
@@ -85,7 +86,7 @@ class CustomUserAdmin(admin.ModelAdmin):
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
         'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
         'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
-        'role', 'assigned_dealer', 'parent_agent',
+        'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
         'is_active', 'is_staff',
         'date_joined', 'last_login',
     )
@@ -655,16 +656,28 @@ class PushNotificationAdmin(admin.ModelAdmin):
 
 @admin.register(DealerCommissionConfig)
 class DealerCommissionConfigAdmin(admin.ModelAdmin):
-    list_display = ('user', 'commission_rate', 'tds_rate', 'updated_at')
+    list_display = (
+        'user', 'commission_rate', 'sub_agent_commission_rate', 'super_admin_rate',
+        'tds_rate', 'updated_at',
+    )
     search_fields = ('user__phone', 'user__first_name', 'user__last_name')
+
+
+@admin.register(ServiceCommissionRule)
+class ServiceCommissionRuleAdmin(admin.ModelAdmin):
+    list_display = (
+        'dealer', 'txn_type', 'dealer_rate', 'sub_agent_rate', 'super_admin_rate', 'updated_at',
+    )
+    list_filter = ('txn_type',)
+    search_fields = ('dealer__phone',)
 
 
 @admin.register(DealerCommission)
 class DealerCommissionAdmin(admin.ModelAdmin):
     list_display = (
-        'dealer', 'source_user', 'txn_type', 'txn_id', 'txn_amount',
+        'dealer', 'source_user', 'sub_agent', 'txn_type', 'txn_id', 'txn_amount',
         'commission_rate', 'gross_commission', 'tds_rate', 'tds_amount',
-        'net_commission', 'status', 'created_at',
+        'net_commission', 'sub_agent_commission', 'super_admin_profit', 'status', 'created_at',
     )
     list_filter = ('status', 'txn_type', 'created_at')
     search_fields = (
