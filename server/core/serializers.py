@@ -25,6 +25,8 @@ from .models import (
     DataPackTransaction,
     DeviceToken,
     UserFeeConfig,
+    DealerCommissionConfig,
+    DealerCommission,
     KYCSubmission,
     KYCDocument,
     KYCAuditLog,
@@ -56,6 +58,32 @@ def validate_date_of_birth_value(value):
     if value > date.today():
         raise serializers.ValidationError('Date of birth cannot be in the future.')
     return value
+
+
+def _related_user_brief(user):
+    if user is None:
+        return None
+    return {
+        'id': user.pk,
+        'phone': user.phone,
+        'name': _user_display_name(user),
+        'role': getattr(user, 'role', 'customer'),
+    }
+
+
+def _wallet_freeze_fields(wallet):
+    if wallet is None:
+        return {
+            'wallet_frozen': False,
+            'wallet_status': 'unfrozen',
+            'freeze_reason': '',
+        }
+    frozen = bool(getattr(wallet, 'is_frozen', False))
+    return {
+        'wallet_frozen': frozen,
+        'wallet_status': 'frozen' if frozen else 'unfrozen',
+        'freeze_reason': getattr(wallet, 'freeze_reason', '') or '',
+    }
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -125,6 +153,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
     has_transaction_pin = serializers.SerializerMethodField()
     kyc_verified = serializers.SerializerMethodField()
     profile_locked = serializers.SerializerMethodField()
+    assigned_dealer = serializers.SerializerMethodField()
+    parent_agent = serializers.SerializerMethodField()
+    wallet_frozen = serializers.SerializerMethodField()
+    wallet_status = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -133,14 +165,17 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'date_of_birth',
             'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
-            'can_fund_transfer', 'can_wallet_adjust',
+            'role', 'assigned_dealer_id', 'parent_agent_id',
+            'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
             'kyc_status', 'citizenship_number', 'kyc_verified', 'profile_locked',
-            'has_transaction_pin',
+            'has_transaction_pin', 'assigned_dealer', 'parent_agent',
+            'wallet_frozen', 'wallet_status',
             'date_joined', 'last_login',
         )
         read_only_fields = (
             'id', 'phone', 'avatar', 'is_active', 'is_staff', 'is_superuser',
-            'account_status', 'can_fund_transfer', 'can_wallet_adjust',
+            'account_status', 'role', 'assigned_dealer_id', 'parent_agent_id',
+            'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
             'kyc_status', 'citizenship_number',
             'kyc_verified', 'profile_locked',
             'has_transaction_pin', 'date_joined', 'last_login',
@@ -163,6 +198,20 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def get_profile_locked(self, obj):
         return obj.kyc_status == User.KYC_STATUS_APPROVED
 
+    def get_assigned_dealer(self, obj):
+        return _related_user_brief(getattr(obj, 'assigned_dealer', None))
+
+    def get_parent_agent(self, obj):
+        return _related_user_brief(getattr(obj, 'parent_agent', None))
+
+    def get_wallet_frozen(self, obj):
+        wallet = getattr(obj, 'wallet', None)
+        return bool(wallet and getattr(wallet, 'is_frozen', False))
+
+    def get_wallet_status(self, obj):
+        wallet = getattr(obj, 'wallet', None)
+        return 'frozen' if wallet and getattr(wallet, 'is_frozen', False) else 'unfrozen'
+
 
 class AdminUserSerializer(serializers.ModelSerializer):
     """Admin user list with wallet balance"""
@@ -170,6 +219,12 @@ class AdminUserSerializer(serializers.ModelSerializer):
     wallet_balance = serializers.SerializerMethodField()
     wallet_id = serializers.SerializerMethodField()
     has_transaction_pin = serializers.SerializerMethodField()
+    assigned_dealer = serializers.SerializerMethodField()
+    parent_agent = serializers.SerializerMethodField()
+    wallet_frozen = serializers.SerializerMethodField()
+    wallet_status = serializers.SerializerMethodField()
+    commission_rate = serializers.SerializerMethodField()
+    tds_rate = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -177,10 +232,14 @@ class AdminUserSerializer(serializers.ModelSerializer):
             'id', 'phone', 'email', 'first_name', 'last_name', 'nickname',
             'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
-            'can_fund_transfer', 'can_wallet_adjust',
+            'role', 'assigned_dealer_id', 'parent_agent_id',
+            'assigned_dealer', 'parent_agent',
+            'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
             'kyc_status', 'citizenship_number',
             'date_joined', 'last_login',
-            'wallet_id', 'wallet_balance', 'has_transaction_pin',
+            'wallet_id', 'wallet_balance', 'wallet_frozen', 'wallet_status',
+            'has_transaction_pin',
+            'commission_rate', 'tds_rate',
         )
         read_only_fields = (
             'id', 'kyc_status', 'citizenship_number',
@@ -209,6 +268,36 @@ class AdminUserSerializer(serializers.ModelSerializer):
         wallet = getattr(obj, 'wallet', None)
         return wallet.id if wallet else None
 
+    def get_assigned_dealer(self, obj):
+        return _related_user_brief(getattr(obj, 'assigned_dealer', None))
+
+    def get_parent_agent(self, obj):
+        return _related_user_brief(getattr(obj, 'parent_agent', None))
+
+    def get_wallet_frozen(self, obj):
+        wallet = getattr(obj, 'wallet', None)
+        return bool(wallet and getattr(wallet, 'is_frozen', False))
+
+    def get_wallet_status(self, obj):
+        wallet = getattr(obj, 'wallet', None)
+        return 'frozen' if wallet and getattr(wallet, 'is_frozen', False) else 'unfrozen'
+
+    def get_commission_rate(self, obj):
+        if getattr(obj, 'role', None) != User.ROLE_DEALER:
+            return None
+        config = getattr(obj, 'dealer_commission_config', None)
+        if config is None:
+            return None
+        return str(config.commission_rate)
+
+    def get_tds_rate(self, obj):
+        if getattr(obj, 'role', None) != User.ROLE_DEALER:
+            return None
+        config = getattr(obj, 'dealer_commission_config', None)
+        if config is None:
+            return None
+        return None if config.tds_rate is None else str(config.tds_rate)
+
 
 class AdminUserWriteSerializer(serializers.ModelSerializer):
     """Create / update users from the admin console (password optional on update)."""
@@ -218,13 +307,27 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
     password2 = serializers.CharField(
         write_only=True, required=False, allow_blank=True, label='Confirm Password',
     )
+    assigned_dealer = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), required=False, allow_null=True,
+    )
+    parent_agent = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), required=False, allow_null=True,
+    )
+    commission_rate = serializers.DecimalField(
+        max_digits=7, decimal_places=4, required=False, allow_null=True, write_only=True,
+    )
+    tds_rate = serializers.DecimalField(
+        max_digits=7, decimal_places=4, required=False, allow_null=True, write_only=True,
+    )
 
     class Meta:
         model = User
         fields = (
             'id', 'phone', 'email', 'first_name', 'last_name',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
-            'can_fund_transfer', 'can_wallet_adjust',
+            'role', 'assigned_dealer', 'parent_agent',
+            'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
+            'commission_rate', 'tds_rate',
             'password', 'password2',
         )
         extra_kwargs = {
@@ -237,8 +340,10 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'is_staff': {'required': False},
             'is_superuser': {'required': False},
             'account_status': {'required': False},
+            'role': {'required': False},
             'can_fund_transfer': {'required': False},
             'can_wallet_adjust': {'required': False},
+            'can_remittance_transfer': {'required': False},
         }
 
     def validate_phone(self, value):
@@ -285,27 +390,69 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
                     {'password': 'Password must be at least 8 characters.'}
                 )
 
+        request = self.context.get('request')
+        actor = getattr(request, 'user', None) if request is not None else None
+        from .services.hierarchy import apply_hierarchy_defaults, validate_hierarchy_links
+        errors = validate_hierarchy_links(attrs, instance=self.instance, actor=actor)
+        if errors:
+            raise serializers.ValidationError(errors)
         return attrs
+
+    def _save_dealer_rates(self, user, validated_data):
+        rate = validated_data.pop('commission_rate', serializers.empty)
+        tds = validated_data.pop('tds_rate', serializers.empty)
+        if rate is serializers.empty and tds is serializers.empty:
+            return
+        if getattr(user, 'role', None) != User.ROLE_DEALER:
+            return
+        config, _ = DealerCommissionConfig.objects.get_or_create(user=user)
+        update_fields = ['updated_at']
+        if rate is not serializers.empty:
+            config.commission_rate = rate if rate is not None else Decimal('0')
+            update_fields.append('commission_rate')
+        if tds is not serializers.empty:
+            config.tds_rate = tds
+            update_fields.append('tds_rate')
+        config.save(update_fields=update_fields)
 
     def create(self, validated_data):
         validated_data.pop('password2', None)
         password = validated_data.pop('password')
         phone = validated_data.pop('phone')
+        commission_rate = validated_data.pop('commission_rate', serializers.empty)
+        tds_rate = validated_data.pop('tds_rate', serializers.empty)
+        from .services.hierarchy import apply_hierarchy_defaults
         # Admin-created users default to Active unless explicitly set to Pending.
         validated_data.setdefault('account_status', User.ACCOUNT_STATUS_APPROVED)
-        return User.objects.create_user(phone, password=password, **validated_data)
+        user = User.objects.create_user(phone, password=password, **validated_data)
+        apply_hierarchy_defaults(user)
+        user.save(update_fields=['assigned_dealer', 'parent_agent', 'role'])
+        self._save_dealer_rates(user, {
+            'commission_rate': commission_rate,
+            'tds_rate': tds_rate,
+        })
+        return user
 
     def update(self, instance, validated_data):
         validated_data.pop('password2', None)
         password = validated_data.pop('password', None) or None
+        commission_rate = validated_data.pop('commission_rate', serializers.empty)
+        tds_rate = validated_data.pop('tds_rate', serializers.empty)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+
+        from .services.hierarchy import apply_hierarchy_defaults
+        apply_hierarchy_defaults(instance)
 
         if password:
             instance.set_password(password)
 
         instance.save()
+        self._save_dealer_rates(instance, {
+            'commission_rate': commission_rate,
+            'tds_rate': tds_rate,
+        })
         return instance
 
 
@@ -322,8 +469,16 @@ class AdminWalletSerializer(serializers.ModelSerializer):
             'balance',
             'transactions_blocked', 'blocked_reason', 'blocked_at',
             'blocked_merchant_txn_id', 'unblocked_at', 'unblocked_by',
+            'is_frozen', 'freeze_reason', 'frozen_at', 'frozen_by',
+            'freeze_unfrozen_at', 'freeze_unfrozen_by',
+            'wallet_status',
             'created_at', 'updated_at',
         )
+
+    wallet_status = serializers.SerializerMethodField()
+
+    def get_wallet_status(self, obj):
+        return 'frozen' if getattr(obj, 'is_frozen', False) else 'unfrozen'
 
 
 class AdminWalletWriteSerializer(serializers.ModelSerializer):
@@ -830,13 +985,21 @@ class WalletSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'user', 'phone', 'balance',
             'transactions_blocked', 'blocked_reason', 'blocked_at',
+            'is_frozen', 'freeze_reason', 'frozen_at',
+            'wallet_status',
             'created_at', 'updated_at',
         )
         read_only_fields = (
             'id', 'user', 'balance',
             'transactions_blocked', 'blocked_reason', 'blocked_at',
+            'is_frozen', 'freeze_reason', 'frozen_at',
             'created_at', 'updated_at',
         )
+
+    wallet_status = serializers.SerializerMethodField()
+
+    def get_wallet_status(self, obj):
+        return 'frozen' if getattr(obj, 'is_frozen', False) else 'unfrozen'
 
 
 class DepositSerializer(serializers.ModelSerializer):
@@ -1149,6 +1312,35 @@ class CommissionHistorySerializer(serializers.ModelSerializer):
         if obj.status == 'success':
             return str(obj.platform_charge)
         return '0.00'
+
+
+class DealerCommissionSerializer(serializers.ModelSerializer):
+    dealer_phone = serializers.CharField(source='dealer.phone', read_only=True)
+    dealer_name = serializers.SerializerMethodField()
+    source_phone = serializers.CharField(source='source_user.phone', read_only=True, allow_null=True)
+    source_name = serializers.SerializerMethodField()
+    txn_type_display = serializers.CharField(source='get_txn_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = DealerCommission
+        fields = (
+            'id', 'dealer', 'dealer_phone', 'dealer_name',
+            'source_user', 'source_phone', 'source_name',
+            'txn_type', 'txn_type_display', 'txn_id', 'reference',
+            'txn_amount', 'commission_rate', 'gross_commission',
+            'tds_rate', 'tds_amount', 'net_commission',
+            'status', 'status_display', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+    def get_dealer_name(self, obj):
+        return _user_display_name(obj.dealer)
+
+    def get_source_name(self, obj):
+        if obj.source_user is None:
+            return ''
+        return _user_display_name(obj.source_user)
 
 
 class BankAccountVerifySerializer(serializers.Serializer):

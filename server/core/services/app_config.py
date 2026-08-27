@@ -244,12 +244,17 @@ _USER_FEATURE_MESSAGES = {
         'Wallet transfer is disabled for this account.',
         'wallet_adjustment_forbidden',
     ),
+    'remittance_transfer': (
+        'can_remittance_transfer',
+        'Remittance fund transfer is disabled for this account.',
+        'remittance_transfer_forbidden',
+    ),
 }
 
 
 def require_user_feature(user, feature: str) -> Optional[Response]:
     """
-    Per-user feature access. feature: 'fund_transfer' | 'wallet_adjustment'.
+    Per-user feature access. feature: 'fund_transfer' | 'wallet_adjustment' | 'remittance_transfer'.
     Returns a 403 Response when the user is not allowed, else None.
     """
     spec = _USER_FEATURE_MESSAGES.get(feature)
@@ -278,8 +283,14 @@ def require_user_feature(user, feature: str) -> Optional[Response]:
 
 
 def require_wallet_not_blocked(user) -> Optional[Response]:
-    """Block outbound payments when the user's wallet is locked by statement mismatch."""
+    """Block outbound payments when the user's wallet is frozen or locked by statement mismatch."""
     from .wallet_guard import require_wallet_not_blocked as _impl
+    return _impl(user)
+
+
+def require_wallet_not_frozen(user) -> Optional[Response]:
+    """Block all wallet movements when an admin has frozen the wallet."""
+    from .wallet_guard import require_wallet_not_frozen as _impl
     return _impl(user)
 
 

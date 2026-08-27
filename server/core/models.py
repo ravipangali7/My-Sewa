@@ -443,6 +443,47 @@ class CustomUser(AbstractUser):
             "Staff with this enabled can also perform admin wallet adjustments (manual load / debit)."
         ),
     )
+    can_remittance_transfer = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="When enabled, this user can look up and receive remittance fund transfers.",
+    )
+
+    ROLE_CUSTOMER = 'customer'
+    ROLE_DEALER = 'dealer'
+    ROLE_AGENT = 'agent'
+    ROLE_SUB_AGENT = 'sub_agent'
+    ROLE_CHOICES = [
+        (ROLE_CUSTOMER, 'Customer'),
+        (ROLE_DEALER, 'Dealer'),
+        (ROLE_AGENT, 'Agent'),
+        (ROLE_SUB_AGENT, 'Sub-Agent'),
+    ]
+    role = models.CharField(
+        max_length=20,
+        choices=ROLE_CHOICES,
+        default=ROLE_CUSTOMER,
+        db_index=True,
+        help_text="Business hierarchy role: Admin (staff) → Dealer → Agent → Sub-Agent → Customer.",
+    )
+    assigned_dealer = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='network_users',
+        limit_choices_to={'role': 'dealer'},
+        help_text="Dealer this customer/agent/sub-agent belongs to. Used for commission.",
+    )
+    parent_agent = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sub_agents',
+        limit_choices_to={'role': 'agent'},
+        help_text="Parent Agent for Sub-Agent accounts.",
+    )
     transaction_pin = models.CharField(
         max_length=128,
         blank=True,
@@ -551,8 +592,39 @@ class Wallet(models.Model):
         related_name='wallets_unblocked',
         help_text="Admin who last unblocked this wallet.",
     )
+    is_frozen = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "When True, all wallet debit/credit operations are blocked until an admin unfreezes. "
+            "Separate from transactions_blocked (HimalPay mismatch lock)."
+        ),
+    )
+    freeze_reason = models.TextField(blank=True, default='')
+    frozen_at = models.DateTimeField(null=True, blank=True)
+    frozen_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='wallets_frozen',
+        help_text="Admin who last froze this wallet.",
+    )
+    freeze_unfrozen_at = models.DateTimeField(null=True, blank=True)
+    freeze_unfrozen_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='wallets_freeze_unfrozen',
+        help_text="Admin who last unfroze this wallet.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def freeze_status(self):
+        return 'frozen' if self.is_frozen else 'unfrozen'
 
     def __str__(self):
         return f"{self.user.phone} - Rs. {self.balance}"
@@ -690,6 +762,12 @@ def default_app_config():
             'transfer_cashback_percent': 0,
             'daily_transfer_limit': 200000,
             'auto_status_verified': False,
+        },
+        'commission': {
+            # Percent of transaction amount paid to the customer's assigned Dealer.
+            'default_commission_rate': 0,
+            # Nepal TDS on commission; per-dealer config can override.
+            'default_tds_rate': 15,
         },
         'notifications': {
             'email_on_deposit': True,
@@ -1375,6 +1453,114 @@ class DataPackTransaction(models.Model):
         verbose_name = "Data Pack Transaction"
         verbose_name_plural = "Data Pack Transactions"
         ordering = ['-created_at']
+
+
+class DealerCommissionConfig(models.Model):
+    """Per-dealer commission and TDS rates. Null TDS uses Settings.config.commission."""
+
+    user = models.OneToOneField(
+        CustomUser, on_delete=models.CASCADE, related_name='dealer_commission_config',
+    )
+    commission_rate = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Percent of transaction amount paid as gross commission to this Dealer.",
+    )
+    tds_rate = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Percent TDS deducted from gross commission. Null = use global default.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'Dealer commission — {self.user.phone} ({self.commission_rate}%)'
+
+    class Meta:
+        verbose_name = 'Dealer Commission Config'
+        verbose_name_plural = 'Dealer Commission Configs'
+
+
+class DealerCommission(models.Model):
+    """Immutable transaction-wise Dealer commission ledger (gross / TDS / net)."""
+
+    STATUS_POSTED = 'posted'
+    STATUS_REVERSED = 'reversed'
+    STATUS_CHOICES = [
+        (STATUS_POSTED, 'Posted'),
+        (STATUS_REVERSED, 'Reversed'),
+    ]
+
+    TXN_TOPUP = 'topup'
+    TXN_DATA_PACK = 'data_pack'
+    TXN_INTERNET = 'internet'
+    TXN_WATER = 'water'
+    TXN_ELECTRICITY = 'electricity'
+    TXN_COMMUNITY_ELECTRICITY = 'community_electricity'
+    TXN_BANK_TRANSFER = 'bank_transfer'
+    TXN_REMITTANCE = 'remittance'
+    TXN_TYPE_CHOICES = [
+        (TXN_TOPUP, 'Top-up'),
+        (TXN_DATA_PACK, 'Data pack'),
+        (TXN_INTERNET, 'Internet'),
+        (TXN_WATER, 'Water'),
+        (TXN_ELECTRICITY, 'Electricity'),
+        (TXN_COMMUNITY_ELECTRICITY, 'Community electricity'),
+        (TXN_BANK_TRANSFER, 'Bank transfer'),
+        (TXN_REMITTANCE, 'Remittance'),
+    ]
+
+    dealer = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='dealer_commissions',
+    )
+    source_user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='generated_dealer_commissions',
+        help_text="Customer (or agent) whose transaction generated this commission.",
+    )
+    txn_type = models.CharField(max_length=40, choices=TXN_TYPE_CHOICES, db_index=True)
+    txn_id = models.PositiveIntegerField()
+    reference = models.CharField(max_length=100, blank=True, default='')
+    txn_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    commission_rate = models.DecimalField(max_digits=7, decimal_places=4)
+    gross_commission = models.DecimalField(max_digits=12, decimal_places=2)
+    tds_rate = models.DecimalField(max_digits=7, decimal_places=4)
+    tds_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    net_commission = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_POSTED, db_index=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return (
+            f'{self.dealer.phone} {self.txn_type}#{self.txn_id} '
+            f'net Rs. {self.net_commission} ({self.status})'
+        )
+
+    class Meta:
+        verbose_name = 'Dealer Commission'
+        verbose_name_plural = 'Dealer Commissions'
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['txn_type', 'txn_id'],
+                name='uniq_dealer_commission_txn',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['dealer', '-created_at'], name='core_dealerc_dealer__idx'),
+            models.Index(fields=['source_user', '-created_at'], name='core_dealerc_source__idx'),
+        ]
 
 
 class UserFeeConfig(models.Model):

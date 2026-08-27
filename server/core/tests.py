@@ -2180,3 +2180,317 @@ class AdminRemittanceListTests(TestCase):
         self.assertIsNone(item['citizenship_back'])
         self.assertIn('total_credit', body['summary'])
 
+
+class DealerCommissionAndHierarchyTests(TestCase):
+    """Dealer commission, TDS, customer mapping, remittance flag, freeze, sub-agents."""
+
+    def setUp(self):
+        from django.contrib.auth.hashers import make_password
+        from .models import DealerCommissionConfig, Wallet
+
+        self.staff = User.objects.create_user(
+            phone='9800000401',
+            password='testpass123',
+            email='staff-dealer@example.com',
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.dealer = User.objects.create_user(
+            phone='9800000402',
+            password='testpass123',
+            email='dealer@example.com',
+            first_name='Dealer',
+            last_name='One',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_DEALER,
+        )
+        DealerCommissionConfig.objects.create(
+            user=self.dealer,
+            commission_rate=Decimal('10.0000'),
+            tds_rate=Decimal('15.0000'),
+        )
+        self.agent = User.objects.create_user(
+            phone='9800000403',
+            password='testpass123',
+            email='agent@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_AGENT,
+            assigned_dealer=self.dealer,
+        )
+        self.agent.transaction_pin = make_password('1234')
+        self.agent.save(update_fields=['transaction_pin'])
+        self.other_agent = User.objects.create_user(
+            phone='9800000404',
+            password='testpass123',
+            email='agent2@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_AGENT,
+            assigned_dealer=self.dealer,
+        )
+        self.customer = User.objects.create_user(
+            phone='9800000405',
+            password='testpass123',
+            email='cust-dealer@example.com',
+            first_name='Cust',
+            last_name='Omer',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            assigned_dealer=self.dealer,
+        )
+        self.customer.transaction_pin = make_password('1234')
+        self.customer.save(update_fields=['transaction_pin'])
+        wallet, _ = Wallet.objects.get_or_create(user=self.customer)
+        wallet.balance = Decimal('1000.00')
+        wallet.save(update_fields=['balance'])
+        self.client = APIClient()
+
+    def test_dealer_commission_and_tds_calculation(self):
+        from .models import DealerCommission, TopupTransaction
+        from .services.dealer_commission import calculate_commission
+        from .services.txn_status import apply_outbound_status_change
+
+        figures = calculate_commission(Decimal('200.00'), Decimal('10'), Decimal('15'))
+        self.assertEqual(figures['gross_commission'], Decimal('20.00'))
+        self.assertEqual(figures['tds_amount'], Decimal('3.00'))
+        self.assertEqual(figures['net_commission'], Decimal('17.00'))
+
+        txn = TopupTransaction.objects.create(
+            user=self.customer,
+            mobile_number='9800000999',
+            amount=Decimal('200.00'),
+            product_id=1,
+            status='pending',
+            merchant_txn_id='MYSEWA_NTC_COMM1',
+            total_debited=Decimal('200.00'),
+        )
+        ok, err = apply_outbound_status_change(txn, 'success')
+        self.assertTrue(ok, err)
+        row = DealerCommission.objects.get(txn_type='topup', txn_id=txn.pk)
+        self.assertEqual(row.dealer_id, self.dealer.pk)
+        self.assertEqual(row.source_user_id, self.customer.pk)
+        self.assertEqual(row.gross_commission, Decimal('20.00'))
+        self.assertEqual(row.tds_rate, Decimal('15.0000'))
+        self.assertEqual(row.tds_amount, Decimal('3.00'))
+        self.assertEqual(row.net_commission, Decimal('17.00'))
+        self.assertEqual(row.commission_rate, Decimal('10.0000'))
+
+    def test_customer_dealer_mapping_via_admin(self):
+        other = User.objects.create_user(
+            phone='9800000406',
+            password='testpass123',
+            email='unmapped@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.patch(
+            reverse('admin_user_detail', args=[other.pk]),
+            {'assigned_dealer': self.dealer.pk, 'role': 'customer'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        other.refresh_from_db()
+        self.assertEqual(other.assigned_dealer_id, self.dealer.pk)
+        data = resp.json().get('data') or {}
+        self.assertEqual((data.get('assigned_dealer') or {}).get('phone'), self.dealer.phone)
+
+    def test_remittance_enabled_and_disabled(self):
+        self.client.force_authenticate(user=self.customer)
+        self.assertTrue(self.customer.can_remittance_transfer)
+        resp = self.client.post(reverse('remittance_lookup'), {'ref_no': 'S100TEST'}, format='json')
+        if resp.status_code == status.HTTP_403_FORBIDDEN:
+            self.assertNotEqual(resp.json().get('code'), 'remittance_transfer_forbidden')
+
+        self.customer.can_remittance_transfer = False
+        self.customer.save(update_fields=['can_remittance_transfer'])
+        resp = self.client.post(reverse('remittance_lookup'), {'ref_no': 'S100TEST'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.json().get('code'), 'remittance_transfer_forbidden')
+        resp = self.client.post(
+            reverse('remittance_receive'),
+            {'ref_no': 'S100TEST', 'samsara_link_id': 'x', 'amount': '100'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_frozen_wallet_blocks_debit_and_unfreeze_restores(self):
+        from .models import Wallet
+        from .services.wallet_guard import freeze_wallet, unfreeze_wallet
+
+        wallet = Wallet.objects.get(user=self.customer)
+        freeze_wallet(wallet, self.staff, reason='Test freeze')
+        wallet.refresh_from_db()
+        self.assertTrue(wallet.is_frozen)
+
+        recipient = User.objects.create_user(
+            phone='9800000407',
+            password='testpass123',
+            email='recv-freeze@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        Wallet.objects.get_or_create(user=recipient)
+        self.client.force_authenticate(user=self.customer)
+        before = Wallet.objects.get(user=self.customer).balance
+        resp = self.client.post(
+            reverse('wallet_transfer_create'),
+            {
+                'recipient_phone': recipient.phone,
+                'amount': '10',
+                'transaction_pin': '1234',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        self.assertEqual(resp.json().get('code'), 'wallet_frozen')
+        self.assertIn('frozen', (resp.json().get('message') or '').lower())
+        self.customer.wallet.refresh_from_db()
+        self.assertEqual(self.customer.wallet.balance, before)
+
+        unfreeze_wallet(wallet, self.staff)
+        resp = self.client.post(
+            reverse('wallet_transfer_create'),
+            {
+                'recipient_phone': recipient.phone,
+                'amount': '10',
+                'transaction_pin': '1234',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        self.customer.wallet.refresh_from_db()
+        self.assertEqual(self.customer.wallet.balance, before - Decimal('10.00'))
+
+    def test_wallet_balance_before_after_and_failed_rollback(self):
+        from .models import TopupTransaction, Wallet
+        from .services.txn_status import apply_outbound_status_change
+
+        wallet = Wallet.objects.get(user=self.customer)
+        start = wallet.balance
+        txn = TopupTransaction.objects.create(
+            user=self.customer,
+            mobile_number='9800000888',
+            amount=Decimal('50.00'),
+            product_id=1,
+            status='pending',
+            merchant_txn_id='MYSEWA_NTC_BAL1',
+            total_debited=Decimal('50.00'),
+        )
+        ok, err = apply_outbound_status_change(txn, 'success')
+        self.assertTrue(ok, err)
+        txn.refresh_from_db()
+        wallet.refresh_from_db()
+        self.assertEqual(txn.balance_before, start)
+        self.assertEqual(txn.balance_after, start - Decimal('50.00'))
+        self.assertEqual(wallet.balance, start - Decimal('50.00'))
+
+        ok, err = apply_outbound_status_change(txn, 'failed')
+        self.assertTrue(ok, err)
+        wallet.refresh_from_db()
+        self.assertEqual(wallet.balance, start)
+
+        too_big = TopupTransaction.objects.create(
+            user=self.customer,
+            mobile_number='9800000777',
+            amount=Decimal('99999.00'),
+            product_id=1,
+            status='pending',
+            merchant_txn_id='MYSEWA_NTC_BAL2',
+            total_debited=Decimal('99999.00'),
+        )
+        ok, err = apply_outbound_status_change(too_big, 'success')
+        self.assertFalse(ok)
+        wallet.refresh_from_db()
+        self.assertEqual(wallet.balance, start)
+        too_big.refresh_from_db()
+        self.assertEqual(too_big.status, 'pending')
+
+    def test_internal_transfer_email_after_commit(self):
+        from unittest.mock import patch
+        from .models import Wallet
+
+        recipient = User.objects.create_user(
+            phone='9800000408',
+            password='testpass123',
+            email='recv-mail@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        Wallet.objects.get_or_create(user=recipient, defaults={'balance': Decimal('0.00')})
+        self.client.force_authenticate(user=self.customer)
+        with patch('core.views.wallet_transfer_views.notify_wallet_transfer') as notify:
+            notify.side_effect = RuntimeError('smtp down')
+            resp = self.client.post(
+                reverse('wallet_transfer_create'),
+                {
+                    'recipient_phone': recipient.phone,
+                    'amount': '25',
+                    'transaction_pin': '1234',
+                },
+                format='json',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        notify.assert_called_once()
+        self.customer.wallet.refresh_from_db()
+
+    def test_agent_creates_sub_agent_and_cannot_manage_another_agents(self):
+        self.client.force_authenticate(user=self.agent)
+        resp = self.client.post(
+            reverse('agent_sub_agents'),
+            {
+                'phone': '9800000410',
+                'email': 'sub1@example.com',
+                'password': 'testpass123',
+                'password2': 'testpass123',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        data = resp.json().get('data') or {}
+        self.assertEqual(data.get('role'), 'sub_agent')
+        self.assertEqual(data.get('parent_agent_id'), self.agent.pk)
+        sub_id = data['id']
+
+        self.client.force_authenticate(user=self.other_agent)
+        resp = self.client.get(reverse('agent_sub_agent_detail', args=[sub_id]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        resp = self.client.patch(
+            reverse('agent_sub_agent_detail', args=[sub_id]),
+            {'first_name': 'Hijack'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.get(reverse('agent_sub_agents'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        phones = [item['phone'] for item in resp.json().get('items') or []]
+        self.assertIn('9800000410', phones)
+
+    def test_admin_can_list_network_and_unauthorized_is_forbidden(self):
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.get(reverse('admin_list_users'), {'role': 'dealer'})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        phones = [u['phone'] for u in resp.json().get('items') or []]
+        self.assertIn(self.dealer.phone, phones)
+
+        resp = self.client.get(reverse('admin_dealer_commissions'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+        self.client.force_authenticate(user=self.customer)
+        resp = self.client.get(reverse('admin_list_users'))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        resp = self.client.post(
+            reverse('admin_wallet_freeze', args=[self.customer.wallet.pk]),
+            {},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_freeze_unfreeze_endpoints(self):
+        self.client.force_authenticate(user=self.staff)
+        wallet_id = self.customer.wallet.pk
+        resp = self.client.post(reverse('admin_wallet_freeze', args=[wallet_id]), {}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()['data']['wallet_status'], 'frozen')
+        resp = self.client.post(reverse('admin_wallet_unfreeze', args=[wallet_id]), {}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()['data']['wallet_status'], 'unfrozen')
+
+

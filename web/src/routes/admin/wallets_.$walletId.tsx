@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Pencil, Trash2, History, Unlock } from "lucide-react";
+import { Pencil, Trash2, History, Unlock, Snowflake } from "lucide-react";
 import type { ReactNode } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { BackButton } from "@/components/BackButton";
@@ -79,10 +79,31 @@ function WalletDetailPage() {
     onSuccess: (res) => {
       toast.success(res.message || "Wallet unblocked");
       queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
-      queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });
     },
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : "Could not unblock wallet");
+    },
+  });
+
+  const freezeMutation = useMutation({
+    mutationFn: () => apiClient.adminFreezeWallet(id),
+    onSuccess: (res) => {
+      toast.success(res.message || "Wallet frozen");
+      queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not freeze wallet");
+    },
+  });
+
+  const unfreezeMutation = useMutation({
+    mutationFn: () => apiClient.adminUnfreezeWallet(id),
+    onSuccess: (res) => {
+      toast.success(res.message || "Wallet unfrozen");
+      queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not unfreeze wallet");
     },
   });
 
@@ -113,6 +134,40 @@ function WalletDetailPage() {
                 {unblockMutation.isPending ? "Unblocking…" : "Unblock wallet"}
               </Button>
             ) : null}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="sm"
+                  variant={w.is_frozen ? "outline" : "destructive"}
+                  disabled={freezeMutation.isPending || unfreezeMutation.isPending}
+                >
+                  <Snowflake className="size-3.5" />
+                  {w.is_frozen ? "Unfreeze wallet" : "Freeze wallet"}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {w.is_frozen ? "Unfreeze this wallet?" : "Freeze this wallet?"}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {w.is_frozen
+                      ? "Unfreezing restores remittance, fund transfer, and other wallet transactions."
+                      : "A frozen wallet cannot debit or credit. Remittance and fund transfers will be blocked until you unfreeze it."}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() =>
+                      w.is_frozen ? unfreezeMutation.mutate() : freezeMutation.mutate()
+                    }
+                  >
+                    {w.is_frozen ? "Unfreeze" : "Freeze"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             {allowAdjust ? (
             <Button asChild size="sm" variant="outline">
               <Link to="/admin/wallets/$walletId/edit" params={{ walletId }}>
@@ -191,6 +246,14 @@ function WalletDetailPage() {
               <DetailRow label="Balance">
                 <span className="tabular">{formatNPR(w.balance)}</span>
               </DetailRow>
+              <DetailRow label="Wallet status">
+                <span className={w.is_frozen ? "text-destructive" : ""}>
+                  {w.is_frozen ? "Frozen" : "Active / Unfrozen"}
+                </span>
+              </DetailRow>
+              {w.freeze_reason ? (
+                <DetailRow label="Freeze reason">{w.freeze_reason}</DetailRow>
+              ) : null}
               <DetailRow label="Transactions">
                 {w.transactions_blocked ? (
                   <span className="text-destructive">

@@ -168,7 +168,19 @@ function UserDetailPage() {
                 </Badge>
               </DetailRow>
               <DetailRow label="Role">
-                {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : "Customer"}
+                {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : (u.role || "customer")}
+              </DetailRow>
+              <DetailRow label="Assigned Dealer">
+                {u.assigned_dealer
+                  ? `${u.assigned_dealer.phone}${u.assigned_dealer.name ? ` (${u.assigned_dealer.name})` : ""}`
+                  : u.role === "dealer"
+                    ? "—"
+                    : "Unassigned"}
+              </DetailRow>
+              <DetailRow label="Parent Agent">
+                {u.parent_agent
+                  ? `${u.parent_agent.phone}${u.parent_agent.name ? ` (${u.parent_agent.name})` : ""}`
+                  : "—"}
               </DetailRow>
               <DetailRow label="Staff">{u.is_staff ? "Yes" : "No"}</DetailRow>
               <DetailRow label="Superuser">{u.is_superuser ? "Yes" : "No"}</DetailRow>
@@ -177,9 +189,25 @@ function UserDetailPage() {
                   {u.can_fund_transfer !== false ? "Enabled" : "Disabled"}
                 </Badge>
               </DetailRow>
+              <DetailRow label="Remittance Transfer">
+                <Badge variant={u.can_remittance_transfer !== false ? "default" : "secondary"}>
+                  {u.can_remittance_transfer !== false ? "Enabled" : "Disabled"}
+                </Badge>
+              </DetailRow>
               <DetailRow label="Wallet Transfer">
                 <Badge variant={u.can_wallet_adjust !== false ? "default" : "secondary"}>
                   {u.can_wallet_adjust !== false ? "Enabled" : "Disabled"}
+                </Badge>
+              </DetailRow>
+              {u.role === "dealer" ? (
+                <>
+                  <DetailRow label="Commission rate">{u.commission_rate ?? "0"}%</DetailRow>
+                  <DetailRow label="TDS rate">{u.tds_rate ?? "Global default"}%</DetailRow>
+                </>
+              ) : null}
+              <DetailRow label="Wallet status">
+                <Badge variant={u.wallet_frozen ? "secondary" : "default"}>
+                  {u.wallet_frozen ? "Frozen" : "Active / Unfrozen"}
                 </Badge>
               </DetailRow>
               <DetailRow label="Wallet ID">{u.wallet_id ?? "—"}</DetailRow>

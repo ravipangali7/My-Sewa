@@ -16,7 +16,7 @@ import { DepositAccountsPanel } from "@/components/DepositAccountsPanel";
 import { apiClient } from "@/lib/api";
 import { settingsQueryOptions } from "@/lib/refresh";
 import { useAuth } from "@/lib/auth";
-import { isAccountPending, canFundTransfer, canWalletAdjust, isWalletBlocked } from "@/lib/account-status";
+import { isAccountPending, canFundTransfer, canWalletAdjust, canRemittanceTransfer, isWalletBlocked, isWalletFrozen } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useT } from "@/lib/i18n";
 
@@ -60,7 +60,7 @@ function Services() {
         ? t("services.unavailablePending")
         : t("services.remittanceDesc"),
       icon: ArrowDownToLine,
-      enabled: payment?.remittances_enabled !== false && !accountPending,
+      enabled: payment?.remittances_enabled !== false && !accountPending && canRemittanceTransfer(user) && !isWalletFrozen(wallet, user),
     },
     {
       to: "/app/load" as const,

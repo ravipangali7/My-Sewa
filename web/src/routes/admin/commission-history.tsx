@@ -28,7 +28,7 @@ import { formatDateTime, formatNPR } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
 import { downloadCsvExport } from "@/lib/list-query";
 import { useListFilters, TXN_STATUS_OPTIONS } from "@/hooks/use-list-filters";
-import type { CommissionHistoryItem } from "@/lib/types";
+import type { CommissionHistoryItem, DealerCommissionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const LIST_PAGE = 1;
@@ -66,6 +66,11 @@ function CommissionHistoryPage() {
   const historyQuery = useQuery({
     queryKey: ["admin", "commission-history", debounced],
     queryFn: () => apiClient.adminCommissionHistory(debounced),
+    ...adminLiveQueryOptions(),
+  });
+  const dealerQuery = useQuery({
+    queryKey: ["admin", "dealer-commissions", debounced],
+    queryFn: () => apiClient.adminDealerCommissions(debounced),
     ...adminLiveQueryOptions(),
   });
 
@@ -292,6 +297,96 @@ function CommissionHistoryPage() {
           </AdminMobileCardGrid>
         }
       />
+      <div className="mt-8 space-y-4">
+        <h2 className="text-base font-semibold">Dealer commission & TDS</h2>
+        <p className="text-sm text-muted-foreground">
+          Gross commission, TDS, and net payable for each customer transaction mapped to a Dealer.
+        </p>
+        <StatsCards
+          items={[
+            {
+              key: "gross",
+              label: "Gross commission",
+              value: formatNPR(dealerQuery.data?.earnings?.gross_commission ?? 0),
+              icon: Coins,
+              tone: "brand",
+            },
+            {
+              key: "tds",
+              label: "TDS deducted",
+              value: formatNPR(dealerQuery.data?.earnings?.tds_amount ?? 0),
+              icon: Handshake,
+              tone: "debit",
+            },
+            {
+              key: "net",
+              label: "Net payable",
+              value: formatNPR(dealerQuery.data?.earnings?.net_commission ?? 0),
+              icon: Coins,
+              tone: "credit",
+            },
+          ]}
+        />
+        <AdminDataList
+          isEmpty={!dealerQuery.isLoading && (dealerQuery.data?.items ?? []).length === 0}
+          empty={<AdminEmptyState>No dealer commissions yet.</AdminEmptyState>}
+          table={
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10 pr-0">S.N.</TableHead>
+                  <TableHead>When</TableHead>
+                  <TableHead>Dealer</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Transaction</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Rate</TableHead>
+                  <TableHead className="text-right">Gross</TableHead>
+                  <TableHead className="text-right">TDS</TableHead>
+                  <TableHead className="text-right">Net</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(dealerQuery.data?.items ?? []).map((row: DealerCommissionItem, index) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="w-10 pr-0 tabular text-sm text-muted-foreground">
+                      {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)}
+                    </TableCell>
+                    <TableCell className="text-sm">{formatDateTime(row.created_at)}</TableCell>
+                    <TableCell>
+                      <div className="font-medium">{row.dealer_name || row.dealer_phone}</div>
+                      <div className="text-xs text-muted-foreground">{row.dealer_phone}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{row.source_name || row.source_phone || "—"}</div>
+                      <div className="text-xs text-muted-foreground">{row.source_phone || "—"}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{row.txn_type_display}</div>
+                      <div className="text-xs text-muted-foreground">
+                        #{row.txn_id} {row.reference}
+                      </div>
+                    </TableCell>
+                    <TableCell className="tabular text-right">{formatNPR(row.txn_amount)}</TableCell>
+                    <TableCell className="tabular text-right">{row.commission_rate}%</TableCell>
+                    <TableCell className="tabular text-right">{formatNPR(row.gross_commission)}</TableCell>
+                    <TableCell className="tabular text-right">
+                      {formatNPR(row.tds_amount)} ({row.tds_rate}%)
+                    </TableCell>
+                    <TableCell className="tabular text-right font-semibold">
+                      {formatNPR(row.net_commission)}
+                    </TableCell>
+                    <TableCell>
+                      <StatusChip status={row.status === "posted" ? "success" : "failed"} compact />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          }
+        />
+      </div>
     </AdminShell>
   );
 }

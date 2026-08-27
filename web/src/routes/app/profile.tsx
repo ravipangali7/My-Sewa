@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, type ReactNode } from "react";
 import {
   Cake,
@@ -19,11 +20,13 @@ import { KycVerifiedBadge } from "@/components/IdentityLockedBanner";
 import { UserShell } from "@/components/layout/UserShell";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
-import { isAccountActive } from "@/lib/account-status";
+import { isAccountActive, canRemittanceTransfer, isWalletFrozen } from "@/lib/account-status";
 import { isIdentityLocked } from "@/lib/kyc-lock";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/password-input";
 import {
   AlertDialog,
@@ -56,7 +59,7 @@ export const Route = createFileRoute("/app/profile")({
 function Profile() {
   const t = useT();
   const navigate = useNavigate();
-  const { user, logout, refreshProfile } = useAuth();
+  const { user, wallet, logout, refreshProfile } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -335,6 +338,50 @@ function Profile() {
 
           <section>
             <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
+              Account
+            </h2>
+            <div className="space-y-2 rounded-2xl bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)] text-[13px]">
+              <p>
+                <span className="text-[#8A94A6]">Role:</span>{" "}
+                <span className="font-semibold">{user.role || "customer"}</span>
+              </p>
+              <p>
+                <span className="text-[#8A94A6]">Dealer:</span>{" "}
+                <span className="font-semibold">
+                  {user.assigned_dealer
+                    ? `${user.assigned_dealer.phone}${user.assigned_dealer.name ? ` (${user.assigned_dealer.name})` : ""}`
+                    : user.role === "dealer"
+                      ? "—"
+                      : "Unassigned"}
+                </span>
+              </p>
+              {user.parent_agent ? (
+                <p>
+                  <span className="text-[#8A94A6]">Parent Agent:</span>{" "}
+                  <span className="font-semibold">
+                    {user.parent_agent.phone}
+                    {user.parent_agent.name ? ` (${user.parent_agent.name})` : ""}
+                  </span>
+                </p>
+              ) : null}
+              <p>
+                <span className="text-[#8A94A6]">Wallet:</span>{" "}
+                <span className="font-semibold">
+                  {isWalletFrozen(wallet, user) ? t("account.walletFrozenLabel") : t("account.walletActiveLabel")}
+                </span>
+              </p>
+              <p>
+                <span className="text-[#8A94A6]">Remittance transfer:</span>{" "}
+                <span className="font-semibold">
+                  {canRemittanceTransfer(user) ? "Enabled" : "Disabled"}
+                </span>
+              </p>
+            </div>
+            {user.role === "agent" ? <AgentSubAgentsPanel /> : null}
+          </section>
+
+          <section>
+            <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
               {t("profile.security")}
             </h2>
             <div className="space-y-2.5">
@@ -486,5 +533,89 @@ function SettingsRow({
       </div>
       <ChevronRight className="size-5 shrink-0 text-[#C0C7D2]" strokeWidth={2} />
     </Link>
+  );
+}
+
+function AgentSubAgentsPanel() {
+  const queryClient = useQueryClient();
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const listQuery = useQuery({
+    queryKey: ["agent", "sub-agents"],
+    queryFn: () => apiClient.agentSubAgents(),
+  });
+  const createMutation = useMutation({
+    mutationFn: () =>
+      apiClient.agentCreateSubAgent({
+        phone: phone.trim(),
+        email: email.trim(),
+        password,
+        password2: password,
+        role: "sub_agent",
+        account_status: "approved",
+      }),
+    onSuccess: () => {
+      toast.success("Sub-Agent created");
+      setPhone("");
+      setEmail("");
+      setPassword("");
+      queryClient.invalidateQueries({ queryKey: ["agent", "sub-agents"] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not create Sub-Agent");
+    },
+  });
+  const items = listQuery.data?.items ?? [];
+  return (
+    <div className="mt-3 space-y-3 rounded-2xl bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
+      <p className="text-[14px] font-semibold text-[#0F172A]">Sub-Agents</p>
+      {items.length === 0 ? (
+        <p className="text-[12px] text-[#8A94A6]">No Sub-Agents yet.</p>
+      ) : (
+        <ul className="space-y-1.5 text-[13px]">
+          {items.map((item) => (
+            <li key={item.id} className="flex justify-between gap-2">
+              <span>{item.phone}</span>
+              <span className="text-[#8A94A6]">
+                {[item.first_name, item.last_name].filter(Boolean).join(" ") || "—"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="space-y-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          createMutation.mutate();
+        }}
+      >
+        <Input
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="Phone"
+          required
+        />
+        <Input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email"
+          required
+        />
+        <Input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password (min 8 characters)"
+          minLength={8}
+          required
+        />
+        <Button type="submit" size="sm" disabled={createMutation.isPending}>
+          {createMutation.isPending ? "Creating…" : "Create Sub-Agent"}
+        </Button>
+      </form>
+    </div>
   );
 }

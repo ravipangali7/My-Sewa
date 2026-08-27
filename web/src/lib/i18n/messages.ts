@@ -88,6 +88,10 @@ export const messages = {
     "account.pendingLabel": "Pending",
     "account.walletBlocked":
       "Your wallet is locked because a payment was taken by the provider but not recorded on MySewa. Contact support — only an admin can unlock it.",
+    "account.walletFrozen": "Wallet is currently frozen. Transactions are not allowed.",
+    "account.walletFrozenLabel": "Frozen",
+    "account.walletActiveLabel": "Active",
+    "account.remittanceDisabled": "Remittance fund transfer is disabled for this account.",
 
     "status.pending": "Pending",
     "status.approved": "Approved",
@@ -1220,6 +1224,10 @@ export const messages = {
     "account.pendingLabel": "पेन्डिङ",
     "account.walletBlocked":
       "तपाईंको वालेट लक छ किनभने प्रदायकले रकम काटिसकेको छ तर MySewa मा रेकर्ड भएको छैन। सहयोग सम्पर्क गर्नुहोस् — एडमिनले मात्र अनलक गर्न सक्छन्।",
+    "account.walletFrozen": "वालेट हाल फ्रोजन छ। कारोबार अनुमति छैन।",
+    "account.walletFrozenLabel": "फ्रोजन",
+    "account.walletActiveLabel": "सक्रिय",
+    "account.remittanceDisabled": "यो खाताका लागि रेमिटेन्स फन्ड ट्रान्सफर निष्क्रिय छ।",
 
     "status.pending": "पेन्डिङ",
     "status.approved": "स्वीकृत",

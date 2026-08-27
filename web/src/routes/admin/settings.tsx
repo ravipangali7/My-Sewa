@@ -20,6 +20,7 @@ import {
   ArrowDownToLine,
   Send,
   Smartphone,
+  Percent,
   Trash2,
 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
@@ -130,6 +131,10 @@ const DEFAULT_CONFIG: AppConfig = {
     daily_transfer_limit: 200000,
     auto_status_verified: false,
   },
+  commission: {
+    default_commission_rate: 0,
+    default_tds_rate: 15,
+  },
   notifications: {
     email_on_deposit: true,
     email_on_topup: true,
@@ -191,6 +196,7 @@ const SECTIONS = [
   { id: "site", label: "General", icon: Building2 },
   { id: "payment", label: "Payments", icon: CreditCard },
   { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
+  { id: "commission", label: "Dealer commission", icon: Percent },
   { id: "remittance", label: "Remittance agent", icon: ArrowDownToLine },
   { id: "deposit", label: "Deposit accounts", icon: QrCode },
   { id: "smtp", label: "Email / SMTP", icon: Mail },
@@ -245,6 +251,7 @@ function SettingsPage() {
       site: { ...DEFAULT_CONFIG.site, ...(remote?.site ?? {}) },
       payment: { ...DEFAULT_CONFIG.payment, ...(remote?.payment ?? {}) },
       transactions: { ...DEFAULT_CONFIG.transactions, ...(remote?.transactions ?? {}) },
+      commission: { ...DEFAULT_CONFIG.commission!, ...(remote?.commission ?? {}) },
       notifications: { ...DEFAULT_CONFIG.notifications, ...(remote?.notifications ?? {}) },
       security: { ...DEFAULT_CONFIG.security, ...(remote?.security ?? {}) },
       integrations: {
@@ -1120,6 +1127,50 @@ function SettingsPage() {
                     setConfig((c) => ({
                       ...c,
                       transactions: { ...c.transactions, auto_status_verified: v },
+                    }))
+                  }
+                />
+              </div>
+            </SettingsPanel>
+          </TabsContent>
+
+          <TabsContent value="commission">
+            <SettingsPanel
+              title="Dealer commission & TDS"
+              description="Global defaults used when a Dealer has no per-user rate. Per-dealer rates are set on the user form."
+              onSave={() =>
+                saveConfigSection("commission", config.commission ?? DEFAULT_CONFIG.commission!)
+              }
+              saving={saving}
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <NumberField
+                  id="default_commission_rate"
+                  label="Default commission rate (%)"
+                  value={config.commission?.default_commission_rate ?? 0}
+                  step="0.01"
+                  onChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      commission: {
+                        ...(c.commission ?? DEFAULT_CONFIG.commission!),
+                        default_commission_rate: v,
+                      },
+                    }))
+                  }
+                />
+                <NumberField
+                  id="default_tds_rate"
+                  label="Default TDS rate (%)"
+                  value={config.commission?.default_tds_rate ?? 15}
+                  step="0.01"
+                  onChange={(v) =>
+                    setConfig((c) => ({
+                      ...c,
+                      commission: {
+                        ...(c.commission ?? DEFAULT_CONFIG.commission!),
+                        default_tds_rate: v,
+                      },
                     }))
                   }
                 />

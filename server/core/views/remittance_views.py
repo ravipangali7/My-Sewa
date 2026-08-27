@@ -32,6 +32,7 @@ from ..services.app_config import (
     get_app_config,
     require_feature_enabled,
     require_account_approved,
+    require_user_feature,
 )
 from ..services.notifications import notify_remittance_success
 from ..services.txn_status import apply_inbound_status_change
@@ -266,9 +267,16 @@ def lookup_remittance(request):
     blocked = require_feature_enabled('remittances')
     if blocked:
         return blocked
+    blocked = require_user_feature(request.user, 'remittance_transfer')
+    if blocked:
+        return blocked
     pending = require_account_approved(request.user)
     if pending:
         return pending
+    from ..services.app_config import require_wallet_not_frozen
+    frozen = require_wallet_not_frozen(request.user)
+    if frozen:
+        return frozen
 
     serializer = RemittanceLookupSerializer(data=request.data)
     if not serializer.is_valid():
@@ -452,9 +460,16 @@ def receive_remittance(request):
     blocked = require_feature_enabled('remittances')
     if blocked:
         return blocked
+    blocked = require_user_feature(request.user, 'remittance_transfer')
+    if blocked:
+        return blocked
     pending = require_account_approved(request.user)
     if pending:
         return pending
+    from ..services.app_config import require_wallet_not_frozen
+    frozen = require_wallet_not_frozen(request.user)
+    if frozen:
+        return frozen
 
     serializer = RemittanceReceiveSerializer(data=request.data)
     if not serializer.is_valid():

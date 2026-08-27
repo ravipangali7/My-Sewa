@@ -100,7 +100,7 @@ function UsersPage() {
       value,
     }: {
       id: number;
-      field: "can_fund_transfer" | "can_wallet_adjust";
+      field: "can_fund_transfer" | "can_wallet_adjust" | "can_remittance_transfer";
       value: boolean;
     }) => {
       const existing = usersQuery.data?.items?.find((u) => u.id === id);
@@ -111,7 +111,12 @@ function UsersPage() {
       });
     },
     onSuccess: (_data, vars) => {
-      const label = vars.field === "can_fund_transfer" ? "Fund Transfer" : "Wallet Transfer";
+      const label =
+        vars.field === "can_fund_transfer"
+          ? "Fund Transfer"
+          : vars.field === "can_remittance_transfer"
+            ? "Remittance Transfer"
+            : "Wallet Transfer";
       toast.success(vars.value ? `${label} enabled` : `${label} disabled`);
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
     },
@@ -189,7 +194,7 @@ function UsersPage() {
 
   const accessToggle = (
     u: AdminUser,
-    field: "can_fund_transfer" | "can_wallet_adjust",
+    field: "can_fund_transfer" | "can_wallet_adjust" | "can_remittance_transfer",
     label: string,
   ) => {
     const checked = u[field] !== false;
@@ -290,10 +295,12 @@ function UsersPage() {
                 <TableHead>Phone</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Staff</TableHead>
+                <TableHead>Staff / Role</TableHead>
+                <TableHead>Dealer</TableHead>
                 <TableHead>Account</TableHead>
                 <TableHead>Login</TableHead>
                 <TableHead>Fund Transfer</TableHead>
+                <TableHead>Remittance</TableHead>
                 <TableHead>Wallet Transfer</TableHead>
                 <TableHead>Date joined</TableHead>
                 <TableHead>Last login</TableHead>
@@ -313,8 +320,11 @@ function UsersPage() {
                     {u.first_name} {u.last_name}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.email || "—"}</TableCell>
+                  <TableCell>
+                    {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : (u.role || "customer")}
+                  </TableCell>
                   <TableCell className="text-sm">
-                    {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : "—"}
+                    {u.assigned_dealer?.phone || (u.role === "dealer" ? "—" : "Unassigned")}
                   </TableCell>
                   <TableCell>
                     <Badge variant={u.account_status === "approved" ? "default" : "secondary"}>
@@ -327,6 +337,7 @@ function UsersPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>{accessToggle(u, "can_fund_transfer", "Fund Transfer")}</TableCell>
+                  <TableCell>{accessToggle(u, "can_remittance_transfer", "Remittance Transfer")}</TableCell>
                   <TableCell>{accessToggle(u, "can_wallet_adjust", "Wallet Transfer")}</TableCell>
                   <TableCell className="text-sm">{formatDate(u.date_joined)}</TableCell>
                   <TableCell className="text-sm">
@@ -372,7 +383,11 @@ function UsersPage() {
                       { label: "Email", value: u.email || "—" },
                       {
                         label: "Role",
-                        value: u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : "User",
+                        value: u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : (u.role || "customer"),
+                      },
+                      {
+                        label: "Dealer",
+                        value: u.assigned_dealer?.phone || (u.role === "dealer" ? "—" : "Unassigned"),
                       },
                       { label: "Joined", value: formatDate(u.date_joined) },
                       {
@@ -386,6 +401,10 @@ function UsersPage() {
                       {
                         label: "Fund Transfer",
                         value: accessToggle(u, "can_fund_transfer", "Fund Transfer"),
+                      },
+                      {
+                        label: "Remittance",
+                        value: accessToggle(u, "can_remittance_transfer", "Remittance Transfer"),
                       },
                       {
                         label: "Wallet Transfer",

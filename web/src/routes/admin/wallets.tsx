@@ -228,9 +228,13 @@ function WalletsPage() {
                     <TableCell className="text-sm font-medium">{w.phone}</TableCell>
                     <TableCell className="tabular text-right text-sm">
                       {formatNPR(w.balance)}
-                      {w.transactions_blocked ? (
+                      {w.is_frozen ? (
+                        <div className="text-[11px] font-medium text-destructive">Frozen</div>
+                      ) : w.transactions_blocked ? (
                         <div className="text-[11px] font-medium text-destructive">Locked</div>
-                      ) : null}
+                      ) : (
+                        <div className="text-[11px] font-medium text-muted-foreground">Active</div>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm">{formatDateTime(w.created_at)}</TableCell>
                     <TableCell className="text-sm">{formatDateTime(w.updated_at)}</TableCell>

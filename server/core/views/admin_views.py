@@ -39,6 +39,8 @@ from ..models import (
     CommunityElectricityTransaction,
     DataPackTransaction,
     UserFeeConfig,
+    DealerCommission,
+    DealerCommissionConfig,
     KYCSubmission,
     StatementReconcileRun,
     StatementDiscrepancy,
@@ -59,6 +61,7 @@ from ..serializers import (
     AdminTopupSerializer,
     BankTransferTransactionSerializer,
     CommissionHistorySerializer,
+    DealerCommissionSerializer,
     RemittanceTransactionSerializer,
     AdminRemittanceSerializer,
     InternetBillTransactionSerializer,
@@ -91,6 +94,12 @@ from ..services.himalpay import (
     is_route_not_found_error,
 )
 from ..services.app_config import get_app_config, require_user_feature
+from ..services.hierarchy import (
+    is_admin_actor,
+    scope_forbidden_response,
+    user_in_scope,
+    users_in_scope,
+)
 from ..services.txn_status import apply_outbound_status_change, apply_inbound_status_change
 from ..services.statement_reconcile import (
     build_himalpay_history_items,
@@ -623,7 +632,7 @@ def admin_dashboard(request):
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_list_users(request):
     if request.method == 'POST':
-        serializer = AdminUserWriteSerializer(data=request.data)
+        serializer = AdminUserWriteSerializer(data=request.data, context={'request': request})
         if not serializer.is_valid():
             return Response(
                 {'error': 'Validation failed', 'errors': serializer.errors},
@@ -639,9 +648,15 @@ def admin_list_users(request):
             status=status.HTTP_201_CREATED,
         )
 
-    users = User.objects.select_related('wallet').order_by('-date_joined')
+    users = users_in_scope(request.user).select_related(
+        'wallet', 'assigned_dealer', 'parent_agent', 'dealer_commission_config',
+    ).order_by('-date_joined')
     q = (request.query_params.get('q') or '').strip()
+    role = (request.query_params.get('role') or '').strip()
     start, end = _parse_date_range(request)
+
+    if role in ('customer', 'dealer', 'agent', 'sub_agent'):
+        users = users.filter(role=role)
 
     if q:
         users = users.filter(
@@ -662,7 +677,8 @@ def admin_list_users(request):
             [
                 'id', 'phone', 'first_name', 'last_name', 'email',
                 'account_status', 'is_active', 'is_staff', 'is_superuser',
-                'can_fund_transfer', 'can_wallet_adjust',
+                'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
+                'role', 'assigned_dealer',
                 'wallet_balance', 'date_joined', 'last_login',
             ],
             [
@@ -678,6 +694,9 @@ def admin_list_users(request):
                     u.is_superuser,
                     u.can_fund_transfer,
                     u.can_wallet_adjust,
+                    u.can_remittance_transfer,
+                    u.role,
+                    (u.assigned_dealer.phone if u.assigned_dealer_id else ''),
                     (u.wallet.balance if hasattr(u, 'wallet') and u.wallet else Decimal('0.00')),
                     u.date_joined.isoformat() if u.date_joined else '',
                     u.last_login.isoformat() if u.last_login else '',
@@ -718,9 +737,14 @@ def admin_list_users(request):
 @api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_user_detail(request, user_id):
+    from ..services.hierarchy import scope_forbidden_response, user_in_scope, users_in_scope
     try:
-        user = User.objects.select_related('wallet').get(pk=user_id)
+        user = users_in_scope(request.user).select_related(
+            'wallet', 'assigned_dealer', 'parent_agent', 'dealer_commission_config',
+        ).get(pk=user_id)
     except User.DoesNotExist:
+        if User.objects.filter(pk=user_id).exists():
+            return scope_forbidden_response()
         return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == 'GET':
@@ -750,6 +774,7 @@ def admin_user_detail(request, user_id):
 
     serializer = AdminUserWriteSerializer(
         user, data=request.data, partial=(request.method == 'PATCH'),
+        context={'request': request},
     )
     if not serializer.is_valid():
         return Response(
@@ -1110,6 +1135,11 @@ def admin_wallet_detail(request, wallet_id):
     blocked = require_user_feature(request.user, 'wallet_adjustment')
     if blocked:
         return blocked
+    from ..services.wallet_guard import WALLET_FROZEN_MESSAGE, frozen_response
+    if getattr(wallet, 'is_frozen', False):
+        return frozen_response(
+            (wallet.freeze_reason or '').strip() or WALLET_FROZEN_MESSAGE
+        )
 
     # Manual load / adjust: prefer {amount, adjustment_type, reason}
     # (credit = add fund / manual load, debit = subtract). Still accept {balance, reason}.
@@ -1131,6 +1161,18 @@ def admin_wallet_detail(request, wallet_id):
                 .select_related('user')
                 .get(pk=wallet_id)
             )
+            from ..services.wallet_guard import (
+                WALLET_FROZEN_MESSAGE,
+                WalletFrozenError,
+                assert_wallet_not_frozen,
+                frozen_response,
+            )
+            try:
+                assert_wallet_not_frozen(locked)
+            except WalletFrozenError:
+                return frozen_response(
+                    (locked.freeze_reason or '').strip() or WALLET_FROZEN_MESSAGE
+                )
             balance_before = locked.balance
 
             if data.get('amount') is not None and data.get('adjustment_type'):
@@ -1205,6 +1247,51 @@ def admin_wallet_unblock(request, wallet_id):
     wallet = Wallet.objects.select_related('user').get(pk=wallet.pk)
     return Response({
         'message': 'Wallet unblocked. Outbound payments are allowed again.',
+        'data': AdminWalletSerializer(wallet).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_wallet_freeze(request, wallet_id):
+    """Admin freeze: block all debit/credit wallet movements."""
+    try:
+        wallet = Wallet.objects.select_related('user').get(pk=wallet_id)
+    except Wallet.DoesNotExist:
+        return Response({'error': 'Wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+    if wallet.is_frozen:
+        return Response({
+            'message': 'Wallet is already frozen',
+            'data': AdminWalletSerializer(wallet).data,
+        })
+    from ..services.wallet_guard import freeze_wallet
+    reason = (request.data.get('reason') or request.data.get('freeze_reason') or '').strip()
+    wallet = freeze_wallet(wallet, request.user, reason=reason)
+    wallet = Wallet.objects.select_related('user').get(pk=wallet.pk)
+    return Response({
+        'message': 'Wallet frozen. Transactions are not allowed.',
+        'data': AdminWalletSerializer(wallet).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_wallet_unfreeze(request, wallet_id):
+    """Restore normal wallet transactions after an admin freeze."""
+    try:
+        wallet = Wallet.objects.select_related('user').get(pk=wallet_id)
+    except Wallet.DoesNotExist:
+        return Response({'error': 'Wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+    if not wallet.is_frozen:
+        return Response({
+            'message': 'Wallet is already unfrozen',
+            'data': AdminWalletSerializer(wallet).data,
+        })
+    from ..services.wallet_guard import unfreeze_wallet
+    wallet = unfreeze_wallet(wallet, request.user)
+    wallet = Wallet.objects.select_related('user').get(pk=wallet.pk)
+    return Response({
+        'message': 'Wallet unfrozen. Transactions are allowed again.',
         'data': AdminWalletSerializer(wallet).data,
     })
 
@@ -1919,9 +2006,20 @@ def admin_approve_deposit(request, deposit_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    from ..services.wallet_guard import require_wallet_not_frozen
+    frozen = require_wallet_not_frozen(deposit.user)
+    if frozen:
+        return frozen
+
     # Signal credits wallet when status flips to approved
-    deposit.status = 'approved'
-    deposit.save()
+    try:
+        deposit.status = 'approved'
+        deposit.save()
+    except ValueError as exc:
+        return Response(
+            {'error': str(exc), 'message': str(exc), 'code': 'wallet_frozen'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     return Response({
         'message': 'Deposit approved successfully',
         'data': DepositSerializer(deposit, context={'request': request}).data,
@@ -2164,6 +2262,113 @@ def admin_commission_history(request):
         },
         'earnings': _commission_earnings(qs),
         'summary': _amount_summary(qs, direction='debit'),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_dealer_commissions(request):
+    """Transaction-wise Dealer commission + TDS ledger."""
+    qs = DealerCommission.objects.select_related(
+        'dealer', 'source_user',
+    ).order_by('-created_at')
+    if not is_admin_actor(request.user):
+        from ..services.hierarchy import ROLE_DEALER, resolve_assigned_dealer
+        if getattr(request.user, 'role', None) == ROLE_DEALER:
+            qs = qs.filter(dealer=request.user)
+        else:
+            dealer = resolve_assigned_dealer(request.user)
+            qs = qs.filter(dealer=dealer) if dealer is not None else qs.none()
+    q = (request.query_params.get('q') or '').strip()
+    start, end = _parse_date_range(request)
+    status_filter = (request.query_params.get('status') or '').strip()
+    dealer_id = (request.query_params.get('dealer_id') or '').strip()
+    txn_type = (request.query_params.get('txn_type') or '').strip()
+    if status_filter in ('posted', 'reversed'):
+        qs = qs.filter(status=status_filter)
+    if dealer_id.isdigit():
+        qs = qs.filter(dealer_id=int(dealer_id))
+    if txn_type:
+        qs = qs.filter(txn_type=txn_type)
+    if q:
+        qs = qs.filter(
+            Q(dealer__phone__icontains=q)
+            | Q(dealer__first_name__icontains=q)
+            | Q(dealer__last_name__icontains=q)
+            | Q(source_user__phone__icontains=q)
+            | Q(source_user__first_name__icontains=q)
+            | Q(reference__icontains=q)
+            | _maybe_id_query(q, 'id', 'txn_id', 'dealer_id')
+        )
+    qs = _apply_created_range(qs, start, end)
+
+    if _is_csv_export(request):
+        return _csv_response(
+            'admin-dealer-commissions.csv',
+            [
+                'id', 'created_at', 'dealer_phone', 'source_phone',
+                'txn_type', 'txn_id', 'reference', 'txn_amount',
+                'commission_rate', 'gross_commission', 'tds_rate',
+                'tds_amount', 'net_commission', 'status',
+            ],
+            [
+                [
+                    row.id,
+                    row.created_at.isoformat() if row.created_at else '',
+                    row.dealer.phone,
+                    row.source_user.phone if row.source_user_id else '',
+                    row.txn_type,
+                    row.txn_id,
+                    row.reference,
+                    row.txn_amount,
+                    row.commission_rate,
+                    row.gross_commission,
+                    row.tds_rate,
+                    row.tds_amount,
+                    row.net_commission,
+                    row.status,
+                ]
+                for row in qs
+            ],
+        )
+
+    posted = qs.filter(status=DealerCommission.STATUS_POSTED)
+    today = timezone.localdate()
+    month_start = today.replace(day=1)
+    return Response({
+        'items': DealerCommissionSerializer(qs, many=True).data,
+        'stats': {
+            'total': qs.count(),
+            'success': posted.count(),
+            'pending': 0,
+            'failed': qs.filter(status=DealerCommission.STATUS_REVERSED).count(),
+        },
+        'earnings': {
+            'gross_commission': _money(posted.aggregate(t=Sum('gross_commission'))['t']),
+            'tds_amount': _money(posted.aggregate(t=Sum('tds_amount'))['t']),
+            'net_commission': _money(posted.aggregate(t=Sum('net_commission'))['t']),
+            'today_net': _money(
+                posted.filter(created_at__date=today).aggregate(t=Sum('net_commission'))['t']
+            ),
+            'monthly_net': _money(
+                posted.filter(created_at__date__gte=month_start).aggregate(
+                    t=Sum('net_commission'),
+                )['t']
+            ),
+            'count': posted.count(),
+        },
+        'summary': {
+            'total_volume': _money(posted.aggregate(t=Sum('txn_amount'))['t']),
+            'total_amount': _money(posted.aggregate(t=Sum('net_commission'))['t']),
+            'today_amount': _money(
+                posted.filter(created_at__date=today).aggregate(t=Sum('net_commission'))['t']
+            ),
+            'monthly_amount': _money(
+                posted.filter(created_at__date__gte=month_start).aggregate(
+                    t=Sum('net_commission'),
+                )['t']
+            ),
+        },
     })
 
 

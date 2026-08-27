@@ -23,7 +23,7 @@ import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { toastPendingSettled, usePendingStatusPoll } from "@/hooks/use-pending-status-poll";
-import { isAccountPending } from "@/lib/account-status";
+import { isAccountPending, canRemittanceTransfer, isWalletFrozen } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { TransactionPinDialog } from "@/components/TransactionPinDialog";
 import { useI18n } from "@/lib/i18n";
@@ -124,7 +124,7 @@ const emptyKyc = (phone = ""): KycForm => ({
 
 function ReceiveRemittance() {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user, wallet } = useAuth();
   const { t } = useI18n();
   const { logoUrl } = useSiteBranding();
   const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
@@ -202,7 +202,10 @@ function ReceiveRemittance() {
     ...settingsQueryOptions(),
   });
   const remittancesEnabled =
-    settingsQuery.data?.config?.payment?.remittances_enabled !== false && !accountPending;
+    settingsQuery.data?.config?.payment?.remittances_enabled !== false &&
+    !accountPending &&
+    canRemittanceTransfer(user) &&
+    !isWalletFrozen(wallet, user);
 
   const historyQuery = useQuery({
     queryKey: ["remittances", debounced],

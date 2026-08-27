@@ -15,6 +15,8 @@ from .models import (
     ElectricityBillTransaction,
     CommunityElectricityTransaction,
     UserFeeConfig,
+    DealerCommissionConfig,
+    DealerCommission,
     DeviceToken,
     KYCSubmission,
     KYCDocument,
@@ -38,7 +40,8 @@ class CustomUserAdminForm(forms.ModelForm):
         fields = (
             'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
             'date_of_birth', 'account_status',
-            'can_fund_transfer', 'can_wallet_adjust',
+            'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
+            'role', 'assigned_dealer', 'parent_agent',
             'is_active', 'is_staff',
         )
 
@@ -62,12 +65,12 @@ class CustomUserAdmin(admin.ModelAdmin):
     form = CustomUserAdminForm
     list_display = (
         'phone', 'email', 'first_name', 'last_name', 'nickname',
-        'account_status', 'kyc_status', 'can_fund_transfer', 'can_wallet_adjust',
-        'is_active', 'date_joined',
+        'account_status', 'kyc_status', 'role', 'can_fund_transfer', 'can_wallet_adjust',
+        'can_remittance_transfer', 'is_active', 'date_joined',
     )
     list_filter = (
-        'account_status', 'kyc_status', 'can_fund_transfer', 'can_wallet_adjust',
-        'is_active', 'is_staff', 'date_joined',
+        'account_status', 'kyc_status', 'role', 'can_fund_transfer', 'can_wallet_adjust',
+        'can_remittance_transfer', 'is_active', 'is_staff', 'date_joined',
     )
     search_fields = (
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name',
@@ -81,7 +84,8 @@ class CustomUserAdmin(admin.ModelAdmin):
     fields = (
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
         'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
-        'can_fund_transfer', 'can_wallet_adjust',
+        'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
+        'role', 'assigned_dealer', 'parent_agent',
         'is_active', 'is_staff',
         'date_joined', 'last_login',
     )
@@ -89,11 +93,12 @@ class CustomUserAdmin(admin.ModelAdmin):
 
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):
-    list_display = ('user', 'balance', 'transactions_blocked', 'created_at', 'updated_at')
-    list_filter = ('transactions_blocked', 'created_at', 'updated_at')
+    list_display = ('user', 'balance', 'is_frozen', 'transactions_blocked', 'created_at', 'updated_at')
+    list_filter = ('is_frozen', 'transactions_blocked', 'created_at', 'updated_at')
     search_fields = ('user__username', 'user__email', 'user__phone')
     readonly_fields = (
         'created_at', 'updated_at', 'blocked_at', 'unblocked_at', 'unblocked_by',
+        'frozen_at', 'frozen_by', 'freeze_unfrozen_at', 'freeze_unfrozen_by',
     )
     ordering = ('-updated_at',)
 
@@ -643,6 +648,35 @@ class PushNotificationAdmin(admin.ModelAdmin):
         'sent_by', 'sent', 'failed', 'skipped', 'target_count', 'created_at',
     )
     ordering = ('-created_at', '-id')
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(DealerCommissionConfig)
+class DealerCommissionConfigAdmin(admin.ModelAdmin):
+    list_display = ('user', 'commission_rate', 'tds_rate', 'updated_at')
+    search_fields = ('user__phone', 'user__first_name', 'user__last_name')
+
+
+@admin.register(DealerCommission)
+class DealerCommissionAdmin(admin.ModelAdmin):
+    list_display = (
+        'dealer', 'source_user', 'txn_type', 'txn_id', 'txn_amount',
+        'commission_rate', 'gross_commission', 'tds_rate', 'tds_amount',
+        'net_commission', 'status', 'created_at',
+    )
+    list_filter = ('status', 'txn_type', 'created_at')
+    search_fields = (
+        'dealer__phone', 'source_user__phone', 'reference',
+    )
+    readonly_fields = (
+        'dealer', 'source_user', 'txn_type', 'txn_id', 'reference',
+        'txn_amount', 'commission_rate', 'gross_commission',
+        'tds_rate', 'tds_amount', 'net_commission', 'status',
+        'created_at', 'updated_at',
+    )
+    ordering = ('-created_at',)
 
     def has_add_permission(self, request):
         return False

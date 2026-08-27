@@ -307,6 +307,9 @@ type AdminListFilters = Partial<{
   status: string;
   startDate: string;
   endDate: string;
+  role: string;
+  dealer_id: string;
+  txn_type: string;
 }>;
 
 function buildAdminListQuery(filters?: AdminListFilters) {
@@ -315,10 +318,16 @@ function buildAdminListQuery(filters?: AdminListFilters) {
   const status = filters?.status?.trim();
   const startDate = filters?.startDate?.trim();
   const endDate = filters?.endDate?.trim();
+  const role = filters?.role?.trim();
+  const dealerId = filters?.dealer_id?.trim();
+  const txnType = filters?.txn_type?.trim();
   if (q) params.set("q", q);
   if (status && status !== "all") params.set("status", status);
   if (startDate) params.set("start_date", startDate);
   if (endDate) params.set("end_date", endDate);
+  if (role && role !== "all") params.set("role", role);
+  if (dealerId) params.set("dealer_id", dealerId);
+  if (txnType) params.set("txn_type", txnType);
   const query = params.toString();
   return query ? `?${query}` : "";
 }
@@ -1135,6 +1144,16 @@ export const apiClient = {
       `/api/admin/wallets/${id}/unblock/`,
       { method: "POST" },
     ),
+  adminFreezeWallet: (id: number, body?: { reason?: string }) =>
+    api<{ message: string; data: import("./types").AdminWallet }>(
+      `/api/admin/wallets/${id}/freeze/`,
+      { method: "POST", body: body ?? {} },
+    ),
+  adminUnfreezeWallet: (id: number) =>
+    api<{ message: string; data: import("./types").AdminWallet }>(
+      `/api/admin/wallets/${id}/unfreeze/`,
+      { method: "POST" },
+    ),
   adminWalletTransactions: (
     id: number,
     filters?: AdminListFilters & { type?: string },
@@ -1278,6 +1297,19 @@ export const apiClient = {
     api<import("./types").CommissionHistoryResponse>(
       `/api/admin/commission-history/${buildAdminListQuery(filters)}`,
     ),
+  adminDealerCommissions: (filters?: AdminListFilters) =>
+    api<import("./types").DealerCommissionResponse>(
+      `/api/admin/dealer-commissions/${buildAdminListQuery(filters)}`,
+    ),
+  agentSubAgents: (filters?: AdminListFilters) =>
+    api<{ items: import("./types").AdminUser[] }>(
+      `/api/agent/sub-agents/${buildAdminListQuery(filters)}`,
+    ),
+  agentCreateSubAgent: (body: import("./types").AdminUserWritePayload) =>
+    api<{ message: string; data: import("./types").AdminUser }>("/api/agent/sub-agents/", {
+      method: "POST",
+      body,
+    }),
   adminUpdateTransferStatus: (id: number, status: import("./types").TxnStatus) =>
     api<{ message: string; data: import("./types").BankTransferTransaction }>(
       `/api/admin/transfers/${id}/status/`,

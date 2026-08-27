@@ -243,12 +243,34 @@ def create_wallet_transfer(request):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            from ..services.wallet_guard import (
+                WALLET_FROZEN_MESSAGE,
+                WalletBalanceMismatchError,
+                WalletFrozenError,
+                assert_wallet_not_frozen,
+                frozen_response,
+            )
+            try:
+                assert_wallet_not_frozen(sender_locked)
+                assert_wallet_not_frozen(recipient_locked)
+            except WalletFrozenError as exc:
+                return frozen_response(str(exc) or WALLET_FROZEN_MESSAGE)
+
             sender_before = sender_locked.balance
             recipient_before = recipient_locked.balance
-            sender_locked.balance = sender_before - amount
-            recipient_locked.balance = recipient_before + amount
+            expected_sender = sender_before - amount
+            expected_recipient = recipient_before + amount
+            sender_locked.balance = expected_sender
+            recipient_locked.balance = expected_recipient
             sender_locked.save(update_fields=['balance', 'updated_at'])
             recipient_locked.save(update_fields=['balance', 'updated_at'])
+            sender_locked.refresh_from_db(fields=['balance'])
+            recipient_locked.refresh_from_db(fields=['balance'])
+            if sender_locked.balance != expected_sender or recipient_locked.balance != expected_recipient:
+                raise WalletBalanceMismatchError(
+                    f'{expected_sender}/{expected_recipient}',
+                    f'{sender_locked.balance}/{recipient_locked.balance}',
+                )
 
             transfer = WalletTransfer.objects.create(
                 sender=request.user,
@@ -267,6 +289,25 @@ def create_wallet_transfer(request):
             {'error': 'Wallet not found', 'message': 'Wallet not found.'},
             status=status.HTTP_404_NOT_FOUND,
         )
+    except Exception as exc:
+        from ..services.wallet_guard import (
+            WALLET_FROZEN_MESSAGE,
+            WalletBalanceMismatchError,
+            WalletFrozenError,
+            frozen_response,
+        )
+        if isinstance(exc, WalletFrozenError):
+            return frozen_response(str(exc) or WALLET_FROZEN_MESSAGE)
+        if isinstance(exc, WalletBalanceMismatchError):
+            return Response(
+                {
+                    'error': 'Wallet update failed',
+                    'message': str(exc),
+                    'code': 'wallet_balance_mismatch',
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        raise
 
     try:
         notify_wallet_transfer(transfer)

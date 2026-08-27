@@ -11,7 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { AccountStatus, AdminUser, AdminUserWritePayload } from "@/lib/types";
+import type { AccountStatus, AdminUser, AdminUserWritePayload, UserRole } from "@/lib/types";
+import { apiClient } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 
 export type UserFormValues = {
   phone: string;
@@ -22,8 +24,14 @@ export type UserFormValues = {
   is_staff: boolean;
   is_superuser: boolean;
   account_status: AccountStatus;
+  role: UserRole;
+  assigned_dealer: number | null;
+  parent_agent: number | null;
   can_fund_transfer: boolean;
   can_wallet_adjust: boolean;
+  can_remittance_transfer: boolean;
+  commission_rate: string;
+  tds_rate: string;
   password: string;
   password2: string;
 };
@@ -38,8 +46,14 @@ function fromUser(user?: AdminUser | null): UserFormValues {
     is_staff: user?.is_staff ?? false,
     is_superuser: user?.is_superuser ?? false,
     account_status: user?.account_status ?? "approved",
+    role: user?.role ?? "customer",
+    assigned_dealer: user?.assigned_dealer_id ?? user?.assigned_dealer?.id ?? null,
+    parent_agent: user?.parent_agent_id ?? user?.parent_agent?.id ?? null,
     can_fund_transfer: user?.can_fund_transfer ?? true,
     can_wallet_adjust: user?.can_wallet_adjust ?? true,
+    can_remittance_transfer: user?.can_remittance_transfer ?? true,
+    commission_rate: user?.commission_rate ?? "0",
+    tds_rate: user?.tds_rate ?? "",
     password: "",
     password2: "",
   };
@@ -59,6 +73,16 @@ export function UserForm({
   onCancel: () => void;
 }) {
   const [values, setValues] = useState<UserFormValues>(() => fromUser(initialUser));
+  const dealersQuery = useQuery({
+    queryKey: ["admin", "users", "dealers"],
+    queryFn: () => apiClient.adminUsers({ role: "dealer" }),
+  });
+  const agentsQuery = useQuery({
+    queryKey: ["admin", "users", "agents"],
+    queryFn: () => apiClient.adminUsers({ role: "agent" }),
+  });
+  const dealers = dealersQuery.data?.items ?? [];
+  const agents = agentsQuery.data?.items ?? [];
 
   const set = <K extends keyof UserFormValues>(key: K, value: UserFormValues[K]) => {
     setValues((v) => ({ ...v, [key]: value }));
@@ -79,9 +103,17 @@ export function UserForm({
       is_staff: values.is_staff,
       is_superuser: values.is_superuser,
       account_status: values.account_status,
+      role: values.role,
+      assigned_dealer: values.role === "dealer" ? null : values.assigned_dealer,
+      parent_agent: values.role === "sub_agent" ? values.parent_agent : null,
       can_fund_transfer: values.can_fund_transfer,
       can_wallet_adjust: values.can_wallet_adjust,
+      can_remittance_transfer: values.can_remittance_transfer,
     };
+    if (values.role === "dealer") {
+      payload.commission_rate = values.commission_rate || "0";
+      payload.tds_rate = values.tds_rate.trim() === "" ? null : values.tds_rate;
+    }
     if (values.password || mode === "create") {
       payload.password = values.password;
       payload.password2 = values.password2;
@@ -195,6 +227,105 @@ export function UserForm({
       </div>
 
       <div className="space-y-3 rounded-lg border border-border p-4">
+        <p className="text-sm font-medium">Hierarchy</p>
+        <p className="text-xs text-muted-foreground">
+          Admin → Dealer → Agent → Sub-Agent → Customer. Commission uses the assigned Dealer.
+        </p>
+        <div className="space-y-1.5">
+          <Label htmlFor="role">Role</Label>
+          <Select
+            value={values.role}
+            onValueChange={(v) => set("role", v as UserRole)}
+          >
+            <SelectTrigger id="role" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="customer">Customer</SelectItem>
+              <SelectItem value="dealer">Dealer</SelectItem>
+              <SelectItem value="agent">Agent</SelectItem>
+              <SelectItem value="sub_agent">Sub-Agent</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {values.role !== "dealer" ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="assigned_dealer">Assigned Dealer</Label>
+            <Select
+              value={values.assigned_dealer ? String(values.assigned_dealer) : "none"}
+              onValueChange={(v) => set("assigned_dealer", v === "none" ? null : Number(v))}
+            >
+              <SelectTrigger id="assigned_dealer" className="w-full">
+                <SelectValue placeholder="Select dealer" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {dealers.map((d) => (
+                  <SelectItem key={d.id} value={String(d.id)}>
+                    {d.phone}
+                    {d.first_name || d.last_name
+                      ? ` — ${[d.first_name, d.last_name].filter(Boolean).join(" ")}`
+                      : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+        {values.role === "sub_agent" ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="parent_agent">Parent Agent</Label>
+            <Select
+              value={values.parent_agent ? String(values.parent_agent) : "none"}
+              onValueChange={(v) => set("parent_agent", v === "none" ? null : Number(v))}
+            >
+              <SelectTrigger id="parent_agent" className="w-full">
+                <SelectValue placeholder="Select parent agent" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {agents.map((a) => (
+                  <SelectItem key={a.id} value={String(a.id)}>
+                    {a.phone}
+                    {a.first_name || a.last_name
+                      ? ` — ${[a.first_name, a.last_name].filter(Boolean).join(" ")}`
+                      : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+        {values.role === "dealer" ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="commission_rate">Commission rate (%)</Label>
+              <Input
+                id="commission_rate"
+                type="number"
+                min="0"
+                step="0.01"
+                value={values.commission_rate}
+                onChange={(e) => set("commission_rate", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="tds_rate">TDS rate (%) — blank uses global default</Label>
+              <Input
+                id="tds_rate"
+                type="number"
+                min="0"
+                step="0.01"
+                value={values.tds_rate}
+                onChange={(e) => set("tds_rate", e.target.value)}
+                placeholder="Global default"
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border p-4">
         <p className="text-sm font-medium">Permissions</p>
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor="is_active" className="font-normal">
@@ -231,7 +362,7 @@ export function UserForm({
       <div className="space-y-3 rounded-lg border border-border p-4">
         <p className="text-sm font-medium">Feature access</p>
         <p className="text-xs text-muted-foreground">
-          Grant or revoke this user's ability to perform fund transfers and wallet transfers.
+          Grant or revoke this user's ability to perform fund transfers, remittance, and wallet transfers.
         </p>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -244,6 +375,19 @@ export function UserForm({
             id="can_fund_transfer"
             checked={values.can_fund_transfer}
             onCheckedChange={(checked) => set("can_fund_transfer", checked)}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Label htmlFor="can_remittance_transfer" className="font-normal">
+              Remittance Fund Transfer
+            </Label>
+            <p className="text-xs text-muted-foreground">Look up and receive remittance payouts</p>
+          </div>
+          <Switch
+            id="can_remittance_transfer"
+            checked={values.can_remittance_transfer}
+            onCheckedChange={(checked) => set("can_remittance_transfer", checked)}
           />
         </div>
         <div className="flex items-center justify-between gap-3">

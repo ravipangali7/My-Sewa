@@ -16,6 +16,7 @@ from .views import (
     admin_views,
     kyc_views,
     popup_views,
+    hierarchy_views,
 )
 
 urlpatterns = [
@@ -64,7 +65,16 @@ urlpatterns = [
     ),
     path('api/auth/has-transaction-pin/', auth_views.has_transaction_pin, name='has_transaction_pin'),
     path('api/auth/verify-transaction-pin/', auth_views.verify_transaction_pin, name='verify_transaction_pin'),
-    path('api/auth/device-token/', auth_views.device_token, name='device_token'),
+    path(
+        'api/agent/sub-agents/',
+        hierarchy_views.agent_sub_agents,
+        name='agent_sub_agents',
+    ),
+    path(
+        'api/agent/sub-agents/<int:user_id>/',
+        hierarchy_views.agent_sub_agent_detail,
+        name='agent_sub_agent_detail',
+    ),
 
     # Wallet endpoints
     path('api/wallet/balance/', wallet_views.get_wallet_balance, name='wallet_balance'),
@@ -209,6 +219,8 @@ urlpatterns = [
     path('api/admin/wallets/', admin_views.admin_list_wallets, name='admin_list_wallets'),
     path('api/admin/wallets/<int:wallet_id>/transactions/', admin_views.admin_wallet_transactions, name='admin_wallet_transactions'),
     path('api/admin/wallets/<int:wallet_id>/unblock/', admin_views.admin_wallet_unblock, name='admin_wallet_unblock'),
+    path('api/admin/wallets/<int:wallet_id>/freeze/', admin_views.admin_wallet_freeze, name='admin_wallet_freeze'),
+    path('api/admin/wallets/<int:wallet_id>/unfreeze/', admin_views.admin_wallet_unfreeze, name='admin_wallet_unfreeze'),
     path('api/admin/transactions/', admin_views.admin_transaction_history, name='admin_transaction_history'),
     path('api/admin/wallets/<int:wallet_id>/', admin_views.admin_wallet_detail, name='admin_wallet_detail'),
     path('api/admin/deposits/', admin_views.admin_list_deposits, name='admin_list_deposits'),
@@ -239,6 +251,7 @@ urlpatterns = [
     path('api/admin/community-electricity/<int:bill_id>/status/', admin_views.admin_update_community_electricity_status, name='admin_update_community_electricity_status'),
     path('api/admin/transfers/', admin_views.admin_list_transfers, name='admin_list_transfers'),
     path('api/admin/commission-history/', admin_views.admin_commission_history, name='admin_commission_history'),
+    path('api/admin/dealer-commissions/', admin_views.admin_dealer_commissions, name='admin_dealer_commissions'),
     path('api/admin/transfers/<int:transfer_id>/status/', admin_views.admin_update_transfer_status, name='admin_update_transfer_status'),
     path('api/admin/remittances/', admin_views.admin_list_remittances, name='admin_list_remittances'),
     path('api/admin/remittances/<int:remittance_id>/', admin_views.admin_get_remittance, name='admin_get_remittance'),

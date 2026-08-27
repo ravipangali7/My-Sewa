@@ -24,9 +24,86 @@ WALLET_BLOCKED_MESSAGE = (
     'but not recorded on MySewa. Please contact MySewa support. Only an admin can unlock it.'
 )
 
+WALLET_FROZEN_CODE = 'wallet_frozen'
+WALLET_FROZEN_MESSAGE = 'Wallet is currently frozen. Transactions are not allowed.'
+
+
+class WalletFrozenError(Exception):
+    def __init__(self, message: str = WALLET_FROZEN_MESSAGE):
+        super().__init__(message)
+        self.message = message
+
+
+class InsufficientWalletBalanceError(Exception):
+    def __init__(self, required, available):
+        self.required = required
+        self.available = available
+        super().__init__(
+            f'Insufficient MySewa business wallet balance. '
+            f'Need Rs. {required}, have Rs. {available}.'
+        )
+
+
+class WalletBalanceMismatchError(Exception):
+    def __init__(self, expected, actual):
+        self.expected = expected
+        self.actual = actual
+        super().__init__(
+            f'Wallet balance did not update correctly (expected {expected}, got {actual}).'
+        )
+
+
+def frozen_response(message: str = WALLET_FROZEN_MESSAGE) -> Response:
+    return Response(
+        {
+            'error': WALLET_FROZEN_MESSAGE,
+            'message': WALLET_FROZEN_MESSAGE,
+            'code': WALLET_FROZEN_CODE,
+            'wallet_frozen': True,
+            'wallet_status': 'frozen',
+            'freeze_reason': (message or '').strip() if (message or '').strip() != WALLET_FROZEN_MESSAGE else '',
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def wallet_is_frozen(wallet) -> bool:
+    return bool(wallet is not None and getattr(wallet, 'is_frozen', False))
+
+
+def require_wallet_not_frozen(user) -> Optional[Response]:
+    """Return 403 when this user's wallet is frozen by an admin."""
+    if user is None:
+        return Response(
+            {
+                'error': 'authentication_required',
+                'message': 'Authentication required.',
+                'code': 'authentication_required',
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+    try:
+        wallet = Wallet.objects.filter(user_id=user.pk).only(
+            'is_frozen', 'freeze_reason',
+        ).first()
+    except Exception:
+        logger.exception('Could not read wallet freeze state for user %s', getattr(user, 'pk', None))
+        return None
+    if wallet is None or not wallet.is_frozen:
+        return None
+    return frozen_response((wallet.freeze_reason or '').strip() or WALLET_FROZEN_MESSAGE)
+
+
+def assert_wallet_not_frozen(wallet) -> None:
+    if wallet_is_frozen(wallet):
+        raise WalletFrozenError(WALLET_FROZEN_MESSAGE)
+
 
 def require_wallet_not_blocked(user) -> Optional[Response]:
-    """Return 403 when this user's wallet is locked for outbound payments."""
+    """Return 403 when this user's wallet is frozen or locked for outbound payments."""
+    frozen = require_wallet_not_frozen(user)
+    if frozen:
+        return frozen
     if user is None:
         return Response(
             {
@@ -55,6 +132,31 @@ def require_wallet_not_blocked(user) -> Optional[Response]:
         },
         status=status.HTTP_403_FORBIDDEN,
     )
+
+
+def freeze_wallet(wallet: Wallet, admin_user, reason: str = '') -> Wallet:
+    wallet.is_frozen = True
+    wallet.freeze_reason = (reason or '').strip()[:2000]
+    wallet.frozen_at = timezone.now()
+    wallet.frozen_by = admin_user
+    wallet.freeze_unfrozen_at = None
+    wallet.freeze_unfrozen_by = None
+    wallet.save(update_fields=[
+        'is_frozen', 'freeze_reason', 'frozen_at', 'frozen_by',
+        'freeze_unfrozen_at', 'freeze_unfrozen_by', 'updated_at',
+    ])
+    return wallet
+
+
+def unfreeze_wallet(wallet: Wallet, admin_user) -> Wallet:
+    wallet.is_frozen = False
+    wallet.freeze_reason = ''
+    wallet.freeze_unfrozen_at = timezone.now()
+    wallet.freeze_unfrozen_by = admin_user
+    wallet.save(update_fields=[
+        'is_frozen', 'freeze_reason', 'freeze_unfrozen_at', 'freeze_unfrozen_by', 'updated_at',
+    ])
+    return wallet
 
 
 def block_wallet(

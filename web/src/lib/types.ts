@@ -28,6 +28,15 @@ export type WalletAdjustmentType = "credit" | "debit";
 /** Account approval status — pending users can log in but cannot transact. */
 export type AccountStatus = "pending" | "approved";
 
+export type UserRole = "customer" | "dealer" | "agent" | "sub_agent";
+
+export interface RelatedUserBrief {
+  id: number;
+  phone: string;
+  name: string;
+  role?: UserRole | string;
+}
+
 export interface KycDocument {
   id: number;
   document_type: KycDocumentType;
@@ -98,10 +107,22 @@ export interface UserProfile {
   is_superuser: boolean;
   /** `pending` = Pending (yellow), `approved` = Active (green) */
   account_status?: AccountStatus;
+  /** Hierarchy role. Staff/superuser remain Admin regardless of this field. */
+  role?: UserRole;
+  assigned_dealer_id?: number | null;
+  parent_agent_id?: number | null;
+  assigned_dealer?: RelatedUserBrief | null;
+  parent_agent?: RelatedUserBrief | null;
   /** When false, this user cannot perform fund transfers. Defaults to true. */
   can_fund_transfer?: boolean;
   /** When false, this user cannot perform wallet adjustments. Defaults to true. */
   can_wallet_adjust?: boolean;
+  /** When false, this user cannot initiate remittance fund transfers. Defaults to true. */
+  can_remittance_transfer?: boolean;
+  wallet_frozen?: boolean;
+  wallet_status?: "frozen" | "unfrozen";
+  commission_rate?: string | null;
+  tds_rate?: string | null;
   /** Whether a transaction PIN is set (never the raw PIN). */
   has_transaction_pin?: boolean;
   date_joined: string;
@@ -116,6 +137,10 @@ export interface Wallet {
   transactions_blocked?: boolean;
   blocked_reason?: string;
   blocked_at?: string | null;
+  is_frozen?: boolean;
+  freeze_reason?: string;
+  frozen_at?: string | null;
+  wallet_status?: "frozen" | "unfrozen";
   created_at: string;
   updated_at: string;
 }
@@ -170,6 +195,13 @@ export interface PaymentConfig {
   min_deposit: number;
   max_deposit: number;
   deposit_instructions: string;
+}
+
+export interface CommissionConfig {
+  /** Default percent of transaction amount paid as gross dealer commission. */
+  default_commission_rate: number;
+  /** Default TDS percent of gross commission when a dealer has no override. */
+  default_tds_rate: number;
 }
 
 export interface TransactionsConfig {
@@ -261,6 +293,7 @@ export interface AppConfig {
   site: SiteConfig;
   payment: PaymentConfig;
   transactions: TransactionsConfig;
+  commission?: CommissionConfig;
   notifications: NotificationsConfig;
   security: SecurityConfig;
   integrations?: IntegrationsConfig;
@@ -829,8 +862,14 @@ export interface AdminUserWritePayload {
   is_staff?: boolean;
   is_superuser?: boolean;
   account_status?: AccountStatus;
+  role?: UserRole;
+  assigned_dealer?: number | null;
+  parent_agent?: number | null;
   can_fund_transfer?: boolean;
   can_wallet_adjust?: boolean;
+  can_remittance_transfer?: boolean;
+  commission_rate?: string | number | null;
+  tds_rate?: string | number | null;
   password?: string;
   password2?: string;
 }
@@ -878,6 +917,13 @@ export interface AdminWallet {
   blocked_merchant_txn_id?: string;
   unblocked_at?: string | null;
   unblocked_by?: number | null;
+  is_frozen?: boolean;
+  freeze_reason?: string;
+  frozen_at?: string | null;
+  frozen_by?: number | null;
+  freeze_unfrozen_at?: string | null;
+  freeze_unfrozen_by?: number | null;
+  wallet_status?: "frozen" | "unfrozen";
   created_at: string;
   updated_at: string;
 }
@@ -1088,6 +1134,46 @@ export interface CommissionHistoryResponse {
   items: CommissionHistoryItem[];
   stats: AdminListStats;
   earnings: CommissionEarnings;
+  summary?: AmountSummary;
+}
+
+export interface DealerCommissionItem {
+  id: number;
+  dealer: number;
+  dealer_phone: string;
+  dealer_name: string;
+  source_user: number | null;
+  source_phone: string | null;
+  source_name: string;
+  txn_type: string;
+  txn_type_display: string;
+  txn_id: number;
+  reference: string;
+  txn_amount: string;
+  commission_rate: string;
+  gross_commission: string;
+  tds_rate: string;
+  tds_amount: string;
+  net_commission: string;
+  status: "posted" | "reversed" | string;
+  status_display: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DealerCommissionEarnings {
+  gross_commission: number;
+  tds_amount: number;
+  net_commission: number;
+  today_net: number;
+  monthly_net: number;
+  count: number;
+}
+
+export interface DealerCommissionResponse {
+  items: DealerCommissionItem[];
+  stats: AdminListStats;
+  earnings: DealerCommissionEarnings;
   summary?: AmountSummary;
 }
 

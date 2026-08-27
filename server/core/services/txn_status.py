@@ -8,6 +8,17 @@ from typing import Optional, Tuple
 from django.db import transaction
 
 from ..models import Wallet
+from .wallet_guard import (
+    InsufficientWalletBalanceError,
+    WalletBalanceMismatchError,
+    WalletFrozenError,
+    WALLET_FROZEN_MESSAGE,
+    assert_wallet_not_frozen,
+)
+
+
+def _money(value) -> Decimal:
+    return Decimal(str(value or 0)).quantize(Decimal('0.01'))
 
 
 def _get_or_create_wallet(user) -> Wallet:
@@ -30,20 +41,47 @@ def snapshot_wallet_balances(txn, balance_before: Decimal, balance_after: Decima
 def debit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
     """
     Debit wallet and snapshot balances onto txn.
-    Caller must hold select_for_update on wallet and have already validated funds.
+    Caller must hold select_for_update on wallet.
+    Verifies sufficient funds before deducting and the stored balance afterwards.
     """
-    before = wallet.balance
-    wallet.balance = before - amount
+    assert_wallet_not_frozen(wallet)
+    amount = _money(amount)
+    before = _money(wallet.balance)
+    if before < amount:
+        raise InsufficientWalletBalanceError(amount, before)
+    expected = before - amount
+    wallet.balance = expected
     wallet.save(update_fields=['balance', 'updated_at'])
-    snapshot_wallet_balances(txn, before, wallet.balance)
+    wallet.refresh_from_db(fields=['balance'])
+    actual = _money(wallet.balance)
+    if actual != expected:
+        raise WalletBalanceMismatchError(expected, actual)
+    snapshot_wallet_balances(txn, before, actual)
+    try:
+        from .dealer_commission import record_dealer_commission
+        record_dealer_commission(txn)
+    except Exception:
+        pass
 
 
 def credit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
     """Credit wallet and snapshot balances onto txn. Caller must hold select_for_update."""
-    before = wallet.balance
-    wallet.balance = before + amount
+    assert_wallet_not_frozen(wallet)
+    amount = _money(amount)
+    before = _money(wallet.balance)
+    expected = before + amount
+    wallet.balance = expected
     wallet.save(update_fields=['balance', 'updated_at'])
-    snapshot_wallet_balances(txn, before, wallet.balance)
+    wallet.refresh_from_db(fields=['balance'])
+    actual = _money(wallet.balance)
+    if actual != expected:
+        raise WalletBalanceMismatchError(expected, actual)
+    snapshot_wallet_balances(txn, before, actual)
+    try:
+        from .dealer_commission import record_dealer_commission
+        record_dealer_commission(txn)
+    except Exception:
+        pass
 
 
 def apply_outbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[str]]:
@@ -63,23 +101,47 @@ def apply_outbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[s
 
     debit = debit_amount_for(txn)
 
-    with transaction.atomic():
-        wallet = _get_or_create_wallet(txn.user)
-        wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+    try:
+        with transaction.atomic():
+            wallet = _get_or_create_wallet(txn.user)
+            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
 
-        update_fields = ['status', 'updated_at']
+            update_fields = ['status', 'updated_at']
 
-        if old_status != 'success' and new_status == 'success':
-            if wallet.balance < debit:
-                return False, 'Insufficient wallet balance to mark as success'
-            debit_wallet_for_txn(wallet, txn, debit)
-            update_fields.extend(['balance_before', 'balance_after'])
-        elif old_status == 'success' and new_status != 'success':
-            wallet.balance += debit
-            wallet.save(update_fields=['balance', 'updated_at'])
+            if old_status != 'success' and new_status == 'success':
+                debit_wallet_for_txn(wallet, txn, debit)
+                update_fields.extend(['balance_before', 'balance_after'])
+            elif old_status == 'success' and new_status != 'success':
+                assert_wallet_not_frozen(wallet)
+                before = _money(wallet.balance)
+                expected = before + _money(debit)
+                wallet.balance = expected
+                wallet.save(update_fields=['balance', 'updated_at'])
+                wallet.refresh_from_db(fields=['balance'])
+                if _money(wallet.balance) != expected:
+                    raise WalletBalanceMismatchError(expected, wallet.balance)
 
-        txn.status = new_status
-        txn.save(update_fields=update_fields)
+            txn.status = new_status
+            txn.save(update_fields=update_fields)
+    except WalletFrozenError as exc:
+        return False, exc.message or WALLET_FROZEN_MESSAGE
+    except InsufficientWalletBalanceError as exc:
+        return False, str(exc)
+    except WalletBalanceMismatchError as exc:
+        return False, str(exc)
+
+    if old_status != 'success' and new_status == 'success':
+        try:
+            from .dealer_commission import record_dealer_commission
+            record_dealer_commission(txn)
+        except Exception:
+            pass
+    elif old_status == 'success' and new_status != 'success':
+        try:
+            from .dealer_commission import reverse_dealer_commission
+            reverse_dealer_commission(txn)
+        except Exception:
+            pass
 
     return True, None
 
@@ -104,26 +166,51 @@ def apply_inbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[st
 
     credit = credit_amount_for(txn)
 
-    with transaction.atomic():
-        wallet = _get_or_create_wallet(txn.user)
-        wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+    try:
+        with transaction.atomic():
+            wallet = _get_or_create_wallet(txn.user)
+            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
 
-        update_fields = ['status', 'updated_at']
+            update_fields = ['status', 'updated_at']
 
-        if old_status != 'success' and new_status == 'success':
-            credit_wallet_for_txn(wallet, txn, credit)
-            txn.wallet_credited = True
-            update_fields.extend(['balance_before', 'balance_after', 'wallet_credited'])
-        elif old_status == 'success' and new_status != 'success':
-            if wallet.balance < credit:
-                return False, 'Insufficient wallet balance to reverse remittance credit'
-            wallet.balance -= credit
-            wallet.save(update_fields=['balance', 'updated_at'])
-            txn.wallet_credited = False
-            update_fields.append('wallet_credited')
+            if old_status != 'success' and new_status == 'success':
+                credit_wallet_for_txn(wallet, txn, credit)
+                txn.wallet_credited = True
+                update_fields.extend(['balance_before', 'balance_after', 'wallet_credited'])
+            elif old_status == 'success' and new_status != 'success':
+                assert_wallet_not_frozen(wallet)
+                refund = _money(credit)
+                before = _money(wallet.balance)
+                if before < refund:
+                    return False, 'Insufficient wallet balance to reverse remittance credit'
+                expected = before - refund
+                wallet.balance = expected
+                wallet.save(update_fields=['balance', 'updated_at'])
+                wallet.refresh_from_db(fields=['balance'])
+                if _money(wallet.balance) != expected:
+                    raise WalletBalanceMismatchError(expected, wallet.balance)
+                txn.wallet_credited = False
+                update_fields.append('wallet_credited')
 
-        txn.status = new_status
-        txn.save(update_fields=update_fields)
+            txn.status = new_status
+            txn.save(update_fields=update_fields)
+    except WalletFrozenError as exc:
+        return False, exc.message or WALLET_FROZEN_MESSAGE
+    except WalletBalanceMismatchError as exc:
+        return False, str(exc)
+
+    if old_status != 'success' and new_status == 'success':
+        try:
+            from .dealer_commission import record_dealer_commission
+            record_dealer_commission(txn)
+        except Exception:
+            pass
+    elif old_status == 'success' and new_status != 'success':
+        try:
+            from .dealer_commission import reverse_dealer_commission
+            reverse_dealer_commission(txn)
+        except Exception:
+            pass
 
     return True, None
 

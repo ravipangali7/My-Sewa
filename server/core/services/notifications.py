@@ -1609,7 +1609,8 @@ def notify_wallet_transfer(transfer) -> None:
 
     sender_rows: List[Row] = [
         ('Type', 'Wallet transfer sent'),
-        ('Recipient', f'{recipient_name} ({recipient.phone})'),
+        ('Sender', f'{sender_name} ({sender.phone})'),
+        ('Receiver', f'{recipient_name} ({recipient.phone})'),
         ('Amount', amount_display),
         ('New balance', _fmt_amount(transfer.sender_balance_after)),
         ('Remarks', remarks),
@@ -1620,6 +1621,7 @@ def notify_wallet_transfer(transfer) -> None:
     recipient_rows: List[Row] = [
         ('Type', 'Wallet transfer received'),
         ('Sender', f'{sender_name} ({sender.phone})'),
+        ('Receiver', f'{recipient_name} ({recipient.phone})'),
         ('Amount', amount_display),
         ('New balance', _fmt_amount(transfer.recipient_balance_after)),
         ('Remarks', remarks),
@@ -1639,12 +1641,14 @@ def notify_wallet_transfer(transfer) -> None:
             subtitle=f'{amount_display} was transferred from your MySewa wallet.',
             amount_display=amount_display,
             status='success',
-            status_label='Sent',
+            status_label='Success',
             rows=sender_rows,
             greeting=f'Hi {getattr(sender, "first_name", "") or "there"},',
             copy_admin=False,
         )
-    if cfg.get('email_on_wallet_credit', True) and _user_email(recipient):
+    if _user_email(recipient) and (
+        cfg.get('email_on_transfer', True) or cfg.get('email_on_wallet_credit', True)
+    ):
         _send_txn_email(
             recipients=[recipient.email],
             subject=f'[{site_name}] Wallet transfer received',
@@ -1655,7 +1659,7 @@ def notify_wallet_transfer(transfer) -> None:
             subtitle=f'{amount_display} was added to your MySewa wallet.',
             amount_display=amount_display,
             status='success',
-            status_label='Received',
+            status_label='Success',
             rows=recipient_rows,
             greeting=f'Hi {getattr(recipient, "first_name", "") or "there"},',
             copy_admin=False,

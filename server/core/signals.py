@@ -28,6 +28,11 @@ def handle_deposit_approval(sender, instance, **kwargs):
             if old_instance.status != 'approved' and instance.status == 'approved':
                 with transaction.atomic():
                     wallet = Wallet.objects.select_for_update().get(user=instance.user)
+                    from .services.wallet_guard import WalletFrozenError, WALLET_FROZEN_MESSAGE
+                    if getattr(wallet, 'is_frozen', False):
+                        raise ValueError(
+                            (wallet.freeze_reason or '').strip() or WALLET_FROZEN_MESSAGE
+                        )
                     credit_wallet_for_txn(wallet, instance, instance.amount)
                 # Flag for post_save notification (avoid double-send on create)
                 instance._notify_deposit_approved = True
