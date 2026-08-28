@@ -80,6 +80,9 @@ export const messages = {
     "nav.walletPortal": "Wallet portal",
     "nav.logOut": "Log out",
     "nav.supportChat": "Support Chat",
+    "nav.pushBalance": "Push Balance",
+    "nav.transactions": "Transactions",
+    "nav.menu": "Menu",
 
     "chat.title": "Support Chat",
     "chat.searchPlaceholder": "Search MySewa Admin",
@@ -1249,6 +1252,9 @@ export const messages = {
     "nav.walletPortal": "वालेट पोर्टल",
     "nav.logOut": "लग आउट",
     "nav.supportChat": "सहयोग च्याट",
+    "nav.pushBalance": "पुश ब्यालेन्स",
+    "nav.transactions": "कारोबार",
+    "nav.menu": "मेनु",
 
     "chat.title": "सहयोग च्याट",
     "chat.searchPlaceholder": "MySewa एडमिन खोज्नुहोस्",

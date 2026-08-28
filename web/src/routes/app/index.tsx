@@ -20,6 +20,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
+import { DealerMenuButton } from "@/components/layout/PortalShell";
 import { MountainBackdrop } from "@/components/home/MountainBackdrop";
 import { WalletIllustration } from "@/components/home/WalletIllustration";
 import { HomePopupDialog } from "@/components/home/HomePopupDialog";
@@ -29,6 +30,7 @@ import { apiClient } from "@/lib/api";
 import { buildActivity } from "@/lib/activity";
 import { buildNotifications } from "@/lib/notifications";
 import { useAuth } from "@/lib/auth";
+import { isNetworkRole } from "@/lib/auth-destination";
 import { cn } from "@/lib/utils";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -175,6 +177,7 @@ function WalletHome() {
         : 0,
     [txQuery.data, t, locale],
   );
+  const dealerHome = isNetworkRole(user);
   const displayName =
     user?.business_name?.trim() ||
     user?.first_name?.trim() ||
@@ -199,40 +202,65 @@ function WalletHome() {
       <HomePopupDialog />
       <div className="relative flex min-w-0 max-w-full flex-col overflow-x-clip bg-[#F3F5F8] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
         {/* Header band */}
-        <section className="relative shrink-0 overflow-hidden bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_28%,#0C5F8A_55%,#0A8A6A_82%,#10B981_100%)] px-4 pb-[72px] pt-[max(12px,var(--content-safe-top,var(--safe-area-top,env(safe-area-inset-top,0px))))]">
+        <section
+          className={cn(
+            "relative shrink-0 overflow-hidden bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_28%,#0C5F8A_55%,#0A8A6A_82%,#10B981_100%)] px-4",
+            dealerHome
+              ? "pb-[56px] pt-[max(8px,var(--content-safe-top,var(--safe-area-top,env(safe-area-inset-top,0px))))]"
+              : "pb-[72px] pt-[max(12px,var(--content-safe-top,var(--safe-area-top,env(safe-area-inset-top,0px))))]",
+          )}
+        >
           <MountainBackdrop className="pointer-events-none absolute inset-x-0 bottom-0 h-[58%] w-full opacity-90" />
 
-          <div className="relative z-10 flex items-start justify-between">
-            <div className="flex items-center gap-2.5">
-              <img
-                src={logoUrl}
-                alt="MySewa"
-                className="size-[44px] shrink-0 rounded-full object-cover shadow-[0_4px_14px_rgba(0,0,0,0.25)] ring-[2.5px] ring-white/40"
-              />
-              <div className="leading-tight">
-                <p className="text-[22px] font-bold tracking-tight">
-                  <span className="text-white">My</span>
-                  <span className="text-[#6CFFAE]">Sewa</span>
-                </p>
-                <p className="mt-0.5 text-[11px] font-medium text-white/90">
-                  {t("home.tagline")}
-                </p>
+          <div className="relative z-10 flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-1.5">
+              {dealerHome ? <DealerMenuButton className="mt-0 shrink-0" /> : null}
+              <div className="flex min-w-0 items-center gap-2.5">
+                <img
+                  src={logoUrl}
+                  alt="MySewa"
+                  className={cn(
+                    "shrink-0 rounded-full object-cover shadow-[0_4px_14px_rgba(0,0,0,0.25)] ring-[2.5px] ring-white/40",
+                    dealerHome ? "size-9" : "size-[44px]",
+                  )}
+                />
+                <div className="min-w-0 leading-tight">
+                  <p
+                    className={cn(
+                      "font-bold tracking-tight",
+                      dealerHome ? "text-[17px]" : "text-[22px]",
+                    )}
+                  >
+                    <span className="text-white">My</span>
+                    <span className="text-[#6CFFAE]">Sewa</span>
+                  </p>
+                  {dealerHome ? null : (
+                    <p className="mt-0.5 text-[11px] font-medium text-white/90">
+                      {t("home.tagline")}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-0.5">
-              <LanguageToggle />
-              <Link
-                to="/app/support-chat"
-                aria-label={t("nav.supportChat")}
-                className="relative mt-1 flex size-10 items-center justify-center rounded-full text-white"
-              >
-                <MessageCircle className="size-[22px]" strokeWidth={1.75} />
-              </Link>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <LanguageToggle {...(dealerHome ? { className: "mt-0" } : {})} />
+              {dealerHome ? null : (
+                <Link
+                  to="/app/support-chat"
+                  aria-label={t("nav.supportChat")}
+                  className="relative mt-1 flex size-10 items-center justify-center rounded-full text-white"
+                >
+                  <MessageCircle className="size-[22px]" strokeWidth={1.75} />
+                </Link>
+              )}
               <Link
                 to="/app/notifications"
                 aria-label={t("home.notifications")}
-                className="relative mt-1 flex size-10 items-center justify-center rounded-full text-white"
+                className={cn(
+                  "relative flex size-10 items-center justify-center rounded-full text-white",
+                  dealerHome ? "mt-0" : "mt-1",
+                )}
               >
                 <Bell className="size-[22px]" strokeWidth={1.75} />
                 {unreadCount > 0 ? (
@@ -244,26 +272,28 @@ function WalletHome() {
             </div>
           </div>
 
-          <Link
-            to="/app/profile"
-            aria-label={t("home.openProfile")}
-            className="relative z-10 mt-5 flex items-center gap-3 rounded-2xl outline-none transition-opacity active:opacity-90"
-          >
-            <Avatar className="size-[52px] ring-2 ring-white/40 shadow-md">
-              {user?.avatar_url ? <AvatarImage src={user.avatar_url} alt={displayName} /> : null}
-              <AvatarFallback className="bg-white/20 text-sm font-semibold text-white">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <p className="truncate text-[18px] font-bold text-white">
-                {t("home.greeting", { name: displayName })}
-              </p>
-              <p className="mt-0.5 text-[13px] font-medium text-white/80">
-                {user ? formatPhone(user.phone) : ""}
-              </p>
-            </div>
-          </Link>
+          {dealerHome ? null : (
+            <Link
+              to="/app/profile"
+              aria-label={t("home.openProfile")}
+              className="relative z-10 mt-5 flex items-center gap-3 rounded-2xl outline-none transition-opacity active:opacity-90"
+            >
+              <Avatar className="size-[52px] ring-2 ring-white/40 shadow-md">
+                {user?.avatar_url ? <AvatarImage src={user.avatar_url} alt={displayName} /> : null}
+                <AvatarFallback className="bg-white/20 text-sm font-semibold text-white">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="truncate text-[18px] font-bold text-white">
+                  {t("home.greeting", { name: displayName })}
+                </p>
+                <p className="mt-0.5 text-[13px] font-medium text-white/80">
+                  {user ? formatPhone(user.phone) : ""}
+                </p>
+              </div>
+            </Link>
+          )}
         </section>
 
         {/* Content overlapping header */}

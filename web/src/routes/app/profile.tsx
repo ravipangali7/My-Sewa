@@ -19,7 +19,9 @@ import { toast } from "sonner";
 import { DateOfBirthDisplay } from "@/components/DateOfBirthField";
 import { KycVerifiedBadge } from "@/components/IdentityLockedBanner";
 import { UserShell } from "@/components/layout/UserShell";
+import { DealerMenuButton } from "@/components/layout/PortalShell";
 import { useAuth } from "@/lib/auth";
+import { isNetworkRole } from "@/lib/auth-destination";
 import { apiClient, ApiError } from "@/lib/api";
 import { isAccountActive, canRemittanceTransfer, isWalletFrozen } from "@/lib/account-status";
 import { isIdentityLocked } from "@/lib/kyc-lock";
@@ -146,7 +148,10 @@ function Profile() {
     <UserShell title={t("profile.title")} hideHeader>
       <div className="min-w-0 max-w-full overflow-x-clip bg-[#F2F4F7] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
         <section className="relative bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_32%,#0C6B7A_68%,#0A9B6E_100%)] px-4 pb-8 pt-[max(14px,var(--content-safe-top,var(--safe-area-top,env(safe-area-inset-top,0px))))]">
-          <h1 className="text-[20px] font-medium tracking-tight text-white">{t("profile.title")}</h1>
+          <div className="flex items-center gap-1">
+            {isNetworkRole(user) ? <DealerMenuButton className="mt-0 -ml-2" /> : null}
+            <h1 className="text-[20px] font-medium tracking-tight text-white">{t("profile.title")}</h1>
+          </div>
 
           <div className="mt-5 flex flex-col items-center">
             <div className="relative">

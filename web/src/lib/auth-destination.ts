@@ -9,7 +9,7 @@ export function isNetworkRole(user: Pick<UserProfile, "role"> | null | undefined
 export function homePathForUser(user: UserProfile | null | undefined): AppHomePath {
   if (!user) return "/app";
   if (user.is_staff || user.is_superuser) return "/admin";
-  if (isNetworkRole(user)) return "/dealer";
+  if (isNetworkRole(user)) return "/app";
   return "/app";
 }
 

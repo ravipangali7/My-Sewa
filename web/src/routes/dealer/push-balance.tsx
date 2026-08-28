@@ -186,7 +186,7 @@ function PushBalancePage() {
       setPinError(null);
       return;
     }
-    void navigate({ to: "/dealer" });
+    void navigate({ to: "/app" });
   }
 
   const title = t("pushBalance.title");
@@ -270,7 +270,7 @@ function PushBalancePage() {
                 return !open;
               });
             }}
-            className="fixed right-5 bottom-[max(1.25rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] z-30 inline-flex size-14 items-center justify-center rounded-full bg-[#26C6DA] text-black shadow-[0_4px_14px_rgba(0,0,0,0.35)]"
+            className="fixed right-5 bottom-[calc(5.75rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] z-30 inline-flex size-14 items-center justify-center rounded-full bg-[#26C6DA] text-black shadow-[0_4px_14px_rgba(0,0,0,0.35)] md:bottom-[max(1.25rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]"
           >
             {searchOpen ? <X className="size-6" strokeWidth={2.25} /> : <Search className="size-6" strokeWidth={2.25} />}
           </button>
@@ -311,7 +311,7 @@ function UserList({
 }) {
   const { t } = useI18n();
   return (
-    <div className="mx-auto w-full max-w-[430px] px-3 pb-24 pt-2">
+    <div className="mx-auto w-full max-w-[430px] px-3 pb-32 pt-2 md:pb-24">
       {searchOpen ? (
         <div className="mb-3">
           <Input
@@ -427,7 +427,7 @@ function AmountStep({
   const ready = Number.isFinite(amt) && amt > 0 && !disabled;
 
   return (
-    <div className="mx-auto w-full max-w-[430px] px-3 pb-8 pt-2">
+    <div className="mx-auto w-full max-w-[430px] px-3 pb-28 pt-2 md:pb-8">
       <UserCard user={user} hideAction />
       <section className="mt-4 rounded-xl bg-white p-4 text-foreground shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
         <p className="text-[13px] text-muted-foreground">{t("transfer.availableBalance")}</p>

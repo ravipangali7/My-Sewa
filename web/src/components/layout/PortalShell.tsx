@@ -2,7 +2,6 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   Users,
-  Wallet,
   History,
   Coins,
   BarChart3,
@@ -16,8 +15,18 @@ import {
   MessageCircle,
   Landmark,
   Inbox,
+  House,
+  UserRound,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -54,8 +63,49 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useT, type MessageKey } from "@/lib/i18n";
 
 type NavItem = { to: string; label: string; icon: typeof LayoutDashboard };
+
+type BottomTab = {
+  to: string;
+  labelKey: MessageKey;
+  icon: typeof House;
+  match: (pathname: string) => boolean;
+};
+
+type DealerChromeValue = {
+  openMenu: () => void;
+  menuOpen: boolean;
+};
+
+const DealerChromeContext = createContext<DealerChromeValue | null>(null);
+
+export function useDealerChrome() {
+  return useContext(DealerChromeContext);
+}
+
+export function DealerMenuButton({ className }: { className?: string }) {
+  const chrome = useDealerChrome();
+  const t = useT();
+  if (!chrome) return null;
+  return (
+    <button
+      type="button"
+      aria-label={t("nav.menu")}
+      aria-expanded={chrome.menuOpen}
+      onClick={chrome.openMenu}
+      className={cn(
+        "relative mt-1 flex size-10 items-center justify-center rounded-full text-white md:hidden",
+        "transition-transform active:scale-95",
+        "hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50",
+        className,
+      )}
+    >
+      <Menu className="size-[22px]" strokeWidth={1.75} />
+    </button>
+  );
+}
 
 const SERVICE_PREFIXES = [
   "/app/services",
@@ -70,8 +120,42 @@ const SERVICE_PREFIXES = [
   "/app/remittance",
 ];
 
+const BOTTOM_TABS: BottomTab[] = [
+  {
+    to: "/app",
+    labelKey: "nav.home",
+    icon: House,
+    match: (p) => p === "/app" || p === "/app/",
+  },
+  {
+    to: "/dealer/push-balance",
+    labelKey: "nav.pushBalance",
+    icon: ArrowDownToLine,
+    match: (p) => p.startsWith("/dealer/push-balance"),
+  },
+  {
+    to: "/app/support-chat",
+    labelKey: "nav.supportChat",
+    icon: MessageCircle,
+    match: (p) => p.startsWith("/app/support-chat"),
+  },
+  {
+    to: "/dealer/transactions",
+    labelKey: "nav.transactions",
+    icon: History,
+    match: (p) => p.startsWith("/dealer/transactions"),
+  },
+  {
+    to: "/app/profile",
+    labelKey: "nav.profile",
+    icon: UserRound,
+    match: (p) => p.startsWith("/app/profile"),
+  },
+];
+
 function navForRole(role: string | undefined): NavItem[] {
   const items: NavItem[] = [
+    { to: "/app", label: "Home", icon: House },
     { to: "/dealer", label: "Dashboard", icon: LayoutDashboard },
     { to: "/dealer/customers", label: "My Customers", icon: Users },
   ];
@@ -85,7 +169,6 @@ function navForRole(role: string | undefined): NavItem[] {
     { to: "/dealer/commission", label: "Commission", icon: Coins },
     { to: "/dealer/reports", label: "Reports", icon: BarChart3 },
     { to: "/app/support-chat", label: "Support Chat", icon: MessageCircle },
-    { to: "/app", label: "Wallet", icon: Wallet },
     { to: "/app/services", label: "Services", icon: Smartphone },
     { to: "/app/profile", label: "Profile", icon: User },
   );
@@ -116,6 +199,65 @@ function initials(user: UserProfile) {
   );
 }
 
+function DealerBottomNav({ pathname }: { pathname: string }) {
+  const t = useT();
+  return (
+    <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 md:hidden">
+      <div className="border-t border-border/40 bg-surface/92 shadow-[0_-8px_32px_-12px_rgb(16_24_40_/_0.14)] backdrop-blur-xl supports-[backdrop-filter]:bg-surface/80">
+        <ul className="mx-auto grid max-w-lg grid-cols-5 items-end px-1.5 pt-1.5 pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
+          {BOTTOM_TABS.map((tab) => {
+            const active = tab.match(pathname);
+            const label = t(tab.labelKey);
+            return (
+              <li key={tab.to} className="flex justify-center">
+                <Link
+                  to={tab.to}
+                  aria-current={active ? "page" : undefined}
+                  aria-label={label}
+                  className={cn(
+                    "group relative flex min-h-[56px] w-full max-w-[4.75rem] flex-col items-center justify-center gap-1 px-0.5 pt-1 no-underline outline-none transition-colors duration-200",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+                    "active:scale-[0.97]",
+                    active ? "text-brand" : "text-muted-foreground",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "relative flex size-9 items-center justify-center rounded-2xl transition-all duration-200",
+                      active
+                        ? "bg-brand-soft text-brand-dark"
+                        : "bg-transparent text-muted-foreground group-hover:bg-muted/80 group-hover:text-foreground",
+                    )}
+                  >
+                    <tab.icon
+                      className="size-[1.25rem] shrink-0"
+                      strokeWidth={active ? 2.35 : 1.9}
+                      aria-hidden
+                    />
+                    {tab.to === "/app/support-chat" ? (
+                      <SupportChatUnreadBadge className="absolute -top-0.5 -right-0.5 inline-flex min-w-4 items-center justify-center rounded-full bg-brand px-1 py-0.5 text-[9px] font-semibold leading-none text-primary-foreground" />
+                    ) : null}
+                  </span>
+                  <span
+                    className={cn(
+                      "max-w-full text-center text-[10px] leading-[1.15] tracking-[0.01em] transition-colors duration-200 line-clamp-2",
+                      active
+                        ? "font-semibold text-brand-dark"
+                        : "font-medium text-muted-foreground",
+                    )}
+                  >
+                    {label}
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </nav>
+  );
+}
+
 export function PortalShell({
   title,
   description,
@@ -125,6 +267,7 @@ export function PortalShell({
   onBack,
   headerLeading,
   flush = false,
+  hideHeader = false,
   disablePullToRefresh = false,
   immersive = false,
 }: {
@@ -137,6 +280,8 @@ export function PortalShell({
   headerLeading?: ReactNode;
   /** Edge-to-edge page body (wallet / profile heroes) under the portal chrome. */
   flush?: boolean;
+  /** Hide the portal title bar (page supplies its own compact chrome). */
+  hideHeader?: boolean;
   disablePullToRefresh?: boolean;
   /** Full-screen page that supplies its own chrome (e.g. Push Balance). */
   immersive?: boolean;
@@ -148,7 +293,8 @@ export function PortalShell({
   const queryClient = useQueryClient();
   const { user, token, isLoading, isStaff, logout } = useAuth();
   const { logoUrl } = useSiteBranding();
-  const tabRefs = useRef<Record<string, HTMLElement | null>>({});
+  const t = useT();
+  const hideTopChrome = hideHeader || immersive;
 
   const handlePullRefresh = useCallback(
     () => refreshAppData(queryClient, { force: true }),
@@ -167,23 +313,13 @@ export function PortalShell({
   }, [token, isLoading, user, isStaff, navigate]);
 
   const items = useMemo(() => navForRole(user?.role), [user?.role]);
-
-  useEffect(() => {
-    const active = items.find((item) => isNavActive(pathname, item.to));
-    const el = active ? tabRefs.current[active.to] : null;
-    el?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
-  }, [pathname, items]);
+  const chromeValue = useMemo<DealerChromeValue>(
+    () => ({ openMenu: () => setDrawerOpen(true), menuOpen: drawerOpen }),
+    [drawerOpen],
+  );
 
   if (!token || isLoading || !user || isStaff || !isNetworkRole(user)) {
     return <AuthSessionLoader />;
-  }
-
-  if (immersive) {
-    return (
-      <div className="min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none">
-        {children}
-      </div>
-    );
   }
 
   const label = roleLabel(user);
@@ -221,7 +357,7 @@ export function PortalShell({
   );
 
   const brandBlock = (
-    <Link to="/dealer" onClick={closeDrawer} className="flex items-center gap-2.5 px-2">
+    <Link to="/app" onClick={closeDrawer} className="flex items-center gap-2.5 px-2">
       <img src={logoUrl} alt="MySewa" className="size-9 rounded-xl object-cover" />
       <div>
         <p className="text-[15px] leading-tight font-semibold">MySewa</p>
@@ -274,7 +410,7 @@ export function PortalShell({
           <Link to="/app/profile">Profile</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link to="/app">Wallet</Link>
+          <Link to="/app">Home</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link to="/dealer">Dashboard</Link>
@@ -294,7 +430,7 @@ export function PortalShell({
         <button
           type="button"
           onClick={onBack}
-          aria-label="Go back"
+          aria-label={t("common.goBack")}
           className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground hover:bg-muted"
         >
           <ArrowLeft className="size-4" />
@@ -302,7 +438,7 @@ export function PortalShell({
       ) : (
         <Link
           to={back!}
-          aria-label="Go back"
+          aria-label={t("common.goBack")}
           className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground hover:bg-muted"
         >
           <ArrowLeft className="size-4" />
@@ -310,140 +446,140 @@ export function PortalShell({
       )
     ) : null;
 
-  return (
-    <div className="mysewa-app-shell mysewa-portal-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-background md:flex">
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border bg-surface px-3 py-5 md:flex">
-        <div className="mb-6">{brandBlock}</div>
-        <div className="min-h-0 flex-1 overflow-y-auto">{navLinks}</div>
-        <div className="mt-auto border-t border-border pt-3">{profileMenu("start")}</div>
-      </aside>
-
-      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-        <SheetContent
-          side="left"
-          className="flex w-[min(100%,20rem)] flex-col gap-0 p-0 pt-[var(--safe-area-top,env(safe-area-inset-top,0px))] pb-[var(--safe-area-bottom,env(safe-area-inset-bottom,0px))]"
-        >
-          <SheetHeader className="border-b border-border px-4 py-4 text-left">
-            <SheetTitle className="sr-only">Dealer menu</SheetTitle>
-            <SheetDescription className="sr-only">Dealer portal navigation</SheetDescription>
-            {brandBlock}
-          </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">{navLinks}</div>
-          <div className="border-t border-border px-3 py-3">
-            <button
-              type="button"
-              className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-danger hover:bg-muted"
-              onClick={() => {
-                closeDrawer();
-                setLogoutOpen(true);
-              }}
-            >
-              <LogOut className="size-4" />
-              Log out
-            </button>
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      <div className="flex min-w-0 max-w-full flex-col md:min-h-0 md:flex-1">
-        <header className="mysewa-portal-header sticky top-0 z-30 border-b border-border bg-surface/95 px-3 pt-[max(10px,var(--safe-area-top,env(safe-area-inset-top,0px)))] backdrop-blur sm:px-4 md:px-8 md:pt-5">
-          <div className="flex min-w-0 items-start gap-2 pb-2">
-            <button
-              type="button"
-              aria-label="Open menu"
-              aria-expanded={drawerOpen}
-              className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background md:hidden"
-              onClick={() => setDrawerOpen(true)}
-            >
-              <Menu className="size-5" />
-            </button>
-            {headerLeading ? <div className="mt-0.5 shrink-0">{headerLeading}</div> : null}
-            {backControl ? <div className="mt-0.5 shrink-0">{backControl}</div> : null}
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-lg font-semibold tracking-tight md:text-xl">{title}</h1>
-              {description && !flush ? (
-                <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{description}</p>
-              ) : null}
-            </div>
-            {actions ? (
-              <div className="hidden max-w-[min(100%,22rem)] shrink-0 items-center gap-2 overflow-x-auto md:flex [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
-                {actions}
-              </div>
-            ) : null}
-            <div className="mt-0.5 shrink-0">{profileMenu("end")}</div>
-          </div>
-          {actions ? (
-            <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-2 md:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
-              {actions}
-            </div>
-          ) : null}
-          <nav
-            aria-label="Dealer pages"
-            className="mysewa-portal-tabs -mx-3 flex gap-1 overflow-x-auto overscroll-x-contain px-3 pb-2.5 sm:-mx-4 sm:px-4 md:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+  const drawer = (
+    <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+      <SheetContent
+        side="left"
+        className="flex w-[min(100%,20rem)] flex-col gap-0 p-0 pt-[var(--safe-area-top,env(safe-area-inset-top,0px))] pb-[var(--safe-area-bottom,env(safe-area-inset-bottom,0px))]"
+      >
+        <SheetHeader className="border-b border-border px-4 py-4 text-left">
+          <SheetTitle className="sr-only">Dealer menu</SheetTitle>
+          <SheetDescription className="sr-only">Dealer portal navigation</SheetDescription>
+          {brandBlock}
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">{navLinks}</div>
+        <div className="border-t border-border px-3 py-3">
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-danger hover:bg-muted"
+            onClick={() => {
+              closeDrawer();
+              setLogoutOpen(true);
+            }}
           >
-            {items.map((item) => {
-              const active = isNavActive(pathname, item.to);
-              return (
-                <span
-                  key={item.to}
-                  ref={(el) => {
-                    tabRefs.current[item.to] = el;
-                  }}
-                  className="shrink-0"
-                >
-                  <Link
-                    to={item.to}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors",
-                      active
-                        ? "bg-brand-soft text-brand-dark"
-                        : "bg-muted/80 text-muted-foreground hover:bg-muted hover:text-foreground",
-                    )}
-                  >
-                    <item.icon className="size-3.5" />
-                    {item.label}
-                    {item.to === "/app/support-chat" ? (
-                      <SupportChatUnreadBadge className="ml-0.5 inline-flex min-w-4 items-center justify-center rounded-full bg-brand px-1 py-0.5 text-[9px] font-semibold leading-none text-primary-foreground" />
-                    ) : null}
-                  </Link>
-                </span>
-              );
-            })}
-          </nav>
-        </header>
-        <main
-          className={cn(
-            "mysewa-portal-embed min-w-0 max-w-full overscroll-y-none [--content-safe-top:0px] md:flex-1",
-            flush
-              ? "px-0 pt-0 pb-[max(12px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]"
-              : "px-3 pt-5 pb-[max(1.25rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] sm:px-4 md:px-8 md:py-6",
-          )}
-        >
-          <PullToRefresh onRefresh={handlePullRefresh} disabled={disablePullToRefresh}>
-            {children}
-          </PullToRefresh>
-        </main>
-      </div>
+            <LogOut className="size-4" />
+            Log out
+          </button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
 
-      <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Log out?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You will be signed out of the {label.toLowerCase()} portal.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-danger text-white hover:bg-danger/90"
-              onClick={handleLogout}
-            >
-              Log out
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+  const logoutDialog = (
+    <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Log out?</AlertDialogTitle>
+          <AlertDialogDescription>
+            You will be signed out of the {label.toLowerCase()} portal.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-danger text-white hover:bg-danger/90"
+            onClick={handleLogout}
+          >
+            Log out
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
+  if (immersive) {
+    return (
+      <DealerChromeContext.Provider value={chromeValue}>
+        <div className="mysewa-app-shell mysewa-portal-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none">
+          {drawer}
+          {children}
+          <DealerBottomNav pathname={pathname} />
+          {logoutDialog}
+        </div>
+      </DealerChromeContext.Provider>
+    );
+  }
+
+  return (
+    <DealerChromeContext.Provider value={chromeValue}>
+      <div className="mysewa-app-shell mysewa-portal-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-background md:flex">
+        <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border bg-surface px-3 py-5 md:flex">
+          <div className="mb-6">{brandBlock}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto">{navLinks}</div>
+          <div className="mt-auto border-t border-border pt-3">{profileMenu("start")}</div>
+        </aside>
+
+        {drawer}
+
+        <div className="flex min-w-0 max-w-full flex-col md:min-h-0 md:flex-1">
+          {hideTopChrome ? null : (
+            <header className="mysewa-portal-header sticky top-0 z-30 border-b border-border bg-surface/95 px-3 pt-[max(8px,var(--safe-area-top,env(safe-area-inset-top,0px)))] backdrop-blur sm:px-4 md:px-8 md:pt-5">
+              <div className="flex min-w-0 items-center gap-2 pb-2">
+                <button
+                  type="button"
+                  aria-label={t("nav.menu")}
+                  aria-expanded={drawerOpen}
+                  className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background md:hidden"
+                  onClick={() => setDrawerOpen(true)}
+                >
+                  <Menu className="size-5" />
+                </button>
+                {headerLeading ? <div className="shrink-0">{headerLeading}</div> : null}
+                {backControl ? <div className="shrink-0">{backControl}</div> : null}
+                <div className="min-w-0 flex-1">
+                  <h1 className="truncate text-[17px] font-semibold tracking-tight md:text-xl">
+                    {title}
+                  </h1>
+                  {description ? (
+                    <p className="mt-0.5 hidden line-clamp-2 text-sm text-muted-foreground md:block">
+                      {description}
+                    </p>
+                  ) : null}
+                </div>
+                {actions ? (
+                  <div className="hidden max-w-[min(100%,22rem)] shrink-0 items-center gap-2 overflow-x-auto md:flex [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
+                    {actions}
+                  </div>
+                ) : null}
+                <div className="hidden shrink-0 md:block">{profileMenu("end")}</div>
+              </div>
+              {actions ? (
+                <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-2 md:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
+                  {actions}
+                </div>
+              ) : null}
+            </header>
+          )}
+          <main
+            className={cn(
+              "mysewa-portal-embed min-w-0 max-w-full overscroll-y-none md:flex-1",
+              hideTopChrome
+                ? "[--content-safe-top:var(--safe-area-top,env(safe-area-inset-top,0px))]"
+                : "[--content-safe-top:0px]",
+              flush
+                ? "px-0 pt-0 pb-safe md:pb-[max(12px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]"
+                : "px-3 pt-5 pb-safe sm:px-4 md:px-8 md:py-6 md:pb-[max(1.25rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]",
+            )}
+          >
+            <PullToRefresh onRefresh={handlePullRefresh} disabled={disablePullToRefresh}>
+              {children}
+            </PullToRefresh>
+          </main>
+        </div>
+
+        <DealerBottomNav pathname={pathname} />
+        {logoutDialog}
+      </div>
+    </DealerChromeContext.Provider>
   );
 }

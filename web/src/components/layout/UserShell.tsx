@@ -129,15 +129,15 @@ export function UserShell({
 
   const isFullscreen = hideHeader && hideNav;
   if (isNetworkRole(user) && !isFullscreen) {
-    const portalTitle = pathname === "/app" || pathname === "/app/" ? "Wallet" : title;
     return (
       <PortalShell
-        title={portalTitle}
+        title={title}
         {...(back ? { back } : {})}
         {...(onBack ? { onBack } : {})}
         {...(headerLeading ? { headerLeading } : {})}
         {...(headerTrailing ? { actions: headerTrailing } : {})}
         flush={hideHeader}
+        hideHeader={hideHeader}
         disablePullToRefresh={disablePullToRefresh}
       >
         <div
