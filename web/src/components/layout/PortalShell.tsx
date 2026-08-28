@@ -17,6 +17,7 @@ import {
   Inbox,
   House,
   UserRound,
+  ScanLine,
 } from "lucide-react";
 import {
   createContext,
@@ -72,6 +73,7 @@ type BottomTab = {
   labelKey: MessageKey;
   icon: typeof House;
   match: (pathname: string) => boolean;
+  prominent?: boolean;
 };
 
 type DealerChromeValue = {
@@ -134,10 +136,11 @@ const BOTTOM_TABS: BottomTab[] = [
     match: (p) => p.startsWith("/dealer/push-balance"),
   },
   {
-    to: "/app/support-chat",
-    labelKey: "nav.supportChat",
-    icon: MessageCircle,
-    match: (p) => p.startsWith("/app/support-chat"),
+    to: "/app/scan",
+    labelKey: "nav.scan",
+    icon: ScanLine,
+    match: (p) => p.startsWith("/app/scan"),
+    prominent: true,
   },
   {
     to: "/dealer/transactions",
@@ -156,6 +159,7 @@ const BOTTOM_TABS: BottomTab[] = [
 function navForRole(role: string | undefined): NavItem[] {
   const items: NavItem[] = [
     { to: "/app", label: "Home", icon: House },
+    { to: "/app/scan", label: "Scan", icon: ScanLine },
     { to: "/dealer", label: "Dashboard", icon: LayoutDashboard },
     { to: "/dealer/customers", label: "My Customers", icon: Users },
   ];
@@ -208,6 +212,46 @@ function DealerBottomNav({ pathname }: { pathname: string }) {
           {BOTTOM_TABS.map((tab) => {
             const active = tab.match(pathname);
             const label = t(tab.labelKey);
+
+            if (tab.prominent) {
+              return (
+                <li key={tab.to} className="relative flex justify-center">
+                  <Link
+                    to={tab.to}
+                    aria-current={active ? "page" : undefined}
+                    aria-label={label}
+                    className={cn(
+                      "group relative -mt-5 flex min-h-[64px] w-full max-w-[4.75rem] flex-col items-center justify-end gap-1 px-0.5 pb-0.5 no-underline outline-none",
+                      "focus-visible:outline-none",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "relative flex size-[3.25rem] items-center justify-center rounded-full bg-brand-gradient text-primary-foreground shadow-[0_10px_24px_-6px_rgb(10_122_75_/_0.55),0_2px_6px_rgb(16_24_40_/_0.12)] ring-[3px] ring-surface transition-all duration-200",
+                        "group-active:scale-[0.96]",
+                        active &&
+                          "shadow-[0_12px_28px_-4px_rgb(10_122_75_/_0.65),0_2px_8px_rgb(16_24_40_/_0.14)] ring-brand/20",
+                      )}
+                    >
+                      <tab.icon
+                        className="size-[1.35rem] shrink-0"
+                        strokeWidth={active ? 2.35 : 2.1}
+                        aria-hidden
+                      />
+                    </span>
+                    <span
+                      className={cn(
+                        "max-w-full truncate text-center text-[10px] font-semibold tracking-[0.01em] leading-none transition-colors duration-200",
+                        active ? "text-brand-dark" : "text-muted-foreground",
+                      )}
+                    >
+                      {label}
+                    </span>
+                  </Link>
+                </li>
+              );
+            }
+
             return (
               <li key={tab.to} className="flex justify-center">
                 <Link
@@ -234,9 +278,6 @@ function DealerBottomNav({ pathname }: { pathname: string }) {
                       strokeWidth={active ? 2.35 : 1.9}
                       aria-hidden
                     />
-                    {tab.to === "/app/support-chat" ? (
-                      <SupportChatUnreadBadge className="absolute -top-0.5 -right-0.5 inline-flex min-w-4 items-center justify-center rounded-full bg-brand px-1 py-0.5 text-[9px] font-semibold leading-none text-primary-foreground" />
-                    ) : null}
                   </span>
                   <span
                     className={cn(
@@ -325,6 +366,7 @@ export function PortalShell({
   const label = roleLabel(user);
   const closeDrawer = () => setDrawerOpen(false);
   const name = displayName(user);
+  const showBottomNav = !pathname.startsWith("/app/scan");
 
   const handleLogout = async () => {
     await logout();
@@ -503,7 +545,7 @@ export function PortalShell({
         <div className="mysewa-app-shell mysewa-portal-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none">
           {drawer}
           {children}
-          <DealerBottomNav pathname={pathname} />
+          {showBottomNav ? <DealerBottomNav pathname={pathname} /> : null}
           {logoutDialog}
         </div>
       </DealerChromeContext.Provider>
@@ -577,7 +619,7 @@ export function PortalShell({
           </main>
         </div>
 
-        <DealerBottomNav pathname={pathname} />
+        {showBottomNav ? <DealerBottomNav pathname={pathname} /> : null}
         {logoutDialog}
       </div>
     </DealerChromeContext.Provider>

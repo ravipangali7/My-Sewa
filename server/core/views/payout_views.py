@@ -22,12 +22,11 @@ from ..services.app_config import require_account_approved, require_wallet_not_b
 from ..services.hierarchy import (
     ROLE_CUSTOMER,
     ROLE_DEALER,
+    customer_assigned_dealer,
     is_admin_actor,
     require_role,
-    resolve_assigned_dealer,
     scope_forbidden_response,
     user_in_scope,
-    users_in_scope,
 )
 from ..services.notifications import (
     notify_low_balance_if_needed,
@@ -64,39 +63,9 @@ def _payout_to_payment_account(account, request) -> dict:
     }
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def deposit_destinations(request):
-    """Deposit destinations for the current user (dealer payouts or platform accounts)."""
-    user = request.user
-    dealer = resolve_assigned_dealer(user)
-    if dealer is not None and dealer.pk != user.pk:
-        accounts = list(
-            DealerPayoutAccount.objects.filter(
-                dealer=dealer,
-                status=DealerPayoutAccount.STATUS_APPROVED,
-            ).order_by('method', 'id')
-        )
-        if accounts:
-            dealer_name = ' '.join(
-                part for part in (dealer.first_name, dealer.last_name) if part
-            ).strip() or dealer.phone
-            return Response({
-                'source': 'dealer',
-                'dealer_id': dealer.pk,
-                'dealer_phone': dealer.phone,
-                'dealer_name': dealer_name,
-                'bank_details': {
-                    'accounts': [_payout_to_payment_account(a, request) for a in accounts],
-                },
-            })
-
+def _platform_destination(request) -> dict:
     settings_obj = Settings.load()
-    return Response({
-        'source': 'platform',
-        'dealer_id': None,
-        'dealer_phone': None,
-        'dealer_name': None,
+    return {
         'bank_details': enrich_bank_details_qr_urls(
             settings_obj.bank_details, request,
         ),
@@ -112,7 +81,56 @@ def deposit_destinations(request):
             request.build_absolute_uri(settings_obj.esewa_qr_code.url)
             if settings_obj.esewa_qr_code else None
         ),
-    })
+    }
+
+
+def _dealer_destination(dealer, request) -> dict:
+    accounts = list(
+        DealerPayoutAccount.objects.filter(
+            dealer=dealer,
+            status=DealerPayoutAccount.STATUS_APPROVED,
+        ).order_by('method', 'id')
+    )
+    dealer_name = ' '.join(
+        part for part in (dealer.first_name, dealer.last_name) if part
+    ).strip() or dealer.phone
+    return {
+        'dealer_id': dealer.pk,
+        'dealer_phone': dealer.phone,
+        'dealer_name': dealer_name,
+        'bank_details': {
+            'accounts': [_payout_to_payment_account(a, request) for a in accounts],
+        },
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def deposit_destinations(request):
+    """Deposit destinations for Manual Deposit.
+
+    Super Admin (platform) accounts are always included. Dealer payout accounts
+    are included only for Users assigned to that Dealer, never for other
+    Dealers' users, Super Admin-created users, or self-registered users.
+    """
+    platform = _platform_destination(request)
+    dealer_user = customer_assigned_dealer(request.user)
+    dealer_dest = _dealer_destination(dealer_user, request) if dealer_user is not None else None
+    available = ['platform']
+    if dealer_dest is not None:
+        available.append('dealer')
+    payload = {
+        'source': 'platform',
+        'available_sources': available,
+        'can_use_dealer': dealer_dest is not None,
+        'dealer_id': dealer_dest['dealer_id'] if dealer_dest else None,
+        'dealer_phone': dealer_dest['dealer_phone'] if dealer_dest else None,
+        'dealer_name': dealer_dest['dealer_name'] if dealer_dest else None,
+        'platform': platform,
+        'dealer': dealer_dest,
+        **platform,
+    }
+    return Response(payload)
 
 
 def _dealer_or_admin(request):
@@ -336,10 +354,11 @@ def dealer_deposits(request):
         return denied
     from ..services.list_response import items_with_stats_response
 
-    scoped = users_in_scope(request.user).filter(role=ROLE_CUSTOMER)
-    qs = Deposit.objects.filter(user__in=scoped).select_related(
-        'user', 'payout_account',
-    ).order_by('-created_at')
+    qs = Deposit.objects.select_related('user', 'payout_account').order_by('-created_at')
+    if is_admin_actor(request.user):
+        qs = qs.filter(payout_account__isnull=False)
+    else:
+        qs = qs.filter(payout_account__dealer=request.user)
     return items_with_stats_response(
         qs,
         DepositSerializer,
@@ -364,9 +383,14 @@ def dealer_approve_deposit(request, deposit_id):
     if denied:
         return denied
     try:
-        deposit = Deposit.objects.select_related('user').get(pk=deposit_id)
+        deposit = Deposit.objects.select_related('user', 'payout_account').get(pk=deposit_id)
     except Deposit.DoesNotExist:
         return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
+    account = getattr(deposit, 'payout_account', None)
+    if account is None:
+        return scope_forbidden_response()
+    if not is_admin_actor(request.user) and account.dealer_id != request.user.pk:
+        return scope_forbidden_response()
     if not user_in_scope(request.user, deposit.user) or deposit.user_id == request.user.pk:
         return scope_forbidden_response()
     if deposit.status != 'pending':
@@ -399,9 +423,14 @@ def dealer_reject_deposit(request, deposit_id):
     if denied:
         return denied
     try:
-        deposit = Deposit.objects.get(pk=deposit_id)
+        deposit = Deposit.objects.select_related('user', 'payout_account').get(pk=deposit_id)
     except Deposit.DoesNotExist:
         return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
+    account = getattr(deposit, 'payout_account', None)
+    if account is None:
+        return scope_forbidden_response()
+    if not is_admin_actor(request.user) and account.dealer_id != request.user.pk:
+        return scope_forbidden_response()
     if not user_in_scope(request.user, deposit.user) or deposit.user_id == request.user.pk:
         return scope_forbidden_response()
     if deposit.status != 'pending':

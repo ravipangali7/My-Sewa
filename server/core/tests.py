@@ -3026,7 +3026,16 @@ class UserProvisioningAndPayoutTests(TestCase):
         self.client.force_authenticate(user=user)
         resp = self.client.get(reverse('deposit_destinations'))
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-        self.assertEqual(resp.json().get('source'), 'platform')
+        body = resp.json()
+        self.assertEqual(body.get('source'), 'platform')
+        self.assertEqual(body.get('available_sources'), ['platform', 'dealer'])
+        self.assertTrue(body.get('can_use_dealer'))
+        self.assertEqual(
+            len((body.get('dealer') or {}).get('bank_details', {}).get('accounts') or []),
+            0,
+        )
+        self.assertIn('platform', body)
+        self.assertIsNotNone((body.get('platform') or {}).get('bank_details'))
 
         self.client.force_authenticate(user=self.staff)
         with patch('core.views.payout_views.notify_payout_account_reviewed'):
@@ -3036,10 +3045,15 @@ class UserProvisioningAndPayoutTests(TestCase):
 
         self.client.force_authenticate(user=user)
         resp = self.client.get(reverse('deposit_destinations'))
-        self.assertEqual(resp.json().get('source'), 'dealer')
-        accounts = (resp.json().get('bank_details') or {}).get('accounts') or []
-        self.assertEqual(len(accounts), 1)
-        self.assertEqual(accounts[0].get('payout_account_id'), account_id)
+        body = resp.json()
+        self.assertEqual(body.get('source'), 'platform')
+        self.assertEqual(body.get('available_sources'), ['platform', 'dealer'])
+        self.assertTrue(body.get('can_use_dealer'))
+        self.assertEqual(body.get('dealer_id'), self.dealer.pk)
+        dealer_accounts = (body.get('dealer') or {}).get('bank_details', {}).get('accounts') or []
+        self.assertEqual(len(dealer_accounts), 1)
+        self.assertEqual(dealer_accounts[0].get('payout_account_id'), account_id)
+        self.assertIsNotNone((body.get('platform') or {}).get('bank_details'))
 
         self.client.force_authenticate(user=self.dealer)
         resp = self.client.patch(
@@ -3051,6 +3065,86 @@ class UserProvisioningAndPayoutTests(TestCase):
         self.assertEqual(resp.json()['data']['status'], 'pending')
         account = DealerPayoutAccount.objects.get(pk=account_id)
         self.assertEqual(account.status, DealerPayoutAccount.STATUS_PENDING)
+
+    def test_deposit_destinations_scoped_to_assigned_dealer(self):
+        from .models import DealerPayoutAccount
+
+        own = DealerPayoutAccount.objects.create(
+            dealer=self.dealer,
+            method=DealerPayoutAccount.METHOD_KHALTI,
+            account_name='Dealer Two',
+            account_number='9800000802',
+            status=DealerPayoutAccount.STATUS_APPROVED,
+        )
+        other_dealer = User.objects.create_user(
+            phone='9800000820',
+            password='testpass123',
+            email='other-dealer@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_DEALER,
+        )
+        other_account = DealerPayoutAccount.objects.create(
+            dealer=other_dealer,
+            method=DealerPayoutAccount.METHOD_ESEWA,
+            account_name='Other Dealer',
+            account_number='9800000820',
+            status=DealerPayoutAccount.STATUS_APPROVED,
+        )
+
+        assigned = User.objects.create_user(
+            phone='9800000821',
+            password='testpass123',
+            email='assigned@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            assigned_dealer=self.dealer,
+        )
+        unassigned = User.objects.create_user(
+            phone='9800000822',
+            password='testpass123',
+            email='unassigned@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        other_user = User.objects.create_user(
+            phone='9800000823',
+            password='testpass123',
+            email='other-user@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            assigned_dealer=other_dealer,
+        )
+
+        self.client.force_authenticate(user=assigned)
+        body = self.client.get(reverse('deposit_destinations')).json()
+        self.assertEqual(body.get('available_sources'), ['platform', 'dealer'])
+        self.assertTrue(body.get('can_use_dealer'))
+        ids = {
+            acc.get('payout_account_id')
+            for acc in (body.get('dealer') or {}).get('bank_details', {}).get('accounts') or []
+        }
+        self.assertEqual(ids, {own.pk})
+        self.assertNotIn(other_account.pk, ids)
+        self.assertIsNotNone(body.get('platform'))
+
+        self.client.force_authenticate(user=unassigned)
+        body = self.client.get(reverse('deposit_destinations')).json()
+        self.assertEqual(body.get('available_sources'), ['platform'])
+        self.assertFalse(body.get('can_use_dealer'))
+        self.assertIsNone(body.get('dealer'))
+
+        self.client.force_authenticate(user=self.dealer)
+        body = self.client.get(reverse('deposit_destinations')).json()
+        self.assertEqual(body.get('available_sources'), ['platform'])
+        self.assertFalse(body.get('can_use_dealer'))
+        self.assertIsNone(body.get('dealer'))
+
+        self.client.force_authenticate(user=other_user)
+        body = self.client.get(reverse('deposit_destinations')).json()
+        self.assertEqual(body.get('dealer_id'), other_dealer.pk)
+        ids = {
+            acc.get('payout_account_id')
+            for acc in (body.get('dealer') or {}).get('bank_details', {}).get('accounts') or []
+        }
+        self.assertEqual(ids, {other_account.pk})
+        self.assertNotIn(own.pk, ids)
 
     def test_dealer_loads_assigned_user_wallet(self):
         from django.contrib.auth.hashers import make_password

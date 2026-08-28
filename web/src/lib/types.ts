@@ -950,8 +950,20 @@ export interface DealerPayoutAccount {
   updated_at: string;
 }
 
+export interface DepositDestinationBucket {
+  bank_details: BankDetails | null;
+  qr_code_url?: string | null;
+  khalti_qr_code_url?: string | null;
+  esewa_qr_code_url?: string | null;
+  dealer_id?: number;
+  dealer_phone?: string | null;
+  dealer_name?: string | null;
+}
+
 export interface DepositDestinations {
   source: "dealer" | "platform";
+  available_sources: Array<"dealer" | "platform">;
+  can_use_dealer: boolean;
   dealer_id: number | null;
   dealer_phone: string | null;
   dealer_name: string | null;
@@ -959,6 +971,8 @@ export interface DepositDestinations {
   qr_code_url?: string | null;
   khalti_qr_code_url?: string | null;
   esewa_qr_code_url?: string | null;
+  platform: DepositDestinationBucket;
+  dealer: DepositDestinationBucket | null;
 }
 
 /** Per-user fee overrides — null means use global Settings defaults. */

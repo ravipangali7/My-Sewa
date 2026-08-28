@@ -55,6 +55,23 @@ def resolve_assigned_dealer(user):
     return None
 
 
+def customer_assigned_dealer(user):
+    """Dealer a User belongs to for payout / manual-deposit visibility.
+
+    Super Admin-created users, self-registered users, and Dealers themselves
+    return None so they only see Super Admin deposit accounts.
+    """
+    if user is None:
+        return None
+    role = getattr(user, 'role', ROLE_CUSTOMER) or ROLE_CUSTOMER
+    if role != ROLE_CUSTOMER:
+        return None
+    dealer = getattr(user, 'assigned_dealer', None)
+    if dealer is not None and getattr(dealer, 'role', None) == ROLE_DEALER:
+        return dealer
+    return None
+
+
 def resolve_assigned_sub_agent(user):
     """Removed. Kept as a no-op so older call sites still import cleanly."""
     return None

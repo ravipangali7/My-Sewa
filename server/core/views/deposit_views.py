@@ -31,7 +31,7 @@ def create_deposit(request):
     if frozen:
         return frozen
 
-    serializer = DepositCreateSerializer(data=request.data)
+    serializer = DepositCreateSerializer(data=request.data, context={'request': request})
     if serializer.is_valid():
         deposit = Deposit.objects.create(
             user=request.user,

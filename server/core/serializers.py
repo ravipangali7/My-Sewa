@@ -1251,8 +1251,8 @@ class DepositCreateSerializer(serializers.ModelSerializer):
         if payout_id:
             request = self.context.get('request')
             user = getattr(request, 'user', None) if request is not None else None
-            from .services.hierarchy import resolve_assigned_dealer
-            dealer = resolve_assigned_dealer(user)
+            from .services.hierarchy import customer_assigned_dealer
+            dealer = customer_assigned_dealer(user)
             account = DealerPayoutAccount.objects.filter(
                 pk=payout_id,
                 status=DealerPayoutAccount.STATUS_APPROVED,

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime, formatDate, sortByLatestFirst } from "@/lib/format";
@@ -25,9 +26,12 @@ import { useListFilters, DEPOSIT_STATUS_OPTIONS } from "@/hooks/use-list-filters
 import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
-import type { PaymentMethod } from "@/lib/types";
+import { enabledPaymentAccounts } from "@/lib/payment-accounts";
+import type { DepositDestinations, PaymentMethod } from "@/lib/types";
 
 const DEPOSIT_PAYMENT_METHODS: PaymentMethod[] = ["bank", "khalti", "esewa"];
+
+type DestSource = "platform" | "dealer";
 
 function paymentMethodLabel(method: PaymentMethod, t: TranslateFn): string {
   if (method === "khalti") return t("load.methodKhalti");
@@ -47,6 +51,29 @@ function depositSourceLabel(
     return name || "Bank";
   }
   return "";
+}
+
+function destinationBucket(
+  dest: DepositDestinations | undefined,
+  settingsBankDetails: DepositDestinations["bank_details"] | undefined,
+  settingsQr: {
+    qr_code_url?: string | null | undefined;
+    khalti_qr_code_url?: string | null | undefined;
+    esewa_qr_code_url?: string | null | undefined;
+  },
+  source: DestSource,
+) {
+  if (source === "dealer") {
+    return dest?.dealer ?? null;
+  }
+  return (
+    dest?.platform ?? {
+      bank_details: dest?.bank_details ?? settingsBankDetails ?? null,
+      qr_code_url: dest?.qr_code_url ?? settingsQr.qr_code_url ?? null,
+      khalti_qr_code_url: dest?.khalti_qr_code_url ?? settingsQr.khalti_qr_code_url ?? null,
+      esewa_qr_code_url: dest?.esewa_qr_code_url ?? settingsQr.esewa_qr_code_url ?? null,
+    }
+  );
 }
 
 export const Route = createFileRoute("/app/load")({
@@ -99,6 +126,7 @@ function LoadWallet() {
   const [bankName, setBankName] = useState("");
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [destSource, setDestSource] = useState<DestSource>("platform");
 
   const destQuery = useQuery({
     queryKey: ["deposit-destinations"],
@@ -130,6 +158,23 @@ function LoadWallet() {
   const minDeposit = payment?.min_deposit ?? 100;
   const maxDeposit = payment?.max_deposit ?? 100000;
   const instructions = payment?.deposit_instructions?.trim() || "";
+  const canChooseDealer =
+    destQuery.data?.can_use_dealer ??
+    Boolean(user?.role === "customer" && user?.assigned_dealer_id);
+  const activeSource: DestSource = canChooseDealer ? destSource : "platform";
+  const activeDest = destinationBucket(
+    destQuery.data,
+    settingsQuery.data?.bank_details,
+    {
+      qr_code_url: settingsQuery.data?.qr_code_url,
+      khalti_qr_code_url: settingsQuery.data?.khalti_qr_code_url,
+      esewa_qr_code_url: settingsQuery.data?.esewa_qr_code_url,
+    },
+    activeSource,
+  );
+  const payingDealer = activeSource === "dealer";
+  const dealerAccounts = payingDealer ? enabledPaymentAccounts(activeDest?.bank_details) : [];
+  const dealerHasAccounts = !payingDealer || dealerAccounts.length > 0;
 
   const resetForm = () => {
     setTransactionId("");
@@ -163,13 +208,14 @@ function LoadWallet() {
       const source = depositSourceLabel(paymentMethod, bankName);
       if (source) fd.append("bank_name", source);
       const dest = destQuery.data;
-      if (dest?.source === "dealer" && paymentMethod) {
-        const match = (dest.bank_details?.accounts ?? []).find(
+      if (payingDealer && paymentMethod) {
+        const match = (dest?.dealer?.bank_details?.accounts ?? []).find(
           (acc) => acc.method === paymentMethod && acc.enabled !== false,
         );
-        if (match?.payout_account_id) {
-          fd.append("payout_account_id", String(match.payout_account_id));
+        if (!match?.payout_account_id) {
+          throw new Error(t("load.dealerPayoutRequired"));
         }
+        fd.append("payout_account_id", String(match.payout_account_id));
       }
       if (note.trim()) fd.append("note", note.trim());
       if (file) fd.append("screenshot_proof", file);
@@ -178,7 +224,11 @@ function LoadWallet() {
     onSuccess: (res) => {
       const approved = res.data?.status === "approved";
       toast.success(t("load.submitted"), {
-        description: approved ? t("load.autoApproved") : t("load.pendingApproval"),
+        description: approved
+          ? t("load.autoApproved")
+          : payingDealer
+            ? t("load.pendingDealerApproval")
+            : t("load.pendingApproval"),
       });
       resetForm();
       setLastReceiptId(activityIdForKind("deposit", res.data.id));
@@ -230,38 +280,80 @@ function LoadWallet() {
 
         {depositsEnabled ? (
           <>
+            {canChooseDealer ? (
+              <div className="lg:col-span-2">
+                <Tabs
+                  value={activeSource}
+                  onValueChange={(value) => {
+                    setDestSource(value as DestSource);
+                    setPaymentMethod("");
+                    setBankName("");
+                  }}
+                >
+                  <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl">
+                    <TabsTrigger value="platform" className="rounded-lg">
+                      {t("load.sourceSuperAdmin")}
+                    </TabsTrigger>
+                    <TabsTrigger value="dealer" className="rounded-lg">
+                      {t("load.sourceDealer")}
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+            ) : null}
             <DepositAccountsPanel
-              bankDetails={destQuery.data?.bank_details ?? settingsQuery.data?.bank_details ?? null}
+              bankDetails={
+                payingDealer
+                  ? (activeDest?.bank_details ?? null)
+                  : (activeDest?.bank_details ?? settingsQuery.data?.bank_details ?? null)
+              }
               loading={destQuery.isLoading || settingsQuery.isLoading}
-              qrOptions={[
-                {
-                  id: "bank",
-                  url: destQuery.data?.qr_code_url ?? settingsQuery.data?.qr_code_url ?? "",
-                  label: t("load.qrBank"),
-                  alt: t("load.qrBankAlt"),
-                },
-                {
-                  id: "khalti",
-                  url: destQuery.data?.khalti_qr_code_url ?? settingsQuery.data?.khalti_qr_code_url ?? "",
-                  label: t("load.qrKhalti"),
-                  alt: t("load.qrKhaltiAlt"),
-                },
-                {
-                  id: "esewa",
-                  url: destQuery.data?.esewa_qr_code_url ?? settingsQuery.data?.esewa_qr_code_url ?? "",
-                  label: t("load.qrEsewa"),
-                  alt: t("load.qrEsewaAlt"),
-                },
-              ]}
+              qrOptions={
+                payingDealer
+                  ? []
+                  : [
+                      {
+                        id: "bank" as const,
+                        url: activeDest?.qr_code_url ?? settingsQuery.data?.qr_code_url ?? "",
+                        label: t("load.qrBank"),
+                        alt: t("load.qrBankAlt"),
+                      },
+                      {
+                        id: "khalti" as const,
+                        url:
+                          activeDest?.khalti_qr_code_url ??
+                          settingsQuery.data?.khalti_qr_code_url ??
+                          "",
+                        label: t("load.qrKhalti"),
+                        alt: t("load.qrKhaltiAlt"),
+                      },
+                      {
+                        id: "esewa" as const,
+                        url:
+                          activeDest?.esewa_qr_code_url ??
+                          settingsQuery.data?.esewa_qr_code_url ??
+                          "",
+                        label: t("load.qrEsewa"),
+                        alt: t("load.qrEsewaAlt"),
+                      },
+                    ]
+              }
               instructions={
-                destQuery.data?.source === "dealer"
-                  ? t("load.dealerInstructions", {
-                      dealer: destQuery.data.dealer_name || destQuery.data.dealer_phone || "",
-                    })
+                payingDealer
+                  ? dealerHasAccounts
+                    ? t("load.dealerInstructions", {
+                        dealer:
+                          destQuery.data?.dealer_name || destQuery.data?.dealer_phone || "",
+                      })
+                    : t("load.dealerNotConfigured")
                   : instructions
               }
               title={
-                destQuery.data?.source === "dealer" ? t("load.dealerAccount") : t("load.depositAccount")
+                payingDealer
+                  ? t("load.dealerAccount")
+                  : canChooseDealer
+                    ? t("load.superAdminAccount")
+                    : t("load.depositAccount")
               }
             />
 
@@ -345,7 +437,7 @@ function LoadWallet() {
                     })}
                   </div>
                   <p className="text-[12px] text-muted-foreground">
-                    {t("load.paymentMethodHint")}
+                    {payingDealer ? t("load.paymentMethodHintDealer") : t("load.paymentMethodHint")}
                   </p>
                   {paymentMethod === "bank" ? (
                     <div className="space-y-1.5 pt-1">
@@ -414,7 +506,7 @@ function LoadWallet() {
                 )}
                 <Button
                   type="submit"
-                  disabled={createMutation.isPending}
+                  disabled={createMutation.isPending || !dealerHasAccounts}
                   className="h-12 w-full rounded-xl text-[17px]"
                 >
                   {createMutation.isPending ? t("common.submitting") : t("load.submit")}
