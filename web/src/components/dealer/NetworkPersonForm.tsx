@@ -36,11 +36,13 @@ export function NetworkPersonForm({
       email: email.trim(),
       first_name: firstName.trim(),
       last_name: lastName.trim(),
-      password,
-      password2: password,
       is_active: active,
-      account_status: "approved",
+      account_status: "pending",
     };
+    if (password.trim()) {
+      payload.password = password;
+      payload.password2 = password;
+    }
     if (includeCommission && commissionRate.trim()) {
       payload.commission_rate = commissionRate.trim();
     }
@@ -80,8 +82,12 @@ export function NetworkPersonForm({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             minLength={8}
-            required
+            required={false}
           />
+          <p className="text-xs text-muted-foreground">
+            Optional. Leave blank to auto-generate. The password is emailed to the user. The
+            account stays Pending until Super Admin approval.
+          </p>
         </div>
         {includeCommission ? (
           <div className="space-y-1.5">

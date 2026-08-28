@@ -21,6 +21,7 @@ import {
   Send,
   Smartphone,
   Percent,
+  Receipt,
   Trash2,
 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
@@ -42,7 +43,7 @@ import {
   normalizePaymentAccounts,
   paymentAccountsToBankDetails,
 } from "@/lib/payment-accounts";
-import type { AppConfig, PaymentAccount, PaymentMethod } from "@/lib/types";
+import type { AppConfig, PaymentAccount, PaymentMethod, ServiceChargeConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const DEPOSIT_METHODS: {
@@ -198,6 +199,7 @@ const SECTIONS = [
   { id: "site", label: "General", icon: Building2 },
   { id: "payment", label: "Payments", icon: CreditCard },
   { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
+  { id: "charges", label: "Service charges", icon: Receipt },
   { id: "commission", label: "Dealer commission", icon: Percent },
   { id: "remittance", label: "Remittance agent", icon: ArrowDownToLine },
   { id: "deposit", label: "Deposit accounts", icon: QrCode },
@@ -1136,6 +1138,10 @@ function SettingsPage() {
             </SettingsPanel>
           </TabsContent>
 
+          <TabsContent value="charges">
+            <ServiceChargesPanel />
+          </TabsContent>
+
           <TabsContent value="commission">
             <SettingsPanel
               title="Dealer commission & TDS"
@@ -1172,36 +1178,6 @@ function SettingsPage() {
                       commission: {
                         ...(c.commission ?? DEFAULT_CONFIG.commission!),
                         default_tds_rate: v,
-                      },
-                    }))
-                  }
-                />
-                <NumberField
-                  id="default_sub_agent_rate"
-                  label="Default Sub-Agent commission (%)"
-                  value={config.commission?.default_sub_agent_rate ?? 0}
-                  step="0.01"
-                  onChange={(v) =>
-                    setConfig((c) => ({
-                      ...c,
-                      commission: {
-                        ...(c.commission ?? DEFAULT_CONFIG.commission!),
-                        default_sub_agent_rate: v,
-                      },
-                    }))
-                  }
-                />
-                <NumberField
-                  id="default_super_admin_rate"
-                  label="Default Super Admin share (%)"
-                  value={config.commission?.default_super_admin_rate ?? 0}
-                  step="0.01"
-                  onChange={(v) =>
-                    setConfig((c) => ({
-                      ...c,
-                      commission: {
-                        ...(c.commission ?? DEFAULT_CONFIG.commission!),
-                        default_super_admin_rate: v,
                       },
                     }))
                   }
@@ -2443,6 +2419,89 @@ function SettingsPage() {
         </Tabs>
       )}
     </AdminShell>
+  );
+}
+
+function ServiceChargesPanel() {
+  const errorPopup = useErrorPopup("Service charges");
+  const [rows, setRows] = useState<ServiceChargeConfig[]>([]);
+  const query = useQuery({
+    queryKey: ["admin", "service-charges"],
+    queryFn: () => apiClient.adminGetServiceCharges(),
+  });
+  useEffect(() => {
+    if (query.data?.data) setRows(query.data.data);
+  }, [query.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => apiClient.adminSaveServiceCharges(rows),
+    onSuccess: (res) => {
+      setRows(res.data);
+      toast.success(res.message || "Service charges saved");
+    },
+    onError: (err) => errorPopup.show(err),
+  });
+
+  const setRow = (txnType: string, field: keyof ServiceChargeConfig, value: string) => {
+    setRows((current) =>
+      current.map((row) => (row.txn_type === txnType ? { ...row, [field]: value } : row)),
+    );
+  };
+
+  return (
+    <SettingsPanel
+      title="Service charges"
+      description="System, Dealer, and HimalPay charges applied automatically on every matching transaction. Dealer commission is charged only when the User is assigned to a Dealer. If HimalPay is 0, the live provider fee is used."
+      onSave={() => saveMutation.mutate()}
+      saving={saveMutation.isPending}
+    >
+      {query.isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading charges…</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-border text-muted-foreground">
+                <th className="py-2 pr-3 font-medium">Service</th>
+                <th className="py-2 pr-3 font-medium">System flat</th>
+                <th className="py-2 pr-3 font-medium">System %</th>
+                <th className="py-2 pr-3 font-medium">Dealer flat</th>
+                <th className="py-2 pr-3 font-medium">Dealer %</th>
+                <th className="py-2 pr-3 font-medium">HimalPay flat</th>
+                <th className="py-2 font-medium">HimalPay %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.txn_type} className="border-b border-border/60">
+                  <td className="py-2 pr-3 font-medium">{row.label}</td>
+                  {(
+                    [
+                      "system_charge_flat",
+                      "system_charge_percent",
+                      "dealer_commission_flat",
+                      "dealer_commission_percent",
+                      "himalpay_charge_flat",
+                      "himalpay_charge_percent",
+                    ] as const
+                  ).map((field) => (
+                    <td key={field} className="py-2 pr-3 last:pr-0">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={row[field]}
+                        onChange={(e) => setRow(row.txn_type, field, e.target.value)}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </SettingsPanel>
   );
 }
 

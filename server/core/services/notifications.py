@@ -669,6 +669,79 @@ def _send_txn_email(
     )
 
 
+def _charge_breakdown_rows(txn) -> List[Row]:
+    if txn is None:
+        return []
+    try:
+        from .txn_charges import get_transaction_charge
+        row = get_transaction_charge(txn)
+    except Exception:
+        row = None
+    if row is None:
+        return []
+    rows: List[Row] = [
+        ('System charge', _fmt_amount(row.system_charge)),
+        ('Dealer commission', _fmt_amount(row.dealer_commission)),
+        ('HimalPay charge', _fmt_amount(row.himalpay_charge)),
+        ('Total charges', _fmt_amount(row.total_charges)),
+    ]
+    if row.cashback:
+        rows.append(('Cashback', _fmt_amount(row.cashback)))
+    return rows
+
+
+def _notify_assigned_dealer(
+    user,
+    *,
+    subject: str,
+    text_intro: str,
+    title: str,
+    subtitle: str,
+    rows: Sequence[Row],
+    amount_display: str,
+    amount_label: str = 'Amount',
+    status_label: str = 'Completed',
+) -> None:
+    """Email the User's assigned Dealer when a transaction completes."""
+    if user is None:
+        return
+    try:
+        from .hierarchy import ROLE_DEALER, resolve_assigned_dealer
+        if getattr(user, 'role', None) == ROLE_DEALER:
+            return
+        dealer = resolve_assigned_dealer(user)
+    except Exception:
+        return
+    if dealer is None or dealer.pk == getattr(user, 'pk', None):
+        return
+    email = _user_email(dealer)
+    if not email:
+        return
+    user_name = (
+        f'{(getattr(user, "first_name", None) or "").strip()} '
+        f'{(getattr(user, "last_name", None) or "").strip()}'.strip()
+        or getattr(user, 'phone', '') or 'User'
+    )
+    dealer_rows: List[Row] = [
+        ('Customer', f'{user_name} ({getattr(user, "phone", "") or "-"})'),
+        *list(rows),
+    ]
+    _send_txn_email(
+        recipients=[email],
+        subject=subject,
+        text_intro=text_intro,
+        title=title,
+        subtitle=subtitle,
+        amount_display=amount_display,
+        amount_label=amount_label,
+        status='success',
+        status_label=status_label,
+        rows=dealer_rows,
+        greeting=f'Hi {getattr(dealer, "first_name", "") or "there"},',
+        copy_admin=False,
+    )
+
+
 def send_password_reset_otp(email: str, otp: str) -> bool:
     """Send a password-reset OTP to the user's registered email."""
     site_name = _site_name()
@@ -902,6 +975,150 @@ def notify_welcome_signup(user) -> None:
     )
 
 
+def notify_user_provisioned(user, password: str, *, created_by=None) -> None:
+    """Email login credentials to the new user and ask Super Admin to approve."""
+    site_name = _site_name()
+    first = (getattr(user, 'first_name', None) or '').strip() or 'there'
+    phone = getattr(user, 'phone', '') or '-'
+    created_by_label = '-'
+    if created_by is not None:
+        created_by_label = (
+            f'{getattr(created_by, "phone", "")} '
+            f'({getattr(created_by, "role", "") or "admin"})'
+        ).strip()
+    dealer = getattr(user, 'assigned_dealer', None)
+    dealer_label = dealer.phone if dealer is not None else '—'
+
+    if _user_email(user) and password:
+        _send_txn_email(
+            recipients=[user.email],
+            subject=f'[{site_name}] Your account has been created',
+            text_intro=(
+                f'An account was created for you on {site_name}.\n\n'
+                'Use the phone number and password below to sign in. '
+                'Your account is Pending until a Super Admin approves it. '
+                'Please change this password after you sign in.'
+            ),
+            title='Account created',
+            subtitle='Your login details are below. Change the password after first sign-in.',
+            amount_label='Status',
+            amount_display='Pending',
+            status='pending',
+            status_label='Pending',
+            rows=[
+                ('Account phone', phone),
+                ('Email', user.email),
+                ('Password', password),
+                ('Dealer', dealer_label),
+                ('Created by', created_by_label),
+            ],
+            greeting=f'Hi {first},',
+            footer_note=(
+                'Keep this password private. Transactions stay disabled until '
+                'a Super Admin activates your account.'
+            ),
+        )
+
+    admin_emails = _admin_alert_emails()
+    if not admin_emails:
+        return
+    _send_txn_email(
+        recipients=admin_emails,
+        subject=f'[{site_name}] User approval requested — {phone}',
+        text_intro=(
+            'A new user was created and is waiting for Super Admin approval. '
+            'The account cannot transact until it is set to Active.'
+        ),
+        title='User approval needed',
+        subtitle='Review this account in Admin → Users and set status to Active.',
+        amount_label='Status',
+        amount_display='Pending',
+        status='pending',
+        status_label='Pending',
+        rows=[
+            ('Phone', phone),
+            ('Email', getattr(user, 'email', '') or '—'),
+            ('Name', f'{getattr(user, "first_name", "")} {getattr(user, "last_name", "")}'.strip() or '—'),
+            ('Role', str(getattr(user, 'role', 'customer') or 'customer')),
+            ('Dealer', dealer_label),
+            ('Created by', created_by_label),
+        ],
+        copy_admin=False,
+    )
+
+
+def notify_payout_account_submitted(account, *, edited: bool = False) -> None:
+    """Email Super Admin when a dealer adds or edits a payout account."""
+    admin_emails = _admin_alert_emails()
+    if not admin_emails:
+        return
+    site_name = _site_name()
+    dealer = getattr(account, 'dealer', None)
+    dealer_phone = getattr(dealer, 'phone', '—') if dealer is not None else '—'
+    action = 'updated' if edited else 'added'
+    _send_txn_email(
+        recipients=admin_emails,
+        subject=f'[{site_name}] Dealer payout account {action} — {dealer_phone}',
+        text_intro=(
+            f'A Dealer {action} a payout account. It is Pending until you approve it. '
+            'Assigned users cannot load via this account until it is Active.'
+        ),
+        title='Payout account approval needed',
+        subtitle='Review this payout account in Admin → Payout accounts.',
+        amount_label='Status',
+        amount_display='Pending',
+        status='pending',
+        status_label='Pending',
+        rows=[
+            ('Dealer', dealer_phone),
+            ('Type', account.get_method_display()),
+            ('Account name', account.account_name or '—'),
+            ('Account number', account.account_number or '—'),
+            ('Bank', account.bank_name or '—'),
+            ('Label', account.label or '—'),
+        ],
+        copy_admin=False,
+    )
+
+
+def notify_payout_account_reviewed(account) -> None:
+    """Email the dealer after Super Admin approves or rejects a payout account."""
+    dealer = getattr(account, 'dealer', None)
+    if dealer is None or not _user_email(dealer):
+        return
+    site_name = _site_name()
+    approved = account.status == 'approved'
+    first = (getattr(dealer, 'first_name', None) or '').strip() or 'there'
+    _send_txn_email(
+        recipients=[dealer.email],
+        subject=(
+            f'[{site_name}] Payout account {"approved" if approved else "rejected"}'
+        ),
+        text_intro=(
+            f'Your payout account ({account.get_method_display()} {account.account_number}) '
+            f'has been {"approved" if approved else "rejected"}.'
+            + ('' if approved else f'\n\nReason: {account.rejection_reason or "—"}')
+        ),
+        title='Payout account reviewed',
+        subtitle=(
+            'Assigned users can now load their wallets using this account.'
+            if approved
+            else 'Update the account details and resubmit for approval.'
+        ),
+        amount_label='Status',
+        amount_display='Active' if approved else 'Rejected',
+        status='approved' if approved else 'rejected',
+        status_label='Approved' if approved else 'Rejected',
+        rows=[
+            ('Type', account.get_method_display()),
+            ('Account name', account.account_name or '—'),
+            ('Account number', account.account_number or '—'),
+            ('Reason', account.rejection_reason or '—') if not approved else ('Status', 'Approved'),
+        ],
+        greeting=f'Hi {first},',
+    )
+
+
 def notify_account_approved(user) -> None:
     """Email when Super Admin activates / approves a customer account."""
     if not _user_email(user):
@@ -1087,6 +1304,20 @@ def notify_wallet_debit(
             reason=reason,
             ref=ref,
             context_label='Wallet debit',
+        )
+        _notify_assigned_dealer(
+            user,
+            subject=f'[{site_name}] User wallet debit',
+            text_intro=(
+                f'{amount_display} was deducted from {getattr(user, "phone", "a user")}. '
+                f'{reason or ""}'.strip()
+            ),
+            title='Customer wallet debit',
+            subtitle=f'{amount_display} was deducted. {reason or ""}'.strip(),
+            rows=rows,
+            amount_display=amount_display,
+            amount_label='Wallet debit',
+            status_label='Debited',
         )
 
     _push(
@@ -1282,6 +1513,7 @@ def notify_topup_success(topup, balance_after=None) -> None:
         ('Date', _format_when(getattr(topup, 'created_at', None))),
         ('Status', 'Debited'),
     ]
+    rows[4:4] = _charge_breakdown_rows(topup)
     if cfg.get('email_on_topup', True):
         if _user_email(topup.user):
             _send_txn_email(
@@ -1320,7 +1552,26 @@ def notify_topup_success(topup, balance_after=None) -> None:
                 ('Top-up amount', _fmt_amount(topup.amount)),
                 ('Charge', _fmt_amount(getattr(topup, 'charge', 0) or 0)),
                 ('Mobile', topup.mobile_number),
+                *_charge_breakdown_rows(topup),
             ],
+        )
+        _notify_assigned_dealer(
+            topup.user,
+            subject=f'[{site_name}] User top-up completed',
+            text_intro=(
+                f'{product} top-up of {_fmt_amount(topup.amount)} by '
+                f'{getattr(topup.user, "phone", "")} completed. '
+                f'Debited {_fmt_amount(debited)}.'
+            ),
+            title='Customer top-up completed',
+            subtitle=(
+                f'{product} top-up of {_fmt_amount(topup.amount)} to {topup.mobile_number} '
+                f'completed. Wallet debit {_fmt_amount(debited)}.'
+            ),
+            rows=rows,
+            amount_display=_fmt_amount(debited),
+            amount_label='Wallet debit',
+            status_label='Debited',
         )
     _push(
         topup.user,
@@ -1376,7 +1627,7 @@ def notify_transfer_success(transfer, balance_after=None) -> None:
         ('Date', _format_when(getattr(transfer, 'created_at', None))),
         ('Status', 'Debited'),
     ]
-
+    rows[3:3] = _charge_breakdown_rows(transfer)
     if cfg.get('email_on_transfer', True) or cfg.get('email_on_wallet_debit', True):
         if _user_email(transfer.user):
             _send_txn_email(
@@ -1415,7 +1666,26 @@ def notify_transfer_success(transfer, balance_after=None) -> None:
                 ('Transfer amount', _fmt_amount(transfer.amount)),
                 ('Charge', _fmt_amount(getattr(transfer, 'charge', 0) or 0)),
                 ('Destination', f'{dest_name} · {dest}'),
+                *_charge_breakdown_rows(transfer),
             ],
+        )
+        _notify_assigned_dealer(
+            transfer.user,
+            subject=f'[{site_name}] User bank transfer completed',
+            text_intro=(
+                f'Bank transfer of {_fmt_amount(transfer.amount)} by '
+                f'{getattr(transfer.user, "phone", "")} completed. '
+                f'Debited {_fmt_amount(debited)}.'
+            ),
+            title='Customer bank transfer completed',
+            subtitle=(
+                f'Transfer of {_fmt_amount(transfer.amount)} to {dest} completed. '
+                f'Wallet debit {_fmt_amount(debited)}.'
+            ),
+            rows=rows,
+            amount_display=_fmt_amount(debited),
+            amount_label='Wallet debit',
+            status_label='Debited',
         )
 
     _push(
@@ -1612,12 +1882,15 @@ def notify_wallet_transfer(transfer) -> None:
         ('Sender', f'{sender_name} ({sender.phone})'),
         ('Receiver', f'{recipient_name} ({recipient.phone})'),
         ('Amount', amount_display),
+        ('Charge', _fmt_amount(getattr(transfer, 'charge', 0) or 0)),
+        ('Total debited', _fmt_amount(getattr(transfer, 'total_debited', None) or transfer.amount)),
         ('New balance', _fmt_amount(transfer.sender_balance_after)),
         ('Remarks', remarks),
         ('Reference', ref),
         ('Date', _format_when(getattr(transfer, 'created_at', None))),
         ('Status', 'Success'),
     ]
+    sender_rows[4:4] = _charge_breakdown_rows(transfer)
     recipient_rows: List[Row] = [
         ('Type', 'Wallet transfer received'),
         ('Sender', f'{sender_name} ({sender.phone})'),
@@ -1664,6 +1937,34 @@ def notify_wallet_transfer(transfer) -> None:
             greeting=f'Hi {getattr(recipient, "first_name", "") or "there"},',
             copy_admin=False,
         )
+
+    _notify_assigned_dealer(
+        sender,
+        subject=f'[{site_name}] User wallet transfer sent',
+        text_intro=(
+            f'{amount_display} was sent from {sender.phone} to {recipient.phone}.'
+        ),
+        title='Customer wallet transfer',
+        subtitle=f'{amount_display} transferred to {recipient_name} ({recipient.phone}).',
+        rows=sender_rows,
+        amount_display=amount_display,
+        status_label='Success',
+    )
+    _send_admin_opposite_wallet_email(
+        user=sender,
+        customer_direction='debit',
+        admin_direction='debit',
+        amount=getattr(transfer, 'total_debited', None) or transfer.amount,
+        balance_after=transfer.sender_balance_after,
+        reason='Wallet transfer',
+        ref=ref,
+        context_label='Wallet transfer',
+        extra_rows=[
+            ('Receiver', f'{recipient_name} ({recipient.phone})'),
+            ('Transfer amount', amount_display),
+            *_charge_breakdown_rows(transfer),
+        ],
+    )
 
     _push(
         sender,
@@ -1719,6 +2020,7 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
             ('Date', _format_when(getattr(remittance, 'created_at', None))),
             ('Status', 'Credited'),
         ]
+        rows[4:4] = _charge_breakdown_rows(remittance)
         if _user_email(remittance.user):
             _send_txn_email(
                 recipients=[remittance.user.email],
@@ -1757,7 +2059,24 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
                 ('Charge', _fmt_amount(charge)),
                 ('Cashback', _fmt_amount(cashback)),
                 ('Reference no.', remittance.ref_no or '-'),
+                *_charge_breakdown_rows(remittance),
             ],
+        )
+        _notify_assigned_dealer(
+            remittance.user,
+            subject=f'[{site_name}] User remittance credited',
+            text_intro=(
+                f'Remittance {remittance.ref_no} credited {_fmt_amount(credited)} '
+                f'to {getattr(remittance.user, "phone", "")}.'
+            ),
+            title='Customer remittance credited',
+            subtitle=(
+                f'{_fmt_amount(credited)} credited from remittance {remittance.ref_no}.'
+            ),
+            rows=rows,
+            amount_display=_fmt_amount(credited),
+            amount_label='Amount credited',
+            status_label='Credited',
         )
 
     _push(

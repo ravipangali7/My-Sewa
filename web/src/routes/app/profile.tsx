@@ -378,7 +378,6 @@ function Profile() {
                 </span>
               </p>
             </div>
-            {user.role === "agent" ? <AgentSubAgentsPanel /> : null}
           </section>
 
           <section>
@@ -548,89 +547,5 @@ function SettingsRow({
       </div>
       <ChevronRight className="size-5 shrink-0 text-[#C0C7D2]" strokeWidth={2} />
     </Link>
-  );
-}
-
-function AgentSubAgentsPanel() {
-  const queryClient = useQueryClient();
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const listQuery = useQuery({
-    queryKey: ["agent", "sub-agents"],
-    queryFn: () => apiClient.agentSubAgents(),
-  });
-  const createMutation = useMutation({
-    mutationFn: () =>
-      apiClient.agentCreateSubAgent({
-        phone: phone.trim(),
-        email: email.trim(),
-        password,
-        password2: password,
-        role: "sub_agent",
-        account_status: "approved",
-      }),
-    onSuccess: () => {
-      toast.success("Sub-Agent created");
-      setPhone("");
-      setEmail("");
-      setPassword("");
-      queryClient.invalidateQueries({ queryKey: ["agent", "sub-agents"] });
-    },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : "Could not create Sub-Agent");
-    },
-  });
-  const items = listQuery.data?.items ?? [];
-  return (
-    <div className="mt-3 space-y-3 rounded-2xl bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
-      <p className="text-[14px] font-semibold text-[#0F172A]">Sub-Agents</p>
-      {items.length === 0 ? (
-        <p className="text-[12px] text-[#8A94A6]">No Sub-Agents yet.</p>
-      ) : (
-        <ul className="space-y-1.5 text-[13px]">
-          {items.map((item) => (
-            <li key={item.id} className="flex justify-between gap-2">
-              <span>{item.phone}</span>
-              <span className="text-[#8A94A6]">
-                {[item.first_name, item.last_name].filter(Boolean).join(" ") || "—"}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <form
-        className="space-y-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          createMutation.mutate();
-        }}
-      >
-        <Input
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="Phone"
-          required
-        />
-        <Input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          required
-        />
-        <Input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password (min 8 characters)"
-          minLength={8}
-          required
-        />
-        <Button type="submit" size="sm" disabled={createMutation.isPending}>
-          {createMutation.isPending ? "Creating…" : "Create Sub-Agent"}
-        </Button>
-      </form>
-    </div>
   );
 }

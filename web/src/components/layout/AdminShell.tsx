@@ -27,6 +27,7 @@ import {
   GitBranch,
   TrendingUp,
   MessageCircle,
+  Landmark,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -75,6 +76,7 @@ const NAV = [
   { to: "/admin/wallets", label: "Wallets", icon: Wallet },
   { to: "/admin/transaction-history", label: "Transaction History", icon: History },
   { to: "/admin/deposits", label: "Manual Deposit", icon: Inbox },
+  { to: "/admin/payout-accounts", label: "Payout accounts", icon: Landmark },
   { to: "/admin/kyc", label: "KYC", icon: ShieldCheck },
   { to: "/admin/remittances", label: "Remittances", icon: ArrowDownToLine },
   { to: "/admin/topups", label: "Top-ups", icon: Smartphone },

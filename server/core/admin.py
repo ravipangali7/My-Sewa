@@ -18,6 +18,9 @@ from .models import (
     DealerCommissionConfig,
     DealerCommission,
     ServiceCommissionRule,
+    DealerPayoutAccount,
+    ServiceChargeConfig,
+    TransactionCharge,
     DeviceToken,
     KYCSubmission,
     KYCDocument,
@@ -189,6 +192,21 @@ class DepositAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False  # Deposits can only be created via API
+
+
+@admin.register(DealerPayoutAccount)
+class DealerPayoutAccountAdmin(admin.ModelAdmin):
+    list_display = (
+        'dealer', 'method', 'account_name', 'account_number', 'status', 'updated_at',
+    )
+    list_filter = ('status', 'method', 'created_at')
+    search_fields = (
+        'dealer__phone', 'account_name', 'account_number', 'bank_name', 'label',
+    )
+    readonly_fields = (
+        'dealer', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
+    )
+    ordering = ('-updated_at',)
 
 
 class SettingsAdminForm(forms.ModelForm):
@@ -685,6 +703,35 @@ class SupportChatMessageAdmin(admin.ModelAdmin):
 class SupportChatReadStateAdmin(admin.ModelAdmin):
     list_display = ('id', 'thread', 'user', 'last_read_at')
     readonly_fields = ('thread', 'user', 'last_read_at', 'updated_at')
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(ServiceChargeConfig)
+class ServiceChargeConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        'txn_type', 'system_charge_flat', 'system_charge_percent',
+        'dealer_commission_flat', 'dealer_commission_percent',
+        'himalpay_charge_flat', 'himalpay_charge_percent', 'updated_at',
+    )
+    search_fields = ('txn_type',)
+
+
+@admin.register(TransactionCharge)
+class TransactionChargeAdmin(admin.ModelAdmin):
+    list_display = (
+        'txn_type', 'txn_id', 'amount', 'system_charge', 'dealer_commission',
+        'himalpay_charge', 'total_charges', 'wallet_amount', 'direction', 'created_at',
+    )
+    list_filter = ('txn_type', 'direction', 'created_at')
+    search_fields = ('txn_type',)
+    readonly_fields = (
+        'txn_type', 'txn_id', 'amount', 'system_charge', 'dealer_commission',
+        'himalpay_charge', 'total_charges', 'cashback', 'wallet_amount',
+        'direction', 'dealer', 'created_at', 'updated_at',
+    )
+    ordering = ('-created_at',)
 
     def has_add_permission(self, request):
         return False

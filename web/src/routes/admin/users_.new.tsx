@@ -28,7 +28,7 @@ function NewUserPage() {
   const createMutation = useMutation({
     mutationFn: (payload: AdminUserWritePayload) => apiClient.adminCreateUser(payload),
     onSuccess: (res) => {
-      toast.success("User created");
+      toast.success("User created — credentials emailed; waiting for Super Admin approval");
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
       navigate({ to: "/admin/users/$userId", params: { userId: String(res.data.id) } });
     },

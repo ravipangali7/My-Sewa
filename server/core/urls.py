@@ -19,6 +19,7 @@ from .views import (
     hierarchy_views,
     dealer_views,
     support_chat_views,
+    payout_views,
 )
 
 urlpatterns = [
@@ -100,8 +101,40 @@ urlpatterns = [
         dealer_views.network_user_unfreeze,
         name='dealer_user_unfreeze',
     ),
+    path(
+        'api/dealer/push-balance/users/',
+        dealer_views.dealer_push_balance_users,
+        name='dealer_push_balance_users',
+    ),
+    path(
+        'api/dealer/push-balance/',
+        dealer_views.dealer_push_balance,
+        name='dealer_push_balance',
+    ),
     path('api/dealer/commissions/', dealer_views.network_commissions, name='dealer_commissions'),
     path('api/dealer/report/', dealer_views.network_report, name='dealer_report'),
+    path('api/dealer/payout-accounts/', payout_views.dealer_payout_accounts, name='dealer_payout_accounts'),
+    path(
+        'api/dealer/payout-accounts/<int:account_id>/',
+        payout_views.dealer_payout_account_detail,
+        name='dealer_payout_account_detail',
+    ),
+    path('api/dealer/deposits/', payout_views.dealer_deposits, name='dealer_deposits'),
+    path(
+        'api/dealer/deposits/<int:deposit_id>/approve/',
+        payout_views.dealer_approve_deposit,
+        name='dealer_approve_deposit',
+    ),
+    path(
+        'api/dealer/deposits/<int:deposit_id>/reject/',
+        payout_views.dealer_reject_deposit,
+        name='dealer_reject_deposit',
+    ),
+    path(
+        'api/dealer/users/<int:user_id>/load-wallet/',
+        payout_views.dealer_load_user_wallet,
+        name='dealer_load_user_wallet',
+    ),
 
     path('api/support-chat/contacts/', support_chat_views.support_chat_contacts, name='support_chat_contacts'),
     path('api/support-chat/unread/', support_chat_views.support_chat_unread, name='support_chat_unread'),
@@ -119,6 +152,7 @@ urlpatterns = [
     # Deposit endpoints
     path('api/deposit/create/', deposit_views.create_deposit, name='create_deposit'),
     path('api/deposit/list/', deposit_views.list_deposits, name='list_deposits'),
+    path('api/deposit/destinations/', payout_views.deposit_destinations, name='deposit_destinations'),
     path('api/deposit/<int:deposit_id>/', deposit_views.get_deposit, name='get_deposit'),
 
     # KYC endpoints (multi-document identity verification)
@@ -263,6 +297,22 @@ urlpatterns = [
     path('api/admin/deposits/<int:deposit_id>/', admin_views.admin_get_deposit, name='admin_get_deposit'),
     path('api/admin/deposits/<int:deposit_id>/approve/', admin_views.admin_approve_deposit, name='admin_approve_deposit'),
     path('api/admin/deposits/<int:deposit_id>/reject/', admin_views.admin_reject_deposit, name='admin_reject_deposit'),
+    path('api/admin/payout-accounts/', payout_views.admin_payout_accounts, name='admin_payout_accounts'),
+    path(
+        'api/admin/payout-accounts/<int:account_id>/',
+        payout_views.admin_payout_account_detail,
+        name='admin_payout_account_detail',
+    ),
+    path(
+        'api/admin/payout-accounts/<int:account_id>/approve/',
+        payout_views.admin_approve_payout_account,
+        name='admin_approve_payout_account',
+    ),
+    path(
+        'api/admin/payout-accounts/<int:account_id>/reject/',
+        payout_views.admin_reject_payout_account,
+        name='admin_reject_payout_account',
+    ),
     path('api/admin/kyc/', admin_views.admin_list_kyc, name='admin_list_kyc'),
     path('api/admin/kyc/<int:kyc_id>/', admin_views.admin_get_kyc, name='admin_get_kyc'),
     path('api/admin/kyc/<int:kyc_id>/approve/', admin_views.admin_approve_kyc, name='admin_approve_kyc'),
@@ -300,6 +350,7 @@ urlpatterns = [
     path('api/admin/remittances/<int:remittance_id>/', admin_views.admin_get_remittance, name='admin_get_remittance'),
     path('api/admin/remittances/<int:remittance_id>/status/', admin_views.admin_update_remittance_status, name='admin_update_remittance_status'),
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
+    path('api/admin/service-charges/', admin_views.admin_service_charges, name='admin_service_charges'),
     path('api/admin/settings/export/', admin_views.admin_export_data, name='admin_export_data'),
     path('api/admin/export/', admin_views.admin_export_data, name='admin_export_data_alt'),
     path('api/admin/settings/test-email/', admin_views.admin_test_smtp_email, name='admin_test_smtp_email'),

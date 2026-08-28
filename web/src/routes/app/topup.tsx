@@ -57,6 +57,8 @@ function TopUp() {
   const [providerCharge, setProviderCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
   const [platformCharge, setPlatformCharge] = useState("0.00");
+  const [dealerCommission, setDealerCommission] = useState("0.00");
+  const [himalpayCharge, setHimalpayCharge] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [feeLoading, setFeeLoading] = useState(false);
   const [touchedMobile, setTouchedMobile] = useState(false);
@@ -157,7 +159,9 @@ function TopUp() {
           setCharge(String(res.charge));
           setProviderCharge(String(res.provider_charge ?? res.charge));
           setCashback(String(res.cashback));
-          setPlatformCharge(String(res.platform_charge ?? "0.00"));
+          setPlatformCharge(String(res.system_charge ?? res.platform_charge ?? "0.00"));
+          setDealerCommission(String(res.dealer_commission ?? "0.00"));
+          setHimalpayCharge(String(res.himalpay_charge ?? res.provider_charge ?? "0.00"));
           setTotalDebited(String(res.total_debited));
         })
         .catch((err) => {
@@ -487,16 +491,22 @@ function TopUp() {
 
             <div className="rounded-xl bg-muted p-3 text-[14px]">
               <Row label={t("common.amount")} value={formatNPR(amt)} />
-              <Row
-                label={t("topup.providerCharge")}
-                value={feeLoading ? "…" : formatNPR(providerCharge)}
-              />
               {Number(platformCharge) > 0 ? (
                 <Row
-                  label={t("topup.platformCharge")}
+                  label="System charge"
                   value={feeLoading ? "…" : formatNPR(platformCharge)}
                 />
               ) : null}
+              {Number(dealerCommission) > 0 ? (
+                <Row
+                  label="Dealer commission"
+                  value={feeLoading ? "…" : formatNPR(dealerCommission)}
+                />
+              ) : null}
+              <Row
+                label="HimalPay charge"
+                value={feeLoading ? "…" : formatNPR(himalpayCharge || providerCharge)}
+              />
               <Row
                 label={t("common.cashback")}
                 value={feeLoading ? "…" : `− ${formatNPR(cashback)}`}

@@ -100,6 +100,12 @@ function LoadWallet() {
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
+  const destQuery = useQuery({
+    queryKey: ["deposit-destinations"],
+    queryFn: () => apiClient.depositDestinations(),
+    ...settingsQueryOptions(),
+  });
+
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiClient.settings(),
@@ -156,6 +162,15 @@ function LoadWallet() {
       fd.append("deposit_date", depositDate);
       const source = depositSourceLabel(paymentMethod, bankName);
       if (source) fd.append("bank_name", source);
+      const dest = destQuery.data;
+      if (dest?.source === "dealer" && paymentMethod) {
+        const match = (dest.bank_details?.accounts ?? []).find(
+          (acc) => acc.method === paymentMethod && acc.enabled !== false,
+        );
+        if (match?.payout_account_id) {
+          fd.append("payout_account_id", String(match.payout_account_id));
+        }
+      }
       if (note.trim()) fd.append("note", note.trim());
       if (file) fd.append("screenshot_proof", file);
       return apiClient.createDeposit(fd);
@@ -216,30 +231,38 @@ function LoadWallet() {
         {depositsEnabled ? (
           <>
             <DepositAccountsPanel
-              bankDetails={settingsQuery.data?.bank_details ?? null}
-              loading={settingsQuery.isLoading}
+              bankDetails={destQuery.data?.bank_details ?? settingsQuery.data?.bank_details ?? null}
+              loading={destQuery.isLoading || settingsQuery.isLoading}
               qrOptions={[
                 {
                   id: "bank",
-                  url: settingsQuery.data?.qr_code_url ?? "",
+                  url: destQuery.data?.qr_code_url ?? settingsQuery.data?.qr_code_url ?? "",
                   label: t("load.qrBank"),
                   alt: t("load.qrBankAlt"),
                 },
                 {
                   id: "khalti",
-                  url: settingsQuery.data?.khalti_qr_code_url ?? "",
+                  url: destQuery.data?.khalti_qr_code_url ?? settingsQuery.data?.khalti_qr_code_url ?? "",
                   label: t("load.qrKhalti"),
                   alt: t("load.qrKhaltiAlt"),
                 },
                 {
                   id: "esewa",
-                  url: settingsQuery.data?.esewa_qr_code_url ?? "",
+                  url: destQuery.data?.esewa_qr_code_url ?? settingsQuery.data?.esewa_qr_code_url ?? "",
                   label: t("load.qrEsewa"),
                   alt: t("load.qrEsewaAlt"),
                 },
               ]}
-              instructions={instructions}
-              title={t("load.depositAccount")}
+              instructions={
+                destQuery.data?.source === "dealer"
+                  ? t("load.dealerInstructions", {
+                      dealer: destQuery.data.dealer_name || destQuery.data.dealer_phone || "",
+                    })
+                  : instructions
+              }
+              title={
+                destQuery.data?.source === "dealer" ? t("load.dealerAccount") : t("load.depositAccount")
+              }
             />
 
             <section className="inset-group min-w-0 max-w-full p-4">

@@ -39,6 +39,12 @@ from ..services.app_config import (
     is_auto_status_verified,
 )
 from ..services.notifications import notify_low_balance_if_needed, notify_wallet_debit
+from ..services.txn_charges import (
+    TXN_COMMUNITY_ELECTRICITY,
+    overlay_himalpay_debit,
+    persist_transaction_charge,
+    quote_charges,
+)
 from ..services.txn_status import resolve_provider_outcome, debit_wallet_for_txn
 from ..services.wallet_guard import (
     handle_provider_success_without_wallet,
@@ -56,18 +62,7 @@ def _get_or_create_wallet(user):
 
 
 def _apply_fee_fields(txn, himalpay: HimalPayAPI, response: dict, amount):
-    charge_paisa = response.get('charge', response.get('applied_charge', 0)) or 0
-    cashback_paisa = response.get('cashback', response.get('applied_cashback', 0)) or 0
-    total_paisa = response.get(
-        'total_debited',
-        response.get('net_amount', himalpay.to_paisa(amount) + int(charge_paisa) - int(cashback_paisa)),
-    )
-    txn.charge = himalpay.to_rupees(charge_paisa)
-    txn.cashback = himalpay.to_rupees(cashback_paisa)
-    txn.total_debited = himalpay.to_rupees(total_paisa)
-    txn.service_hub_txn_id = himalpay.extract_transaction_id(response)
-    txn.reference_id = himalpay.extract_reference_id(response)
-    txn.provider_response = response
+    overlay_himalpay_debit(txn, himalpay, response, amount, TXN_COMMUNITY_ELECTRICITY)
 
 
 def _customer_ref_from_data(platform, data) -> str:
@@ -349,9 +344,8 @@ def pay_bill(request):
 
     try:
         fee_info = himalpay.calculate_cashback_and_charge(pay_service, amount)
-        charge = himalpay.to_rupees(fee_info.get('charge', 0) or 0)
+        provider_charge = himalpay.to_rupees(fee_info.get('charge', 0) or 0)
         cashback = himalpay.to_rupees(fee_info.get('cashback', 0) or 0)
-        total_required = amount + charge - cashback
     except HimalPayError as exc:
         if getattr(exc, 'is_ip_blocked', False) or exc.status_code in (401, 403):
             return Response(
@@ -366,9 +360,15 @@ def pay_bill(request):
                 ),
                 status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
             )
-        charge = Decimal('0.00')
+        provider_charge = Decimal('0.00')
         cashback = Decimal('0.00')
-        total_required = amount
+
+    quote = quote_charges(
+        amount, TXN_COMMUNITY_ELECTRICITY, request.user,
+        provider_charge=provider_charge, cashback=cashback,
+    )
+    charge = quote['total_charges']
+    total_required = quote['wallet_amount']
 
     if wallet.balance < total_required:
         return Response(
@@ -405,6 +405,7 @@ def pay_bill(request):
         total_debited=total_required,
         pay_payload=pay_data,
     )
+    persist_transaction_charge(bill_txn, quote)
 
     try:
         response = himalpay.process_payment(

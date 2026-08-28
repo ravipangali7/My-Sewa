@@ -11,6 +11,7 @@ from ..models import (
     SupportChatThread,
     _ensure_support_chat_tables,
 )
+from .hierarchy import admin_actors_qs, is_admin_actor
 
 
 def _is_missing_support_chat_table(exc) -> bool:
@@ -28,19 +29,59 @@ def ordered_users(a, b):
     return b, a
 
 
+def _admin_ids():
+    return list(admin_actors_qs().values_list('pk', flat=True))
+
+
+def _admin_support_threads():
+    """Threads that pair an Admin with a User/Dealer (not Admin–Admin)."""
+    admin_ids = _admin_ids()
+    if not admin_ids:
+        return SupportChatThread.objects.none()
+    return SupportChatThread.objects.filter(
+        Q(user_low_id__in=admin_ids) | Q(user_high_id__in=admin_ids)
+    ).exclude(
+        Q(user_low_id__in=admin_ids) & Q(user_high_id__in=admin_ids)
+    )
+
+
 def threads_for(user):
+    """List Support Chat threads this actor may see.
+
+    Users and Dealers only see threads with Admin. Any Admin can see every
+    Admin ↔ User/Dealer thread so the inbox is shared.
+    """
     _ensure_support_chat_tables()
-    return SupportChatThread.objects.filter(Q(user_low=user) | Q(user_high=user))
+    if is_admin_actor(user):
+        return _admin_support_threads()
+    admin_ids = _admin_ids()
+    if not admin_ids:
+        return SupportChatThread.objects.none()
+    return SupportChatThread.objects.filter(
+        Q(user_low=user, user_high_id__in=admin_ids)
+        | Q(user_high=user, user_low_id__in=admin_ids)
+    )
 
 
 def other_participant(thread, user):
     if thread.user_low_id == user.pk:
         return thread.user_high
-    return thread.user_low
+    if thread.user_high_id == user.pk:
+        return thread.user_low
+    # Shared admin inbox: show the User/Dealer, not the original Admin.
+    if is_admin_actor(thread.user_low) and not is_admin_actor(thread.user_high):
+        return thread.user_high
+    if is_admin_actor(thread.user_high) and not is_admin_actor(thread.user_low):
+        return thread.user_low
+    return thread.user_high
 
 
 def user_in_thread(thread, user) -> bool:
-    return user.pk in (thread.user_low_id, thread.user_high_id)
+    if user.pk in (thread.user_low_id, thread.user_high_id):
+        return True
+    if not is_admin_actor(user):
+        return False
+    return is_admin_actor(thread.user_low) != is_admin_actor(thread.user_high)
 
 
 def get_or_create_thread(a, b) -> SupportChatThread:

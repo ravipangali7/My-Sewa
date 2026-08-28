@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Coins, Users, UserPlus, Wallet, History, Banknote } from "lucide-react";
+import { Coins, Users, Wallet, History, Banknote } from "lucide-react";
 import { PortalShell } from "@/components/layout/PortalShell";
 import { AdminMetricStrip, AdminMetricStripSkeleton } from "@/components/admin/AdminMetricStrip";
 import {
@@ -45,7 +45,6 @@ function DealerDashboard() {
     ...adminLiveQueryOptions(),
   });
   const data = dash.data;
-  const isSub = user?.role === "sub_agent";
 
   const kpis = data
     ? [
@@ -83,17 +82,6 @@ function DealerDashboard() {
           icon: Users,
           to: "/dealer/customers",
         },
-        ...(!isSub
-          ? [
-              {
-                key: "subs",
-                label: "Sub-Agents",
-                value: String(data.total_sub_agents),
-                icon: UserPlus,
-                to: "/dealer/sub-agents",
-              },
-            ]
-          : []),
       ]
     : [];
 
@@ -110,9 +98,9 @@ function DealerDashboard() {
             <Button asChild size="sm">
               <Link to="/dealer/customers">Customers</Link>
             </Button>
-            {!isSub ? (
+            {user?.role === "dealer" ? (
               <Button asChild size="sm" variant="outline">
-                <Link to="/dealer/sub-agents">Sub-Agents</Link>
+                <Link to="/dealer/push-balance">Push Balance</Link>
               </Button>
             ) : null}
             <Button asChild size="sm" variant="outline">
@@ -142,7 +130,7 @@ function DealerDashboard() {
                       <TableCell>{row.txn_type_display || row.txn_type}</TableCell>
                       <TableCell className="tabular">{formatNPR(row.txn_amount)}</TableCell>
                       <TableCell className="tabular">
-                        {formatNPR(isSub ? (row.sub_agent_commission ?? "0") : row.net_commission)}
+                        {formatNPR(row.net_commission)}
                       </TableCell>
                     </TableRow>
                   ))}

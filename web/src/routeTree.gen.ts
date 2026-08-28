@@ -19,6 +19,7 @@ import { Route as AdminDataTopupsRouteImport } from './routes/admin/data-topups'
 import { Route as AdminDealerProfitRouteImport } from './routes/admin/dealer-profit'
 import { Route as AdminDealersRouteImport } from './routes/admin/dealers'
 import { Route as AdminDepositsRouteImport } from './routes/admin/deposits'
+import { Route as AdminPayoutAccountsRouteImport } from './routes/admin/payout-accounts'
 import { Route as AdminHierarchyRouteImport } from './routes/admin/hierarchy'
 import { Route as AdminHimalpayHistoryRouteImport } from './routes/admin/himalpay-history'
 import { Route as AdminInternetRouteImport } from './routes/admin/internet'
@@ -57,7 +58,10 @@ import { Route as AppWaterRouteImport } from './routes/app/water'
 import { Route as DealerIndexRouteImport } from './routes/dealer/index'
 import { Route as DealerCommissionRouteImport } from './routes/dealer/commission'
 import { Route as DealerCustomersRouteImport } from './routes/dealer/customers'
+import { Route as DealerDepositsRouteImport } from './routes/dealer/deposits'
+import { Route as DealerPayoutAccountsRouteImport } from './routes/dealer/payout-accounts'
 import { Route as DealerProfileRouteImport } from './routes/dealer/profile'
+import { Route as DealerPushBalanceRouteImport } from './routes/dealer/push-balance'
 import { Route as DealerReportsRouteImport } from './routes/dealer/reports'
 import { Route as DealerSubAgentsRouteImport } from './routes/dealer/sub-agents'
 import { Route as DealerTransactionsRouteImport } from './routes/dealer/transactions'
@@ -133,6 +137,11 @@ const AdminDealersRoute = AdminDealersRouteImport.update({
 const AdminDepositsRoute = AdminDepositsRouteImport.update({
   id: '/admin/deposits',
   path: '/admin/deposits',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPayoutAccountsRoute = AdminPayoutAccountsRouteImport.update({
+  id: '/admin/payout-accounts',
+  path: '/admin/payout-accounts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminHierarchyRoute = AdminHierarchyRouteImport.update({
@@ -325,9 +334,24 @@ const DealerCustomersRoute = DealerCustomersRouteImport.update({
   path: '/dealer/customers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DealerDepositsRoute = DealerDepositsRouteImport.update({
+  id: '/dealer/deposits',
+  path: '/dealer/deposits',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DealerPayoutAccountsRoute = DealerPayoutAccountsRouteImport.update({
+  id: '/dealer/payout-accounts',
+  path: '/dealer/payout-accounts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DealerProfileRoute = DealerProfileRouteImport.update({
   id: '/dealer/profile',
   path: '/dealer/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DealerPushBalanceRoute = DealerPushBalanceRouteImport.update({
+  id: '/dealer/push-balance',
+  path: '/dealer/push-balance',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DealerReportsRoute = DealerReportsRouteImport.update({
@@ -471,6 +495,7 @@ export interface FileRoutesByFullPath {
   '/admin/dealer-profit': typeof AdminDealerProfitRoute
   '/admin/dealers': typeof AdminDealersRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/payout-accounts': typeof AdminPayoutAccountsRoute
   '/admin/hierarchy': typeof AdminHierarchyRoute
   '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
@@ -507,7 +532,10 @@ export interface FileRoutesByFullPath {
   '/app/water': typeof AppWaterRoute
   '/dealer/commission': typeof DealerCommissionRoute
   '/dealer/customers': typeof DealerCustomersRoute
+  '/dealer/deposits': typeof DealerDepositsRoute
+  '/dealer/payout-accounts': typeof DealerPayoutAccountsRoute
   '/dealer/profile': typeof DealerProfileRoute
+  '/dealer/push-balance': typeof DealerPushBalanceRoute
   '/dealer/reports': typeof DealerReportsRoute
   '/dealer/sub-agents': typeof DealerSubAgentsRoute
   '/dealer/transactions': typeof DealerTransactionsRoute
@@ -547,6 +575,7 @@ export interface FileRoutesByTo {
   '/admin/dealer-profit': typeof AdminDealerProfitRoute
   '/admin/dealers': typeof AdminDealersRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/payout-accounts': typeof AdminPayoutAccountsRoute
   '/admin/hierarchy': typeof AdminHierarchyRoute
   '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
@@ -583,7 +612,10 @@ export interface FileRoutesByTo {
   '/app/water': typeof AppWaterRoute
   '/dealer/commission': typeof DealerCommissionRoute
   '/dealer/customers': typeof DealerCustomersRoute
+  '/dealer/deposits': typeof DealerDepositsRoute
+  '/dealer/payout-accounts': typeof DealerPayoutAccountsRoute
   '/dealer/profile': typeof DealerProfileRoute
+  '/dealer/push-balance': typeof DealerPushBalanceRoute
   '/dealer/reports': typeof DealerReportsRoute
   '/dealer/sub-agents': typeof DealerSubAgentsRoute
   '/dealer/transactions': typeof DealerTransactionsRoute
@@ -624,6 +656,7 @@ export interface FileRoutesById {
   '/admin/dealer-profit': typeof AdminDealerProfitRoute
   '/admin/dealers': typeof AdminDealersRoute
   '/admin/deposits': typeof AdminDepositsRoute
+  '/admin/payout-accounts': typeof AdminPayoutAccountsRoute
   '/admin/hierarchy': typeof AdminHierarchyRoute
   '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
@@ -660,7 +693,10 @@ export interface FileRoutesById {
   '/app/water': typeof AppWaterRoute
   '/dealer/commission': typeof DealerCommissionRoute
   '/dealer/customers': typeof DealerCustomersRoute
+  '/dealer/deposits': typeof DealerDepositsRoute
+  '/dealer/payout-accounts': typeof DealerPayoutAccountsRoute
   '/dealer/profile': typeof DealerProfileRoute
+  '/dealer/push-balance': typeof DealerPushBalanceRoute
   '/dealer/reports': typeof DealerReportsRoute
   '/dealer/sub-agents': typeof DealerSubAgentsRoute
   '/dealer/transactions': typeof DealerTransactionsRoute
@@ -702,6 +738,7 @@ export interface FileRouteTypes {
     | '/admin/dealer-profit'
     | '/admin/dealers'
     | '/admin/deposits'
+    | '/admin/payout-accounts'
     | '/admin/hierarchy'
     | '/admin/himalpay-history'
     | '/admin/internet'
@@ -738,7 +775,10 @@ export interface FileRouteTypes {
     | '/app/water'
     | '/dealer/commission'
     | '/dealer/customers'
+    | '/dealer/deposits'
+    | '/dealer/payout-accounts'
     | '/dealer/profile'
+    | '/dealer/push-balance'
     | '/dealer/reports'
     | '/dealer/sub-agents'
     | '/dealer/transactions'
@@ -778,6 +818,7 @@ export interface FileRouteTypes {
     | '/admin/dealer-profit'
     | '/admin/dealers'
     | '/admin/deposits'
+    | '/admin/payout-accounts'
     | '/admin/hierarchy'
     | '/admin/himalpay-history'
     | '/admin/internet'
@@ -814,7 +855,10 @@ export interface FileRouteTypes {
     | '/app/water'
     | '/dealer/commission'
     | '/dealer/customers'
+    | '/dealer/deposits'
+    | '/dealer/payout-accounts'
     | '/dealer/profile'
+    | '/dealer/push-balance'
     | '/dealer/reports'
     | '/dealer/sub-agents'
     | '/dealer/transactions'
@@ -854,6 +898,7 @@ export interface FileRouteTypes {
     | '/admin/dealer-profit'
     | '/admin/dealers'
     | '/admin/deposits'
+    | '/admin/payout-accounts'
     | '/admin/hierarchy'
     | '/admin/himalpay-history'
     | '/admin/internet'
@@ -890,7 +935,10 @@ export interface FileRouteTypes {
     | '/app/water'
     | '/dealer/commission'
     | '/dealer/customers'
+    | '/dealer/deposits'
+    | '/dealer/payout-accounts'
     | '/dealer/profile'
+    | '/dealer/push-balance'
     | '/dealer/reports'
     | '/dealer/sub-agents'
     | '/dealer/transactions'
@@ -931,6 +979,7 @@ export interface RootRouteChildren {
   AdminDealerProfitRoute: typeof AdminDealerProfitRoute
   AdminDealersRoute: typeof AdminDealersRoute
   AdminDepositsRoute: typeof AdminDepositsRoute
+  AdminPayoutAccountsRoute: typeof AdminPayoutAccountsRoute
   AdminHierarchyRoute: typeof AdminHierarchyRoute
   AdminHimalpayHistoryRoute: typeof AdminHimalpayHistoryRoute
   AdminInternetRoute: typeof AdminInternetRoute
@@ -967,7 +1016,10 @@ export interface RootRouteChildren {
   AppWaterRoute: typeof AppWaterRoute
   DealerCommissionRoute: typeof DealerCommissionRoute
   DealerCustomersRoute: typeof DealerCustomersRoute
+  DealerDepositsRoute: typeof DealerDepositsRoute
+  DealerPayoutAccountsRoute: typeof DealerPayoutAccountsRoute
   DealerProfileRoute: typeof DealerProfileRoute
+  DealerPushBalanceRoute: typeof DealerPushBalanceRoute
   DealerReportsRoute: typeof DealerReportsRoute
   DealerSubAgentsRoute: typeof DealerSubAgentsRoute
   DealerTransactionsRoute: typeof DealerTransactionsRoute
@@ -1068,6 +1120,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/deposits'
       fullPath: '/admin/deposits'
       preLoaderRoute: typeof AdminDepositsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/payout-accounts': {
+      id: '/admin/payout-accounts'
+      path: '/admin/payout-accounts'
+      fullPath: '/admin/payout-accounts'
+      preLoaderRoute: typeof AdminPayoutAccountsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/hierarchy': {
@@ -1336,11 +1395,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DealerCustomersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dealer/deposits': {
+      id: '/dealer/deposits'
+      path: '/dealer/deposits'
+      fullPath: '/dealer/deposits'
+      preLoaderRoute: typeof DealerDepositsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dealer/payout-accounts': {
+      id: '/dealer/payout-accounts'
+      path: '/dealer/payout-accounts'
+      fullPath: '/dealer/payout-accounts'
+      preLoaderRoute: typeof DealerPayoutAccountsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dealer/profile': {
       id: '/dealer/profile'
       path: '/dealer/profile'
       fullPath: '/dealer/profile'
       preLoaderRoute: typeof DealerProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dealer/push-balance': {
+      id: '/dealer/push-balance'
+      path: '/dealer/push-balance'
+      fullPath: '/dealer/push-balance'
+      preLoaderRoute: typeof DealerPushBalanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dealer/reports': {
@@ -1531,6 +1611,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminDealerProfitRoute: AdminDealerProfitRoute,
   AdminDealersRoute: AdminDealersRoute,
   AdminDepositsRoute: AdminDepositsRoute,
+  AdminPayoutAccountsRoute: AdminPayoutAccountsRoute,
   AdminHierarchyRoute: AdminHierarchyRoute,
   AdminHimalpayHistoryRoute: AdminHimalpayHistoryRoute,
   AdminInternetRoute: AdminInternetRoute,
@@ -1567,7 +1648,10 @@ const rootRouteChildren: RootRouteChildren = {
   AppWaterRoute: AppWaterRoute,
   DealerCommissionRoute: DealerCommissionRoute,
   DealerCustomersRoute: DealerCustomersRoute,
+  DealerDepositsRoute: DealerDepositsRoute,
+  DealerPayoutAccountsRoute: DealerPayoutAccountsRoute,
   DealerProfileRoute: DealerProfileRoute,
+  DealerPushBalanceRoute: DealerPushBalanceRoute,
   DealerReportsRoute: DealerReportsRoute,
   DealerSubAgentsRoute: DealerSubAgentsRoute,
   DealerTransactionsRoute: DealerTransactionsRoute,

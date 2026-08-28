@@ -87,7 +87,13 @@ function PersonRow({
   );
 }
 
-export function SupportChatPanel({ className }: { className?: string }) {
+export function SupportChatPanel({
+  className,
+  mode = "user",
+}: {
+  className?: string;
+  mode?: "admin" | "user";
+}) {
   const t = useT();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -183,7 +189,7 @@ export function SupportChatPanel({ className }: { className?: string }) {
       });
     }
     const leftover = contacts.filter((contact) => !seen.has(contact.id));
-    if (leftover.length <= 20) {
+    if (mode === "user" || leftover.length <= 20) {
       for (const contact of leftover) {
         items.push({
           key: `c-${contact.id}`,
@@ -195,7 +201,7 @@ export function SupportChatPanel({ className }: { className?: string }) {
       }
     }
     return items;
-  }, [contacts, searching, threadByUserId, threads]);
+  }, [contacts, mode, searching, threadByUserId, threads]);
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
   const selectedUser = selectedThread?.other_user
@@ -241,11 +247,13 @@ export function SupportChatPanel({ className }: { className?: string }) {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("chat.searchPlaceholder")}
+              placeholder={t(mode === "admin" ? "chat.searchPlaceholderAdmin" : "chat.searchPlaceholder")}
               className="h-10 rounded-xl pl-9"
             />
           </div>
-          <p className="mt-2 px-0.5 text-[11px] text-muted-foreground">{t("chat.authorizedHint")}</p>
+          <p className="mt-2 px-0.5 text-[11px] text-muted-foreground">
+            {t(mode === "admin" ? "chat.authorizedHintAdmin" : "chat.authorizedHint")}
+          </p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {threadsQuery.isLoading || contactsQuery.isLoading ? (
@@ -254,7 +262,9 @@ export function SupportChatPanel({ className }: { className?: string }) {
             <div className="flex flex-col items-center px-4 py-12 text-center">
               <MessageCircle className="mb-3 size-10 text-muted-foreground/50" />
               <p className="text-sm font-medium">{t("chat.emptyTitle")}</p>
-              <p className="mt-1 text-[13px] text-muted-foreground">{t("chat.emptyBody")}</p>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                {t(mode === "admin" ? "chat.emptyBodyAdmin" : "chat.emptyBody")}
+              </p>
             </div>
           ) : (
             <div className="space-y-0.5">
@@ -286,7 +296,9 @@ export function SupportChatPanel({ className }: { className?: string }) {
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
             <MessageCircle className="mb-3 size-12 text-muted-foreground/40" />
             <p className="text-sm font-medium">{t("chat.selectTitle")}</p>
-            <p className="mt-1 max-w-sm text-[13px] text-muted-foreground">{t("chat.selectBody")}</p>
+            <p className="mt-1 max-w-sm text-[13px] text-muted-foreground">
+              {t(mode === "admin" ? "chat.selectBodyAdmin" : "chat.selectBody")}
+            </p>
           </div>
         ) : (
           <>

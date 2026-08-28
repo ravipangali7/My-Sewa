@@ -2,7 +2,6 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   Users,
-  UserPlus,
   Wallet,
   History,
   Coins,
@@ -13,7 +12,10 @@ import {
   Menu,
   ChevronDown,
   ArrowLeft,
+  ArrowDownToLine,
   MessageCircle,
+  Landmark,
+  Inbox,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -69,9 +71,16 @@ const SERVICE_PREFIXES = [
 ];
 
 function navForRole(role: string | undefined): NavItem[] {
-  const common: NavItem[] = [
+  const items: NavItem[] = [
     { to: "/dealer", label: "Dashboard", icon: LayoutDashboard },
     { to: "/dealer/customers", label: "My Customers", icon: Users },
+  ];
+  if (role === "dealer") {
+    items.push({ to: "/dealer/push-balance", label: "Push Balance", icon: ArrowDownToLine });
+  }
+  items.push(
+    { to: "/dealer/payout-accounts", label: "Payout Accounts", icon: Landmark },
+    { to: "/dealer/deposits", label: "Wallet Loads", icon: Inbox },
     { to: "/dealer/transactions", label: "Transactions", icon: History },
     { to: "/dealer/commission", label: "Commission", icon: Coins },
     { to: "/dealer/reports", label: "Reports", icon: BarChart3 },
@@ -79,13 +88,8 @@ function navForRole(role: string | undefined): NavItem[] {
     { to: "/app", label: "Wallet", icon: Wallet },
     { to: "/app/services", label: "Services", icon: Smartphone },
     { to: "/app/profile", label: "Profile", icon: User },
-  ];
-  if (role === "sub_agent") return common;
-  return [
-    ...common.slice(0, 2),
-    { to: "/dealer/sub-agents", label: "My Sub-Agents", icon: UserPlus },
-    ...common.slice(2),
-  ];
+  );
+  return items;
 }
 
 function isNavActive(pathname: string, to: string) {
@@ -122,6 +126,7 @@ export function PortalShell({
   headerLeading,
   flush = false,
   disablePullToRefresh = false,
+  immersive = false,
 }: {
   title: string;
   description?: string;
@@ -133,6 +138,8 @@ export function PortalShell({
   /** Edge-to-edge page body (wallet / profile heroes) under the portal chrome. */
   flush?: boolean;
   disablePullToRefresh?: boolean;
+  /** Full-screen page that supplies its own chrome (e.g. Push Balance). */
+  immersive?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -169,6 +176,14 @@ export function PortalShell({
 
   if (!token || isLoading || !user || isStaff || !isNetworkRole(user)) {
     return <AuthSessionLoader />;
+  }
+
+  if (immersive) {
+    return (
+      <div className="min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none">
+        {children}
+      </div>
+    );
   }
 
   const label = roleLabel(user);

@@ -1,4 +1,4 @@
-"""Role-scoped Support Chat APIs."""
+"""Admin ↔ User/Dealer Support Chat APIs."""
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
@@ -31,7 +31,7 @@ def _chat_forbidden():
     return Response(
         {
             'error': 'You are not allowed to chat with this user.',
-            'message': 'You can only message users you are authorized to chat with.',
+            'message': 'Support Chat is only between Admin and a User or Dealer.',
             'code': 'support_chat_forbidden',
         },
         status=status.HTTP_403_FORBIDDEN,

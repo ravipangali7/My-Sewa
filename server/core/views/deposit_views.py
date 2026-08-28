@@ -41,6 +41,7 @@ def create_deposit(request):
             bank_name=serializer.validated_data.get('bank_name', ''),
             screenshot_proof=serializer.validated_data.get('screenshot_proof'),
             note=serializer.validated_data.get('note') or '',
+            payout_account=serializer.validated_data.get('payout_account'),
             status='pending',
         )
         notify_deposit_submitted(deposit)

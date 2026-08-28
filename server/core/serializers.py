@@ -2,6 +2,8 @@
 DRF Serializers for all models
 """
 import re
+import secrets
+import string
 from datetime import date
 from decimal import Decimal
 from django.db import IntegrityError, OperationalError, ProgrammingError, transaction
@@ -37,11 +39,24 @@ from .models import (
     PushNotification,
     SupportChatThread,
     SupportChatMessage,
+    DealerPayoutAccount,
 )
 
 User = get_user_model()
 
 _TRANSACTION_PIN_RE = re.compile(r'^\d{4}$')
+
+
+def _generate_user_password(length=12):
+    alphabet = string.ascii_letters + string.digits
+    chars = [
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.digits),
+    ]
+    chars.extend(secrets.choice(alphabet) for _ in range(max(0, length - 3)))
+    secrets.SystemRandom().shuffle(chars)
+    return ''.join(chars)
 
 
 def validate_transaction_pin_value(value):
@@ -410,8 +425,12 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'email': 'Email address is required.'})
             attrs['email'] = email
 
-        if creating and not password:
-            raise serializers.ValidationError({'password': 'Password is required when creating a user.'})
+        if creating and not password and not password2:
+            generated = _generate_user_password()
+            attrs['password'] = generated
+            attrs['password2'] = generated
+            password = generated
+            password2 = generated
 
         if password or password2:
             if password != password2:
@@ -440,7 +459,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         if all(v is serializers.empty for v in (rate, tds, sub_rate, sa_rate)):
             return
         role = getattr(user, 'role', None)
-        if role not in (User.ROLE_DEALER, User.ROLE_AGENT, User.ROLE_SUB_AGENT):
+        if role not in (User.ROLE_DEALER,):
             return
         config, _ = DealerCommissionConfig.objects.get_or_create(user=user)
         update_fields = ['updated_at']
@@ -468,13 +487,23 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'sub_agent_commission_rate': validated_data.pop('sub_agent_commission_rate', serializers.empty),
             'super_admin_rate': validated_data.pop('super_admin_rate', serializers.empty),
         }
-        from .services.hierarchy import apply_hierarchy_defaults
-        # Admin-created users default to Active unless explicitly set to Pending.
-        validated_data.setdefault('account_status', User.ACCOUNT_STATUS_APPROVED)
+        from .services.hierarchy import apply_hierarchy_defaults, is_admin_actor, ROLE_DEALER
+        request = self.context.get('request')
+        actor = getattr(request, 'user', None) if request is not None else None
+        if actor is not None and not is_admin_actor(actor) and getattr(actor, 'role', None) == ROLE_DEALER:
+            validated_data['assigned_dealer'] = actor
+            validated_data.setdefault('role', User.ROLE_CUSTOMER)
+        # Newly created Users stay Pending until Super Admin approval.
+        validated_data['account_status'] = User.ACCOUNT_STATUS_PENDING
         user = User.objects.create_user(phone, password=password, **validated_data)
         apply_hierarchy_defaults(user)
         user.save(update_fields=['assigned_dealer', 'parent_agent', 'assigned_sub_agent', 'role'])
         self._save_dealer_rates(user, rates)
+        try:
+            from .services.notifications import notify_user_provisioned
+            notify_user_provisioned(user, password, created_by=actor)
+        except Exception:
+            pass
         return user
 
     def update(self, instance, validated_data):
@@ -487,10 +516,15 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'super_admin_rate': validated_data.pop('super_admin_rate', serializers.empty),
         }
 
+        request = self.context.get('request')
+        actor = getattr(request, 'user', None) if request is not None else None
+        from .services.hierarchy import apply_hierarchy_defaults, is_admin_actor
+        if actor is not None and not is_admin_actor(actor):
+            validated_data.pop('account_status', None)
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        from .services.hierarchy import apply_hierarchy_defaults
         apply_hierarchy_defaults(instance)
 
         if password:
@@ -637,6 +671,7 @@ class WalletTransferSerializer(serializers.ModelSerializer):
             'balance_before', 'balance_after',
             'sender_balance_before', 'sender_balance_after',
             'recipient_balance_before', 'recipient_balance_after',
+            'charge', 'total_debited',
         )
         read_only_fields = fields
 
@@ -714,6 +749,79 @@ class WalletTransferCreateSerializer(serializers.Serializer):
             min_amount=tx.get('min_transfer', 10),
             max_amount=tx.get('max_transfer', 100000),
             label='Transfer',
+        )
+        if err:
+            raise serializers.ValidationError(err)
+        return value
+
+
+class PushBalanceUserSerializer(serializers.ModelSerializer):
+    """Dealer downline user card for the Push Balance page."""
+    wallet_balance = serializers.SerializerMethodField()
+    wallet_frozen = serializers.SerializerMethodField()
+    display_name = serializers.SerializerMethodField()
+    role_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = (
+            'id', 'phone', 'email', 'first_name', 'last_name', 'nickname',
+            'business_name', 'role', 'account_status', 'is_active',
+            'display_name', 'role_label', 'wallet_balance', 'wallet_frozen',
+        )
+        read_only_fields = fields
+
+    def get_wallet_balance(self, obj):
+        wallet = getattr(obj, 'wallet', None)
+        if wallet is None:
+            return '0.00'
+        return str(wallet.balance)
+
+    def get_wallet_frozen(self, obj):
+        wallet = getattr(obj, 'wallet', None)
+        return bool(wallet and getattr(wallet, 'is_frozen', False))
+
+    def get_display_name(self, obj):
+        biz = (getattr(obj, 'business_name', None) or '').strip()
+        if biz:
+            return biz
+        return _user_display_name(obj)
+
+    def get_role_label(self, obj):
+        role = getattr(obj, 'role', None) or 'customer'
+        return {
+            'customer': 'USER',
+            'dealer': 'DEALER',
+            'agent': 'AGENT',
+            'sub_agent': 'SUB-AGENT',
+        }.get(role, 'USER')
+
+
+class PushBalanceCreateSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(required=True, min_value=1)
+    amount = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=True, min_value=Decimal('0.01'),
+    )
+    remarks = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, default='Push Balance',
+    )
+    transaction_pin = serializers.CharField(
+        required=True, write_only=True, min_length=4, max_length=4,
+    )
+
+    def validate_transaction_pin(self, value):
+        return validate_transaction_pin_value(value)
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Amount must be greater than zero.')
+        from .services.app_config import get_app_config, validate_amount_bounds
+        tx = get_app_config().get('transactions') or {}
+        err = validate_amount_bounds(
+            value,
+            min_amount=tx.get('min_transfer', 10),
+            max_amount=tx.get('max_transfer', 100000),
+            label='Push balance',
         )
         if err:
             raise serializers.ValidationError(err)
@@ -1055,6 +1163,8 @@ class DepositSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(source='user.first_name', read_only=True)
     last_name = serializers.CharField(source='user.last_name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    payout_account_id = serializers.IntegerField(read_only=True, allow_null=True)
+    payout_account = serializers.SerializerMethodField()
 
     class Meta:
         model = Deposit
@@ -1062,6 +1172,7 @@ class DepositSerializer(serializers.ModelSerializer):
             'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
             'amount', 'status', 'status_display',
             'transaction_id', 'deposit_date', 'bank_name',
+            'payout_account', 'payout_account_id',
             'screenshot_proof', 'note', 'rejection_reason',
             'balance_before', 'balance_after', 'created_at', 'updated_at',
         )
@@ -1069,6 +1180,19 @@ class DepositSerializer(serializers.ModelSerializer):
             'id', 'user', 'status', 'rejection_reason',
             'balance_before', 'balance_after', 'created_at', 'updated_at',
         )
+
+    def get_payout_account(self, obj):
+        account = getattr(obj, 'payout_account', None)
+        if account is None:
+            return None
+        return {
+            'id': account.pk,
+            'method': account.method,
+            'label': account.label,
+            'account_name': account.account_name,
+            'account_number': account.account_number,
+            'dealer_id': account.dealer_id,
+        }
 
     def validate_amount(self, value):
         if value <= 0:
@@ -1083,12 +1207,13 @@ class DepositCreateSerializer(serializers.ModelSerializer):
     deposit_date = serializers.DateField(required=True)
     bank_name = serializers.CharField(max_length=120, required=False, allow_blank=True, default='')
     note = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    payout_account_id = serializers.IntegerField(required=False, allow_null=True)
 
     class Meta:
         model = Deposit
         fields = (
             'amount', 'transaction_id', 'deposit_date', 'bank_name',
-            'screenshot_proof', 'note',
+            'screenshot_proof', 'note', 'payout_account_id',
         )
 
     def validate_transaction_id(self, value):
@@ -1122,6 +1247,99 @@ class DepositCreateSerializer(serializers.ModelSerializer):
             })
         if 'bank_name' in attrs and attrs['bank_name'] is not None:
             attrs['bank_name'] = attrs['bank_name'].strip()
+        payout_id = attrs.pop('payout_account_id', None)
+        if payout_id:
+            request = self.context.get('request')
+            user = getattr(request, 'user', None) if request is not None else None
+            from .services.hierarchy import resolve_assigned_dealer
+            dealer = resolve_assigned_dealer(user)
+            account = DealerPayoutAccount.objects.filter(
+                pk=payout_id,
+                status=DealerPayoutAccount.STATUS_APPROVED,
+            ).first()
+            if account is None:
+                raise serializers.ValidationError({
+                    'payout_account_id': 'Payout account not found or not approved.',
+                })
+            if dealer is None or account.dealer_id != dealer.pk:
+                raise serializers.ValidationError({
+                    'payout_account_id': 'This payout account is not available for your account.',
+                })
+            attrs['payout_account'] = account
+        return attrs
+
+
+class DealerPayoutAccountSerializer(serializers.ModelSerializer):
+    dealer_id = serializers.IntegerField(source='dealer.id', read_only=True)
+    dealer_phone = serializers.CharField(source='dealer.phone', read_only=True)
+    dealer_name = serializers.SerializerMethodField()
+    qr_code_url = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    method_display = serializers.CharField(source='get_method_display', read_only=True)
+    qr_code = serializers.ImageField(required=False, allow_null=True)
+
+    class Meta:
+        model = DealerPayoutAccount
+        fields = (
+            'id', 'dealer_id', 'dealer_phone', 'dealer_name',
+            'method', 'method_display', 'label',
+            'account_name', 'account_number', 'bank_name', 'branch',
+            'qr_code', 'qr_code_url',
+            'status', 'status_display', 'rejection_reason',
+            'reviewed_at', 'created_at', 'updated_at',
+        )
+        read_only_fields = (
+            'id', 'dealer_id', 'dealer_phone', 'dealer_name',
+            'status', 'status_display', 'rejection_reason',
+            'reviewed_at', 'created_at', 'updated_at',
+        )
+
+    def get_dealer_name(self, obj):
+        dealer = getattr(obj, 'dealer', None)
+        if dealer is None:
+            return ''
+        return ' '.join(
+            part for part in (dealer.first_name, dealer.last_name) if part
+        ).strip() or dealer.phone
+
+    def get_qr_code_url(self, obj):
+        if not obj.qr_code:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.qr_code.url)
+        return obj.qr_code.url
+
+    def validate(self, attrs):
+        method = attrs.get('method', getattr(self.instance, 'method', None))
+        account_name = (attrs.get('account_name') or getattr(self.instance, 'account_name', '') or '').strip()
+        account_number = (attrs.get('account_number') or getattr(self.instance, 'account_number', '') or '').strip()
+        bank_name = (attrs.get('bank_name') or getattr(self.instance, 'bank_name', '') or '').strip()
+        if not account_name:
+            raise serializers.ValidationError({'account_name': 'Account name is required.'})
+        if not account_number:
+            raise serializers.ValidationError({'account_number': 'Account number / wallet ID is required.'})
+        if method == DealerPayoutAccount.METHOD_BANK and not bank_name:
+            raise serializers.ValidationError({'bank_name': 'Bank name is required for bank accounts.'})
+        creating = self.instance is None
+        qr = attrs.get('qr_code')
+        if creating and not qr:
+            raise serializers.ValidationError({'qr_code': 'QR code is required.'})
+        if 'account_name' in attrs:
+            attrs['account_name'] = account_name
+        if 'account_number' in attrs:
+            attrs['account_number'] = account_number
+        if 'bank_name' in attrs:
+            attrs['bank_name'] = bank_name
+        label = (attrs.get('label') or '').strip()
+        if not label:
+            if method == DealerPayoutAccount.METHOD_KHALTI:
+                label = 'Khalti'
+            elif method == DealerPayoutAccount.METHOD_ESEWA:
+                label = 'eSewa'
+            else:
+                label = bank_name or 'Bank account'
+            attrs['label'] = label
         return attrs
 
 
@@ -1503,11 +1721,14 @@ class BankTransferCreateSerializer(serializers.Serializer):
 
 class CalculateChargeSerializer(serializers.Serializer):
     """Calculate HimalPay charge/cashback for a service"""
-    wallet_service_name = serializers.ChoiceField(
-        choices=['NTC', 'NCELL', 'BANK_TRANSFER'],
-        required=True,
-    )
+    wallet_service_name = serializers.CharField(required=True, max_length=80)
     amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
+
+    def validate_wallet_service_name(self, value):
+        name = (value or '').strip()
+        if not name:
+            raise serializers.ValidationError('wallet_service_name is required.')
+        return name
 
     def validate_amount(self, value):
         if value <= 0:
@@ -2488,16 +2709,12 @@ def support_chat_user_brief(user, request=None):
     role = getattr(user, 'role', 'customer') or 'customer'
     if getattr(user, 'is_superuser', False):
         role_label = 'Super Admin'
-    elif getattr(user, 'is_staff', False) and role not in ('dealer', 'agent', 'sub_agent'):
+    elif getattr(user, 'is_staff', False) and role != 'dealer':
         role_label = 'Admin'
     elif role == 'dealer':
         role_label = 'Dealer'
-    elif role == 'agent':
-        role_label = 'Agent'
-    elif role == 'sub_agent':
-        role_label = 'Sub-Agent'
     else:
-        role_label = 'Customer'
+        role_label = 'User'
     return {
         'id': user.pk,
         'phone': user.phone,
@@ -2532,8 +2749,10 @@ class SupportChatThreadSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_other_user(self, obj):
+        from .services.support_chat import other_participant
+
         me = self.context.get('actor')
-        other = obj.user_high if me and obj.user_low_id == me.pk else obj.user_low
+        other = other_participant(obj, me) if me is not None else obj.user_high
         return support_chat_user_brief(other, self.context.get('request'))
 
     def get_unread_count(self, obj):

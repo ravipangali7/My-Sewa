@@ -1,10 +1,11 @@
 """
-Dealer commission + TDS ledger.
+Dealer commission ledger + wallet credit.
 
-Gross dealer commission = transaction amount × dealer commission rate.
-TDS is deducted from dealer gross; net is payable to the Dealer.
-Sub-Agent commission and Super Admin profit are recorded separately.
-Records are not rewritten: reversing a source txn marks the row reversed.
+Gross dealer commission is the quoted dealer charge for the transaction
+(configured flat/percent, 0 when the User has no assigned Dealer).
+TDS is deducted from dealer gross; net is credited to the Dealer wallet.
+Records are not rewritten: reversing a source txn marks the row reversed
+and reverses the wallet credit.
 """
 from __future__ import annotations
 
@@ -15,7 +16,13 @@ from typing import Optional
 from django.db import transaction
 
 from .app_config import get_app_config
-from .hierarchy import ROLE_DEALER, resolve_assigned_dealer, resolve_assigned_sub_agent
+from .hierarchy import ROLE_DEALER, resolve_assigned_dealer
+from .txn_charges import (
+    get_transaction_charge,
+    money,
+    quote_charges,
+    txn_type_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +39,8 @@ TXN_TYPE_BY_MODEL = {
     'CommunityElectricityTransaction': 'community_electricity',
     'BankTransferTransaction': 'bank_transfer',
     'RemittanceTransaction': 'remittance',
+    'WalletTransfer': 'wallet_transfer',
 }
-
-
-def _money(value) -> Decimal:
-    try:
-        return Decimal(str(value)).quantize(_Q, rounding=ROUND_HALF_UP)
-    except Exception:
-        return _ZERO
 
 
 def _rate(value, default='0') -> Decimal:
@@ -50,15 +51,21 @@ def _rate(value, default='0') -> Decimal:
 
 
 def _txn_type_for(txn) -> Optional[str]:
-    name = txn.__class__.__name__
-    return TXN_TYPE_BY_MODEL.get(name)
+    return txn_type_for(txn) or TXN_TYPE_BY_MODEL.get(txn.__class__.__name__)
+
+
+def _txn_user(txn):
+    user = getattr(txn, 'user', None)
+    if user is not None:
+        return user
+    return getattr(txn, 'sender', None)
 
 
 def _txn_amount(txn) -> Decimal:
-    for field in ('total_debited', 'total_credited', 'amount'):
+    for field in ('amount', 'total_debited', 'total_credited'):
         value = getattr(txn, field, None)
         if value is not None:
-            amount = _money(value)
+            amount = money(value)
             if amount > 0:
                 return amount
     return _ZERO
@@ -83,13 +90,11 @@ def default_commission_rate() -> Decimal:
 
 
 def default_sub_agent_rate() -> Decimal:
-    cfg = get_app_config().get('commission') or {}
-    return _rate(cfg.get('default_sub_agent_rate', 0), '0')
+    return _ZERO.quantize(_RATE_Q)
 
 
 def default_super_admin_rate() -> Decimal:
-    cfg = get_app_config().get('commission') or {}
-    return _rate(cfg.get('default_super_admin_rate', 0), '0')
+    return _ZERO.quantize(_RATE_Q)
 
 
 def _load_dealer_config(dealer):
@@ -104,20 +109,6 @@ def _load_dealer_config(dealer):
         return None
 
 
-def _load_service_rule(dealer, txn_type: Optional[str]):
-    if dealer is None or not txn_type:
-        return None
-    try:
-        from ..models import ServiceCommissionRule
-        return ServiceCommissionRule.objects.filter(dealer_id=dealer.pk, txn_type=txn_type).first()
-    except Exception:
-        logger.exception(
-            'Could not load service commission rule for dealer %s type %s',
-            getattr(dealer, 'pk', None), txn_type,
-        )
-        return None
-
-
 def get_dealer_rates(dealer, txn_type: Optional[str] = None) -> tuple[Decimal, Decimal]:
     """Return (commission_rate_percent, tds_rate_percent) for a Dealer."""
     commission = default_commission_rate()
@@ -127,41 +118,30 @@ def get_dealer_rates(dealer, txn_type: Optional[str] = None) -> tuple[Decimal, D
         commission = _rate(config.commission_rate)
         if config.tds_rate is not None:
             tds = _rate(config.tds_rate)
-    rule = _load_service_rule(dealer, txn_type)
-    if rule is not None:
-        commission = _rate(rule.dealer_rate)
+    try:
+        from ..models import ServiceCommissionRule
+        rule = ServiceCommissionRule.objects.filter(
+            dealer_id=getattr(dealer, 'pk', None), txn_type=txn_type,
+        ).first() if dealer is not None and txn_type else None
+        if rule is not None:
+            commission = _rate(rule.dealer_rate)
+    except Exception:
+        logger.exception('Could not load service commission rule')
     return commission, tds
 
 
 def get_hierarchy_rates(dealer, sub_agent=None, txn_type: Optional[str] = None) -> dict:
-    """Return dealer / sub-agent / super-admin rates plus TDS for this chain + service."""
     dealer_rate, tds = get_dealer_rates(dealer, txn_type)
-    sub_rate = default_sub_agent_rate()
-    sa_rate = default_super_admin_rate()
-    config = _load_dealer_config(dealer)
-    if config is not None:
-        sub_rate = _rate(getattr(config, 'sub_agent_commission_rate', 0) or 0)
-        sa_rate = _rate(getattr(config, 'super_admin_rate', 0) or 0)
-    rule = _load_service_rule(dealer, txn_type)
-    if rule is not None:
-        sub_rate = _rate(rule.sub_agent_rate)
-        sa_rate = _rate(rule.super_admin_rate)
-    if sub_agent is not None:
-        sub_config = _load_dealer_config(sub_agent)
-        if sub_config is not None and _rate(sub_config.commission_rate) > 0:
-            sub_rate = _rate(sub_config.commission_rate)
-    else:
-        sub_rate = _ZERO.quantize(_RATE_Q)
     return {
         'dealer_rate': dealer_rate,
         'tds_rate': tds,
-        'sub_agent_rate': sub_rate,
-        'super_admin_rate': sa_rate,
+        'sub_agent_rate': _ZERO.quantize(_RATE_Q),
+        'super_admin_rate': _ZERO.quantize(_RATE_Q),
     }
 
 
 def calculate_commission(txn_amount, commission_rate, tds_rate) -> dict:
-    amount = _money(txn_amount)
+    amount = money(txn_amount)
     rate = _rate(commission_rate)
     tds_pct = _rate(tds_rate)
     if amount <= 0 or rate <= 0:
@@ -189,32 +169,106 @@ def calculate_commission(txn_amount, commission_rate, tds_rate) -> dict:
 
 
 def calculate_hierarchy_commission(txn_amount, rates: dict) -> dict:
-    amount = _money(txn_amount)
-    dealer_figures = calculate_commission(amount, rates['dealer_rate'], rates['tds_rate'])
-    sub_rate = _rate(rates.get('sub_agent_rate') or 0)
-    sa_rate = _rate(rates.get('super_admin_rate') or 0)
-    sub_commission = (
-        (amount * sub_rate / Decimal('100')).quantize(_Q, rounding=ROUND_HALF_UP)
-        if amount > 0 and sub_rate > 0 else _ZERO
-    )
-    sa_profit = (
-        (amount * sa_rate / Decimal('100')).quantize(_Q, rounding=ROUND_HALF_UP)
-        if amount > 0 and sa_rate > 0 else _ZERO
-    )
+    dealer_figures = calculate_commission(txn_amount, rates['dealer_rate'], rates['tds_rate'])
     return {
         **dealer_figures,
-        'sub_agent_commission_rate': sub_rate,
-        'sub_agent_commission': sub_commission,
-        'super_admin_rate': sa_rate,
-        'super_admin_profit': sa_profit,
+        'sub_agent_commission_rate': _ZERO.quantize(_RATE_Q),
+        'sub_agent_commission': _ZERO,
+        'super_admin_rate': _ZERO.quantize(_RATE_Q),
+        'super_admin_profit': _ZERO,
     }
+
+
+def _figures_from_quoted_gross(principal, gross, tds_rate, commission_rate) -> dict:
+    amount = money(principal)
+    gross = money(gross)
+    tds_pct = _rate(tds_rate)
+    tds_amount = (gross * tds_pct / Decimal('100')).quantize(_Q, rounding=ROUND_HALF_UP) if gross > 0 else _ZERO
+    if tds_amount > gross:
+        tds_amount = gross
+    net = (gross - tds_amount).quantize(_Q, rounding=ROUND_HALF_UP)
+    return {
+        'txn_amount': amount,
+        'commission_rate': _rate(commission_rate),
+        'gross_commission': gross,
+        'tds_rate': tds_pct,
+        'tds_amount': tds_amount,
+        'net_commission': net,
+        'sub_agent_commission_rate': _ZERO.quantize(_RATE_Q),
+        'sub_agent_commission': _ZERO,
+        'super_admin_rate': _ZERO.quantize(_RATE_Q),
+        'super_admin_profit': _ZERO,
+    }
+
+
+def _quote_for_txn(txn) -> dict:
+    snapshot = get_transaction_charge(txn)
+    user = _txn_user(txn)
+    txn_type = _txn_type_for(txn)
+    principal = money(getattr(txn, 'amount', None) or _txn_amount(txn))
+    if snapshot is not None:
+        return {
+            'amount': money(snapshot.amount) or principal,
+            'dealer_commission': money(snapshot.dealer_commission),
+            'dealer': getattr(snapshot, 'dealer', None) or resolve_assigned_dealer(user),
+            'txn_type': txn_type,
+        }
+    quote = quote_charges(principal, txn_type or 'topup', user)
+    return quote
+
+
+def _get_or_create_wallet(user):
+    from ..models import Wallet
+    try:
+        return Wallet.objects.get(user=user)
+    except Wallet.DoesNotExist:
+        return Wallet.objects.create(user=user, balance=_ZERO)
+
+
+def _credit_dealer_wallet(dealer, amount: Decimal) -> bool:
+    from .wallet_guard import assert_wallet_not_frozen, WalletFrozenError
+
+    amount = money(amount)
+    if amount <= 0 or dealer is None:
+        return False
+    wallet = _get_or_create_wallet(dealer)
+    try:
+        assert_wallet_not_frozen(wallet)
+    except WalletFrozenError:
+        logger.warning('Skipped dealer wallet credit; wallet frozen for %s', getattr(dealer, 'pk', None))
+        return False
+    before = money(wallet.balance)
+    expected = money(before + amount)
+    wallet.balance = expected
+    wallet.save(update_fields=['balance', 'updated_at'])
+    return True
+
+
+def _debit_dealer_wallet(dealer, amount: Decimal) -> bool:
+    from .wallet_guard import assert_wallet_not_frozen, WalletFrozenError
+
+    amount = money(amount)
+    if amount <= 0 or dealer is None:
+        return False
+    wallet = _get_or_create_wallet(dealer)
+    try:
+        assert_wallet_not_frozen(wallet)
+    except WalletFrozenError:
+        logger.warning('Skipped dealer wallet reversal; wallet frozen for %s', getattr(dealer, 'pk', None))
+        return False
+    before = money(wallet.balance)
+    expected = money(before - amount)
+    if expected < 0:
+        expected = _ZERO
+    wallet.balance = expected
+    wallet.save(update_fields=['balance', 'updated_at'])
+    return True
 
 
 def record_dealer_commission(txn) -> Optional[object]:
     """
-    Create a posted DealerCommission for a successful source transaction.
-    No-op when there is no assigned Dealer or a row already exists.
-    Historical amounts are snapshotted and never rewritten on config changes.
+    Create a posted DealerCommission and credit the Dealer wallet.
+    No-op when there is no assigned Dealer or quoted dealer commission is 0.
     """
     from ..models import DealerCommission
 
@@ -222,30 +276,30 @@ def record_dealer_commission(txn) -> Optional[object]:
     txn_id = getattr(txn, 'pk', None)
     if not txn_type or not txn_id:
         return None
-    user = getattr(txn, 'user', None)
-    dealer = resolve_assigned_dealer(user)
+    user = _txn_user(txn)
+    quote = _quote_for_txn(txn)
+    dealer = quote.get('dealer') or resolve_assigned_dealer(user)
     if dealer is None or getattr(dealer, 'role', None) != ROLE_DEALER:
         return None
 
-    sub_agent = resolve_assigned_sub_agent(user)
-    if sub_agent is not None and getattr(sub_agent, 'pk', None) == getattr(dealer, 'pk', None):
-        sub_agent = None
-
-    rates = get_hierarchy_rates(dealer, sub_agent, txn_type)
-    figures = calculate_hierarchy_commission(_txn_amount(txn), rates)
-    if (
-        figures['gross_commission'] <= 0
-        and figures['sub_agent_commission'] <= 0
-        and figures['super_admin_profit'] <= 0
-    ):
+    rates = get_hierarchy_rates(dealer, None, txn_type)
+    gross = money(quote.get('dealer_commission', 0))
+    if gross <= 0:
         return None
+    figures = _figures_from_quoted_gross(
+        quote.get('amount') or _txn_amount(txn),
+        gross,
+        rates['tds_rate'],
+        rates['dealer_rate'],
+    )
 
     defaults = {
         'dealer': dealer,
         'source_user': user,
-        'sub_agent': sub_agent,
+        'sub_agent': None,
         'reference': _txn_reference(txn),
         'status': DealerCommission.STATUS_POSTED,
+        'wallet_credited': False,
         **figures,
     }
     try:
@@ -256,9 +310,16 @@ def record_dealer_commission(txn) -> Optional[object]:
                 defaults=defaults,
             )
             if not created and obj.status == DealerCommission.STATUS_REVERSED:
-                # Re-post after a later success without rewriting original amounts.
                 obj.status = DealerCommission.STATUS_POSTED
                 obj.save(update_fields=['status', 'updated_at'])
+            should_credit = created or (
+                obj.status == DealerCommission.STATUS_POSTED and not obj.wallet_credited
+            )
+            if should_credit and figures['net_commission'] > 0:
+                credited = _credit_dealer_wallet(dealer, figures['net_commission'])
+                if credited and not obj.wallet_credited:
+                    obj.wallet_credited = True
+                    obj.save(update_fields=['wallet_credited', 'updated_at'])
             return obj
     except Exception:
         logger.exception(
@@ -268,7 +329,7 @@ def record_dealer_commission(txn) -> Optional[object]:
 
 
 def reverse_dealer_commission(txn) -> None:
-    """Mark an existing commission row reversed. Does not change stored amounts."""
+    """Mark an existing commission row reversed and undo the wallet credit."""
     from ..models import DealerCommission
 
     txn_type = _txn_type_for(txn)
@@ -276,12 +337,19 @@ def reverse_dealer_commission(txn) -> None:
     if not txn_type or not txn_id:
         return
     try:
-        updated = DealerCommission.objects.filter(
-            txn_type=txn_type,
-            txn_id=txn_id,
-            status=DealerCommission.STATUS_POSTED,
-        ).update(status=DealerCommission.STATUS_REVERSED)
-        if updated:
+        with transaction.atomic():
+            obj = DealerCommission.objects.select_related('dealer').filter(
+                txn_type=txn_type,
+                txn_id=txn_id,
+                status=DealerCommission.STATUS_POSTED,
+            ).first()
+            if obj is None:
+                return
+            if obj.wallet_credited and obj.net_commission:
+                _debit_dealer_wallet(obj.dealer, obj.net_commission)
+                obj.wallet_credited = False
+            obj.status = DealerCommission.STATUS_REVERSED
+            obj.save(update_fields=['status', 'wallet_credited', 'updated_at'])
             logger.info('Reversed dealer commission for %s #%s', txn_type, txn_id)
     except Exception:
         logger.exception(

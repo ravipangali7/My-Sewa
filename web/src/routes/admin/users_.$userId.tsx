@@ -169,24 +169,14 @@ function UserDetailPage() {
                 </Badge>
               </DetailRow>
               <DetailRow label="Role">
-                {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : (u.role || "customer")}
+                {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : u.role === "dealer" ? "Dealer" : "User"}
               </DetailRow>
               <DetailRow label="Assigned Dealer">
                 {u.assigned_dealer
                   ? `${u.assigned_dealer.phone}${u.assigned_dealer.name ? ` (${u.assigned_dealer.name})` : ""}`
                   : u.role === "dealer"
                     ? "—"
-                    : "Unassigned"}
-              </DetailRow>
-              <DetailRow label="Parent Agent">
-                {u.parent_agent
-                  ? `${u.parent_agent.phone}${u.parent_agent.name ? ` (${u.parent_agent.name})` : ""}`
-                  : "—"}
-              </DetailRow>
-              <DetailRow label="Assigned Sub-Agent">
-                {u.assigned_sub_agent
-                  ? `${u.assigned_sub_agent.phone}${u.assigned_sub_agent.name ? ` (${u.assigned_sub_agent.name})` : ""}`
-                  : "—"}
+                    : "Optional — unassigned"}
               </DetailRow>
               <DetailRow label="Staff">{u.is_staff ? "Yes" : "No"}</DetailRow>
               <DetailRow label="Superuser">{u.is_superuser ? "Yes" : "No"}</DetailRow>
@@ -205,16 +195,10 @@ function UserDetailPage() {
                   {u.can_wallet_adjust !== false ? "Enabled" : "Disabled"}
                 </Badge>
               </DetailRow>
-              {u.role === "dealer" || u.role === "sub_agent" ? (
+              {u.role === "dealer" ? (
                 <>
                   <DetailRow label="Commission rate">{u.commission_rate ?? "0"}%</DetailRow>
-                  {u.role === "dealer" ? (
-                    <>
-                      <DetailRow label="TDS rate">{u.tds_rate ?? "Global default"}%</DetailRow>
-                      <DetailRow label="Sub-Agent rate">{u.sub_agent_commission_rate ?? "0"}%</DetailRow>
-                      <DetailRow label="Super Admin share">{u.super_admin_rate ?? "0"}%</DetailRow>
-                    </>
-                  ) : null}
+                  <DetailRow label="TDS rate">{u.tds_rate ?? "Global default"}%</DetailRow>
                 </>
               ) : null}
               <DetailRow label="Wallet status">

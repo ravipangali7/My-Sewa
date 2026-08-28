@@ -32,14 +32,22 @@ from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_respons
 from ..services.nepali_banks import LEGACY_BANK_CODE_MAP, fallback_banks
 from ..services.app_config import (
     get_app_config,
-    resolve_transfer_fees,
+    platform_transfer_cashback,
     require_feature_enabled,
     require_user_feature,
     require_account_approved,
     require_wallet_not_blocked,
     is_auto_status_verified,
+    resolve_tx_cfg_for_user,
 )
 from ..services.notifications import notify_low_balance_if_needed, notify_transfer_success
+from ..services.txn_charges import (
+    TXN_BANK_TRANSFER,
+    overlay_himalpay_debit,
+    persist_transaction_charge,
+    quote_charges,
+    quote_to_public,
+)
 from ..services.txn_status import resolve_provider_outcome, debit_wallet_for_txn
 from ..services.wallet_guard import (
     handle_provider_success_without_wallet,
@@ -92,6 +100,41 @@ def _get_or_create_wallet(user):
         return Wallet.objects.get(user=user)
     except Wallet.DoesNotExist:
         return Wallet.objects.create(user=user, balance=Decimal('0.00'))
+
+
+def _bank_transfer_quote(amount, user, provider_charge=0, provider_cashback=0):
+    """Quote System + Dealer + HimalPay charges, keeping transfer cashback toggles."""
+    tx_cfg = resolve_tx_cfg_for_user(user)
+    cashback_enabled = bool(tx_cfg.get('cashback_enabled', True))
+    if cashback_enabled:
+        configured = platform_transfer_cashback(
+            amount,
+            tx_cfg.get('transfer_cashback_flat', 0),
+            tx_cfg.get('transfer_cashback_percent', 0),
+        )
+        cashback = configured if configured > 0 else Decimal(str(provider_cashback or 0))
+    else:
+        cashback = Decimal('0.00')
+    return quote_charges(
+        amount, TXN_BANK_TRANSFER, user,
+        provider_charge=provider_charge, cashback=cashback,
+    )
+
+
+def _quote_fee_payload(quote):
+    public = quote_to_public(quote)
+    return {
+        'amount': public['amount'],
+        'charge': public['charge'],
+        'cashback': public['cashback'],
+        'platform_charge': public['system_charge'],
+        'system_charge': public['system_charge'],
+        'dealer_commission': public['dealer_commission'],
+        'himalpay_charge': public['himalpay_charge'],
+        'total_debited': public['wallet_amount'],
+        'charge_enabled': True,
+        'cashback_enabled': True,
+    }
 
 
 def _is_valid_bank_code(code: str) -> bool:
@@ -564,21 +607,17 @@ def calculate_transfer_charge(request):
         )
         provider_charge = himalpay.to_rupees(result.get('charge', 0) or 0)
         provider_cashback = himalpay.to_rupees(result.get('cashback', 0) or 0)
-        fees = resolve_transfer_fees(
-            amount, provider_charge, provider_cashback, tx_cfg, user=request.user,
+        quote = _bank_transfer_quote(
+            amount, request.user, provider_charge, provider_cashback,
         )
+        fees = _quote_fee_payload(quote)
         return Response(
             with_himapay_response(
                 {
                     'data': {
+                        **fees,
                         'amount': str(amount),
                         'amount_paisa': amount_paisa,
-                        'charge': str(fees['charge']),
-                        'cashback': str(fees['cashback']),
-                        'platform_charge': str(fees['platform_charge']),
-                        'total_debited': str(fees['total_debited']),
-                        'charge_enabled': bool(fees.get('charge_enabled', tx_cfg.get('transfer_charge_enabled', True))),
-                        'cashback_enabled': bool(fees.get('cashback_enabled', tx_cfg.get('cashback_enabled', True))),
                     },
                     'raw': result,
                 },
@@ -599,20 +638,15 @@ def calculate_transfer_charge(request):
                 ),
                 status=status.HTTP_400_BAD_REQUEST if exc.status_code < 500 else status.HTTP_502_BAD_GATEWAY,
             )
-        # Still honour admin fees when provider preview fails (keep UI usable)
-        fees = resolve_transfer_fees(amount, 0, 0, tx_cfg, user=request.user)
+        quote = _bank_transfer_quote(amount, request.user, 0, 0)
+        fees = _quote_fee_payload(quote)
         return Response(
             with_himapay_response(
                 {
                     'data': {
+                        **fees,
                         'amount': str(amount),
                         'amount_paisa': amount_paisa,
-                        'charge': str(fees['charge']),
-                        'cashback': str(fees['cashback']),
-                        'platform_charge': str(fees['platform_charge']),
-                        'total_debited': str(fees['total_debited']),
-                        'charge_enabled': bool(fees.get('charge_enabled', tx_cfg.get('transfer_charge_enabled', True))),
-                        'cashback_enabled': bool(fees.get('cashback_enabled', tx_cfg.get('cashback_enabled', True))),
                     },
                     'warning': exc.message,
                 },
@@ -732,12 +766,12 @@ def create_bank_transfer(request):
         provider_charge = Decimal('0.00')
         provider_cashback = Decimal('0.00')
 
-    fees = resolve_transfer_fees(
-        amount, provider_charge, provider_cashback, tx_cfg, user=request.user,
+    quote = _bank_transfer_quote(
+        amount, request.user, provider_charge, provider_cashback,
     )
-    charge = fees['charge']
-    cashback = fees['cashback']
-    total_required = fees['total_debited']
+    charge = quote['total_charges']
+    cashback = quote['cashback']
+    total_required = quote['wallet_amount']
 
     if wallet.balance < total_required:
         return Response(
@@ -789,12 +823,11 @@ def create_bank_transfer(request):
         charge=charge,
         cashback=cashback,
         total_debited=total_required,
-        platform_charge=fees['platform_charge'],
-        provider_charge=(
-            provider_charge if fees.get('charge_enabled', True) else Decimal('0.00')
-        ),
+        platform_charge=quote['system_charge'],
+        provider_charge=quote['himalpay_charge'],
         verified=False,
     )
+    persist_transaction_charge(transfer, quote)
 
     try:
         # Step 1: re-verify destination against registered bank details
@@ -894,21 +927,9 @@ def create_bank_transfer(request):
         )
 
         txn_status = himalpay.normalize_status(response)
-        charge_paisa = response.get('charge', response.get('applied_charge', himalpay.to_paisa(provider_charge))) or 0
-        cashback_paisa = response.get('cashback', response.get('applied_cashback', himalpay.to_paisa(provider_cashback))) or 0
-        applied = resolve_transfer_fees(
-            amount,
-            himalpay.to_rupees(charge_paisa),
-            himalpay.to_rupees(cashback_paisa),
-            tx_cfg,
-            user=request.user,
+        overlay_himalpay_debit(
+            transfer, himalpay, response, amount, TXN_BANK_TRANSFER, user=request.user,
         )
-        transfer.charge = applied['charge']
-        transfer.cashback = applied['cashback']
-        transfer.total_debited = applied['total_debited']
-        transfer.provider_txn_id = himalpay.extract_transaction_id(response)
-        transfer.reference_id = himalpay.extract_reference_id(response)
-        transfer.provider_response = response
 
         if txn_status == 'failed':
             transfer.status = 'failed'
@@ -1089,9 +1110,10 @@ def bank_transfer_status(request):
                 with transaction.atomic():
                     transfer = BankTransferTransaction.objects.select_for_update().get(pk=transfer.pk)
                     if transfer.status == 'pending':
-                        transfer.provider_txn_id = himalpay.extract_transaction_id(result)
-                        transfer.reference_id = himalpay.extract_reference_id(result)
-                        transfer.provider_response = result
+                        overlay_himalpay_debit(
+                            transfer, himalpay, result, transfer.amount, TXN_BANK_TRANSFER,
+                            user=request.user,
+                        )
                         if local_status == 'success':
                             wallet = _get_or_create_wallet(request.user)
                             wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)

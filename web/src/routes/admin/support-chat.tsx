@@ -8,7 +8,7 @@ export const Route = createFileRoute("/admin/support-chat")({
       { title: "Support Chat — MySewa Admin" },
       {
         name: "description",
-        content: "Chat with any MySewa user. Conversations follow the support hierarchy.",
+        content: "Reply to Support Chat from users and dealers.",
       },
     ],
   }),
@@ -19,10 +19,10 @@ function AdminSupportChatPage() {
   return (
     <AdminShell
       title="Support Chat"
-      description="Message any user. Agents, sub-agents and customers can only reach the people they are assigned to."
+      description="View and reply to chats from users and dealers. They can only message Admin."
       dense
     >
-      <SupportChatPanel className="h-[calc(100dvh-10.5rem)] min-h-[28rem]" />
+      <SupportChatPanel mode="admin" className="h-[calc(100dvh-10.5rem)] min-h-[28rem]" />
     </AdminShell>
   );
 }

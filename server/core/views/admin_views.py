@@ -616,7 +616,6 @@ def admin_dashboard(request):
     try:
         kpis.update({
             'total_dealers': User.objects.filter(role='dealer').count(),
-            'total_sub_agents': User.objects.filter(role__in=('agent', 'sub_agent')).count(),
             'total_customers': User.objects.filter(role='customer').count(),
             'dealer_commission_today': _money(
                 DealerCommission.objects.filter(
@@ -637,7 +636,6 @@ def admin_dashboard(request):
     except (ProgrammingError, OperationalError):
         kpis.update({
             'total_dealers': 0,
-            'total_sub_agents': 0,
             'total_customers': 0,
             'dealer_commission_today': 0.0,
             'tds_today': 0.0,
@@ -3828,6 +3826,89 @@ def admin_user_fees(request, user_id):
         'fees': UserFeeConfigSerializer(fee_config).data,
         'defaults': defaults,
     })
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_service_charges(request):
+    """GET/PUT global System / Dealer / HimalPay charges per transaction type."""
+    from decimal import Decimal, InvalidOperation
+    from ..models import ServiceChargeConfig
+    from ..services.txn_charges import (
+        SERVICE_CHARGE_TXN_TYPES,
+        TXN_TYPE_LABELS,
+        default_service_charge_rows,
+        money,
+    )
+
+    def _rate(value, default='0'):
+        try:
+            return Decimal(str(value if value is not None else default)).quantize(Decimal('0.0001'))
+        except (InvalidOperation, TypeError, ValueError):
+            return Decimal(default).quantize(Decimal('0.0001'))
+
+    def _serialize(row: ServiceChargeConfig) -> dict:
+        return {
+            'txn_type': row.txn_type,
+            'label': TXN_TYPE_LABELS.get(row.txn_type, row.txn_type),
+            'system_charge_flat': str(row.system_charge_flat),
+            'system_charge_percent': str(row.system_charge_percent),
+            'dealer_commission_flat': str(row.dealer_commission_flat),
+            'dealer_commission_percent': str(row.dealer_commission_percent),
+            'himalpay_charge_flat': str(row.himalpay_charge_flat),
+            'himalpay_charge_percent': str(row.himalpay_charge_percent),
+            'updated_at': row.updated_at.isoformat() if row.updated_at else None,
+        }
+
+    existing = {r.txn_type: r for r in ServiceChargeConfig.objects.all()}
+    if request.method == 'GET':
+        defaults = {r['txn_type']: r for r in default_service_charge_rows()}
+        data = []
+        for txn_type in SERVICE_CHARGE_TXN_TYPES:
+            row = existing.get(txn_type)
+            if row is not None:
+                data.append(_serialize(row))
+            else:
+                fallback = defaults.get(txn_type) or {'txn_type': txn_type}
+                fallback.setdefault('label', TXN_TYPE_LABELS.get(txn_type, txn_type))
+                data.append(fallback)
+        return Response({'data': data})
+
+    payload = request.data
+    if isinstance(payload, dict):
+        items = payload.get('data') or payload.get('items') or []
+    else:
+        items = payload
+    if not isinstance(items, list):
+        return Response(
+            {'error': 'Validation failed', 'message': 'Send a list of service charge rows.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    updated = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        txn_type = str(item.get('txn_type') or '').strip()
+        if txn_type not in SERVICE_CHARGE_TXN_TYPES:
+            continue
+        row, _ = ServiceChargeConfig.objects.get_or_create(txn_type=txn_type)
+        if 'system_charge_flat' in item:
+            row.system_charge_flat = money(item.get('system_charge_flat'))
+        if 'system_charge_percent' in item:
+            row.system_charge_percent = _rate(item.get('system_charge_percent'))
+        if 'dealer_commission_flat' in item:
+            row.dealer_commission_flat = money(item.get('dealer_commission_flat'))
+        if 'dealer_commission_percent' in item:
+            row.dealer_commission_percent = _rate(item.get('dealer_commission_percent'))
+        if 'himalpay_charge_flat' in item:
+            row.himalpay_charge_flat = money(item.get('himalpay_charge_flat'))
+        if 'himalpay_charge_percent' in item:
+            row.himalpay_charge_percent = _rate(item.get('himalpay_charge_percent'))
+        row.save()
+        updated.append(_serialize(row))
+
+    return Response({'message': 'Service charges updated', 'data': updated})
 
 
 @api_view(['POST'])

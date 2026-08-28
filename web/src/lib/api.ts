@@ -620,6 +620,9 @@ export const apiClient = {
       formData,
     }),
 
+  depositDestinations: () =>
+    api<import("./types").DepositDestinations>("/api/deposit/destinations/"),
+
   listDeposits: (filters?: AdminListFilters) =>
     api<import("./types").AdminListResponse<import("./types").Deposit>>(
       `/api/deposit/list/${buildAdminListQuery(filters)}`,
@@ -634,7 +637,9 @@ export const apiClient = {
       amount: string;
       amount_paisa?: number;
       provider_charge?: string;
-      platform_charge?: string;
+      system_charge?: string;
+      dealer_commission?: string;
+      himalpay_charge?: string;
       charge: string;
       cashback: string;
       total_debited: string;
@@ -1200,6 +1205,23 @@ export const apiClient = {
       `/api/admin/deposits/${id}/reject/`,
       { method: "POST", body },
     ),
+  adminPayoutAccounts: (filters?: AdminListFilters) =>
+    api<{
+      items: import("./types").DealerPayoutAccount[];
+      stats?: import("./types").AdminListStats;
+    }>(`/api/admin/payout-accounts/${buildAdminListQuery(filters)}`),
+  adminGetPayoutAccount: (id: number) =>
+    api<import("./types").DealerPayoutAccount>(`/api/admin/payout-accounts/${id}/`),
+  adminApprovePayoutAccount: (id: number) =>
+    api<{ message: string; data: import("./types").DealerPayoutAccount }>(
+      `/api/admin/payout-accounts/${id}/approve/`,
+      { method: "POST" },
+    ),
+  adminRejectPayoutAccount: (id: number, body: { rejection_reason: string }) =>
+    api<{ message: string; data: import("./types").DealerPayoutAccount }>(
+      `/api/admin/payout-accounts/${id}/reject/`,
+      { method: "POST", body },
+    ),
   adminKyc: (filters?: AdminListFilters) =>
     api<import("./types").AdminListResponse<import("./types").KycSubmission>>(
       `/api/admin/kyc/${buildAdminListQuery(filters)}`,
@@ -1395,6 +1417,55 @@ export const apiClient = {
     api<{ message: string; data: import("./types").AdminUser }>(`/api/dealer/users/${id}/unfreeze/`, {
       method: "POST",
     }),
+  dealerLoadUserWallet: (
+    id: number,
+    body: { amount: string | number; transaction_pin: string; remarks?: string },
+  ) =>
+    api<{ message: string; data: import("./types").WalletTransfer }>(
+      `/api/dealer/users/${id}/load-wallet/`,
+      { method: "POST", body },
+    ),
+  dealerPushBalanceUsers: (filters?: { q?: string }) =>
+    api<{ items: import("./types").PushBalanceUser[] }>(
+      `/api/dealer/push-balance/users/${buildAdminListQuery(filters)}`,
+    ),
+  dealerPushBalance: (body: {
+    user_id: number;
+    amount: number | string;
+    remarks?: string;
+    transaction_pin: string;
+  }) =>
+    api<{
+      message: string;
+      data: import("./types").WalletTransfer;
+      recipient: import("./types").PushBalanceUser;
+    }>("/api/dealer/push-balance/", { method: "POST", body }),
+  dealerPayoutAccounts: () =>
+    api<{ items: import("./types").DealerPayoutAccount[] }>("/api/dealer/payout-accounts/"),
+  dealerCreatePayoutAccount: (formData: FormData) =>
+    api<{ message: string; data: import("./types").DealerPayoutAccount }>(
+      "/api/dealer/payout-accounts/",
+      { method: "POST", formData },
+    ),
+  dealerUpdatePayoutAccount: (id: number, formData: FormData) =>
+    api<{ message: string; data: import("./types").DealerPayoutAccount }>(
+      `/api/dealer/payout-accounts/${id}/`,
+      { method: "PATCH", formData },
+    ),
+  dealerDeposits: (filters?: AdminListFilters) =>
+    api<import("./types").AdminListResponse<import("./types").Deposit>>(
+      `/api/dealer/deposits/${buildAdminListQuery(filters)}`,
+    ),
+  dealerApproveDeposit: (id: number) =>
+    api<{ message: string; data: import("./types").Deposit }>(
+      `/api/dealer/deposits/${id}/approve/`,
+      { method: "POST" },
+    ),
+  dealerRejectDeposit: (id: number, body: { rejection_reason: string }) =>
+    api<{ message: string; data: import("./types").Deposit }>(
+      `/api/dealer/deposits/${id}/reject/`,
+      { method: "POST", body },
+    ),
   dealerCommissions: (filters?: AdminListFilters) =>
     api<{
       items: import("./types").DealerCommissionItem[];
@@ -1457,6 +1528,13 @@ export const apiClient = {
       { method: "POST", body: { status } },
     ),
   adminGetSettings: () => api<import("./types").AppSettings>("/api/admin/settings/"),
+  adminGetServiceCharges: () =>
+    api<{ data: import("./types").ServiceChargeConfig[] }>("/api/admin/service-charges/"),
+  adminSaveServiceCharges: (data: import("./types").ServiceChargeConfig[]) =>
+    api<{ message: string; data: import("./types").ServiceChargeConfig[] }>(
+      "/api/admin/service-charges/",
+      { method: "PUT", body: { data } },
+    ),
   adminUpdateSettings: (payload: FormData | Record<string, unknown>) =>
     api<{ message: string; data: import("./types").AppSettings }>("/api/admin/settings/", {
       method: "PATCH",

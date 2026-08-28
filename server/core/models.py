@@ -3,6 +3,8 @@ from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.validators import FileExtensionValidator, MinValueValidator
 from decimal import Decimal
 import json
+import os
+import uuid
 
 
 _authtoken_table_ready = False
@@ -513,21 +515,20 @@ class CustomUser(AbstractUser):
     )
 
     ROLE_CUSTOMER = 'customer'
+    ROLE_USER = 'customer'
     ROLE_DEALER = 'dealer'
-    ROLE_AGENT = 'agent'
-    ROLE_SUB_AGENT = 'sub_agent'
+    ROLE_AGENT = 'agent'  # legacy; migrated to User
+    ROLE_SUB_AGENT = 'sub_agent'  # legacy; migrated to User
     ROLE_CHOICES = [
-        (ROLE_CUSTOMER, 'Customer'),
+        (ROLE_CUSTOMER, 'User'),
         (ROLE_DEALER, 'Dealer'),
-        (ROLE_AGENT, 'Agent'),
-        (ROLE_SUB_AGENT, 'Sub-Agent'),
     ]
     role = models.CharField(
         max_length=20,
         choices=ROLE_CHOICES,
         default=ROLE_CUSTOMER,
         db_index=True,
-        help_text="Business hierarchy role: Super Admin (staff) → Dealer → Agent/Sub-Agent → Customer.",
+        help_text="Business role: Admin (staff) → Dealer → User. A User may optionally be assigned to a Dealer.",
     )
     assigned_dealer = models.ForeignKey(
         'self',
@@ -536,7 +537,7 @@ class CustomUser(AbstractUser):
         blank=True,
         related_name='network_users',
         limit_choices_to={'role': 'dealer'},
-        help_text="Dealer this customer/agent/sub-agent belongs to. Used for commission.",
+        help_text="Optional Dealer this User belongs to. Used for commission. Not required.",
     )
     parent_agent = models.ForeignKey(
         'self',
@@ -782,6 +783,8 @@ class WalletTransfer(models.Model):
     sender_balance_after = models.DecimalField(max_digits=12, decimal_places=2)
     recipient_balance_before = models.DecimalField(max_digits=12, decimal_places=2)
     recipient_balance_after = models.DecimalField(max_digits=12, decimal_places=2)
+    charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_debited = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -841,12 +844,8 @@ def default_app_config():
             'auto_status_verified': False,
         },
         'commission': {
-            # Percent of transaction amount paid to the customer's assigned Dealer.
+            # Default dealer commission percent of transaction amount when no service row exists.
             'default_commission_rate': 0,
-            # Default Sub-Agent share of transaction amount when no per-user override exists.
-            'default_sub_agent_rate': 0,
-            # Super Admin remaining share of transaction amount.
-            'default_super_admin_rate': 0,
             # Nepal TDS on dealer commission; per-dealer config can override.
             'default_tds_rate': 15,
         },
@@ -1035,6 +1034,83 @@ class Settings(models.Model):
         verbose_name_plural = "Settings"
 
 
+def dealer_payout_qr_upload_to(instance, filename):
+    ext = os.path.splitext(filename or '')[1].lower() or '.jpg'
+    if ext == '.jpeg':
+        ext = '.jpg'
+    if ext not in ('.jpg', '.png', '.webp', '.gif'):
+        ext = '.jpg'
+    dealer_id = getattr(instance, 'dealer_id', None) or 'new'
+    return f'dealer_payout/{dealer_id}/{uuid.uuid4().hex}{ext}'
+
+
+class DealerPayoutAccount(models.Model):
+    """Dealer collection accounts (eSewa, Khalti, bank) used to load assigned user wallets."""
+
+    METHOD_BANK = 'bank'
+    METHOD_KHALTI = 'khalti'
+    METHOD_ESEWA = 'esewa'
+    METHOD_CHOICES = [
+        (METHOD_BANK, 'Bank Account'),
+        (METHOD_KHALTI, 'Khalti'),
+        (METHOD_ESEWA, 'eSewa'),
+    ]
+
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    dealer = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='payout_accounts',
+        limit_choices_to={'role': 'dealer'},
+    )
+    method = models.CharField(max_length=20, choices=METHOD_CHOICES, db_index=True)
+    label = models.CharField(max_length=120, blank=True, default='')
+    account_name = models.CharField(max_length=150)
+    account_number = models.CharField(max_length=80, help_text='Bank account number, eSewa ID, or Khalti ID')
+    bank_name = models.CharField(max_length=120, blank=True, default='')
+    branch = models.CharField(max_length=120, blank=True, default='')
+    qr_code = models.ImageField(
+        upload_to=dealer_payout_qr_upload_to,
+        null=True,
+        blank=True,
+        validators=[FileExtensionValidator(['jpg', 'jpeg', 'png', 'webp', 'gif'])],
+        help_text='QR code for this payout account',
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True,
+    )
+    rejection_reason = models.TextField(blank=True, default='')
+    reviewed_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payout_accounts_reviewed',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.dealer.phone} {self.method} {self.account_number} ({self.status})'
+
+    class Meta:
+        verbose_name = 'Dealer Payout Account'
+        verbose_name_plural = 'Dealer Payout Accounts'
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['dealer', 'status'], name='core_payout_dealer_st_idx'),
+        ]
+
+
 class Deposit(models.Model):
     """User deposit requests"""
     STATUS_CHOICES = [
@@ -1046,6 +1122,14 @@ class Deposit(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='deposits')
     amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    payout_account = models.ForeignKey(
+        'DealerPayoutAccount',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='deposits',
+        help_text='Dealer payout account used for this load, if the user paid a Dealer.',
+    )
     transaction_id = models.CharField(
         max_length=120,
         blank=True,
@@ -1646,6 +1730,7 @@ class DealerCommission(models.Model):
     TXN_COMMUNITY_ELECTRICITY = 'community_electricity'
     TXN_BANK_TRANSFER = 'bank_transfer'
     TXN_REMITTANCE = 'remittance'
+    TXN_WALLET_TRANSFER = 'wallet_transfer'
     TXN_TYPE_CHOICES = [
         (TXN_TOPUP, 'Top-up'),
         (TXN_DATA_PACK, 'Data pack'),
@@ -1655,6 +1740,7 @@ class DealerCommission(models.Model):
         (TXN_COMMUNITY_ELECTRICITY, 'Community electricity'),
         (TXN_BANK_TRANSFER, 'Bank transfer'),
         (TXN_REMITTANCE, 'Remittance'),
+        (TXN_WALLET_TRANSFER, 'Wallet transfer'),
     ]
 
     dealer = models.ForeignKey(
@@ -1699,6 +1785,10 @@ class DealerCommission(models.Model):
     )
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_POSTED, db_index=True,
+    )
+    wallet_credited = models.BooleanField(
+        default=False,
+        help_text="True when net dealer commission was credited to the Dealer wallet.",
     )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1756,6 +1846,108 @@ class UserFeeConfig(models.Model):
     class Meta:
         verbose_name = 'User Fee Config'
         verbose_name_plural = 'User Fee Configs'
+
+
+class ServiceChargeConfig(models.Model):
+    """Global per-service charges applied automatically on every matching transaction."""
+
+    TXN_TYPE_CHOICES = [
+        ('topup', 'Mobile top-up'),
+        ('data_pack', 'Data pack'),
+        ('internet', 'Internet / WiFi'),
+        ('water', 'Water'),
+        ('electricity', 'Electricity'),
+        ('community_electricity', 'Community electricity'),
+        ('bank_transfer', 'Bank / fund transfer'),
+        ('remittance', 'Remittance'),
+        ('wallet_transfer', 'Wallet transfer'),
+    ]
+
+    txn_type = models.CharField(max_length=40, unique=True, choices=TXN_TYPE_CHOICES, db_index=True)
+    system_charge_flat = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Flat MySewa system charge in Rs.",
+    )
+    system_charge_percent = models.DecimalField(
+        max_digits=7, decimal_places=4, default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="MySewa system charge as a percent of the transaction amount.",
+    )
+    dealer_commission_flat = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Flat dealer commission in Rs. Applied only when the User has an assigned Dealer.",
+    )
+    dealer_commission_percent = models.DecimalField(
+        max_digits=7, decimal_places=4, default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Dealer commission as a percent of the transaction amount.",
+    )
+    himalpay_charge_flat = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Configured HimalPay charge in Rs. When zero, the live provider charge is used.",
+    )
+    himalpay_charge_percent = models.DecimalField(
+        max_digits=7, decimal_places=4, default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="HimalPay charge as a percent of the transaction amount.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'Service charges — {self.txn_type}'
+
+    class Meta:
+        verbose_name = 'Service Charge Config'
+        verbose_name_plural = 'Service Charge Configs'
+        ordering = ['txn_type']
+
+
+class TransactionCharge(models.Model):
+    """Snapshot of System / Dealer / HimalPay charges applied to a completed transaction."""
+
+    DIRECTION_DEBIT = 'debit'
+    DIRECTION_CREDIT = 'credit'
+    DIRECTION_CHOICES = [
+        (DIRECTION_DEBIT, 'Debit'),
+        (DIRECTION_CREDIT, 'Credit'),
+    ]
+
+    txn_type = models.CharField(max_length=40, db_index=True)
+    txn_id = models.PositiveIntegerField()
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    system_charge = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    dealer_commission = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    himalpay_charge = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    total_charges = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    cashback = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    wallet_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES, default=DIRECTION_DEBIT)
+    dealer = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='transaction_charges',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.txn_type}#{self.txn_id} charges Rs. {self.total_charges}'
+
+    class Meta:
+        verbose_name = 'Transaction Charge'
+        verbose_name_plural = 'Transaction Charges'
+        constraints = [
+            models.UniqueConstraint(fields=['txn_type', 'txn_id'], name='uniq_txn_charge_txn'),
+        ]
+        indexes = [
+            models.Index(fields=['txn_type', '-created_at'], name='core_txnchg_type__idx'),
+            models.Index(fields=['dealer', '-created_at'], name='core_txnchg_dealer__idx'),
+        ]
 
 
 class DeviceToken(models.Model):

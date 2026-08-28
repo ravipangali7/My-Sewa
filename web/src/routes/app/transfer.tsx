@@ -99,6 +99,9 @@ function Transfer() {
   );
   const [verifiedDetails, setVerifiedDetails] = useState<VerifiedDestination | null>(null);
   const [charge, setCharge] = useState("0.00");
+  const [systemCharge, setSystemCharge] = useState("0.00");
+  const [dealerCommission, setDealerCommission] = useState("0.00");
+  const [himalpayCharge, setHimalpayCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [verifying, setVerifying] = useState(false);
@@ -333,13 +336,42 @@ function Transfer() {
   useEffect(() => {
     if (method === "wallet") {
       const next = Number(amount) || 0;
-      setCharge("0.00");
-      setCashback("0.00");
-      setTotalDebited(next > 0 ? next.toFixed(2) : "0.00");
-      return;
+      if (next <= 0) {
+        setCharge("0.00");
+        setSystemCharge("0.00");
+        setDealerCommission("0.00");
+        setHimalpayCharge("0.00");
+        setCashback("0.00");
+        setTotalDebited("0.00");
+        return;
+      }
+      const timer = setTimeout(() => {
+        apiClient
+          .calculateCharge("WALLET_TRANSFER", next)
+          .then((res) => {
+            setCharge(String(res.charge));
+            setSystemCharge(String(res.system_charge ?? "0.00"));
+            setDealerCommission(String(res.dealer_commission ?? "0.00"));
+            setHimalpayCharge(String(res.himalpay_charge ?? "0.00"));
+            setCashback(String(res.cashback ?? "0.00"));
+            setTotalDebited(String(res.total_debited));
+          })
+          .catch(() => {
+            setCharge("0.00");
+            setSystemCharge("0.00");
+            setDealerCommission("0.00");
+            setHimalpayCharge("0.00");
+            setCashback("0.00");
+            setTotalDebited(next.toFixed(2));
+          });
+      }, 350);
+      return () => clearTimeout(timer);
     }
     if (!transfersEnabled || !verified || amt < minTransfer) {
       setCharge("0.00");
+      setSystemCharge("0.00");
+      setDealerCommission("0.00");
+      setHimalpayCharge("0.00");
       setCashback("0.00");
       setTotalDebited("0.00");
       return;
@@ -349,11 +381,17 @@ function Transfer() {
         .calculateTransfer(amt)
         .then((res) => {
           setCharge(String(res.data.charge));
+          setSystemCharge(String(res.data.system_charge ?? res.data.platform_charge ?? "0.00"));
+          setDealerCommission(String(res.data.dealer_commission ?? "0.00"));
+          setHimalpayCharge(String(res.data.himalpay_charge ?? "0.00"));
           setCashback(String(res.data.cashback));
           setTotalDebited(String(res.data.total_debited));
         })
         .catch((err) => {
           setCharge("0.00");
+          setSystemCharge("0.00");
+          setDealerCommission("0.00");
+          setHimalpayCharge("0.00");
           setCashback("0.00");
           setTotalDebited(amt.toFixed(2));
           if (err instanceof ApiError) {
@@ -887,13 +925,23 @@ function Transfer() {
 
               <div className="rounded-xl bg-muted p-3 text-[14px]">
                 <Row label={t("common.amount")} value={formatNPR(amt)} />
+                {Number(systemCharge) > 0 ? (
+                  <Row label="System charge" value={formatNPR(systemCharge)} />
+                ) : null}
+                {Number(dealerCommission) > 0 ? (
+                  <Row label="Dealer commission" value={formatNPR(dealerCommission)} />
+                ) : null}
+                {Number(himalpayCharge) > 0 ? (
+                  <Row label="HimalPay charge" value={formatNPR(himalpayCharge)} />
+                ) : null}
+                {Number(charge) > 0 ? <Row label={t("common.charge")} value={formatNPR(charge)} /> : null}
                 <div className="mt-2 border-t border-separator pt-2">
-                  <Row label={t("common.totalDebited")} value={formatNPR(amt)} strong />
+                  <Row label={t("common.totalDebited")} value={formatNPR(totalDebited || amt)} strong />
                 </div>
                 {insufficient ? (
                   <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
                     {t("transfer.insufficient", {
-                      required: formatNPR(amt),
+                      required: formatNPR(totalDue),
                       available: formatNPR(walletBalance),
                     })}
                   </p>
@@ -1134,7 +1182,18 @@ function Transfer() {
 
             <div className="rounded-xl bg-muted p-3 text-[14px]">
               <Row label={t("common.amount")} value={formatNPR(amt)} />
-              {chargeEnabled ? <Row label={t("common.charge")} value={formatNPR(charge)} /> : null}
+              {Number(systemCharge) > 0 ? (
+                <Row label="System charge" value={formatNPR(systemCharge)} />
+              ) : null}
+              {Number(dealerCommission) > 0 ? (
+                <Row label="Dealer commission" value={formatNPR(dealerCommission)} />
+              ) : null}
+              {Number(himalpayCharge) > 0 ? (
+                <Row label="HimalPay charge" value={formatNPR(himalpayCharge)} />
+              ) : null}
+              {chargeEnabled && Number(charge) > 0 ? (
+                <Row label={t("common.charge")} value={formatNPR(charge)} />
+              ) : null}
               {cashbackEnabled ? (
                 <Row label={t("common.cashback")} value={`− ${formatNPR(cashback)}`} />
               ) : null}

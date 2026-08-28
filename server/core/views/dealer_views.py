@@ -6,6 +6,7 @@ Client-supplied dealer_id / commission amounts are never trusted for authorizati
 """
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -24,7 +25,10 @@ from ..serializers import (
     AdminUserSerializer,
     AdminUserWriteSerializer,
     DealerCommissionSerializer,
+    PushBalanceCreateSerializer,
+    PushBalanceUserSerializer,
     ServiceCommissionRuleSerializer,
+    WalletTransferSerializer,
 )
 from ..services.hierarchy import (
     DOWNLINE_ROLES,
@@ -51,8 +55,14 @@ from ..services.network_reports import (
     sales_for_users,
 )
 from ..services.security import log_security_event
+from ..services.app_config import require_account_approved, require_wallet_not_blocked
+from ..services.notifications import notify_low_balance_if_needed, notify_wallet_transfer
+from ..services.pin import transaction_pin_gate
 from ..services.wallet_guard import freeze_wallet, unfreeze_wallet
+from ..services.wallet_transfer import perform_wallet_transfer
 from .admin_views import IsStaffUser, _is_csv_export, _csv_response
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -64,7 +74,7 @@ class IsNetworkOperator(BasePermission):
             return False
         if is_admin_actor(user):
             return True
-        return getattr(user, 'role', None) in (ROLE_DEALER, ROLE_AGENT, ROLE_SUB_AGENT)
+        return getattr(user, 'role', None) == ROLE_DEALER
 
 
 def _actor_dealer(actor):
@@ -82,6 +92,7 @@ def _force_create_payload(request, data: dict, *, role: str) -> dict:
     payload['is_staff'] = False
     payload['is_superuser'] = False
     payload['role'] = role
+    payload['account_status'] = User.ACCOUNT_STATUS_PENDING
     if actor.role == ROLE_DEALER:
         payload['assigned_dealer'] = actor.pk
         if role == ROLE_SUB_AGENT:
@@ -108,6 +119,7 @@ def _lock_update_payload(request, data: dict, target) -> dict:
     payload.pop('is_staff', None)
     payload.pop('is_superuser', None)
     payload.pop('assigned_dealer', None)
+    payload.pop('account_status', None)
     payload['role'] = target.role
     if actor.role == ROLE_DEALER:
         payload['assigned_dealer'] = actor.pk
@@ -140,7 +152,7 @@ def _related_select():
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsNetworkOperator])
 def network_dashboard(request):
-    denied = require_role(request.user, ROLE_DEALER, ROLE_AGENT, ROLE_SUB_AGENT)
+    denied = require_role(request.user, ROLE_DEALER)
     if denied:
         return denied
     payload = dealer_dashboard_payload(request.user)
@@ -151,108 +163,33 @@ def network_dashboard(request):
     return Response(payload)
 
 
+def _role_removed_response():
+    return Response(
+        {
+            'error': 'Sub-Agent role removed',
+            'message': 'The system now has only Admin, Dealer, and User roles.',
+            'code': 'sub_agent_removed',
+        },
+        status=status.HTTP_410_GONE,
+    )
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated, IsNetworkOperator])
 def network_sub_agents(request):
-    denied = require_role(request.user, ROLE_DEALER, ROLE_AGENT)
-    if denied:
-        return denied
-
-    if request.method == 'GET':
-        qs = User.objects.filter(role__in=DOWNLINE_ROLES).select_related(*_related_select())
-        if not is_admin_actor(request.user):
-            if request.user.role == ROLE_DEALER:
-                qs = qs.filter(assigned_dealer=request.user)
-            else:
-                qs = qs.filter(role=ROLE_SUB_AGENT, parent_agent=request.user)
-        q = (request.query_params.get('q') or '').strip()
-        if q:
-            qs = qs.filter(
-                Q(phone__icontains=q)
-                | Q(first_name__icontains=q)
-                | Q(last_name__icontains=q)
-                | Q(email__icontains=q)
-            )
-        qs = qs.order_by('-date_joined')
-        return Response({
-            'items': AdminUserSerializer(qs, many=True, context={'request': request}).data,
-        })
-
-    data = _force_create_payload(request, request.data, role=ROLE_SUB_AGENT)
-    serializer = AdminUserWriteSerializer(data=data, context={'request': request})
-    if not serializer.is_valid():
-        return Response(
-            {'error': 'Validation failed', 'errors': serializer.errors},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    user = serializer.save()
-    user = User.objects.select_related(*_related_select()).get(pk=user.pk)
-    _log(
-        request, request.user, 'sub_agent_created',
-        {'sub_agent_id': user.pk, 'phone': user.phone, 'dealer_id': user.assigned_dealer_id},
-    )
-    return Response(
-        {
-            'message': 'Sub-Agent created successfully',
-            'data': AdminUserSerializer(user, context={'request': request}).data,
-        },
-        status=status.HTTP_201_CREATED,
-    )
+    return _role_removed_response()
 
 
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated, IsNetworkOperator])
 def network_sub_agent_detail(request, user_id):
-    denied = require_role(request.user, ROLE_DEALER, ROLE_AGENT)
-    if denied:
-        return denied
-    try:
-        user = User.objects.select_related(*_related_select()).get(pk=user_id)
-    except User.DoesNotExist:
-        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-    if user.role not in DOWNLINE_ROLES:
-        return Response(
-            {'error': 'Not a Sub-Agent', 'message': 'This account is not a Sub-Agent or Agent.'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    if not user_in_scope(request.user, user):
-        return scope_forbidden_response()
-
-    if request.method == 'GET':
-        return Response(AdminUserSerializer(user, context={'request': request}).data)
-
-    prev_active = user.is_active
-    prev_status = user.account_status
-    data = _lock_update_payload(request, request.data, user)
-    serializer = AdminUserWriteSerializer(
-        user, data=data, partial=True, context={'request': request},
-    )
-    if not serializer.is_valid():
-        return Response(
-            {'error': 'Validation failed', 'errors': serializer.errors},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    user = serializer.save()
-    user = User.objects.select_related(*_related_select()).get(pk=user.pk)
-    if prev_active != user.is_active or prev_status != user.account_status:
-        _log(
-            request, request.user, 'dealer_status_changed',
-            {
-                'target_id': user.pk,
-                'is_active': user.is_active,
-                'account_status': user.account_status,
-            },
-        )
-    return Response({
-        'message': 'Sub-Agent updated successfully',
-        'data': AdminUserSerializer(user, context={'request': request}).data,
-    })
+    return _role_removed_response()
 
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated, IsNetworkOperator])
 def network_customers(request):
-    denied = require_role(request.user, ROLE_DEALER, ROLE_AGENT, ROLE_SUB_AGENT)
+    denied = require_role(request.user, ROLE_DEALER)
     if denied:
         return denied
 
@@ -295,7 +232,7 @@ def network_customers(request):
     )
     return Response(
         {
-            'message': 'Customer created successfully',
+            'message': 'User created successfully',
             'data': AdminUserSerializer(user, context={'request': request}).data,
         },
         status=status.HTTP_201_CREATED,
@@ -305,7 +242,7 @@ def network_customers(request):
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated, IsNetworkOperator])
 def network_customer_detail(request, user_id):
-    denied = require_role(request.user, ROLE_DEALER, ROLE_AGENT, ROLE_SUB_AGENT)
+    denied = require_role(request.user, ROLE_DEALER)
     if denied:
         return denied
     try:
@@ -398,10 +335,147 @@ def network_user_unfreeze(request, user_id):
     })
 
 
+def _require_dealer(request):
+    if getattr(request.user, 'role', None) != ROLE_DEALER:
+        return Response(
+            {
+                'error': 'Permission denied',
+                'message': 'Push Balance is only available to Dealer accounts.',
+                'code': 'role_forbidden',
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsNetworkOperator])
+def dealer_push_balance_users(request):
+    """Users created or assigned to this Dealer, with current wallet balances."""
+    denied = _require_dealer(request)
+    if denied:
+        return denied
+
+    qs = (
+        users_in_scope(request.user)
+        .exclude(pk=request.user.pk)
+        .select_related('wallet')
+        .order_by('first_name', 'last_name', 'phone')
+    )
+    q = (request.query_params.get('q') or '').strip()
+    if q:
+        qs = qs.filter(
+            Q(phone__icontains=q)
+            | Q(first_name__icontains=q)
+            | Q(last_name__icontains=q)
+            | Q(email__icontains=q)
+            | Q(nickname__icontains=q)
+            | Q(business_name__icontains=q)
+        )
+    return Response({
+        'items': PushBalanceUserSerializer(qs, many=True, context={'request': request}).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsNetworkOperator])
+def dealer_push_balance(request):
+    """Debit the Dealer wallet and credit an assigned User's wallet."""
+    denied = _require_dealer(request)
+    if denied:
+        return denied
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
+    locked = require_wallet_not_blocked(request.user)
+    if locked:
+        return locked
+
+    serializer = PushBalanceCreateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Validation failed', 'errors': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    pin_failed = transaction_pin_gate(
+        request.user, serializer.validated_data.get('transaction_pin')
+    )
+    if pin_failed:
+        return pin_failed
+
+    data = serializer.validated_data
+    try:
+        recipient = User.objects.select_related('wallet').get(pk=data['user_id'])
+    except User.DoesNotExist:
+        return Response(
+            {
+                'error': 'User not found',
+                'message': 'No user was found with that id.',
+                'code': 'recipient_not_found',
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if recipient.pk == request.user.pk:
+        return Response(
+            {
+                'error': 'Invalid recipient',
+                'message': 'You cannot push balance to your own wallet.',
+                'code': 'self_transfer',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not user_in_scope(request.user, recipient):
+        return scope_forbidden_response()
+
+    remarks = (data.get('remarks') or '').strip() or 'Push Balance'
+    transfer, err = perform_wallet_transfer(
+        sender=request.user,
+        recipient=recipient,
+        amount=data['amount'],
+        remarks=remarks,
+        apply_charges=False,
+    )
+    if err:
+        return err
+
+    try:
+        notify_wallet_transfer(transfer)
+    except Exception:
+        logger.exception('Push balance notification failed for %s', transfer.reference)
+    try:
+        notify_low_balance_if_needed(transfer.sender.wallet)
+    except Exception:
+        logger.exception('Low-balance check failed after push balance %s', transfer.pk)
+
+    _log(
+        request, request.user, 'push_balance',
+        {
+            'recipient_id': recipient.pk,
+            'amount': str(transfer.amount),
+            'reference': transfer.reference,
+        },
+    )
+    recipient.refresh_from_db()
+    return Response(
+        {
+            'message': 'Push balance completed',
+            'data': WalletTransferSerializer(
+                transfer, context={'viewer': request.user, 'request': request},
+            ).data,
+            'recipient': PushBalanceUserSerializer(
+                User.objects.select_related('wallet').get(pk=recipient.pk),
+                context={'request': request},
+            ).data,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsNetworkOperator])
 def network_commissions(request):
-    denied = require_role(request.user, ROLE_DEALER, ROLE_AGENT, ROLE_SUB_AGENT)
+    denied = require_role(request.user, ROLE_DEALER)
     if denied:
         return denied
     qs = DealerCommission.objects.select_related(
@@ -458,7 +532,7 @@ def network_commissions(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsNetworkOperator])
 def network_report(request):
-    denied = require_role(request.user, ROLE_DEALER, ROLE_AGENT, ROLE_SUB_AGENT)
+    denied = require_role(request.user, ROLE_DEALER)
     if denied:
         return denied
     start, end = parse_report_range(request)

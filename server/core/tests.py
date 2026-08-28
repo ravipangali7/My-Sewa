@@ -2214,7 +2214,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
             password='testpass123',
             email='agent@example.com',
             account_status=User.ACCOUNT_STATUS_APPROVED,
-            role=User.ROLE_AGENT,
+            role=User.ROLE_CUSTOMER,
             assigned_dealer=self.dealer,
         )
         self.agent.transaction_pin = make_password('1234')
@@ -2224,7 +2224,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
             password='testpass123',
             email='agent2@example.com',
             account_status=User.ACCOUNT_STATUS_APPROVED,
-            role=User.ROLE_AGENT,
+            role=User.ROLE_CUSTOMER,
             assigned_dealer=self.dealer,
         )
         self.customer = User.objects.create_user(
@@ -2345,6 +2345,8 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(self.customer.wallet.balance, before)
 
         unfreeze_wallet(wallet, self.staff)
+        from .services.txn_charges import TXN_WALLET_TRANSFER, quote_charges
+        quote = quote_charges(Decimal('10.00'), TXN_WALLET_TRANSFER, self.customer)
         resp = self.client.post(
             reverse('wallet_transfer_create'),
             {
@@ -2356,7 +2358,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
         self.customer.wallet.refresh_from_db()
-        self.assertEqual(self.customer.wallet.balance, before - Decimal('10.00'))
+        self.assertEqual(self.customer.wallet.balance, before - quote['wallet_amount'])
 
     def test_frozen_wallet_blocks_deposit_create(self):
         from .models import Deposit, Wallet
@@ -2448,8 +2450,10 @@ class DealerCommissionAndHierarchyTests(TestCase):
         notify.assert_called_once()
         self.customer.wallet.refresh_from_db()
 
-    def test_agent_creates_sub_agent_and_cannot_manage_another_agents(self):
-        self.client.force_authenticate(user=self.agent)
+    def test_sub_agent_endpoints_are_gone(self):
+        self.client.force_authenticate(user=self.dealer)
+        resp = self.client.get(reverse('dealer_sub_agents'))
+        self.assertEqual(resp.status_code, status.HTTP_410_GONE)
         resp = self.client.post(
             reverse('agent_sub_agents'),
             {
@@ -2460,27 +2464,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
             },
             format='json',
         )
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
-        data = resp.json().get('data') or {}
-        self.assertEqual(data.get('role'), 'sub_agent')
-        self.assertEqual(data.get('parent_agent_id'), self.agent.pk)
-        sub_id = data['id']
-
-        self.client.force_authenticate(user=self.other_agent)
-        resp = self.client.get(reverse('agent_sub_agent_detail', args=[sub_id]))
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
-        resp = self.client.patch(
-            reverse('agent_sub_agent_detail', args=[sub_id]),
-            {'first_name': 'Hijack'},
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
-
-        self.client.force_authenticate(user=self.staff)
-        resp = self.client.get(reverse('agent_sub_agents'))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        phones = [item['phone'] for item in resp.json().get('items') or []]
-        self.assertIn('9800000410', phones)
+        self.assertEqual(resp.status_code, status.HTTP_410_GONE)
 
     def test_admin_can_list_network_and_unauthorized_is_forbidden(self):
         self.client.force_authenticate(user=self.staff)
@@ -2512,7 +2496,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(resp.json()['data']['wallet_status'], 'unfrozen')
 
-    def test_dealer_creates_sub_agent_and_cannot_see_other_dealer(self):
+    def test_dealer_creates_user_and_cannot_see_other_dealer(self):
         other_dealer = User.objects.create_user(
             phone='9800000490',
             password='testpass123',
@@ -2530,10 +2514,10 @@ class DealerCommissionAndHierarchyTests(TestCase):
         )
         self.client.force_authenticate(user=self.dealer)
         resp = self.client.post(
-            reverse('dealer_sub_agents'),
+            reverse('dealer_customers'),
             {
                 'phone': '9800000492',
-                'email': 'sub-a1@example.com',
+                'email': 'user-a1@example.com',
                 'password': 'testpass123',
                 'password2': 'testpass123',
                 'first_name': 'A1',
@@ -2542,12 +2526,11 @@ class DealerCommissionAndHierarchyTests(TestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
         data = resp.json().get('data') or {}
-        self.assertEqual(data.get('role'), 'sub_agent')
+        self.assertEqual(data.get('role'), 'customer')
         self.assertEqual(data.get('assigned_dealer_id'), self.dealer.pk)
-        self.assertIsNone(data.get('parent_agent_id'))
-        sub_id = data['id']
+        user_id = data['id']
 
-        resp = self.client.get(reverse('dealer_sub_agent_detail', args=[sub_id]))
+        resp = self.client.get(reverse('dealer_customer_detail', args=[user_id]))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
         resp = self.client.get(reverse('dealer_customer_detail', args=[other_customer.pk]))
@@ -2557,84 +2540,89 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         body = resp.json()
         self.assertIn('wallet_balance', body)
-        self.assertGreaterEqual(body.get('total_sub_agents', 0), 1)
 
         self.client.force_authenticate(user=other_dealer)
-        resp = self.client.get(reverse('dealer_sub_agent_detail', args=[sub_id]))
+        resp = self.client.get(reverse('dealer_customer_detail', args=[user_id]))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
         resp = self.client.get(reverse('dealer_customers'))
         phones = [item['phone'] for item in resp.json().get('items') or []]
         self.assertNotIn(self.customer.phone, phones)
 
-    def test_sub_agent_creates_customer_mapped_to_dealer(self):
-        self.client.force_authenticate(user=self.dealer)
-        resp = self.client.post(
-            reverse('dealer_sub_agents'),
-            {
-                'phone': '9800000493',
-                'email': 'sub-map@example.com',
-                'password': 'testpass123',
-                'password2': 'testpass123',
-            },
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
-        sub = User.objects.get(pk=resp.json()['data']['id'])
-
-        self.client.force_authenticate(user=sub)
-        resp = self.client.post(
-            reverse('dealer_customers'),
-            {
-                'phone': '9800000494',
-                'email': 'cust-map@example.com',
-                'password': 'testpass123',
-                'password2': 'testpass123',
-            },
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
-        mapped = User.objects.get(pk=resp.json()['data']['id'])
-        self.assertEqual(mapped.role, User.ROLE_CUSTOMER)
-        self.assertEqual(mapped.assigned_dealer_id, self.dealer.pk)
-        self.assertEqual(mapped.assigned_sub_agent_id, sub.pk)
-
-        other_sub = User.objects.create_user(
-            phone='9800000495',
+    def test_user_dealer_assignment_is_optional(self):
+        unassigned = User.objects.create_user(
+            phone='9800000493',
             password='testpass123',
-            email='sub-other@example.com',
-            role=User.ROLE_SUB_AGENT,
-            assigned_dealer=self.dealer,
+            email='free-user@example.com',
+            role=User.ROLE_CUSTOMER,
             account_status=User.ACCOUNT_STATUS_APPROVED,
         )
-        self.client.force_authenticate(user=other_sub)
-        resp = self.client.get(reverse('dealer_customer_detail', args=[mapped.pk]))
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIsNone(unassigned.assigned_dealer_id)
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.patch(
+            reverse('admin_user_detail', args=[unassigned.pk]),
+            {'assigned_dealer': None, 'role': 'customer'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        unassigned.refresh_from_db()
+        self.assertIsNone(unassigned.assigned_dealer_id)
+
+    def test_configured_charges_debit_and_credit(self):
+        from .models import ServiceChargeConfig
+        from .services.txn_charges import TXN_BANK_TRANSFER, TXN_REMITTANCE, quote_charges
+
+        ServiceChargeConfig.objects.update_or_create(
+            txn_type=TXN_BANK_TRANSFER,
+            defaults={
+                'system_charge_flat': Decimal('100.00'),
+                'system_charge_percent': Decimal('0'),
+                'dealer_commission_flat': Decimal('100.00'),
+                'dealer_commission_percent': Decimal('0'),
+                'himalpay_charge_flat': Decimal('10.00'),
+                'himalpay_charge_percent': Decimal('0'),
+            },
+        )
+        ServiceChargeConfig.objects.update_or_create(
+            txn_type=TXN_REMITTANCE,
+            defaults={
+                'system_charge_flat': Decimal('100.00'),
+                'system_charge_percent': Decimal('0'),
+                'dealer_commission_flat': Decimal('100.00'),
+                'dealer_commission_percent': Decimal('0'),
+                'himalpay_charge_flat': Decimal('10.00'),
+                'himalpay_charge_percent': Decimal('0'),
+            },
+        )
+        debit = quote_charges(Decimal('1000.00'), TXN_BANK_TRANSFER, self.customer)
+        self.assertEqual(debit['wallet_amount'], Decimal('1210.00'))
+        self.assertEqual(debit['system_charge'], Decimal('100.00'))
+        self.assertEqual(debit['dealer_commission'], Decimal('100.00'))
+        self.assertEqual(debit['himalpay_charge'], Decimal('10.00'))
+
+        unassigned = User.objects.create_user(
+            phone='9800000498',
+            password='testpass123',
+            email='no-dealer@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        debit_plain = quote_charges(Decimal('1000.00'), TXN_BANK_TRANSFER, unassigned)
+        self.assertEqual(debit_plain['dealer_commission'], Decimal('0.00'))
+        self.assertEqual(debit_plain['wallet_amount'], Decimal('1110.00'))
+
+        credit = quote_charges(
+            Decimal('1000.00'), TXN_REMITTANCE, self.customer, direction='credit',
+        )
+        self.assertEqual(credit['wallet_amount'], Decimal('790.00'))
 
     def test_hierarchical_commission_and_historical_snapshot(self):
-        from .models import DealerCommission, DealerCommissionConfig, ServiceCommissionRule, TopupTransaction
+        from .models import DealerCommission, ServiceCommissionRule, TopupTransaction
         from .services.txn_status import apply_outbound_status_change
 
-        config = DealerCommissionConfig.objects.get(user=self.dealer)
-        config.sub_agent_commission_rate = Decimal('2.0000')
-        config.super_admin_rate = Decimal('1.5000')
-        config.save(update_fields=['sub_agent_commission_rate', 'super_admin_rate', 'updated_at'])
         ServiceCommissionRule.objects.create(
             dealer=self.dealer,
             txn_type='topup',
             dealer_rate=Decimal('10.0000'),
-            sub_agent_rate=Decimal('2.0000'),
-            super_admin_rate=Decimal('1.5000'),
         )
-        sub = User.objects.create_user(
-            phone='9800000496',
-            password='testpass123',
-            email='sub-comm@example.com',
-            role=User.ROLE_SUB_AGENT,
-            assigned_dealer=self.dealer,
-            account_status=User.ACCOUNT_STATUS_APPROVED,
-        )
-        self.customer.assigned_sub_agent = sub
-        self.customer.save(update_fields=['assigned_sub_agent'])
 
         txn = TopupTransaction.objects.create(
             user=self.customer,
@@ -2649,20 +2637,19 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertTrue(ok, err)
         row = DealerCommission.objects.get(txn_type='topup', txn_id=txn.pk)
         self.assertEqual(row.dealer_id, self.dealer.pk)
-        self.assertEqual(row.sub_agent_id, sub.pk)
+        self.assertIsNone(row.sub_agent_id)
         self.assertEqual(row.source_user_id, self.customer.pk)
         self.assertEqual(row.gross_commission, Decimal('100.00'))
         self.assertEqual(row.tds_amount, Decimal('15.00'))
         self.assertEqual(row.net_commission, Decimal('85.00'))
-        self.assertEqual(row.sub_agent_commission, Decimal('20.00'))
-        self.assertEqual(row.super_admin_profit, Decimal('15.00'))
+        self.assertEqual(row.sub_agent_commission, Decimal('0.00'))
 
+        config = self.dealer.dealer_commission_config
         config.commission_rate = Decimal('1.0000')
         config.save(update_fields=['commission_rate', 'updated_at'])
         row.refresh_from_db()
         self.assertEqual(row.commission_rate, Decimal('10.0000'))
         self.assertEqual(row.gross_commission, Decimal('100.00'))
-        self.assertEqual(row.super_admin_profit, Decimal('15.00'))
 
     def test_admin_hierarchy_and_profit_and_dealer_cannot_access_admin(self):
         self.client.force_authenticate(user=self.staff)
@@ -2683,7 +2670,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
 
 
 class SupportChatHierarchyTests(TestCase):
-    """Support Chat is limited to Super Admin / Agent / assigned downline pairs."""
+    """Support Chat is strictly Admin ↔ User/Dealer."""
 
     def setUp(self):
         self.staff = User.objects.create_user(
@@ -2695,12 +2682,30 @@ class SupportChatHierarchyTests(TestCase):
             first_name='Super',
             last_name='Admin',
         )
+        self.staff_two = User.objects.create_user(
+            phone='9800000508',
+            password='testpass123',
+            email='staff2-chat@example.com',
+            is_staff=True,
+            is_superuser=True,
+            first_name='Second',
+            last_name='Admin',
+        )
         self.dealer = User.objects.create_user(
             phone='9800000502',
             password='testpass123',
             email='dealer-chat@example.com',
             first_name='Dealer',
             last_name='One',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_DEALER,
+        )
+        self.other_dealer = User.objects.create_user(
+            phone='9800000509',
+            password='testpass123',
+            email='dealer2-chat@example.com',
+            first_name='Dealer',
+            last_name='Two',
             account_status=User.ACCOUNT_STATUS_APPROVED,
             role=User.ROLE_DEALER,
         )
@@ -2759,7 +2764,17 @@ class SupportChatHierarchyTests(TestCase):
     def _ids(self, resp):
         return {item['id'] for item in resp.json().get('items') or []}
 
-    def test_super_admin_can_chat_with_all_users(self):
+    def _start_thread(self, actor, target_id, expected=status.HTTP_200_OK):
+        self.client.force_authenticate(user=actor)
+        resp = self.client.post(
+            reverse('support_chat_threads'),
+            {'user_id': target_id},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, expected, resp.content)
+        return resp
+
+    def test_super_admin_can_chat_with_users_and_dealers(self):
         self.client.force_authenticate(user=self.staff)
         resp = self.client.get(reverse('support_chat_contacts'))
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -2767,13 +2782,10 @@ class SupportChatHierarchyTests(TestCase):
         self.assertIn(self.agent.pk, ids)
         self.assertIn(self.customer.pk, ids)
         self.assertIn(self.sub_agent.pk, ids)
+        self.assertIn(self.dealer.pk, ids)
         self.assertIn(self.stray_customer.pk, ids)
-        resp = self.client.post(
-            reverse('support_chat_threads'),
-            {'user_id': self.customer.pk},
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertNotIn(self.staff_two.pk, ids)
+        resp = self._start_thread(self.staff, self.customer.pk)
         thread_id = resp.json()['id']
         resp = self.client.post(
             reverse('support_chat_messages', args=[thread_id]),
@@ -2782,59 +2794,23 @@ class SupportChatHierarchyTests(TestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
 
-    def test_agent_can_chat_with_super_admin_and_assigned_users(self):
-        self.client.force_authenticate(user=self.agent)
-        resp = self.client.get(reverse('support_chat_contacts'))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-        ids = self._ids(resp)
-        self.assertIn(self.staff.pk, ids)
-        self.assertIn(self.sub_agent.pk, ids)
-        self.assertIn(self.customer.pk, ids)
-        self.assertNotIn(self.other_agent.pk, ids)
-        self.assertNotIn(self.stray_customer.pk, ids)
-        resp = self.client.post(
-            reverse('support_chat_threads'),
-            {'user_id': self.staff.pk},
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+    def test_user_and_dealer_can_only_contact_admin(self):
+        for actor in (self.customer, self.dealer, self.agent, self.sub_agent):
+            self.client.force_authenticate(user=actor)
+            resp = self.client.get(reverse('support_chat_contacts'))
+            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+            ids = self._ids(resp)
+            self.assertIn(self.staff.pk, ids)
+            self.assertIn(self.staff_two.pk, ids)
+            self.assertNotIn(self.customer.pk, ids)
+            self.assertNotIn(self.dealer.pk, ids)
+            self.assertNotIn(self.agent.pk, ids)
+            self.assertNotIn(self.other_agent.pk, ids)
+            self.assertNotIn(self.sub_agent.pk, ids)
+            self.assertNotIn(self.stray_customer.pk, ids)
 
-    def test_sub_agent_only_sees_assigned_agent(self):
-        self.client.force_authenticate(user=self.sub_agent)
-        resp = self.client.get(reverse('support_chat_contacts'))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-        self.assertEqual(self._ids(resp), {self.agent.pk})
-        resp = self.client.post(
-            reverse('support_chat_threads'),
-            {'user_id': self.staff.pk},
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
-        resp = self.client.post(
-            reverse('support_chat_threads'),
-            {'user_id': self.customer.pk},
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_customer_only_sees_assigned_agent(self):
-        self.client.force_authenticate(user=self.customer)
-        resp = self.client.get(reverse('support_chat_contacts'))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-        self.assertEqual(self._ids(resp), {self.agent.pk})
-        resp = self.client.post(
-            reverse('support_chat_threads'),
-            {'user_id': self.other_agent.pk},
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(resp.json().get('code'), 'support_chat_forbidden')
-        resp = self.client.post(
-            reverse('support_chat_threads'),
-            {'user_id': self.agent.pk},
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+    def test_customer_can_start_chat_with_admin(self):
+        resp = self._start_thread(self.customer, self.staff.pk)
         thread_id = resp.json()['id']
         resp = self.client.post(
             reverse('support_chat_messages', args=[thread_id]),
@@ -2842,9 +2818,433 @@ class SupportChatHierarchyTests(TestCase):
             format='json',
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
-        self.client.force_authenticate(user=self.other_agent)
+
+    def test_dealer_can_start_chat_with_admin(self):
+        self._start_thread(self.dealer, self.staff.pk)
+
+    def test_users_and_dealers_cannot_chat_with_each_other(self):
+        pairs = (
+            (self.customer, self.stray_customer.pk),
+            (self.customer, self.dealer.pk),
+            (self.customer, self.agent.pk),
+            (self.dealer, self.customer.pk),
+            (self.dealer, self.other_dealer.pk),
+            (self.dealer, self.agent.pk),
+            (self.agent, self.customer.pk),
+            (self.agent, self.other_agent.pk),
+            (self.sub_agent, self.customer.pk),
+            (self.sub_agent, self.agent.pk),
+        )
+        for actor, target_id in pairs:
+            resp = self._start_thread(actor, target_id, expected=status.HTTP_403_FORBIDDEN)
+            self.assertEqual(resp.json().get('code'), 'support_chat_forbidden')
+
+    def test_admin_sees_and_can_reply_to_user_threads(self):
+        resp = self._start_thread(self.customer, self.staff.pk)
+        thread_id = resp.json()['id']
+        self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'Hello admin'},
+            format='json',
+        )
+        self.client.force_authenticate(user=self.staff_two)
+        resp = self.client.get(reverse('support_chat_threads'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertIn(thread_id, {item['id'] for item in resp.json().get('items') or []})
         resp = self.client.get(reverse('support_chat_messages', args=[thread_id]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        resp = self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'We can help'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+
+    def test_peer_threads_are_hidden_and_blocked(self):
+        from .services.support_chat import get_or_create_thread
+
+        thread = get_or_create_thread(self.customer, self.dealer)
+        self.client.force_authenticate(user=self.customer)
+        resp = self.client.get(reverse('support_chat_threads'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertNotIn(thread.pk, {item['id'] for item in resp.json().get('items') or []})
+        resp = self.client.get(reverse('support_chat_messages', args=[thread.pk]))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.client.force_authenticate(user=self.other_agent)
+        resp = self.client.get(reverse('support_chat_messages', args=[thread.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class UserProvisioningAndPayoutTests(TestCase):
+    """Dealer user creation, pending approval emails, payout accounts, dealer wallet load."""
+
+    def setUp(self):
+        from django.contrib.auth.hashers import make_password
+        from .models import Wallet
+
+        self.staff = User.objects.create_user(
+            phone='9800000801',
+            password='testpass123',
+            email='admin-provision@example.com',
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.dealer = User.objects.create_user(
+            phone='9800000802',
+            password='testpass123',
+            email='dealer-provision@example.com',
+            first_name='Dealer',
+            last_name='Two',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_DEALER,
+        )
+        self.dealer.transaction_pin = make_password('1234')
+        self.dealer.save(update_fields=['transaction_pin'])
+        wallet, _ = Wallet.objects.get_or_create(user=self.dealer)
+        wallet.balance = Decimal('5000.00')
+        wallet.save(update_fields=['balance'])
+        self.client = APIClient()
+
+    def test_dealer_creates_user_assigned_and_pending(self):
+        from unittest.mock import patch
+
+        self.client.force_authenticate(user=self.dealer)
+        with patch('core.services.notifications.notify_user_provisioned') as notify:
+            resp = self.client.post(
+                reverse('dealer_customers'),
+                {
+                    'phone': '9800000810',
+                    'email': 'new-user@example.com',
+                    'password': 'secretpass1',
+                    'password2': 'secretpass1',
+                    'first_name': 'New',
+                    'account_status': 'approved',
+                    'assigned_dealer': 99999,
+                },
+                format='json',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        data = resp.json().get('data') or {}
+        self.assertEqual(data.get('role'), 'customer')
+        self.assertEqual(data.get('assigned_dealer_id'), self.dealer.pk)
+        self.assertEqual(data.get('account_status'), 'pending')
+        notify.assert_called_once()
+        created = User.objects.get(pk=data['id'])
+        self.assertEqual(created.assigned_dealer_id, self.dealer.pk)
+        self.assertEqual(created.account_status, User.ACCOUNT_STATUS_PENDING)
+
+    def test_admin_creates_user_pending_and_can_approve(self):
+        from unittest.mock import patch
+
+        self.client.force_authenticate(user=self.staff)
+        with patch('core.services.notifications.notify_user_provisioned') as notify:
+            resp = self.client.post(
+                reverse('admin_list_users'),
+                {
+                    'phone': '9800000811',
+                    'email': 'admin-created@example.com',
+                    'password': 'secretpass1',
+                    'password2': 'secretpass1',
+                    'account_status': 'approved',
+                    'role': 'customer',
+                    'assigned_dealer': self.dealer.pk,
+                },
+                format='json',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        data = resp.json().get('data') or {}
+        self.assertEqual(data.get('account_status'), 'pending')
+        self.assertEqual(data.get('assigned_dealer_id'), self.dealer.pk)
+        notify.assert_called_once()
+
+        user_id = data['id']
+        self.client.force_authenticate(user=self.dealer)
+        resp = self.client.patch(
+            reverse('dealer_customer_detail', args=[user_id]),
+            {'account_status': 'approved'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        created = User.objects.get(pk=user_id)
+        self.assertEqual(created.account_status, User.ACCOUNT_STATUS_PENDING)
+
+        self.client.force_authenticate(user=self.staff)
+        with patch('core.services.notifications.notify_account_approved') as approved:
+            resp = self.client.patch(
+                reverse('admin_user_detail', args=[user_id]),
+                {'account_status': 'approved'},
+                format='json',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        created.refresh_from_db()
+        self.assertEqual(created.account_status, User.ACCOUNT_STATUS_APPROVED)
+        approved.assert_called_once()
+
+    def _tiny_png(self, name='qr.png'):
+        from io import BytesIO
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        try:
+            from PIL import Image
+        except ImportError:  # pragma: no cover
+            self.skipTest('Pillow is required for payout QR upload tests')
+        buf = BytesIO()
+        Image.new('RGB', (8, 8), color=(20, 40, 80)).save(buf, format='PNG')
+        return SimpleUploadedFile(name, buf.getvalue(), content_type='image/png')
+
+    def test_dealer_payout_account_pending_until_admin_approves(self):
+        from unittest.mock import patch
+        from .models import DealerPayoutAccount
+
+        self.client.force_authenticate(user=self.dealer)
+        with patch('core.views.payout_views.notify_payout_account_submitted') as submitted:
+            resp = self.client.post(
+                reverse('dealer_payout_accounts'),
+                {
+                    'method': 'esewa',
+                    'account_name': 'Dealer Two',
+                    'account_number': '9800000802',
+                    'qr_code': self._tiny_png(),
+                },
+                format='multipart',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        data = resp.json().get('data') or {}
+        self.assertEqual(data.get('status'), 'pending')
+        submitted.assert_called_once()
+        account_id = data['id']
+
+        resp = self.client.delete(reverse('dealer_payout_account_detail', args=[account_id]))
+        self.assertEqual(resp.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        user = User.objects.create_user(
+            phone='9800000812',
+            password='testpass123',
+            email='load-user@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            assigned_dealer=self.dealer,
+        )
+        self.client.force_authenticate(user=user)
+        resp = self.client.get(reverse('deposit_destinations'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json().get('source'), 'platform')
+
+        self.client.force_authenticate(user=self.staff)
+        with patch('core.views.payout_views.notify_payout_account_reviewed'):
+            resp = self.client.post(reverse('admin_approve_payout_account', args=[account_id]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()['data']['status'], 'approved')
+
+        self.client.force_authenticate(user=user)
+        resp = self.client.get(reverse('deposit_destinations'))
+        self.assertEqual(resp.json().get('source'), 'dealer')
+        accounts = (resp.json().get('bank_details') or {}).get('accounts') or []
+        self.assertEqual(len(accounts), 1)
+        self.assertEqual(accounts[0].get('payout_account_id'), account_id)
+
+        self.client.force_authenticate(user=self.dealer)
+        resp = self.client.patch(
+            reverse('dealer_payout_account_detail', args=[account_id]),
+            {'account_name': 'Dealer Two Updated'},
+            format='multipart',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()['data']['status'], 'pending')
+        account = DealerPayoutAccount.objects.get(pk=account_id)
+        self.assertEqual(account.status, DealerPayoutAccount.STATUS_PENDING)
+
+    def test_dealer_loads_assigned_user_wallet(self):
+        from django.contrib.auth.hashers import make_password
+        from .models import Wallet, WalletTransfer
+
+        user = User.objects.create_user(
+            phone='9800000813',
+            password='testpass123',
+            email='loaded@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            assigned_dealer=self.dealer,
+        )
+        wallet, _ = Wallet.objects.get_or_create(user=user)
+        wallet.balance = Decimal('0.00')
+        wallet.save(update_fields=['balance'])
+        self.dealer.transaction_pin = make_password('1234')
+        self.dealer.save(update_fields=['transaction_pin'])
+
+        self.client.force_authenticate(user=self.dealer)
+        resp = self.client.post(
+            reverse('dealer_load_user_wallet', args=[user.pk]),
+            {'amount': '250', 'transaction_pin': '1234'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        user.wallet.refresh_from_db()
+        self.dealer.wallet.refresh_from_db()
+        self.assertEqual(user.wallet.balance, Decimal('250.00'))
+        self.assertEqual(self.dealer.wallet.balance, Decimal('4750.00'))
+        self.assertTrue(
+            WalletTransfer.objects.filter(sender=self.dealer, recipient=user).exists()
+        )
+
+
+class DealerPushBalanceTests(TestCase):
+    """Dealer loads an assigned User's wallet from the Dealer wallet."""
+
+    def setUp(self):
+        from django.contrib.auth.hashers import make_password
+        from .models import Wallet
+
+        self.dealer = User.objects.create_user(
+            phone='9800000701',
+            password='testpass123',
+            email='push-dealer@example.com',
+            first_name='Push',
+            last_name='Dealer',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_DEALER,
+        )
+        self.dealer.transaction_pin = make_password('1234')
+        self.dealer.save(update_fields=['transaction_pin'])
+        dealer_wallet, _ = Wallet.objects.get_or_create(user=self.dealer)
+        dealer_wallet.balance = Decimal('10000.00')
+        dealer_wallet.save(update_fields=['balance'])
+
+        self.user = User.objects.create_user(
+            phone='9800000702',
+            password='testpass123',
+            email='push-user@example.com',
+            first_name='Airwave',
+            last_name='Teleservices',
+            business_name='Airwave Teleservices',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_CUSTOMER,
+            assigned_dealer=self.dealer,
+        )
+        user_wallet, _ = Wallet.objects.get_or_create(user=self.user)
+        user_wallet.balance = Decimal('500.00')
+        user_wallet.save(update_fields=['balance'])
+
+        self.other_dealer = User.objects.create_user(
+            phone='9800000703',
+            password='testpass123',
+            email='other-push-dealer@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            role=User.ROLE_DEALER,
+        )
+        self.outsider = User.objects.create_user(
+            phone='9800000704',
+            password='testpass123',
+            email='push-outsider@example.com',
+            account_status=User.ACCOUNT_STATUS_APPROVED,
+            assigned_dealer=self.other_dealer,
+        )
+        outsider_wallet, _ = Wallet.objects.get_or_create(user=self.outsider)
+        outsider_wallet.balance = Decimal('10.00')
+        outsider_wallet.save(update_fields=['balance'])
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.dealer)
+
+    def test_lists_assigned_users_with_wallet_balance(self):
+        resp = self.client.get(reverse('dealer_push_balance_users'))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        items = resp.json().get('items') or []
+        phones = [item['phone'] for item in items]
+        self.assertIn(self.user.phone, phones)
+        self.assertNotIn(self.outsider.phone, phones)
+        self.assertNotIn(self.dealer.phone, phones)
+        mine = next(item for item in items if item['phone'] == self.user.phone)
+        self.assertEqual(mine['wallet_balance'], '500.00')
+        self.assertEqual(mine['role_label'], 'USER')
+        self.assertEqual(mine['display_name'], 'Airwave Teleservices')
+
+    def test_push_moves_balance_and_records_transfer(self):
+        from .models import WalletTransfer
+
+        resp = self.client.post(
+            reverse('dealer_push_balance'),
+            {
+                'user_id': self.user.pk,
+                'amount': '2000.00',
+                'transaction_pin': '1234',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        self.dealer.wallet.refresh_from_db()
+        self.user.wallet.refresh_from_db()
+        self.assertEqual(self.dealer.wallet.balance, Decimal('8000.00'))
+        self.assertEqual(self.user.wallet.balance, Decimal('2500.00'))
+        self.assertEqual(WalletTransfer.objects.count(), 1)
+        transfer = WalletTransfer.objects.get()
+        self.assertEqual(transfer.sender_id, self.dealer.pk)
+        self.assertEqual(transfer.recipient_id, self.user.pk)
+        self.assertEqual(transfer.amount, Decimal('2000.00'))
+        self.assertEqual(transfer.status, 'success')
+        self.assertEqual(resp.json()['recipient']['wallet_balance'], '2500.00')
+
+        history = self.client.get(reverse('wallet_transfer_history'))
+        self.assertEqual(history.status_code, status.HTTP_200_OK)
+        items = history.json().get('items') or []
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].get('direction'), 'sent')
+
+    def test_cannot_push_to_user_outside_network(self):
+        resp = self.client.post(
+            reverse('dealer_push_balance'),
+            {
+                'user_id': self.outsider.pk,
+                'amount': '100',
+                'transaction_pin': '1234',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.outsider.wallet.refresh_from_db()
+        self.assertEqual(self.outsider.wallet.balance, Decimal('10.00'))
+
+    def test_wrong_pin_does_not_move_money(self):
+        resp = self.client.post(
+            reverse('dealer_push_balance'),
+            {
+                'user_id': self.user.pk,
+                'amount': '100',
+                'transaction_pin': '9999',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.dealer.wallet.refresh_from_db()
+        self.user.wallet.refresh_from_db()
+        self.assertEqual(self.dealer.wallet.balance, Decimal('10000.00'))
+        self.assertEqual(self.user.wallet.balance, Decimal('500.00'))
+
+    def test_insufficient_dealer_balance(self):
+        resp = self.client.post(
+            reverse('dealer_push_balance'),
+            {
+                'user_id': self.user.pk,
+                'amount': '20000',
+                'transaction_pin': '1234',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json().get('error'), 'Insufficient balance')
+
+    def test_customer_cannot_access(self):
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(reverse('dealer_push_balance_users'))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        resp = self.client.post(
+            reverse('dealer_push_balance'),
+            {
+                'user_id': self.user.pk,
+                'amount': '100',
+                'transaction_pin': '1234',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
 
 
 

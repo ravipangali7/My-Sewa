@@ -5,11 +5,9 @@ from __future__ import annotations
 
 import logging
 import re
-import uuid
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 from rest_framework import status
@@ -18,7 +16,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from ..models import (
-    Wallet,
     WalletTransfer,
     BankTransferTransaction,
     _ensure_wallet_transfer_table,
@@ -38,6 +35,7 @@ from ..services.app_config import (
 from ..services.list_response import items_with_stats_response
 from ..services.notifications import notify_low_balance_if_needed, notify_wallet_transfer
 from ..services.pin import transaction_pin_gate
+from ..services.wallet_transfer import perform_wallet_transfer
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -65,13 +63,6 @@ def lookup_active_user_by_phone(raw: str):
     if stripped and stripped != phone:
         return User.objects.filter(phone=stripped, is_active=True).first()
     return None
-
-
-def _get_or_create_wallet(user):
-    try:
-        return Wallet.objects.get(user=user)
-    except Wallet.DoesNotExist:
-        return Wallet.objects.create(user=user, balance=Decimal('0.00'))
 
 
 def _wallet_transfers_qs(user):
@@ -217,104 +208,21 @@ def create_wallet_transfer(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    sender_wallet = _get_or_create_wallet(request.user)
-    recipient_wallet = _get_or_create_wallet(recipient)
-
-    try:
-        with transaction.atomic():
-            first_id, second_id = sorted([sender_wallet.pk, recipient_wallet.pk])
-            Wallet.objects.select_for_update().get(pk=first_id)
-            if second_id != first_id:
-                Wallet.objects.select_for_update().get(pk=second_id)
-            sender_locked = Wallet.objects.get(pk=sender_wallet.pk)
-            recipient_locked = Wallet.objects.get(pk=recipient_wallet.pk)
-
-            if sender_locked.balance < amount:
-                return Response(
-                    {
-                        'error': 'Insufficient balance',
-                        'message': (
-                            f'Insufficient MySewa business wallet balance. '
-                            f'Need Rs. {amount}, have Rs. {sender_locked.balance}.'
-                        ),
-                        'required': str(amount),
-                        'available': str(sender_locked.balance),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            from ..services.wallet_guard import (
-                WALLET_FROZEN_MESSAGE,
-                WalletBalanceMismatchError,
-                WalletFrozenError,
-                assert_wallet_not_frozen,
-                frozen_response,
-            )
-            try:
-                assert_wallet_not_frozen(sender_locked)
-                assert_wallet_not_frozen(recipient_locked)
-            except WalletFrozenError as exc:
-                return frozen_response(str(exc) or WALLET_FROZEN_MESSAGE)
-
-            sender_before = sender_locked.balance
-            recipient_before = recipient_locked.balance
-            expected_sender = sender_before - amount
-            expected_recipient = recipient_before + amount
-            sender_locked.balance = expected_sender
-            recipient_locked.balance = expected_recipient
-            sender_locked.save(update_fields=['balance', 'updated_at'])
-            recipient_locked.save(update_fields=['balance', 'updated_at'])
-            sender_locked.refresh_from_db(fields=['balance'])
-            recipient_locked.refresh_from_db(fields=['balance'])
-            if sender_locked.balance != expected_sender or recipient_locked.balance != expected_recipient:
-                raise WalletBalanceMismatchError(
-                    f'{expected_sender}/{expected_recipient}',
-                    f'{sender_locked.balance}/{recipient_locked.balance}',
-                )
-
-            transfer = WalletTransfer.objects.create(
-                sender=request.user,
-                recipient=recipient,
-                amount=amount,
-                remarks=remarks,
-                status='success',
-                reference=f'MYSEWA_WT_{uuid.uuid4().hex[:14].upper()}',
-                sender_balance_before=sender_before,
-                sender_balance_after=sender_locked.balance,
-                recipient_balance_before=recipient_before,
-                recipient_balance_after=recipient_locked.balance,
-            )
-    except Wallet.DoesNotExist:
-        return Response(
-            {'error': 'Wallet not found', 'message': 'Wallet not found.'},
-            status=status.HTTP_404_NOT_FOUND,
-        )
-    except Exception as exc:
-        from ..services.wallet_guard import (
-            WALLET_FROZEN_MESSAGE,
-            WalletBalanceMismatchError,
-            WalletFrozenError,
-            frozen_response,
-        )
-        if isinstance(exc, WalletFrozenError):
-            return frozen_response(str(exc) or WALLET_FROZEN_MESSAGE)
-        if isinstance(exc, WalletBalanceMismatchError):
-            return Response(
-                {
-                    'error': 'Wallet update failed',
-                    'message': str(exc),
-                    'code': 'wallet_balance_mismatch',
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        raise
+    transfer, err = perform_wallet_transfer(
+        sender=request.user,
+        recipient=recipient,
+        amount=amount,
+        remarks=remarks,
+    )
+    if err:
+        return err
 
     try:
         notify_wallet_transfer(transfer)
     except Exception:
         logger.exception('Wallet transfer notification failed for %s', transfer.reference)
     try:
-        notify_low_balance_if_needed(sender_locked)
+        notify_low_balance_if_needed(transfer.sender.wallet)
     except Exception:
         logger.exception('Low-balance check failed after wallet transfer %s', transfer.pk)
 

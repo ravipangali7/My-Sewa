@@ -28,7 +28,7 @@ export type WalletAdjustmentType = "credit" | "debit";
 /** Account approval status — pending users can log in but cannot transact. */
 export type AccountStatus = "pending" | "approved";
 
-export type UserRole = "customer" | "dealer" | "agent" | "sub_agent";
+export type UserRole = "customer" | "dealer";
 
 export interface RelatedUserBrief {
   id: number;
@@ -164,6 +164,8 @@ export interface PaymentAccount {
   qr_code?: string;
   /** Absolute URL for this account's QR (API-enriched). */
   qr_code_url?: string | null;
+  /** Dealer payout account id when this destination is a dealer collection account. */
+  payout_account_id?: number;
 }
 
 export interface BankDetails {
@@ -199,6 +201,18 @@ export interface PaymentConfig {
   min_deposit: number;
   max_deposit: number;
   deposit_instructions: string;
+}
+
+export interface ServiceChargeConfig {
+  txn_type: string;
+  label: string;
+  system_charge_flat: string;
+  system_charge_percent: string;
+  dealer_commission_flat: string;
+  dealer_commission_percent: string;
+  himalpay_charge_flat: string;
+  himalpay_charge_percent: string;
+  updated_at?: string | null;
 }
 
 export interface CommissionConfig {
@@ -394,6 +408,15 @@ export interface Deposit {
   screenshot_proof: string | null;
   note: string | null;
   rejection_reason: string | null;
+  payout_account_id?: number | null;
+  payout_account?: {
+    id: number;
+    method: PaymentMethod;
+    label: string;
+    account_name: string;
+    account_number: string;
+    dealer_id: number;
+  } | null;
   balance_before: string | null;
   balance_after: string | null;
   created_at: string;
@@ -801,6 +824,23 @@ export interface WalletTransfer {
   recipient_balance_after: string;
 }
 
+export interface PushBalanceUser {
+  id: number;
+  phone: string;
+  email: string | null;
+  first_name: string;
+  last_name: string;
+  nickname?: string;
+  business_name?: string;
+  role: UserRole | string;
+  account_status?: AccountStatus;
+  is_active: boolean;
+  display_name: string;
+  role_label: string;
+  wallet_balance: string;
+  wallet_frozen: boolean;
+}
+
 export interface WalletTransactions {
   deposits: Deposit[];
   remittances?: RemittanceTransaction[];
@@ -837,6 +877,9 @@ export interface ChargePreview {
   cashback: string;
   total_debited: string;
   platform_charge?: string;
+  system_charge?: string;
+  dealer_commission?: string;
+  himalpay_charge?: string;
   charge_enabled?: boolean;
   cashback_enabled?: boolean;
 }
@@ -881,6 +924,41 @@ export interface AdminUserWritePayload {
   assigned_sub_agent?: number | null;
   password?: string;
   password2?: string;
+}
+
+export type PayoutAccountStatus = "pending" | "approved" | "rejected";
+
+export interface DealerPayoutAccount {
+  id: number;
+  dealer_id: number;
+  dealer_phone: string;
+  dealer_name: string;
+  method: PaymentMethod;
+  method_display: string;
+  label: string;
+  account_name: string;
+  account_number: string;
+  bank_name: string;
+  branch: string;
+  qr_code: string | null;
+  qr_code_url: string | null;
+  status: PayoutAccountStatus;
+  status_display: string;
+  rejection_reason: string;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DepositDestinations {
+  source: "dealer" | "platform";
+  dealer_id: number | null;
+  dealer_phone: string | null;
+  dealer_name: string | null;
+  bank_details: BankDetails | null;
+  qr_code_url?: string | null;
+  khalti_qr_code_url?: string | null;
+  esewa_qr_code_url?: string | null;
 }
 
 /** Per-user fee overrides — null means use global Settings defaults. */

@@ -36,6 +36,7 @@ from ..services.app_config import (
 )
 from ..services.notifications import notify_remittance_success
 from ..services.txn_status import apply_inbound_status_change
+from ..services.txn_charges import TXN_REMITTANCE, overlay_himalpay_credit
 
 logger = logging.getLogger(__name__)
 
@@ -97,63 +98,18 @@ def _apply_load_fields(
     *,
     persist: bool = True,
 ):
-    """Apply fee/credit/provider metadata from a HimalPay response.
+    """Apply System / Dealer / HimalPay charges to an inbound remittance.
 
-    Wallet credit is always the net amount after charge/cashback:
-    total_credited = amount - charge + cashback (never the gross amount when a
-    charge applies). Prefer provider total_credited when it already reflects netting.
-
-    When persist=True (default), save immediately so a later
-    apply_inbound_status_change + refresh_from_db cannot wipe these fields.
+    User receives amount − system − dealer − HimalPay + cashback.
     """
-    charge_paisa = response.get('charge', response.get('applied_charge', 0)) or 0
-    cashback_paisa = response.get('cashback', response.get('applied_cashback', 0)) or 0
-    amount_raw = response.get('amount')
-    credited_raw = response.get('total_credited')
-
-    txn.charge = himalpay.to_rupees(charge_paisa)
-    txn.cashback = himalpay.to_rupees(cashback_paisa)
-
-    gross = (
-        himalpay.to_rupees(amount_raw)
-        if amount_raw is not None and str(amount_raw).strip() != ''
-        else Decimal(str(txn.amount or 0))
+    overlay_himalpay_credit(
+        txn, himalpay, response, txn.amount, TXN_REMITTANCE,
+        persist=persist,
     )
-    net = gross - txn.charge + txn.cashback
-    if net < 0:
-        net = Decimal('0.00')
-
-    provider_credited = None
-    if credited_raw is not None and str(credited_raw).strip() != '':
-        provider_credited = himalpay.to_rupees(credited_raw)
-
-    if provider_credited is not None and provider_credited > 0:
-        # If provider echoed the gross amount while a charge applies, use net.
-        if txn.charge > 0 and provider_credited == gross:
-            txn.total_credited = net
-        else:
-            txn.total_credited = provider_credited
-    else:
-        txn.total_credited = net if (txn.charge or txn.cashback) else gross
-
-    if txn.total_credited <= 0 and gross > 0 and txn.charge <= 0:
-        txn.total_credited = gross
-
-    txn.provider_txn_id = himalpay.extract_transaction_id(response) or None
-    txn.reference_id = himalpay.extract_reference_id(response) or txn.ref_no
-    txn.provider_response = response
-    if persist and txn.pk:
-        txn.save(
-            update_fields=[
-                'charge',
-                'cashback',
-                'total_credited',
-                'provider_txn_id',
-                'reference_id',
-                'provider_response',
-                'updated_at',
-            ]
-        )
+    if not getattr(txn, 'reference_id', None):
+        txn.reference_id = txn.ref_no
+        if persist and txn.pk:
+            txn.save(update_fields=['reference_id', 'updated_at'])
 
 
 def _provider_message(himalpay: HimalPayAPI, response, fallback: str = '') -> str:
