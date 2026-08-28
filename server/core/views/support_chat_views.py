@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.db.utils import OperationalError, ProgrammingError
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from ..models import SupportChatMessage, SupportChatReadState, SupportChatThread
+from ..models import SupportChatMessage, SupportChatReadState, SupportChatThread, _ensure_support_chat_tables
 from ..serializers import SupportChatMessageSerializer, SupportChatThreadSerializer, support_chat_user_brief
 from ..services.hierarchy import can_initiate_support_chat, can_send_support_chat, support_contacts_qs
 from ..services.support_chat import (
@@ -38,6 +39,7 @@ def _chat_forbidden():
 
 
 def _thread_or_404(request, thread_id):
+    _ensure_support_chat_tables()
     try:
         thread = SupportChatThread.objects.select_related('user_low', 'user_high').get(pk=thread_id)
     except SupportChatThread.DoesNotExist:
@@ -54,6 +56,7 @@ def _thread_or_404(request, thread_id):
 
 
 def _unread_map(user, thread_ids):
+    _ensure_support_chat_tables()
     if not thread_ids:
         return {}
     reads = {
@@ -82,12 +85,17 @@ def support_chat_contacts(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def support_chat_unread(request):
-    return Response({'count': unread_count_for(request.user)})
+    try:
+        _ensure_support_chat_tables()
+        return Response({'count': unread_count_for(request.user)})
+    except (OperationalError, ProgrammingError):
+        return Response({'count': 0})
 
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def support_chat_threads(request):
+    _ensure_support_chat_tables()
     if request.method == 'POST':
         raw = request.data.get('user_id')
         try:

@@ -2,9 +2,24 @@
 from __future__ import annotations
 
 from django.db.models import Q
+from django.db.utils import OperationalError, ProgrammingError
 from django.utils import timezone
 
-from ..models import SupportChatMessage, SupportChatReadState, SupportChatThread
+from ..models import (
+    SupportChatMessage,
+    SupportChatReadState,
+    SupportChatThread,
+    _ensure_support_chat_tables,
+)
+
+
+def _is_missing_support_chat_table(exc) -> bool:
+    msg = str(exc).lower()
+    return (
+        'core_supportchat' in msg
+        or 'no such table' in msg
+        or "doesn't exist" in msg
+    )
 
 
 def ordered_users(a, b):
@@ -14,6 +29,7 @@ def ordered_users(a, b):
 
 
 def threads_for(user):
+    _ensure_support_chat_tables()
     return SupportChatThread.objects.filter(Q(user_low=user) | Q(user_high=user))
 
 
@@ -28,21 +44,49 @@ def user_in_thread(thread, user) -> bool:
 
 
 def get_or_create_thread(a, b) -> SupportChatThread:
+    _ensure_support_chat_tables()
     low, high = ordered_users(a, b)
-    thread, _created = SupportChatThread.objects.get_or_create(user_low=low, user_high=high)
+    try:
+        thread, _created = SupportChatThread.objects.get_or_create(user_low=low, user_high=high)
+    except (OperationalError, ProgrammingError) as exc:
+        if not _is_missing_support_chat_table(exc):
+            raise
+        _ensure_support_chat_tables()
+        thread, _created = SupportChatThread.objects.get_or_create(user_low=low, user_high=high)
     return thread
 
 
 def mark_thread_read(thread, user):
-    SupportChatReadState.objects.update_or_create(
-        thread=thread,
-        user=user,
-        defaults={'last_read_at': timezone.now()},
-    )
+    _ensure_support_chat_tables()
+    try:
+        SupportChatReadState.objects.update_or_create(
+            thread=thread,
+            user=user,
+            defaults={'last_read_at': timezone.now()},
+        )
+    except (OperationalError, ProgrammingError) as exc:
+        if not _is_missing_support_chat_table(exc):
+            raise
+        _ensure_support_chat_tables()
+        SupportChatReadState.objects.update_or_create(
+            thread=thread,
+            user=user,
+            defaults={'last_read_at': timezone.now()},
+        )
 
 
 def unread_count_for(user) -> int:
-    threads = list(threads_for(user).values_list('id', flat=True))
+    _ensure_support_chat_tables()
+    try:
+        threads = list(threads_for(user).values_list('id', flat=True))
+    except (OperationalError, ProgrammingError) as exc:
+        if not _is_missing_support_chat_table(exc):
+            raise
+        _ensure_support_chat_tables()
+        try:
+            threads = list(threads_for(user).values_list('id', flat=True))
+        except (OperationalError, ProgrammingError):
+            return 0
     if not threads:
         return 0
     reads = {

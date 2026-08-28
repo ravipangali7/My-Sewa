@@ -357,6 +357,69 @@ def _ensure_wallet_transfer_table():
     return True
 
 
+_support_chat_tables_ready = False
+
+_SUPPORT_CHAT_TABLES = (
+    ('core_supportchatthread', 'SupportChatThread'),
+    ('core_supportchatreadstate', 'SupportChatReadState'),
+    ('core_supportchatmessage', 'SupportChatMessage'),
+)
+
+
+def _record_support_chat_migration():
+    from django.db.migrations.recorder import MigrationRecorder
+
+    recorder = MigrationRecorder(connection)
+    name = '0047_support_chat'
+    if recorder.migration_qs.filter(app='core', name=name).exists():
+        return
+    if recorder.migration_qs.filter(app='core', name='0046_merge_0045_apk_and_hierarchy').exists():
+        recorder.record_applied('core', name)
+
+
+def _ensure_support_chat_tables():
+    """
+    Create support-chat tables if deploy skipped migrate 0047.
+    GET /api/support-chat/unread/ queries SupportChatThread on every poll;
+    a missing table 500s the SPA.
+    """
+    global _support_chat_tables_ready
+    if _support_chat_tables_ready:
+        return False
+
+    try:
+        names = set(connection.introspection.table_names())
+        missing = [item for item in _SUPPORT_CHAT_TABLES if item[0] not in names]
+        if not missing:
+            _record_support_chat_migration()
+            _support_chat_tables_ready = True
+            return False
+        if 'core_customuser' not in names:
+            return False
+    except Exception:
+        return False
+
+    from django.apps import apps
+
+    created_any = False
+    for table, model_name in missing:
+        model = apps.get_model('core', model_name)
+        try:
+            with connection.schema_editor() as schema_editor:
+                schema_editor.create_model(model)
+            created_any = True
+        except Exception:
+            if table in connection.introspection.table_names():
+                continue
+            raise
+
+    names = set(connection.introspection.table_names())
+    if all(table in names for table, _model in _SUPPORT_CHAT_TABLES):
+        _record_support_chat_migration()
+        _support_chat_tables_ready = True
+    return created_any
+
+
 class CustomUserManager(BaseUserManager):
     """Custom user manager where phone is the unique identifier"""
     

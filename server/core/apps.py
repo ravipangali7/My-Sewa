@@ -18,6 +18,7 @@ class CoreConfig(AppConfig):
                 _ensure_remittance_citizenship_columns,
                 _ensure_settings_app_update_columns,
                 _ensure_settings_table,
+                _ensure_support_chat_tables,
                 _ensure_wallet_transfer_table,
             )
 
@@ -27,5 +28,6 @@ class CoreConfig(AppConfig):
             _ensure_electricity_bill_table()
             _ensure_remittance_citizenship_columns()
             _ensure_wallet_transfer_table()
+            _ensure_support_chat_tables()
         except Exception:
             pass
