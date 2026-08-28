@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Flashlight, FlashlightOff, QrCode, X } from "lucide-react";
 import { toast } from "sonner";
 import { useSiteBranding } from "@/hooks/use-site-branding";
@@ -131,9 +131,11 @@ function ScanPhoneMark() {
 export function ScanQrScreen({
   onClose,
   onPay,
+  footer,
 }: {
   onClose: () => void;
   onPay: () => void;
+  footer?: ReactNode;
 }) {
   const t = useT();
   const { user } = useAuth();
@@ -440,7 +442,9 @@ export function ScanQrScreen({
         <div
           className="flex min-h-0 flex-1 flex-col items-center justify-center px-8"
           style={{
-            paddingBottom: "max(24px, var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)))",
+            paddingBottom: footer
+              ? 8
+              : "max(24px, var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)))",
           }}
         >
           <div
@@ -485,6 +489,7 @@ export function ScanQrScreen({
             })}
           </div>
         </div>
+        {footer ? <div className="relative z-20">{footer}</div> : null}
       </div>
 
       <input

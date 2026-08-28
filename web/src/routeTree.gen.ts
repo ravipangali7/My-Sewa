@@ -19,11 +19,11 @@ import { Route as AdminDataTopupsRouteImport } from './routes/admin/data-topups'
 import { Route as AdminDealerProfitRouteImport } from './routes/admin/dealer-profit'
 import { Route as AdminDealersRouteImport } from './routes/admin/dealers'
 import { Route as AdminDepositsRouteImport } from './routes/admin/deposits'
-import { Route as AdminPayoutAccountsRouteImport } from './routes/admin/payout-accounts'
 import { Route as AdminHierarchyRouteImport } from './routes/admin/hierarchy'
 import { Route as AdminHimalpayHistoryRouteImport } from './routes/admin/himalpay-history'
 import { Route as AdminInternetRouteImport } from './routes/admin/internet'
 import { Route as AdminKycRouteImport } from './routes/admin/kyc'
+import { Route as AdminPayoutAccountsRouteImport } from './routes/admin/payout-accounts'
 import { Route as AdminPopupsRouteImport } from './routes/admin/popups'
 import { Route as AdminProfileRouteImport } from './routes/admin/profile'
 import { Route as AdminPushRouteImport } from './routes/admin/push'
@@ -139,11 +139,6 @@ const AdminDepositsRoute = AdminDepositsRouteImport.update({
   path: '/admin/deposits',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminPayoutAccountsRoute = AdminPayoutAccountsRouteImport.update({
-  id: '/admin/payout-accounts',
-  path: '/admin/payout-accounts',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AdminHierarchyRoute = AdminHierarchyRouteImport.update({
   id: '/admin/hierarchy',
   path: '/admin/hierarchy',
@@ -162,6 +157,11 @@ const AdminInternetRoute = AdminInternetRouteImport.update({
 const AdminKycRoute = AdminKycRouteImport.update({
   id: '/admin/kyc',
   path: '/admin/kyc',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPayoutAccountsRoute = AdminPayoutAccountsRouteImport.update({
+  id: '/admin/payout-accounts',
+  path: '/admin/payout-accounts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminPopupsRoute = AdminPopupsRouteImport.update({
@@ -495,11 +495,11 @@ export interface FileRoutesByFullPath {
   '/admin/dealer-profit': typeof AdminDealerProfitRoute
   '/admin/dealers': typeof AdminDealersRoute
   '/admin/deposits': typeof AdminDepositsRoute
-  '/admin/payout-accounts': typeof AdminPayoutAccountsRoute
   '/admin/hierarchy': typeof AdminHierarchyRoute
   '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
+  '/admin/payout-accounts': typeof AdminPayoutAccountsRoute
   '/admin/popups': typeof AdminPopupsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/push': typeof AdminPushRoute
@@ -575,11 +575,11 @@ export interface FileRoutesByTo {
   '/admin/dealer-profit': typeof AdminDealerProfitRoute
   '/admin/dealers': typeof AdminDealersRoute
   '/admin/deposits': typeof AdminDepositsRoute
-  '/admin/payout-accounts': typeof AdminPayoutAccountsRoute
   '/admin/hierarchy': typeof AdminHierarchyRoute
   '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
+  '/admin/payout-accounts': typeof AdminPayoutAccountsRoute
   '/admin/popups': typeof AdminPopupsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/push': typeof AdminPushRoute
@@ -656,11 +656,11 @@ export interface FileRoutesById {
   '/admin/dealer-profit': typeof AdminDealerProfitRoute
   '/admin/dealers': typeof AdminDealersRoute
   '/admin/deposits': typeof AdminDepositsRoute
-  '/admin/payout-accounts': typeof AdminPayoutAccountsRoute
   '/admin/hierarchy': typeof AdminHierarchyRoute
   '/admin/himalpay-history': typeof AdminHimalpayHistoryRoute
   '/admin/internet': typeof AdminInternetRoute
   '/admin/kyc': typeof AdminKycRoute
+  '/admin/payout-accounts': typeof AdminPayoutAccountsRoute
   '/admin/popups': typeof AdminPopupsRoute
   '/admin/profile': typeof AdminProfileRoute
   '/admin/push': typeof AdminPushRoute
@@ -738,11 +738,11 @@ export interface FileRouteTypes {
     | '/admin/dealer-profit'
     | '/admin/dealers'
     | '/admin/deposits'
-    | '/admin/payout-accounts'
     | '/admin/hierarchy'
     | '/admin/himalpay-history'
     | '/admin/internet'
     | '/admin/kyc'
+    | '/admin/payout-accounts'
     | '/admin/popups'
     | '/admin/profile'
     | '/admin/push'
@@ -818,11 +818,11 @@ export interface FileRouteTypes {
     | '/admin/dealer-profit'
     | '/admin/dealers'
     | '/admin/deposits'
-    | '/admin/payout-accounts'
     | '/admin/hierarchy'
     | '/admin/himalpay-history'
     | '/admin/internet'
     | '/admin/kyc'
+    | '/admin/payout-accounts'
     | '/admin/popups'
     | '/admin/profile'
     | '/admin/push'
@@ -898,11 +898,11 @@ export interface FileRouteTypes {
     | '/admin/dealer-profit'
     | '/admin/dealers'
     | '/admin/deposits'
-    | '/admin/payout-accounts'
     | '/admin/hierarchy'
     | '/admin/himalpay-history'
     | '/admin/internet'
     | '/admin/kyc'
+    | '/admin/payout-accounts'
     | '/admin/popups'
     | '/admin/profile'
     | '/admin/push'
@@ -979,11 +979,11 @@ export interface RootRouteChildren {
   AdminDealerProfitRoute: typeof AdminDealerProfitRoute
   AdminDealersRoute: typeof AdminDealersRoute
   AdminDepositsRoute: typeof AdminDepositsRoute
-  AdminPayoutAccountsRoute: typeof AdminPayoutAccountsRoute
   AdminHierarchyRoute: typeof AdminHierarchyRoute
   AdminHimalpayHistoryRoute: typeof AdminHimalpayHistoryRoute
   AdminInternetRoute: typeof AdminInternetRoute
   AdminKycRoute: typeof AdminKycRoute
+  AdminPayoutAccountsRoute: typeof AdminPayoutAccountsRoute
   AdminPopupsRoute: typeof AdminPopupsRoute
   AdminProfileRoute: typeof AdminProfileRoute
   AdminPushRoute: typeof AdminPushRoute
@@ -1122,13 +1122,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDepositsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/payout-accounts': {
-      id: '/admin/payout-accounts'
-      path: '/admin/payout-accounts'
-      fullPath: '/admin/payout-accounts'
-      preLoaderRoute: typeof AdminPayoutAccountsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/admin/hierarchy': {
       id: '/admin/hierarchy'
       path: '/admin/hierarchy'
@@ -1155,6 +1148,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/kyc'
       fullPath: '/admin/kyc'
       preLoaderRoute: typeof AdminKycRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/payout-accounts': {
+      id: '/admin/payout-accounts'
+      path: '/admin/payout-accounts'
+      fullPath: '/admin/payout-accounts'
+      preLoaderRoute: typeof AdminPayoutAccountsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/popups': {
@@ -1611,11 +1611,11 @@ const rootRouteChildren: RootRouteChildren = {
   AdminDealerProfitRoute: AdminDealerProfitRoute,
   AdminDealersRoute: AdminDealersRoute,
   AdminDepositsRoute: AdminDepositsRoute,
-  AdminPayoutAccountsRoute: AdminPayoutAccountsRoute,
   AdminHierarchyRoute: AdminHierarchyRoute,
   AdminHimalpayHistoryRoute: AdminHimalpayHistoryRoute,
   AdminInternetRoute: AdminInternetRoute,
   AdminKycRoute: AdminKycRoute,
+  AdminPayoutAccountsRoute: AdminPayoutAccountsRoute,
   AdminPopupsRoute: AdminPopupsRoute,
   AdminProfileRoute: AdminProfileRoute,
   AdminPushRoute: AdminPushRoute,
