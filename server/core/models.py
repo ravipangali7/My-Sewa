@@ -422,6 +422,99 @@ def _ensure_support_chat_tables():
     return created_any
 
 
+_support_chat_attachment_columns_ready = False
+_SUPPORT_CHAT_ATTACHMENT_COLUMNS = (
+    'kind',
+    'attachment',
+    'attachment_name',
+    'attachment_size',
+    'attachment_content_type',
+    'client_nonce',
+)
+
+
+def _record_support_chat_attachment_migration():
+    from django.db.migrations.recorder import MigrationRecorder
+
+    recorder = MigrationRecorder(connection)
+    name = '0055_support_chat_attachments'
+    if recorder.migration_qs.filter(app='core', name=name).exists():
+        return
+    if recorder.migration_qs.filter(app='core', name='0054_wallet_balance_issue').exists():
+        recorder.record_applied('core', name)
+
+
+def _ensure_support_chat_attachment_columns():
+    """Add attachment columns if deploy skipped migrate 0055."""
+    global _support_chat_attachment_columns_ready
+    if _support_chat_attachment_columns_ready:
+        return False
+
+    _ensure_support_chat_tables()
+    table = 'core_supportchatmessage'
+    try:
+        names = connection.introspection.table_names()
+        if table not in names:
+            return False
+        with connection.cursor() as cursor:
+            existing = {
+                col.name
+                for col in connection.introspection.get_table_description(cursor, table)
+            }
+    except Exception:
+        return False
+
+    missing = [name for name in _SUPPORT_CHAT_ATTACHMENT_COLUMNS if name not in existing]
+    if not missing:
+        _support_chat_attachment_columns_ready = True
+        _record_support_chat_attachment_migration()
+        return False
+
+    from django.apps import apps
+
+    model = apps.get_model('core', 'SupportChatMessage')
+    try:
+        with connection.schema_editor() as schema_editor:
+            for name in missing:
+                schema_editor.add_field(model, model._meta.get_field(name))
+    except Exception:
+        try:
+            with connection.cursor() as cursor:
+                existing = {
+                    col.name
+                    for col in connection.introspection.get_table_description(cursor, table)
+                }
+            if all(name in existing for name in _SUPPORT_CHAT_ATTACHMENT_COLUMNS):
+                _support_chat_attachment_columns_ready = True
+                _record_support_chat_attachment_migration()
+                return False
+        except Exception:
+            pass
+        raise
+
+    _support_chat_attachment_columns_ready = True
+    _record_support_chat_attachment_migration()
+    return True
+
+
+def _support_chat_file_storage():
+    from django.conf import settings
+    from django.core.files.storage import FileSystemStorage
+
+    root = os.path.join(
+        getattr(settings, 'PRIVATE_MEDIA_ROOT', os.path.join(settings.BASE_DIR, 'private_media')),
+        'support_chat',
+    )
+    os.makedirs(root, exist_ok=True)
+    return FileSystemStorage(location=root, base_url=None)
+
+
+def support_chat_attachment_upload_to(instance, filename):
+    ext = os.path.splitext(filename or '')[1].lower()[:16]
+    thread_id = getattr(instance, 'thread_id', None) or 'new'
+    return f'{thread_id}/{uuid.uuid4().hex}{ext}'
+
+
 class CustomUserManager(BaseUserManager):
     """Custom user manager where phone is the unique identifier"""
     
@@ -2601,13 +2694,35 @@ class SupportChatReadState(models.Model):
 
 
 class SupportChatMessage(models.Model):
+    KIND_TEXT = 'text'
+    KIND_IMAGE = 'image'
+    KIND_VIDEO = 'video'
+    KIND_FILE = 'file'
+    KIND_CHOICES = (
+        (KIND_TEXT, 'Text'),
+        (KIND_IMAGE, 'Image'),
+        (KIND_VIDEO, 'Video'),
+        (KIND_FILE, 'File'),
+    )
+
     thread = models.ForeignKey(
         SupportChatThread, on_delete=models.CASCADE, related_name='messages',
     )
     sender = models.ForeignKey(
         CustomUser, on_delete=models.CASCADE, related_name='support_chat_messages',
     )
-    body = models.TextField()
+    body = models.TextField(blank=True, default='')
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES, default=KIND_TEXT, db_index=True)
+    attachment = models.FileField(
+        upload_to=support_chat_attachment_upload_to,
+        storage=_support_chat_file_storage,
+        blank=True,
+        null=True,
+    )
+    attachment_name = models.CharField(max_length=255, blank=True, default='')
+    attachment_size = models.PositiveIntegerField(default=0)
+    attachment_content_type = models.CharField(max_length=128, blank=True, default='')
+    client_nonce = models.CharField(max_length=64, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     def __str__(self):
@@ -2619,6 +2734,12 @@ class SupportChatMessage(models.Model):
         ordering = ['created_at', 'id']
         indexes = [
             models.Index(fields=['thread', 'created_at'], name='core_spt_msg_thread_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['thread', 'client_nonce'],
+                name='uniq_support_chat_msg_nonce',
+            ),
         ]
 
 

@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
 import { UserShell } from "@/components/layout/UserShell";
-import { SupportChatPanel } from "@/components/support-chat/SupportChatPanel";
+import { ChatPeerTitle, SupportChatPanel } from "@/components/support-chat/SupportChatPanel";
 import { useAuth } from "@/lib/auth";
 import { isNetworkRole } from "@/lib/auth-destination";
 import { useT } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
+import type { SupportChatUser } from "@/lib/types";
 
 export const Route = createFileRoute("/app/support-chat")({
   head: () => ({
@@ -23,15 +24,20 @@ function AppSupportChatPage() {
   const t = useT();
   const { user } = useAuth();
   const dealer = isNetworkRole(user);
+  const [peer, setPeer] = useState<SupportChatUser | null>(null);
+  const onPeerChange = useCallback((next: SupportChatUser | null) => {
+    setPeer(next);
+  }, []);
+
   return (
-    <UserShell title={t("chat.title")} {...(dealer ? {} : { back: "/app" })} disablePullToRefresh>
-      <SupportChatPanel
-        mode="user"
-        className={cn(
-          "min-h-[26rem] lg:h-[calc(100dvh-8rem)]",
-          dealer ? "h-[calc(100dvh-10.25rem)]" : "h-[calc(100dvh-11.5rem)]",
-        )}
-      />
+    <UserShell
+      title={t("chat.title")}
+      {...(dealer ? {} : { back: "/app" })}
+      disablePullToRefresh
+      fillHeight
+      titleContent={peer ? <ChatPeerTitle user={peer} /> : undefined}
+    >
+      <SupportChatPanel mode="user" onPeerChange={onPeerChange} className="h-full min-h-0" />
     </UserShell>
   );
 }

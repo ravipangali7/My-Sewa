@@ -18,6 +18,7 @@ import { I18nProvider } from "@/lib/i18n";
 import { OfflineGate, OnlineProvider } from "@/lib/online";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
+import { useKeyboardInsets } from "@/hooks/use-keyboard-insets";
 import { ensureNativeDocumentScroll, isMySewaNativeApp } from "@/lib/native-app";
 
 function NotFoundComponent() {
@@ -84,7 +85,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" },
       { title: "MySewa — Nepal Digital Wallet, Remittance & Top-Up" },
       { name: "description", content: "MySewa is a Nepal digital wallet: load remittance into your wallet, send bank transfers and recharge NTC or NCELL in seconds." },
       { name: "author", content: "Lovable" },
@@ -139,6 +140,7 @@ function RootComponent() {
               <SiteBrandingSync />
               <LiveRefreshSync />
               <NativeScrollSync />
+              <KeyboardInsetsSync />
               {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
               <Outlet />
               <Toaster position="top-center" />
@@ -159,6 +161,12 @@ function SiteBrandingSync() {
 /** Force-refetch when the native app resumes or a push arrives. */
 function LiveRefreshSync() {
   useLiveRefresh();
+  return null;
+}
+
+/** Hide the mobile tab bar while a text field is focused so the IME does not lift inputs above it. */
+function KeyboardInsetsSync() {
+  useKeyboardInsets();
   return null;
 }
 

@@ -42,3 +42,10 @@ export function sortByLatestFirst<T extends { created_at?: string | null }>(
     .sort((a, b) => b.ms - a.ms || a.index - b.index)
     .map(({ item }) => item);
 }
+
+export function formatBytes(bytes: number | null | undefined) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}

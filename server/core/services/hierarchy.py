@@ -215,23 +215,43 @@ def admin_actors_qs() -> QuerySet:
     )
 
 
+def canonical_support_admin():
+    """Stable Super Admin identity used for User/Dealer Support Chat."""
+    return admin_actors_qs().order_by('-is_superuser', 'pk').first()
+
+
+_ADMIN_PUBLIC_SEARCH_TOKENS = (
+    'super admin',
+    'superadmin',
+    'admin',
+    'support',
+    'mysewa',
+    'my sewa',
+)
+
+
+def _matches_public_admin_search(q: str) -> bool:
+    """Users may search Super Admin by public label only — never by personal name/phone."""
+    needle = (q or '').strip().lower()
+    if not needle:
+        return True
+    if any(needle in token or token.startswith(needle) for token in _ADMIN_PUBLIC_SEARCH_TOKENS):
+        return True
+    return any(word.startswith(needle) for word in 'super admin support mysewa'.split())
+
+
 def can_initiate_support_chat(actor, target) -> bool:
+    """Support Chat is strictly Super Admin ↔ User/Dealer. Never peer-to-peer."""
     if actor is None or target is None:
         return False
     if getattr(actor, 'pk', None) == getattr(target, 'pk', None):
         return False
-    if is_admin_actor(actor):
+    actor_is_admin = is_admin_actor(actor)
+    target_is_admin = is_admin_actor(target)
+    if actor_is_admin and not target_is_admin:
         return True
-    if is_admin_actor(target):
-        return getattr(actor, 'role', None) == ROLE_DEALER
-    role = getattr(actor, 'role', ROLE_CUSTOMER) or ROLE_CUSTOMER
-    if role == ROLE_DEALER:
-        return (
-            getattr(target, 'role', None) == ROLE_CUSTOMER
-            and getattr(target, 'assigned_dealer_id', None) == actor.pk
-        )
-    if role == ROLE_CUSTOMER:
-        return assigned_support_user_id(actor) == getattr(target, 'pk', None)
+    if target_is_admin and not actor_is_admin:
+        return True
     return False
 
 
@@ -240,30 +260,25 @@ def can_send_support_chat(actor, target) -> bool:
 
 
 def support_contacts_qs(actor, q: str = '') -> QuerySet:
-    qs = User.objects.exclude(pk=getattr(actor, 'pk', None) or 0).filter(is_active=True)
-    if is_admin_actor(actor):
-        pass
-    else:
-        role = getattr(actor, 'role', ROLE_CUSTOMER) or ROLE_CUSTOMER
-        if role == ROLE_DEALER:
-            qs = qs.filter(
-                Q(pk__in=admin_actors_qs().values('pk'))
-                | (Q(assigned_dealer=actor) & Q(role=ROLE_CUSTOMER))
-            )
-        elif role == ROLE_CUSTOMER:
-            upline_id = assigned_support_user_id(actor)
-            qs = qs.filter(pk=upline_id) if upline_id else qs.none()
-        else:
-            qs = qs.none()
-
     q = (q or '').strip()
-    if q:
-        qs = qs.filter(
-            Q(phone__icontains=q)
-            | Q(first_name__icontains=q)
-            | Q(last_name__icontains=q)
-            | Q(email__icontains=q)
-            | Q(nickname__icontains=q)
-            | Q(business_name__icontains=q)
+    if is_admin_actor(actor):
+        qs = (
+            User.objects.exclude(pk=getattr(actor, 'pk', None) or 0)
+            .exclude(pk__in=admin_actors_qs().values('pk'))
+            .filter(is_active=True)
         )
-    return qs.order_by('first_name', 'last_name', 'phone')
+        if q:
+            qs = qs.filter(
+                Q(phone__icontains=q)
+                | Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+                | Q(email__icontains=q)
+                | Q(nickname__icontains=q)
+                | Q(business_name__icontains=q)
+            )
+        return qs.order_by('first_name', 'last_name', 'phone')
+
+    admin = canonical_support_admin()
+    if admin is None or not _matches_public_admin_search(q):
+        return User.objects.none()
+    return User.objects.filter(pk=admin.pk)

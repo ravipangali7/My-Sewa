@@ -3123,13 +3123,18 @@ class SupportChatHierarchyTests(TestCase):
             self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
             ids = self._ids(resp)
             self.assertIn(self.staff.pk, ids)
-            self.assertIn(self.staff_two.pk, ids)
+            self.assertNotIn(self.staff_two.pk, ids)
             self.assertNotIn(self.customer.pk, ids)
             self.assertNotIn(self.dealer.pk, ids)
             self.assertNotIn(self.agent.pk, ids)
             self.assertNotIn(self.other_agent.pk, ids)
             self.assertNotIn(self.sub_agent.pk, ids)
             self.assertNotIn(self.stray_customer.pk, ids)
+            items = resp.json().get('items') or []
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]['name'], 'Super Admin')
+            self.assertEqual(items[0]['phone'], '')
+            self.assertTrue(items[0].get('identity_hidden'))
 
     def test_customer_can_start_chat_with_admin(self):
         resp = self._start_thread(self.customer, self.staff.pk)
@@ -3195,6 +3200,102 @@ class SupportChatHierarchyTests(TestCase):
         self.client.force_authenticate(user=self.other_agent)
         resp = self.client.get(reverse('support_chat_messages', args=[thread.pk]))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_super_admin_personal_details_are_not_searchable(self):
+        self.client.force_authenticate(user=self.customer)
+        resp = self.client.get(reverse('support_chat_contacts'), {'q': self.staff.phone})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json().get('items'), [])
+        resp = self.client.get(reverse('support_chat_contacts'), {'q': 'Second'})
+        self.assertEqual(resp.json().get('items'), [])
+        resp = self.client.get(reverse('support_chat_contacts'), {'q': self.stray_customer.phone})
+        self.assertEqual(resp.json().get('items'), [])
+        resp = self.client.get(reverse('support_chat_contacts'), {'q': 'Super Admin'})
+        items = resp.json().get('items') or []
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['name'], 'Super Admin')
+        self.assertEqual(items[0]['phone'], '')
+
+    def test_thread_and_attachment_are_private_to_the_owner(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        resp = self._start_thread(self.customer, self.staff.pk)
+        thread_id = resp.json()['id']
+        upload = SimpleUploadedFile(
+            'proof.png',
+            b'\x89PNG\r\n\x1a\n' + b'x' * 32,
+            content_type='image/png',
+        )
+        resp = self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'Need help', 'file': upload, 'client_nonce': 'nonce-cust-1'},
+            format='multipart',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        payload = resp.json()
+        self.assertEqual(payload.get('kind'), 'image')
+        self.assertEqual(payload.get('sender_display_name'), 'Cust Omer')
+        self.assertTrue(payload.get('has_attachment'))
+        msg_id = payload['id']
+        dup = self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'Need help', 'client_nonce': 'nonce-cust-1'},
+            format='multipart',
+        )
+        self.assertEqual(dup.json().get('id'), msg_id)
+
+        self.client.force_authenticate(user=self.stray_customer)
+        resp = self.client.get(reverse('support_chat_threads'))
+        self.assertNotIn(thread_id, {item['id'] for item in resp.json().get('items') or []})
+        resp = self.client.get(reverse('support_chat_messages', args=[thread_id]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        resp = self.client.get(reverse('support_chat_attachment', args=[thread_id, msg_id]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.dealer)
+        resp = self.client.get(reverse('support_chat_messages', args=[thread_id]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        resp = self.client.get(reverse('support_chat_attachment', args=[thread_id, msg_id]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.staff_two)
+        resp = self.client.get(reverse('support_chat_messages', args=[thread_id]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        items = resp.json().get('items') or []
+        self.assertEqual(items[0].get('sender_display_name'), 'Cust Omer')
+        resp = self.client.get(reverse('support_chat_attachment', args=[thread_id, msg_id]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        reply = self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'We can help'},
+            format='json',
+        )
+        self.assertEqual(reply.status_code, status.HTTP_201_CREATED, reply.content)
+        self.assertEqual(reply.json().get('sender_display_name'), 'Super Admin')
+        self.assertTrue(reply.json().get('sender_is_support'))
+
+        self.client.force_authenticate(user=self.customer)
+        resp = self.client.get(reverse('support_chat_messages', args=[thread_id]))
+        names = {item.get('sender_display_name') for item in resp.json().get('items') or []}
+        self.assertIn('Super Admin', names)
+        thread_resp = self.client.get(reverse('support_chat_threads'))
+        other_user = (thread_resp.json().get('items') or [{}])[0].get('other_user') or {}
+        self.assertEqual(other_user.get('name'), 'Super Admin')
+        self.assertEqual(other_user.get('phone'), '')
+
+    def test_rejected_attachment_types_are_blocked(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        resp = self._start_thread(self.customer, self.staff.pk)
+        thread_id = resp.json()['id']
+        exe = SimpleUploadedFile('hack.exe', b'MZxxxx', content_type='application/x-msdownload')
+        resp = self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'file': exe},
+            format='multipart',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
+        self.assertEqual(resp.json().get('code'), 'file_type_not_allowed')
 
 
 class UserProvisioningAndPayoutTests(TestCase):

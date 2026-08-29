@@ -144,6 +144,11 @@ urlpatterns = [
         support_chat_views.support_chat_messages,
         name='support_chat_messages',
     ),
+    path(
+        'api/support-chat/threads/<int:thread_id>/messages/<int:message_id>/attachment/',
+        support_chat_views.support_chat_attachment,
+        name='support_chat_attachment',
+    ),
 
     # Wallet endpoints
     path('api/wallet/balance/', wallet_views.get_wallet_balance, name='wallet_balance'),

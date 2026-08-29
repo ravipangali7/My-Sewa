@@ -19,10 +19,11 @@ function AdminSupportChatPage() {
   return (
     <AdminShell
       title="Support Chat"
-      description="View and reply to chats from users and dealers. They can only message Admin."
+      description="View and reply to chats from users and dealers. Your name and phone stay hidden — they only see Super Admin."
       dense
+      fillHeight
     >
-      <SupportChatPanel mode="admin" className="h-[calc(100dvh-10.5rem)] min-h-[28rem]" />
+      <SupportChatPanel mode="admin" className="h-full min-h-0 md:min-h-[28rem]" />
     </AdminShell>
   );
 }

@@ -249,6 +249,7 @@ export function AdminShell({
   children,
   actions,
   dense = false,
+  fillHeight = false,
 }: {
   title: string;
   description?: string;
@@ -256,6 +257,7 @@ export function AdminShell({
   actions?: ReactNode;
   /** Compact header + page padding for managed console surfaces */
   dense?: boolean;
+  fillHeight?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -316,7 +318,13 @@ export function AdminShell({
   );
 
   return (
-    <div className="mysewa-app-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-background md:flex">
+    <div
+      className={cn(
+        "mysewa-app-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-background md:flex",
+        fillHeight &&
+          "flex h-[var(--vv-height,100dvh)] max-h-[var(--vv-height,100dvh)] flex-col overflow-hidden md:flex-row",
+      )}
+    >
       <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border bg-surface px-3 py-5 md:flex">
         <div className="mb-6">{brandBlock}</div>
         <div className="min-h-0 flex-1 overflow-y-auto">{navLinks}</div>
@@ -349,7 +357,12 @@ export function AdminShell({
         </SheetContent>
       </Sheet>
 
-      <div className="flex min-w-0 max-w-full flex-col md:min-h-0 md:flex-1">
+      <div
+        className={cn(
+          "flex min-w-0 max-w-full flex-col md:min-h-0 md:flex-1",
+          fillHeight && "h-full min-h-0 flex-1 overflow-hidden",
+        )}
+      >
         <header
           className={cn(
             "sticky top-0 z-30 border-b border-border bg-surface/95 px-3 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-3 backdrop-blur sm:px-4 md:px-8",
@@ -416,6 +429,7 @@ export function AdminShell({
           className={cn(
             "min-w-0 max-w-full overscroll-y-none px-3 pb-safe sm:px-4 md:flex-1 md:px-8",
             dense ? "py-4 md:py-5 md:pb-5" : "py-5 md:py-7 md:pb-7",
+            fillHeight && "flex min-h-0 flex-1 flex-col overflow-hidden py-3 md:py-4",
           )}
         >
           {children}
@@ -423,7 +437,7 @@ export function AdminShell({
 
         <nav
           aria-label="Admin primary"
-          className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface/95 backdrop-blur-md pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] md:hidden"
+          className="mysewa-bottom-nav fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface/95 backdrop-blur-md pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] md:hidden"
         >
           <ul className="grid grid-cols-5">
             {BOTTOM_TABS.map((tab) => {

@@ -229,6 +229,84 @@ export async function api<T = unknown>(path: string, options: RequestOptions = {
   return data as T;
 }
 
+export async function apiBlob(path: string): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Token ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { headers });
+  } catch {
+    throw new ApiError(
+      "Cannot reach the MySewa server. Check your connection and try again.",
+      0,
+    );
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    let data: unknown = text;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
+    }
+    throw new ApiError(extractMessage(data, res.statusText || "Request failed"), res.status, data);
+  }
+  return res.blob();
+}
+
+export function apiUpload<T = unknown>(
+  path: string,
+  formData: FormData,
+  onProgress?: (pct: number) => void,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_BASE}${path}`);
+    const token = getToken();
+    if (token) xhr.setRequestHeader("Authorization", `Token ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      let data: unknown = null;
+      const text = xhr.responseText;
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = text;
+        }
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data as T);
+        return;
+      }
+      reject(
+        new ApiError(
+          extractMessage(data, xhr.statusText || "Request failed"),
+          xhr.status,
+          data,
+        ),
+      );
+    };
+    xhr.onerror = () => {
+      reject(
+        new ApiError(
+          "Cannot reach the MySewa server. Check your connection and try again.",
+          0,
+        ),
+      );
+    };
+    xhr.send(formData);
+  });
+}
+
 function filenameFromDisposition(header: string | null, fallback: string) {
   if (!header) return fallback;
   const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
@@ -262,7 +340,7 @@ async function downloadAdminExport(path: string, format: "xlsx" | "csv" | "sql")
 
   const headers: Record<string, string> = {};
   const token = getToken();
-  if (token) headers.Authorization = `Token ${token}`;
+  if (token) headers["Authorization"] = `Token ${token}`;
 
   let res: Response;
   try {
@@ -1366,11 +1444,30 @@ export const apiClient = {
       `/api/support-chat/threads/${threadId}/messages/${suffix ? `?${suffix}` : ""}`,
     );
   },
-  supportChatSendMessage: (threadId: number, body: string) =>
-    api<import("./types").SupportChatMessage>(
+  supportChatSendMessage: (
+    threadId: number,
+    payload: { body?: string; file?: File; clientNonce?: string },
+    onProgress?: (pct: number) => void,
+  ) => {
+    if (payload.file) {
+      const fd = new FormData();
+      if (payload.body?.trim()) fd.append("body", payload.body.trim());
+      fd.append("file", payload.file);
+      if (payload.clientNonce) fd.append("client_nonce", payload.clientNonce);
+      return apiUpload<import("./types").SupportChatMessage>(
+        `/api/support-chat/threads/${threadId}/messages/`,
+        fd,
+        onProgress,
+      );
+    }
+    return api<import("./types").SupportChatMessage>(
       `/api/support-chat/threads/${threadId}/messages/`,
-      { method: "POST", body: { body } },
-    ),
+      {
+        method: "POST",
+        body: { body: payload.body ?? "", client_nonce: payload.clientNonce ?? "" },
+      },
+    );
+  },
 
   dealerDashboard: () => api<import("./types").NetworkDashboard>("/api/dealer/dashboard/"),
   dealerSubAgents: (filters?: AdminListFilters) =>

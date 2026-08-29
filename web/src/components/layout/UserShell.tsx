@@ -71,6 +71,8 @@ export function UserShell({
   hideHeader = false,
   hideNav = false,
   disablePullToRefresh = false,
+  fillHeight = false,
+  titleContent,
 }: {
   title: string;
   children: ReactNode;
@@ -81,6 +83,10 @@ export function UserShell({
   hideHeader?: boolean;
   hideNav?: boolean;
   disablePullToRefresh?: boolean;
+  /** Lock the shell to the visual viewport (chat / composer screens). */
+  fillHeight?: boolean;
+  /** Replaces the text title (e.g. Messenger-style peer header). */
+  titleContent?: ReactNode;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
@@ -139,11 +145,14 @@ export function UserShell({
         flush={hideHeader}
         hideHeader={hideHeader}
         disablePullToRefresh={disablePullToRefresh}
+        fillHeight={fillHeight}
+        titleContent={titleContent}
       >
         <div
           className={cn(
             "mx-auto min-w-0 w-full max-w-full",
             hideHeader ? "max-w-lg lg:max-w-none" : "max-w-6xl",
+            fillHeight && "flex min-h-0 flex-1 flex-col overflow-hidden",
           )}
         >
           {maintenance ? (
@@ -168,7 +177,13 @@ export function UserShell({
     // short-page fill). Do NOT use overflow-x-hidden — CSS pairs it to
     // overflow-y:auto and Android WebView traps touch on a non-scroller.
     // Desktop: fixed viewport shell with <main> as the scroller.
-    <div className="mysewa-app-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-background lg:flex lg:h-dvh lg:max-h-dvh lg:flex-row lg:overflow-hidden">
+    <div
+      className={cn(
+        "mysewa-app-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-background lg:flex lg:h-dvh lg:max-h-dvh lg:flex-row lg:overflow-hidden",
+        fillHeight &&
+          "flex h-[var(--vv-height,100dvh)] max-h-[var(--vv-height,100dvh)] flex-col overflow-hidden",
+      )}
+    >
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex">
         <Link to="/app" className="mb-8 flex items-center gap-2.5 px-2">
           <img src={logoUrl} alt="MySewa" className="size-9 rounded-full object-cover" />
@@ -238,7 +253,12 @@ export function UserShell({
         </div>
       </aside>
 
-      <div className="flex min-w-0 w-full max-w-full flex-col lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+      <div
+        className={cn(
+          "flex min-w-0 w-full max-w-full flex-col lg:min-h-0 lg:flex-1 lg:overflow-hidden",
+          fillHeight && "h-full min-h-0 flex-1 overflow-hidden",
+        )}
+      >
         {!hideHeader && (
           <header className="sticky top-0 z-30 max-w-full shrink-0 bg-hero-gradient px-3 pt-[max(14px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-5 sm:px-4 lg:static lg:bg-none lg:bg-surface lg:px-8 lg:py-5 lg:shadow-none">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -272,9 +292,15 @@ export function UserShell({
                     <ArrowLeft className="size-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
                   </Link>
                 ))}
-              <h1 className="min-w-0 flex-1 truncate text-[22px] font-bold tracking-tight text-primary-foreground sm:text-[28px] lg:text-[22px] lg:text-foreground">
-                {title}
-              </h1>
+              {titleContent ? (
+                <div className="min-w-0 flex-1 text-primary-foreground lg:text-foreground">
+                  {titleContent}
+                </div>
+              ) : (
+                <h1 className="min-w-0 flex-1 truncate text-[22px] font-bold tracking-tight text-primary-foreground sm:text-[28px] lg:text-[22px] lg:text-foreground">
+                  {title}
+                </h1>
+              )}
               {headerTrailing ? (
                 <div className="flex max-w-[45%] shrink-0 items-center justify-end gap-1.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:max-w-none">
                   {headerTrailing}
@@ -289,11 +315,13 @@ export function UserShell({
             // Mobile: height follows content only (no flex-1 growth → no blank
             // overscroll). Desktop: flex-1 + overflow scroller inside fixed shell.
             "min-w-0 max-w-full overscroll-y-none lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-y-contain",
+            fillHeight && "flex min-h-0 flex-1 flex-col overflow-hidden lg:overflow-hidden",
             hideHeader && hideNav
               ? "relative h-dvh overflow-hidden p-0 lg:h-auto lg:overflow-hidden lg:px-0 lg:pb-0"
               : hideHeader
                 ? "px-0 pb-safe lg:px-8 lg:pb-10"
                 : "px-3 pb-safe sm:px-4 lg:px-8 lg:pb-10",
+            fillHeight && "pb-safe lg:pb-10",
           )}
         >
           <PullToRefresh
@@ -302,6 +330,7 @@ export function UserShell({
             className={cn(
               "min-w-0 w-full max-w-full overscroll-y-none",
               hideHeader && hideNav && "h-full",
+              fillHeight && "flex min-h-0 flex-1 flex-col overflow-hidden",
             )}
           >
             <div
@@ -312,6 +341,7 @@ export function UserShell({
                   : hideHeader
                     ? "max-w-lg lg:max-w-6xl"
                     : "max-w-6xl",
+                fillHeight && "flex min-h-0 flex-1 flex-col overflow-hidden",
               )}
             >
               {maintenance && !(hideHeader && hideNav) ? (
@@ -326,7 +356,7 @@ export function UserShell({
         </main>
 
         {!hideNav ? (
-          <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
+          <nav aria-label="Primary" className="mysewa-bottom-nav fixed inset-x-0 bottom-0 z-40 lg:hidden">
             <div className="border-t border-border/40 bg-surface/92 shadow-[0_-8px_32px_-12px_rgb(16_24_40_/_0.14)] backdrop-blur-xl supports-[backdrop-filter]:bg-surface/80">
               <ul className="mx-auto grid max-w-lg grid-cols-5 items-end px-1.5 pt-1.5 pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
                 {TABS.map((tab) => {

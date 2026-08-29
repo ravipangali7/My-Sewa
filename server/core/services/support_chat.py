@@ -11,7 +11,7 @@ from ..models import (
     SupportChatThread,
     _ensure_support_chat_tables,
 )
-from .hierarchy import admin_actors_qs, is_admin_actor
+from .hierarchy import admin_actors_qs, canonical_support_admin, is_admin_actor
 
 
 def _is_missing_support_chat_table(exc) -> bool:
@@ -97,6 +97,54 @@ def get_or_create_thread(a, b) -> SupportChatThread:
     return thread
 
 
+def existing_admin_thread_for(user):
+    """One Support Chat per User/Dealer with Super Admin, regardless of which admin account."""
+    if user is None:
+        return None
+    qs = threads_for(user).order_by('-last_message_at', '-id')
+    return qs.first()
+
+
+def get_or_create_admin_thread(non_admin, admin=None) -> SupportChatThread:
+    """Reuse the existing Super Admin conversation so users never get a second inbox."""
+    existing = existing_admin_thread_for(non_admin)
+    if existing is not None:
+        return existing
+    partner = admin if is_admin_actor(admin) else canonical_support_admin()
+    if partner is None:
+        raise ValueError('No Super Admin account is available for Support Chat.')
+    return get_or_create_thread(non_admin, partner)
+
+
+def unread_messages_qs(thread_id, user):
+    """Incoming messages for unread counts. Admins ignore other Super Admin replies."""
+    qs = SupportChatMessage.objects.filter(thread_id=thread_id)
+    if is_admin_actor(user):
+        admin_ids = _admin_ids()
+        if admin_ids:
+            qs = qs.exclude(sender_id__in=admin_ids)
+        else:
+            qs = qs.exclude(sender=user)
+    else:
+        qs = qs.exclude(sender=user)
+    return qs
+
+
+def message_preview_text(kind: str, body: str, filename: str = '') -> str:
+    kind = (kind or 'text').lower()
+    body = (body or '').strip()
+    filename = (filename or '').strip()
+    if kind == 'image':
+        return body or '📷 Photo'
+    if kind == 'video':
+        return body or '🎥 Video'
+    if kind == 'file':
+        return body or (f'📎 {filename}' if filename else '📎 File')
+    if len(body) <= 240:
+        return body
+    return f'{body[:237]}...'
+
+
 def mark_thread_read(thread, user):
     _ensure_support_chat_tables()
     try:
@@ -136,7 +184,7 @@ def unread_count_for(user) -> int:
     }
     total = 0
     for thread_id in threads:
-        qs = SupportChatMessage.objects.filter(thread_id=thread_id).exclude(sender=user)
+        qs = unread_messages_qs(thread_id, user)
         last_read = reads.get(thread_id)
         if last_read:
             qs = qs.filter(created_at__gt=last_read)

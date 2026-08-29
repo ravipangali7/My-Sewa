@@ -131,6 +131,10 @@
   --gradient-hero: linear-gradient(120deg, #062a5c 0%, #0b3b7a 45%, #0a7a4b 100%);
   --gradient-brand: linear-gradient(135deg, #0a7a4b 0%, #20c36a 100%);
   --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 8px 24px -12px rgb(16 24 40 / 0.18);
+
+  --bottom-nav-space: 5.25rem;
+  --vv-height: 100dvh;
+  --keyboard-inset: 0px;
 }
 
 @utility bg-hero-gradient {
@@ -191,9 +195,10 @@
 
 /* Clearance for fixed mobile bottom nav (elevated center FAB + safe area).
  * Sized to the real tab bar (~56–64px content + padding), not an extra
- * viewport chunk — excess here becomes blank overscroll on every page. */
+ * viewport chunk — excess here becomes blank overscroll on every page.
+ * When the soft keyboard is open, nav is hidden so fields sit on the IME. */
 @utility pb-safe {
-  padding-bottom: calc(5.25rem + var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)));
+  padding-bottom: calc(var(--bottom-nav-space, 5.25rem) + var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)));
 }
 
 @layer base {
@@ -278,5 +283,24 @@
     position: -webkit-sticky;
     position: sticky;
     top: 0;
+  }
+
+  /* Soft keyboard: hide the tab bar so search/chat fields stay at the
+   * visible bottom (WhatsApp-style) instead of stacking above the nav. */
+  html.keyboard-open {
+    --bottom-nav-space: 0px;
+  }
+
+  html.keyboard-open .mysewa-bottom-nav {
+    transform: translateY(110%);
+    pointer-events: none;
+    visibility: hidden;
+  }
+
+  html.keyboard-open,
+  html.keyboard-open body,
+  html.mysewa-native.keyboard-open,
+  html.mysewa-native.keyboard-open body {
+    overflow: hidden !important;
   }
 }

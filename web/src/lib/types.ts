@@ -1737,6 +1737,7 @@ export interface SupportChatUser {
   is_staff: boolean;
   is_superuser: boolean;
   avatar_url: string | null;
+  identity_hidden?: boolean;
 }
 
 export interface SupportChatThread {
@@ -1748,10 +1749,21 @@ export interface SupportChatThread {
   created_at: string;
 }
 
+export type SupportChatMessageKind = "text" | "image" | "video" | "file";
+
 export interface SupportChatMessage {
   id: number;
   thread: number;
   sender_id: number;
+  sender_is_support?: boolean;
+  sender_display_name?: string;
   body: string;
+  kind?: SupportChatMessageKind;
+  has_attachment?: boolean;
+  attachment_name?: string;
+  attachment_size?: number;
+  attachment_content_type?: string;
+  attachment_url?: string | null;
+  is_read?: boolean;
   created_at: string;
 }

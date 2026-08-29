@@ -206,7 +206,7 @@ function initials(user: UserProfile) {
 function DealerBottomNav({ pathname }: { pathname: string }) {
   const t = useT();
   return (
-    <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 md:hidden">
+    <nav aria-label="Primary" className="mysewa-bottom-nav fixed inset-x-0 bottom-0 z-40 md:hidden">
       <div className="border-t border-border/40 bg-surface/92 shadow-[0_-8px_32px_-12px_rgb(16_24_40_/_0.14)] backdrop-blur-xl supports-[backdrop-filter]:bg-surface/80">
         <ul className="mx-auto grid max-w-lg grid-cols-5 items-end px-1.5 pt-1.5 pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]">
           {BOTTOM_TABS.map((tab) => {
@@ -311,6 +311,8 @@ export function PortalShell({
   hideHeader = false,
   disablePullToRefresh = false,
   immersive = false,
+  fillHeight = false,
+  titleContent,
 }: {
   title: string;
   description?: string;
@@ -326,6 +328,10 @@ export function PortalShell({
   disablePullToRefresh?: boolean;
   /** Full-screen page that supplies its own chrome (e.g. Push Balance). */
   immersive?: boolean;
+  /** Lock the shell to the visual viewport (chat / composer screens). */
+  fillHeight?: boolean;
+  /** Replaces the text title (e.g. Messenger-style peer header). */
+  titleContent?: ReactNode;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -542,7 +548,7 @@ export function PortalShell({
   if (immersive) {
     return (
       <DealerChromeContext.Provider value={chromeValue}>
-        <div className="mysewa-app-shell mysewa-portal-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none">
+      <div className="mysewa-app-shell mysewa-portal-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none">
           {drawer}
           {children}
           {showBottomNav ? <DealerBottomNav pathname={pathname} /> : null}
@@ -554,7 +560,13 @@ export function PortalShell({
 
   return (
     <DealerChromeContext.Provider value={chromeValue}>
-      <div className="mysewa-app-shell mysewa-portal-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-background md:flex">
+      <div
+        className={cn(
+          "mysewa-app-shell mysewa-portal-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-background md:flex",
+          fillHeight &&
+            "flex h-[var(--vv-height,100dvh)] max-h-[var(--vv-height,100dvh)] flex-col overflow-hidden md:flex-row",
+        )}
+      >
         <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border bg-surface px-3 py-5 md:flex">
           <div className="mb-6">{brandBlock}</div>
           <div className="min-h-0 flex-1 overflow-y-auto">{navLinks}</div>
@@ -563,7 +575,12 @@ export function PortalShell({
 
         {drawer}
 
-        <div className="flex min-w-0 max-w-full flex-col md:min-h-0 md:flex-1">
+        <div
+          className={cn(
+            "flex min-w-0 max-w-full flex-col md:min-h-0 md:flex-1",
+            fillHeight && "h-full min-h-0 flex-1 overflow-hidden",
+          )}
+        >
           {hideTopChrome ? null : (
             <header className="mysewa-portal-header sticky top-0 z-30 border-b border-border bg-surface/95 px-3 pt-[max(8px,var(--safe-area-top,env(safe-area-inset-top,0px)))] backdrop-blur sm:px-4 md:px-8 md:pt-5">
               <div className="flex min-w-0 items-center gap-2 pb-2">
@@ -579,14 +596,20 @@ export function PortalShell({
                 {headerLeading ? <div className="shrink-0">{headerLeading}</div> : null}
                 {backControl ? <div className="shrink-0">{backControl}</div> : null}
                 <div className="min-w-0 flex-1">
-                  <h1 className="truncate text-[17px] font-semibold tracking-tight md:text-xl">
-                    {title}
-                  </h1>
-                  {description ? (
-                    <p className="mt-0.5 hidden line-clamp-2 text-sm text-muted-foreground md:block">
-                      {description}
-                    </p>
-                  ) : null}
+                  {titleContent ? (
+                    titleContent
+                  ) : (
+                    <>
+                      <h1 className="truncate text-[17px] font-semibold tracking-tight md:text-xl">
+                        {title}
+                      </h1>
+                      {description ? (
+                        <p className="mt-0.5 hidden line-clamp-2 text-sm text-muted-foreground md:block">
+                          {description}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
                 </div>
                 {actions ? (
                   <div className="hidden max-w-[min(100%,22rem)] shrink-0 items-center gap-2 overflow-x-auto md:flex [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
@@ -605,15 +628,21 @@ export function PortalShell({
           <main
             className={cn(
               "mysewa-portal-embed min-w-0 max-w-full overscroll-y-none md:flex-1",
+              fillHeight && "flex min-h-0 flex-1 flex-col overflow-hidden",
               hideTopChrome
                 ? "[--content-safe-top:var(--safe-area-top,env(safe-area-inset-top,0px))]"
                 : "[--content-safe-top:0px]",
               flush
                 ? "px-0 pt-0 pb-safe md:pb-[max(12px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]"
-                : "px-3 pt-5 pb-safe sm:px-4 md:px-8 md:py-6 md:pb-[max(1.25rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]",
+                : "px-3 pt-3 pb-safe sm:px-4 md:px-8 md:py-6 md:pb-[max(1.25rem,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))]",
+              fillHeight && !flush && "pt-3 md:pt-4",
             )}
           >
-            <PullToRefresh onRefresh={handlePullRefresh} disabled={disablePullToRefresh}>
+            <PullToRefresh
+              onRefresh={handlePullRefresh}
+              disabled={disablePullToRefresh}
+              className={cn(fillHeight && "flex min-h-0 flex-1 flex-col overflow-hidden")}
+            >
               {children}
             </PullToRefresh>
           </main>

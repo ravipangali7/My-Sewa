@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -154,7 +155,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
   meta.setAttribute(
     'content',
-    'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover'
+    'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content'
   );
   document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
 })();
@@ -539,17 +540,43 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Future<List<String>> _androidFileSelector(FileSelectorParams params) async {
-    final type = params.acceptTypes.any((t) => t.contains('image'))
-        ? FileType.image
-        : FileType.any;
+    final accepts = params.acceptTypes.map((t) => t.toLowerCase()).toList();
+    final wantsImage = accepts.any((t) => t.contains('image'));
+    final wantsVideo = accepts.any((t) => t.contains('video'));
+    final capture = params.isCaptureEnabled;
 
-    final result = await FilePicker.pickFiles(
-      allowMultiple: params.mode == FileSelectorMode.openMultiple,
-      type: type,
-      withData: false,
-    );
+    if (capture) {
+      final granted = await SessionLifecycle.requestCameraPermission();
+      if (!granted) return <String>[];
+      final picker = ImagePicker();
+      if (wantsVideo && !wantsImage) {
+        final file = await picker.pickVideo(
+          source: ImageSource.camera,
+          maxDuration: const Duration(minutes: 3),
+        );
+        if (file == null) return <String>[];
+        return <String>[Uri.file(file.path).toString()];
+      }
+      final file = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+      );
+      if (file == null) return <String>[];
+      return <String>[Uri.file(file.path).toString()];
+    }
 
-    if (result == null) return [];
+    var type = FileType.any;
+    if (wantsImage && wantsVideo) {
+      type = FileType.media;
+    } else if (wantsImage && !wantsVideo) {
+      type = FileType.image;
+    } else if (wantsVideo && !wantsImage) {
+      type = FileType.video;
+    }
+
+    final result = await FilePicker.pickFiles(type: type);
+
+    if (result == null) return <String>[];
     return result.files
         .where((f) => f.path != null)
         .map((f) => Uri.file(f.path!).toString())
@@ -1476,6 +1503,7 @@ class _WebViewScreenState extends State<WebViewScreen>
           // Always keep WebViewWidget in the tree once created. Replacing it
           // with NoInternetScreen disposes the Android platform view while
           // WebViewClient callbacks can still arrive → null bang in pigeon.
+          resizeToAvoidBottomInset: true,
           body: Stack(
             fit: StackFit.expand,
             children: [

@@ -2774,9 +2774,25 @@ class PushNotificationSerializer(serializers.ModelSerializer):
         return getattr(user, 'phone', None) if user else None
 
 
-def support_chat_user_brief(user, request=None):
+def support_chat_user_brief(user, request=None, viewer=None):
     if user is None:
         return None
+    from .services.hierarchy import is_admin_actor
+
+    viewer = viewer or (getattr(request, 'user', None) if request else None)
+    if is_admin_actor(user) and not is_admin_actor(viewer):
+        return {
+            'id': user.pk,
+            'phone': '',
+            'name': 'Super Admin',
+            'role': 'admin',
+            'role_label': 'Super Admin',
+            'is_staff': True,
+            'is_superuser': True,
+            'avatar_url': None,
+            'identity_hidden': True,
+        }
+
     avatar_url = None
     if getattr(user, 'avatar', None):
         try:
@@ -2805,16 +2821,63 @@ def support_chat_user_brief(user, request=None):
         'is_staff': bool(getattr(user, 'is_staff', False)),
         'is_superuser': bool(getattr(user, 'is_superuser', False)),
         'avatar_url': avatar_url,
+        'identity_hidden': False,
     }
 
 
 class SupportChatMessageSerializer(serializers.ModelSerializer):
-    sender_id = serializers.IntegerField(source='sender.id', read_only=True)
+    sender_id = serializers.SerializerMethodField()
+    sender_is_support = serializers.SerializerMethodField()
+    sender_display_name = serializers.SerializerMethodField()
+    has_attachment = serializers.SerializerMethodField()
+    attachment_url = serializers.SerializerMethodField()
+    is_read = serializers.SerializerMethodField()
 
     class Meta:
         model = SupportChatMessage
-        fields = ('id', 'thread', 'sender_id', 'body', 'created_at')
+        fields = (
+            'id', 'thread', 'sender_id', 'sender_is_support', 'sender_display_name',
+            'body', 'kind', 'has_attachment', 'attachment_name', 'attachment_size',
+            'attachment_content_type', 'attachment_url', 'is_read', 'created_at',
+        )
         read_only_fields = fields
+
+    def _viewer(self):
+        request = self.context.get('request')
+        return getattr(request, 'user', None) if request else None
+
+    def get_sender_id(self, obj):
+        from .services.hierarchy import canonical_support_admin, is_admin_actor
+
+        viewer = self._viewer()
+        if is_admin_actor(obj.sender) and not is_admin_actor(viewer):
+            admin = canonical_support_admin()
+            return admin.pk if admin is not None else obj.sender_id
+        return obj.sender_id
+
+    def get_sender_is_support(self, obj):
+        from .services.hierarchy import is_admin_actor
+        return is_admin_actor(obj.sender)
+
+    def get_sender_display_name(self, obj):
+        from .services.hierarchy import is_admin_actor
+        if is_admin_actor(obj.sender):
+            return 'Super Admin'
+        return _user_display_name(obj.sender)
+
+    def get_has_attachment(self, obj):
+        return bool(getattr(obj, 'attachment', None))
+
+    def get_attachment_url(self, obj):
+        if not getattr(obj, 'attachment', None):
+            return None
+        return f'/api/support-chat/threads/{obj.thread_id}/messages/{obj.pk}/attachment/'
+
+    def get_is_read(self, obj):
+        peer_read_at = self.context.get('peer_read_at')
+        if not peer_read_at:
+            return False
+        return peer_read_at >= obj.created_at
 
 
 class SupportChatThreadSerializer(serializers.ModelSerializer):
@@ -2834,7 +2897,7 @@ class SupportChatThreadSerializer(serializers.ModelSerializer):
 
         me = self.context.get('actor')
         other = other_participant(obj, me) if me is not None else obj.user_high
-        return support_chat_user_brief(other, self.context.get('request'))
+        return support_chat_user_brief(other, self.context.get('request'), viewer=me)
 
     def get_unread_count(self, obj):
         return int(self.context.get('unread_map', {}).get(obj.pk, 0))
