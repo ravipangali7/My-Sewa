@@ -491,26 +491,12 @@ function TopUp() {
 
             <div className="rounded-xl bg-muted p-3 text-[14px]">
               <Row label={t("common.amount")} value={formatNPR(amt)} />
-              {Number(platformCharge) > 0 ? (
+              {Number(totalDebited || charge) - amt > 0 ? (
                 <Row
-                  label="System charge"
-                  value={feeLoading ? "…" : formatNPR(platformCharge)}
+                  label={t("common.charge")}
+                  value={feeLoading ? "…" : formatNPR(Number(totalDebited || charge) - amt)}
                 />
               ) : null}
-              {Number(dealerCommission) > 0 ? (
-                <Row
-                  label="Dealer commission"
-                  value={feeLoading ? "…" : formatNPR(dealerCommission)}
-                />
-              ) : null}
-              <Row
-                label="HimalPay charge"
-                value={feeLoading ? "…" : formatNPR(himalpayCharge || providerCharge)}
-              />
-              <Row
-                label={t("common.cashback")}
-                value={feeLoading ? "…" : `− ${formatNPR(cashback)}`}
-              />
               <div className="mt-2 border-t border-separator pt-2">
                 <Row
                   label={t("common.totalDebited")}

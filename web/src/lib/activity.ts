@@ -168,12 +168,18 @@ export function buildActivity(
     })),
     ...adjustments.map((a: WalletAdjustment) => {
       const isCredit = a.adjustment_type === "credit";
+      const title =
+        a.kind === "cashback"
+          ? t("activity.cashback")
+          : a.kind === "dealer_commission"
+            ? t("activity.dealerCommission")
+            : isCredit
+              ? t("activity.walletCredit")
+              : t("activity.walletDebit");
       return {
         id: `adj-${a.id}`,
         kind: "wallet_adjustment" as const,
-        title: isCredit
-          ? t("activity.walletCredit")
-          : t("activity.walletDebit"),
+        title,
         subtitle:
           a.reason?.trim() || a.reference || t("activity.walletAdjustment"),
         amount: adjustmentDisplayAmount(a),
@@ -358,7 +364,6 @@ export function buildActivityStatement(
     });
     pushDetail(details, t("common.amountNpr"), formatNPR(r.amount));
     pushDetail(details, t("common.charge"), formatNPR(r.charge));
-    pushDetail(details, t("common.cashback"), formatNPR(r.cashback));
     pushDetail(details, t("history.totalCredited"), formatNPR(r.total_credited));
     pushBalanceRows(details, t, r.balance_before, r.balance_after);
     pushDetail(details, t("history.merchantTxn"), r.merchant_txn_id, {
@@ -404,7 +409,6 @@ export function buildActivityStatement(
     pushDetail(details, t("common.status"), translateStatus(top.status, t));
     pushDetail(details, t("common.amountNpr"), formatNPR(top.amount));
     pushDetail(details, t("common.charge"), formatNPR(top.charge));
-    pushDetail(details, t("common.cashback"), formatNPR(top.cashback));
     pushDetail(details, t("common.totalDebited"), formatNPR(top.total_debited));
     pushBalanceRows(details, t, top.balance_before, top.balance_after);
     pushDetail(details, t("history.merchantTxn"), top.merchant_txn_id, {
@@ -457,7 +461,6 @@ export function buildActivityStatement(
     pushDetail(details, t("internet.currentPackage"), bill.package_name || "—");
     pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
     pushDetail(details, t("common.charge"), formatNPR(bill.charge));
-    pushDetail(details, t("common.cashback"), formatNPR(bill.cashback));
     pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
@@ -504,7 +507,6 @@ export function buildActivityStatement(
     pushDetail(details, t("internet.currentPackage"), dp.package_name || "—");
     pushDetail(details, t("common.amountNpr"), formatNPR(dp.amount));
     pushDetail(details, t("common.charge"), formatNPR(dp.charge));
-    pushDetail(details, t("common.cashback"), formatNPR(dp.cashback));
     pushDetail(details, t("common.totalDebited"), formatNPR(dp.total_debited));
     pushBalanceRows(details, t, dp.balance_before, dp.balance_after);
     pushDetail(details, t("history.merchantTxn"), dp.merchant_txn_id, {
@@ -551,7 +553,6 @@ export function buildActivityStatement(
     pushDetail(details, t("water.customerName"), bill.customer_name || "—");
     pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
     pushDetail(details, t("common.charge"), formatNPR(bill.charge));
-    pushDetail(details, t("common.cashback"), formatNPR(bill.cashback));
     pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
@@ -602,7 +603,6 @@ export function buildActivityStatement(
     pushDetail(details, t("electricity.customerName"), bill.customer_name || "—");
     pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
     pushDetail(details, t("common.charge"), formatNPR(bill.charge));
-    pushDetail(details, t("common.cashback"), formatNPR(bill.cashback));
     pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
@@ -668,7 +668,6 @@ export function buildActivityStatement(
     }
     pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
     pushDetail(details, t("common.charge"), formatNPR(bill.charge));
-    pushDetail(details, t("common.cashback"), formatNPR(bill.cashback));
     pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
@@ -701,18 +700,26 @@ export function buildActivityStatement(
     const reference = adj.reference || `#${adj.id}`;
     const displayAmount = adjustmentDisplayAmount(adj);
     const details: StatementRow[] = [];
+    const isCashback = adj.kind === "cashback";
+    const isDealerCommission = adj.kind === "dealer_commission";
+    const serviceName = isCashback
+      ? t("activity.cashback")
+      : isDealerCommission
+        ? t("activity.dealerCommission")
+        : t("notif.typeWalletAdjustment");
+    const typeLabel = isCashback
+      ? t("activity.cashback")
+      : isDealerCommission
+        ? t("activity.dealerCommission")
+        : adj.adjustment_type === "credit"
+          ? t("activity.walletCredit")
+          : t("activity.walletDebit");
     pushDetail(details, t("history.referenceCode"), reference, { mono: true });
     pushDetail(details, t("history.dateTime"), formatDateTime(adj.created_at));
-    pushDetail(details, t("history.channel"), t("history.channelAdmin"));
-    pushDetail(details, t("history.serviceName"), t("notif.typeWalletAdjustment"));
+    pushDetail(details, t("history.channel"), t("history.channelOnline"));
+    pushDetail(details, t("history.serviceName"), serviceName);
     pushDetail(details, t("common.status"), translateStatus("success", t));
-    pushDetail(
-      details,
-      t("history.adjustmentType"),
-      adj.adjustment_type === "credit"
-        ? t("activity.walletCredit")
-        : t("activity.walletDebit"),
-    );
+    pushDetail(details, t("history.adjustmentType"), typeLabel);
     pushDetail(details, t("common.amountNpr"), formatNPR(displayAmount));
     pushDetail(details, t("history.balanceBefore"), formatNPR(adj.balance_before));
     pushDetail(details, t("history.balanceAfter"), formatNPR(adj.balance_after));
@@ -725,10 +732,13 @@ export function buildActivityStatement(
       item,
       reference,
       headlineAmount: formatNPR(displayAmount),
-      amountCaption:
-        adj.adjustment_type === "credit"
-          ? t("history.walletCredit")
-          : t("history.walletDebit"),
+      amountCaption: isCashback
+        ? t("activity.cashback")
+        : isDealerCommission
+          ? t("activity.dealerCommission")
+          : adj.adjustment_type === "credit"
+            ? t("history.walletCredit")
+            : t("history.walletDebit"),
       footer: t("history.footer"),
       details,
     };
@@ -804,7 +814,6 @@ export function buildActivityStatement(
   );
   pushDetail(details, t("common.amountNpr"), formatNPR(b.amount));
   pushDetail(details, t("common.charge"), formatNPR(b.charge));
-  pushDetail(details, t("common.cashback"), formatNPR(b.cashback));
   pushDetail(details, t("common.totalDebited"), formatNPR(b.total_debited));
   pushBalanceRows(details, t, b.balance_before, b.balance_after);
   pushDetail(details, t("common.remarks"), b.transaction_remarks?.trim() || "—");

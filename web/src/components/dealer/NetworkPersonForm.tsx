@@ -91,7 +91,7 @@ export function NetworkPersonForm({
         </div>
         {includeCommission ? (
           <div className="space-y-1.5">
-            <Label htmlFor="np-rate">Commission rate (%)</Label>
+            <Label htmlFor="np-rate">Commission (Rs)</Label>
             <Input
               id="np-rate"
               type="number"

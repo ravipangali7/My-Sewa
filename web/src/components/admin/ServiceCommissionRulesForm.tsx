@@ -106,19 +106,18 @@ export function ServiceCommissionRulesForm({
       <div>
         <h2 className="text-sm font-semibold">Service-wise commission</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Percent of transaction amount. Blank uses this Dealer&apos;s default rates. Saved rates
-          are snapshotted onto future transactions and do not change historical ledger rows.
+          Flat amount in Rs per transaction. Blank uses this Dealer&apos;s default commission.
+          Saved amounts are snapshotted onto future transactions and do not change historical
+          ledger rows.
         </p>
       </div>
       {query.isError ? <p className="text-sm text-danger">Could not load service rules.</p> : null}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[32rem] text-sm">
+        <table className="w-full min-w-[20rem] text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs text-muted-foreground">
               <th className="py-2 pr-3 font-medium">Service</th>
-              <th className="py-2 pr-3 font-medium">Dealer %</th>
-              <th className="py-2 pr-3 font-medium">Sub-Agent %</th>
-              <th className="py-2 font-medium">Super Admin %</th>
+              <th className="py-2 font-medium">Dealer (Rs)</th>
             </tr>
           </thead>
           <tbody>
@@ -127,7 +126,7 @@ export function ServiceCommissionRulesForm({
               return (
                 <tr key={row.txn_type} className="border-b border-border/70 last:border-0">
                   <td className="py-2 pr-3">{label}</td>
-                  <td className="py-2 pr-3">
+                  <td className="py-2">
                     <Input
                       type="number"
                       min="0"
@@ -135,26 +134,6 @@ export function ServiceCommissionRulesForm({
                       className="h-8"
                       value={row.dealer_rate}
                       onChange={(e) => setRow(row.txn_type, "dealer_rate", e.target.value)}
-                    />
-                  </td>
-                  <td className="py-2 pr-3">
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="h-8"
-                      value={row.sub_agent_rate}
-                      onChange={(e) => setRow(row.txn_type, "sub_agent_rate", e.target.value)}
-                    />
-                  </td>
-                  <td className="py-2">
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="h-8"
-                      value={row.super_admin_rate}
-                      onChange={(e) => setRow(row.txn_type, "super_admin_rate", e.target.value)}
                     />
                   </td>
                 </tr>

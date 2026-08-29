@@ -35,6 +35,7 @@ from .models import (
     KYCAuditLog,
     StatementReconcileRun,
     StatementDiscrepancy,
+    WalletBalanceIssue,
     HomePopup,
     PushNotification,
     SupportChatThread,
@@ -357,7 +358,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         queryset=User.objects.all(), required=False, allow_null=True,
     )
     commission_rate = serializers.DecimalField(
-        max_digits=7, decimal_places=4, required=False, allow_null=True, write_only=True,
+        max_digits=12, decimal_places=2, required=False, allow_null=True, write_only=True,
     )
     tds_rate = serializers.DecimalField(
         max_digits=7, decimal_places=4, required=False, allow_null=True, write_only=True,
@@ -583,7 +584,8 @@ class WalletAdjustmentSerializer(serializers.ModelSerializer):
         model = WalletAdjustment
         fields = (
             'id', 'wallet', 'user', 'amount', 'display_amount',
-            'adjustment_type', 'adjustment_type_display',
+            'adjustment_type', 'adjustment_type_display', 'kind',
+            'source_txn_type', 'source_txn_id',
             'balance_before', 'balance_after', 'reason',
             'created_by', 'created_by_phone', 'created_at', 'reference',
         )
@@ -2368,6 +2370,9 @@ class UserFeeConfigSerializer(serializers.ModelSerializer):
     topup_charge_percent = serializers.DecimalField(
         max_digits=7, decimal_places=4, required=False, allow_null=True,
     )
+    cashback_flat = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False,
+    )
 
     class Meta:
         model = UserFeeConfig
@@ -2376,6 +2381,7 @@ class UserFeeConfigSerializer(serializers.ModelSerializer):
             'transfer_charge_flat',
             'transfer_charge_percent',
             'topup_charge_percent',
+            'cashback_flat',
             'updated_at',
         )
         read_only_fields = ('updated_at',)
@@ -2618,6 +2624,81 @@ class StatementDiscrepancySerializer(serializers.ModelSerializer):
 
     def get_can_correct(self, obj):
         return bool(obj.user_id)
+
+
+class WalletBalanceIssueSerializer(serializers.ModelSerializer):
+    txn_type_display = serializers.CharField(
+        source='get_txn_type_display', read_only=True, default='',
+    )
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    direction_display = serializers.CharField(
+        source='get_direction_display', read_only=True, default='',
+    )
+    user_phone = serializers.CharField(source='user.phone', read_only=True, default=None)
+    user_name = serializers.SerializerMethodField()
+    user_email = serializers.CharField(source='user.email', read_only=True, default=None)
+    shared_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+    can_share = serializers.SerializerMethodField()
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, coerce_to_string=True)
+    balance_before = serializers.DecimalField(
+        max_digits=12, decimal_places=2, coerce_to_string=True,
+    )
+    recorded_balance_after = serializers.DecimalField(
+        max_digits=12, decimal_places=2, coerce_to_string=True,
+    )
+    expected_balance_after = serializers.DecimalField(
+        max_digits=12, decimal_places=2, coerce_to_string=True,
+    )
+    current_wallet_balance = serializers.DecimalField(
+        max_digits=12, decimal_places=2, coerce_to_string=True,
+    )
+    suggested_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, coerce_to_string=True, allow_null=True,
+    )
+
+    class Meta:
+        model = WalletBalanceIssue
+        fields = (
+            'id', 'fingerprint', 'user', 'user_phone', 'user_name', 'user_email',
+            'txn_type', 'txn_type_display', 'txn_id', 'party', 'direction',
+            'direction_display', 'amount', 'balance_before', 'recorded_balance_after',
+            'expected_balance_after', 'current_wallet_balance', 'txn_at',
+            'txn_reference', 'txn_status', 'service_name', 'description',
+            'txn_snapshot', 'suggested_adjustment_type', 'suggested_amount',
+            'status', 'status_display', 'reason', 'can_share',
+            'detected_at', 'shared_by', 'shared_by_name', 'shared_at',
+            'resolved_by', 'resolved_by_name', 'resolved_at',
+            'resolution_adjustment', 'email_sent_at', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
+
+    def get_user_name(self, obj):
+        user = obj.user
+        if not user:
+            return None
+        name = f'{user.first_name or ""} {user.last_name or ""}'.strip()
+        return name or user.phone
+
+    def _admin_name(self, admin):
+        if not admin:
+            return None
+        name = f'{admin.first_name or ""} {admin.last_name or ""}'.strip()
+        return name or admin.phone
+
+    def get_shared_by_name(self, obj):
+        return self._admin_name(obj.shared_by)
+
+    def get_resolved_by_name(self, obj):
+        return self._admin_name(obj.resolved_by)
+
+    def get_can_share(self, obj):
+        return bool(
+            obj.status == WalletBalanceIssue.STATUS_OPEN
+            and obj.user_id
+            and obj.suggested_adjustment_type
+            and obj.suggested_amount is not None
+        )
 
 
 class HomePopupSerializer(serializers.ModelSerializer):

@@ -340,7 +340,7 @@ function CommissionHistoryPage() {
                   <TableHead>Customer</TableHead>
                   <TableHead>Transaction</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Rate</TableHead>
+                  <TableHead className="text-right">Flat</TableHead>
                   <TableHead className="text-right">Gross</TableHead>
                   <TableHead className="text-right">TDS</TableHead>
                   <TableHead className="text-right">Net</TableHead>
@@ -369,7 +369,7 @@ function CommissionHistoryPage() {
                       </div>
                     </TableCell>
                     <TableCell className="tabular text-right">{formatNPR(row.txn_amount)}</TableCell>
-                    <TableCell className="tabular text-right">{row.commission_rate}%</TableCell>
+                    <TableCell className="tabular text-right">{formatNPR(row.commission_rate)}</TableCell>
                     <TableCell className="tabular text-right">{formatNPR(row.gross_commission)}</TableCell>
                     <TableCell className="tabular text-right">
                       {formatNPR(row.tds_amount)} ({row.tds_rate}%)

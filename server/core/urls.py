@@ -351,6 +351,21 @@ urlpatterns = [
     path('api/admin/remittances/<int:remittance_id>/status/', admin_views.admin_update_remittance_status, name='admin_update_remittance_status'),
     path('api/admin/settings/', admin_views.admin_settings, name='admin_settings'),
     path('api/admin/service-charges/', admin_views.admin_service_charges, name='admin_service_charges'),
+    path(
+        'api/admin/commission-setup/dealers/',
+        admin_views.admin_commission_setup_dealers,
+        name='admin_commission_setup_dealers',
+    ),
+    path(
+        'api/admin/commission-setup/dealers/<int:dealer_id>/',
+        admin_views.admin_commission_setup_dealer_detail,
+        name='admin_commission_setup_dealer_detail',
+    ),
+    path(
+        'api/admin/commission-setup/dealers/<int:dealer_id>/cashback/',
+        admin_views.admin_commission_setup_dealer_cashback,
+        name='admin_commission_setup_dealer_cashback',
+    ),
     path('api/admin/settings/export/', admin_views.admin_export_data, name='admin_export_data'),
     path('api/admin/export/', admin_views.admin_export_data, name='admin_export_data_alt'),
     path('api/admin/settings/test-email/', admin_views.admin_test_smtp_email, name='admin_test_smtp_email'),
@@ -369,4 +384,8 @@ urlpatterns = [
     path('api/admin/statement/correct/', admin_views.admin_statement_correct, name='admin_statement_correct'),
     path('api/admin/statement/discrepancies/<int:discrepancy_id>/solve/', admin_views.admin_statement_solve, name='admin_statement_solve'),
     path('api/admin/statement/discrepancies/<int:discrepancy_id>/ignore/', admin_views.admin_statement_ignore, name='admin_statement_ignore'),
+    path('api/admin/statement/before-after/', admin_views.admin_wallet_before_after_list, name='admin_wallet_before_after_list'),
+    path('api/admin/statement/before-after/scan/', admin_views.admin_wallet_before_after_scan, name='admin_wallet_before_after_scan'),
+    path('api/admin/statement/before-after/<int:issue_id>/', admin_views.admin_wallet_before_after_detail, name='admin_wallet_before_after_detail'),
+    path('api/admin/statement/before-after/<int:issue_id>/share/', admin_views.admin_wallet_before_after_share, name='admin_wallet_before_after_share'),
 ]

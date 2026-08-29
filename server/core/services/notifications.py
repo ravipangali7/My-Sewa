@@ -1859,6 +1859,87 @@ def notify_wallet_adjustment(
     )
 
 
+def _split_when(value=None) -> Tuple[str, str]:
+    dt = value or timezone.now()
+    if timezone.is_aware(dt):
+        try:
+            dt = timezone.localtime(dt, ZoneInfo('Asia/Kathmandu'))
+        except Exception:
+            dt = timezone.localtime(dt)
+    if isinstance(dt, datetime):
+        return dt.strftime('%d %b %Y'), dt.strftime('%I:%M %p')
+    return str(dt), ''
+
+
+def notify_wallet_before_after_correction(user, ctx: dict) -> bool:
+    """
+    Email the user after Super Admin confirms a before/after wallet correction.
+    Explains the original transaction date/amount and the corrected balance.
+    """
+    site_name = _site_name()
+    txn_date, txn_time = _split_when(ctx.get('txn_at'))
+    amount = ctx.get('amount')
+    previous = ctx.get('balance_before')
+    corrected = ctx.get('corrected_balance')
+    reference = ctx.get('txn_reference') or '-'
+    service = ctx.get('service_name') or ctx.get('txn_type_display') or 'transaction'
+    direction = (ctx.get('direction') or 'debit').lower()
+    verb = 'deducted' if direction == 'debit' else 'credited'
+
+    intro = (
+        f'Your previous wallet balance was {_fmt_amount(previous)}. '
+        f'On {txn_date}, you made a transaction of {_fmt_amount(amount)}'
+        f'{f" ({service})" if service else ""}, and this amount was {verb} '
+        f'from the relevant transaction but was not reflected correctly in your wallet balance.\n\n'
+        f'We have now corrected the wallet balance. Your actual/current balance is '
+        f'{_fmt_amount(corrected)}.'
+    )
+    rows: List[Row] = [
+        ('Transaction date', txn_date),
+        ('Transaction time', txn_time or '-'),
+        ('Transaction amount', _fmt_amount(amount)),
+        ('Transaction / reference ID', reference),
+        ('Service / type', service),
+        ('Previous balance', _fmt_amount(previous)),
+        ('Amount not reflected', _fmt_amount(amount)),
+        ('Corrected balance', _fmt_amount(corrected)),
+    ]
+    if ctx.get('description'):
+        rows.append(('Details', str(ctx.get('description'))))
+
+    sent = False
+    if _user_email(user):
+        sent = _send_txn_email(
+            recipients=[user.email],
+            subject=f'[{site_name}] Wallet balance corrected',
+            text_intro=intro,
+            title='Wallet balance corrected',
+            subtitle='A transaction amount was not reflected in your wallet. We have corrected it.',
+            amount_display=_fmt_amount(amount),
+            status='success',
+            status_label='Corrected',
+            rows=rows,
+            greeting=f'Hi {getattr(user, "first_name", "") or "there"},',
+            copy_admin=False,
+            fail_silently=True,
+        )
+    _push(
+        user,
+        f'{site_name}: Wallet balance corrected',
+        (
+            f'Your wallet was corrected to {_fmt_amount(corrected)} after a '
+            f'{_fmt_amount(amount)} {service} on {txn_date} was not reflected.'
+        ),
+        event='adjustment',
+        extra={
+            'issue_id': ctx.get('issue_id'),
+            'reference': reference,
+            'corrected_balance': corrected,
+        },
+    )
+    return bool(sent)
+
+
 def notify_wallet_transfer(transfer) -> None:
     """Email + push for both parties after an instant wallet-to-wallet transfer."""
     cfg = _notif_cfg()

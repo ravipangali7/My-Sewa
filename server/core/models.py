@@ -713,10 +713,18 @@ class Wallet(models.Model):
 
 
 class WalletAdjustment(models.Model):
-    """Admin wallet balance adjustment (manual load / debit) in transaction history."""
+    """Wallet credit/debit row in transaction history (manual, cashback, or dealer earning)."""
     ADJUSTMENT_TYPE_CHOICES = [
         ('credit', 'Manual Load (Add Fund)'),
         ('debit', 'Debit'),
+    ]
+    KIND_MANUAL = 'manual'
+    KIND_CASHBACK = 'cashback'
+    KIND_DEALER_COMMISSION = 'dealer_commission'
+    KIND_CHOICES = [
+        (KIND_MANUAL, 'Manual load / debit'),
+        (KIND_CASHBACK, 'Cashback'),
+        (KIND_DEALER_COMMISSION, 'Dealer commission'),
     ]
 
     wallet = models.ForeignKey(
@@ -732,6 +740,15 @@ class WalletAdjustment(models.Model):
         help_text="Signed delta: positive for credit, negative for debit",
     )
     adjustment_type = models.CharField(max_length=10, choices=ADJUSTMENT_TYPE_CHOICES)
+    kind = models.CharField(
+        max_length=20,
+        choices=KIND_CHOICES,
+        default=KIND_MANUAL,
+        db_index=True,
+        help_text="manual = admin load; cashback = user rebate; dealer_commission = dealer earning.",
+    )
+    source_txn_type = models.CharField(max_length=40, blank=True, default='')
+    source_txn_id = models.PositiveIntegerField(null=True, blank=True)
     balance_before = models.DecimalField(max_digits=10, decimal_places=2)
     balance_after = models.DecimalField(max_digits=10, decimal_places=2)
     reason = models.TextField(blank=True, default='')
@@ -754,6 +771,12 @@ class WalletAdjustment(models.Model):
         verbose_name = "Wallet Adjustment"
         verbose_name_plural = "Wallet Adjustments"
         ordering = ['-created_at']
+        indexes = [
+            models.Index(
+                fields=['kind', 'source_txn_type', 'source_txn_id'],
+                name='core_walletadj_src_idx',
+            ),
+        ]
 
 
 class WalletTransfer(models.Model):
@@ -844,7 +867,7 @@ def default_app_config():
             'auto_status_verified': False,
         },
         'commission': {
-            # Default dealer commission percent of transaction amount when no service row exists.
+            # Default dealer commission in Rs when no service row or per-dealer amount exists.
             'default_commission_rate': 0,
             # Nepal TDS on dealer commission; per-dealer config can override.
             'default_tds_rate': 15,
@@ -1627,11 +1650,11 @@ class DealerCommissionConfig(models.Model):
         CustomUser, on_delete=models.CASCADE, related_name='dealer_commission_config',
     )
     commission_rate = models.DecimalField(
-        max_digits=7,
-        decimal_places=4,
-        default=Decimal('0.0000'),
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0'))],
-        help_text="Percent of transaction amount paid as gross commission to this Dealer (or downline user).",
+        help_text="Flat gross commission in Rs paid to this Dealer per transaction (or downline user).",
     )
     sub_agent_commission_rate = models.DecimalField(
         max_digits=7,
@@ -1658,7 +1681,7 @@ class DealerCommissionConfig(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f'Dealer commission — {self.user.phone} ({self.commission_rate}%)'
+        return f'Dealer commission — {self.user.phone} (Rs. {self.commission_rate})'
 
     class Meta:
         verbose_name = 'Dealer Commission Config'
@@ -1666,7 +1689,7 @@ class DealerCommissionConfig(models.Model):
 
 
 class ServiceCommissionRule(models.Model):
-    """Service-wise commission split for a Dealer. Historical txn rows snapshot the applied rates."""
+    """Service-wise commission split for a Dealer. Historical txn rows snapshot the applied amounts."""
 
     dealer = models.ForeignKey(
         CustomUser,
@@ -1676,10 +1699,11 @@ class ServiceCommissionRule(models.Model):
     )
     txn_type = models.CharField(max_length=40, db_index=True)
     dealer_rate = models.DecimalField(
-        max_digits=7,
-        decimal_places=4,
-        default=Decimal('0.0000'),
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0'))],
+        help_text="Flat dealer commission in Rs for this service. Zero uses the Dealer's default amount.",
     )
     sub_agent_rate = models.DecimalField(
         max_digits=7,
@@ -1696,7 +1720,7 @@ class ServiceCommissionRule(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f'{self.dealer.phone} {self.txn_type} D={self.dealer_rate}%'
+        return f'{self.dealer.phone} {self.txn_type} D=Rs. {self.dealer_rate}'
 
     class Meta:
         verbose_name = 'Service Commission Rule'
@@ -1766,7 +1790,11 @@ class DealerCommission(models.Model):
     txn_id = models.PositiveIntegerField()
     reference = models.CharField(max_length=100, blank=True, default='')
     txn_amount = models.DecimalField(max_digits=12, decimal_places=2)
-    commission_rate = models.DecimalField(max_digits=7, decimal_places=4)
+    commission_rate = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        help_text="Applied flat dealer commission in Rs snapshotted at posting time.",
+    )
     gross_commission = models.DecimalField(max_digits=12, decimal_places=2)
     tds_rate = models.DecimalField(max_digits=7, decimal_places=4)
     tds_amount = models.DecimalField(max_digits=12, decimal_places=2)
@@ -1838,6 +1866,13 @@ class UserFeeConfig(models.Model):
     topup_charge_percent = models.DecimalField(
         max_digits=7, decimal_places=4, null=True, blank=True,
     )
+    cashback_flat = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Flat cashback in Rs credited to this user after a successful transaction.",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -1849,7 +1884,14 @@ class UserFeeConfig(models.Model):
 
 
 class ServiceChargeConfig(models.Model):
-    """Global per-service charges applied automatically on every matching transaction."""
+    """Global per-service User and network-fee charges applied on matching transactions."""
+
+    CHARGE_FLAT = 'flat'
+    CHARGE_PERCENT = 'percent'
+    CHARGE_TYPE_CHOICES = [
+        (CHARGE_FLAT, 'Flat amount'),
+        (CHARGE_PERCENT, 'Percentage'),
+    ]
 
     TXN_TYPE_CHOICES = [
         ('topup', 'Mobile top-up'),
@@ -1864,25 +1906,33 @@ class ServiceChargeConfig(models.Model):
     ]
 
     txn_type = models.CharField(max_length=40, unique=True, choices=TXN_TYPE_CHOICES, db_index=True)
+    user_charge_type = models.CharField(
+        max_length=10, choices=CHARGE_TYPE_CHOICES, default=CHARGE_FLAT,
+        help_text="How the User service charge is calculated.",
+    )
     system_charge_flat = models.DecimalField(
         max_digits=10, decimal_places=2, default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0'))],
-        help_text="Flat MySewa system charge in Rs.",
+        help_text="Flat User service charge in Rs (when type is flat).",
     )
     system_charge_percent = models.DecimalField(
         max_digits=7, decimal_places=4, default=Decimal('0.0000'),
         validators=[MinValueValidator(Decimal('0'))],
-        help_text="MySewa system charge as a percent of the transaction amount.",
+        help_text="User service charge as a percent of the transaction amount.",
+    )
+    dealer_charge_type = models.CharField(
+        max_length=10, choices=CHARGE_TYPE_CHOICES, default=CHARGE_FLAT,
+        help_text="How the network fee is calculated for dealer-network customers.",
     )
     dealer_commission_flat = models.DecimalField(
         max_digits=10, decimal_places=2, default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0'))],
-        help_text="Flat dealer commission in Rs. Applied only when the User has an assigned Dealer.",
+        help_text="Flat network fee in Rs. Applied when the User has an assigned Dealer.",
     )
     dealer_commission_percent = models.DecimalField(
         max_digits=7, decimal_places=4, default=Decimal('0.0000'),
         validators=[MinValueValidator(Decimal('0'))],
-        help_text="Dealer commission as a percent of the transaction amount.",
+        help_text="Network fee as a percent of the transaction amount (when type is percent).",
     )
     himalpay_charge_flat = models.DecimalField(
         max_digits=10, decimal_places=2, default=Decimal('0.00'),
@@ -1923,6 +1973,10 @@ class TransactionCharge(models.Model):
     himalpay_charge = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     total_charges = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     cashback = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    cashback_credited = models.BooleanField(
+        default=False,
+        help_text="True when the user cashback has been posted as a separate wallet credit.",
+    )
     wallet_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES, default=DIRECTION_DEBIT)
     dealer = models.ForeignKey(
@@ -2565,4 +2619,149 @@ class SupportChatMessage(models.Model):
         ordering = ['created_at', 'id']
         indexes = [
             models.Index(fields=['thread', 'created_at'], name='core_spt_msg_thread_idx'),
+        ]
+
+
+class WalletBalanceIssue(models.Model):
+    """
+    A user-wallet before/after mismatch: a transaction amount was recorded
+    but the stored after-balance (and usually the live wallet) did not move.
+    """
+
+    TXN_TOPUP = 'topup'
+    TXN_DATA_PACK = 'data_pack'
+    TXN_INTERNET = 'internet'
+    TXN_WATER = 'water'
+    TXN_ELECTRICITY = 'electricity'
+    TXN_COMMUNITY_ELECTRICITY = 'community_electricity'
+    TXN_BANK_TRANSFER = 'bank_transfer'
+    TXN_REMITTANCE = 'remittance'
+    TXN_DEPOSIT = 'deposit'
+    TXN_WALLET_TRANSFER = 'wallet_transfer'
+    TXN_WALLET_ADJUSTMENT = 'wallet_adjustment'
+    TXN_TYPE_CHOICES = [
+        (TXN_TOPUP, 'Top-up'),
+        (TXN_DATA_PACK, 'Data pack'),
+        (TXN_INTERNET, 'Internet'),
+        (TXN_WATER, 'Water'),
+        (TXN_ELECTRICITY, 'Electricity'),
+        (TXN_COMMUNITY_ELECTRICITY, 'Community electricity'),
+        (TXN_BANK_TRANSFER, 'Bank transfer'),
+        (TXN_REMITTANCE, 'Remittance'),
+        (TXN_DEPOSIT, 'Deposit'),
+        (TXN_WALLET_TRANSFER, 'Wallet transfer'),
+        (TXN_WALLET_ADJUSTMENT, 'Wallet adjustment'),
+    ]
+
+    STATUS_OPEN = 'open'
+    STATUS_RESOLVED = 'resolved'
+    STATUS_IGNORED = 'ignored'
+    STATUS_CHOICES = [
+        (STATUS_OPEN, 'Open'),
+        (STATUS_RESOLVED, 'Resolved'),
+        (STATUS_IGNORED, 'Ignored'),
+    ]
+
+    DIRECTION_DEBIT = 'debit'
+    DIRECTION_CREDIT = 'credit'
+    DIRECTION_CHOICES = [
+        (DIRECTION_DEBIT, 'Debit'),
+        (DIRECTION_CREDIT, 'Credit'),
+    ]
+
+    fingerprint = models.CharField(
+        max_length=80,
+        unique=True,
+        db_index=True,
+        help_text='Stable id for this txn/user side, e.g. topup:12 or wallet_transfer:9:sender',
+    )
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='wallet_balance_issues',
+    )
+    txn_type = models.CharField(max_length=40, choices=TXN_TYPE_CHOICES, db_index=True)
+    txn_id = models.PositiveIntegerField()
+    party = models.CharField(
+        max_length=16,
+        blank=True,
+        default='',
+        help_text='sender/recipient for wallet transfers; empty otherwise',
+    )
+    direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2)
+    recorded_balance_after = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        help_text='After-balance stored on the transaction (system-displayed)',
+    )
+    expected_balance_after = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        help_text='balance_before ± amount',
+    )
+    current_wallet_balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        help_text='Live wallet balance at last scan',
+    )
+    txn_at = models.DateTimeField(db_index=True)
+    txn_reference = models.CharField(max_length=120, blank=True, default='')
+    txn_status = models.CharField(max_length=20, blank=True, default='')
+    service_name = models.CharField(max_length=80, blank=True, default='')
+    description = models.TextField(blank=True, default='')
+    txn_snapshot = models.JSONField(default=dict, blank=True)
+    suggested_adjustment_type = models.CharField(
+        max_length=10,
+        blank=True,
+        default='',
+        choices=WalletAdjustment.ADJUSTMENT_TYPE_CHOICES,
+    )
+    suggested_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True,
+    )
+    reason = models.TextField(blank=True, default='')
+    detected_at = models.DateTimeField(auto_now_add=True)
+    shared_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='wallet_balance_issues_shared',
+        help_text='Super Admin who confirmed Issue Share',
+    )
+    shared_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='wallet_balance_issues_resolved',
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_adjustment = models.ForeignKey(
+        WalletAdjustment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='wallet_balance_issues',
+    )
+    email_sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.fingerprint} ({self.status})'
+
+    class Meta:
+        verbose_name = 'Wallet Balance Issue'
+        verbose_name_plural = 'Wallet Balance Issues'
+        ordering = ['-txn_at', '-id']
+        indexes = [
+            models.Index(fields=['status', 'txn_at'], name='core_wbi_status_txn_idx'),
+            models.Index(fields=['user', 'status'], name='core_wbi_user_status_idx'),
         ]

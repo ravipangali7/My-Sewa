@@ -197,7 +197,7 @@ function UserDetailPage() {
               </DetailRow>
               {u.role === "dealer" ? (
                 <>
-                  <DetailRow label="Commission rate">{u.commission_rate ?? "0"}%</DetailRow>
+                  <DetailRow label="Commission">{formatNPR(u.commission_rate ?? "0")}</DetailRow>
                   <DetailRow label="TDS rate">{u.tds_rate ?? "Global default"}%</DetailRow>
                 </>
               ) : null}

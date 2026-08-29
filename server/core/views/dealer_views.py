@@ -699,7 +699,7 @@ def admin_service_commission_rules(request, user_id):
         return Response({
             'dealer_id': dealer.pk,
             'defaults': {
-                'commission_rate': str(config.commission_rate) if config else '0.0000',
+                'commission_rate': str(config.commission_rate) if config else '0.00',
                 'sub_agent_commission_rate': str(getattr(config, 'sub_agent_commission_rate', 0) or 0),
                 'super_admin_rate': str(getattr(config, 'super_admin_rate', 0) or 0),
                 'tds_rate': None if config is None or config.tds_rate is None else str(config.tds_rate),

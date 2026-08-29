@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminCommissionChargeRouteImport } from './routes/admin/commission-charge'
 import { Route as AdminCommissionHistoryRouteImport } from './routes/admin/commission-history'
 import { Route as AdminCommunityElectricityRouteImport } from './routes/admin/community-electricity'
 import { Route as AdminDataTopupsRouteImport } from './routes/admin/data-topups'
@@ -106,6 +107,11 @@ const RegisterRoute = RegisterRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminCommissionChargeRoute = AdminCommissionChargeRouteImport.update({
+  id: '/admin/commission-charge',
+  path: '/admin/commission-charge',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminCommissionHistoryRoute = AdminCommissionHistoryRouteImport.update({
@@ -489,6 +495,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/commission-charge': typeof AdminCommissionChargeRoute
   '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
@@ -569,6 +576,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/commission-charge': typeof AdminCommissionChargeRoute
   '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
@@ -650,6 +658,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/commission-charge': typeof AdminCommissionChargeRoute
   '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
   '/admin/data-topups': typeof AdminDataTopupsRoute
@@ -732,6 +741,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/commission-charge'
     | '/admin/commission-history'
     | '/admin/community-electricity'
     | '/admin/data-topups'
@@ -812,6 +822,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/commission-charge'
     | '/admin/commission-history'
     | '/admin/community-electricity'
     | '/admin/data-topups'
@@ -892,6 +903,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/commission-charge'
     | '/admin/commission-history'
     | '/admin/community-electricity'
     | '/admin/data-topups'
@@ -973,6 +985,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   RegisterRoute: typeof RegisterRoute
+  AdminCommissionChargeRoute: typeof AdminCommissionChargeRoute
   AdminCommissionHistoryRoute: typeof AdminCommissionHistoryRoute
   AdminCommunityElectricityRoute: typeof AdminCommunityElectricityRoute
   AdminDataTopupsRoute: typeof AdminDataTopupsRoute
@@ -1078,6 +1091,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/commission-charge': {
+      id: '/admin/commission-charge'
+      path: '/admin/commission-charge'
+      fullPath: '/admin/commission-charge'
+      preLoaderRoute: typeof AdminCommissionChargeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/commission-history': {
@@ -1605,6 +1625,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   RegisterRoute: RegisterRoute,
+  AdminCommissionChargeRoute: AdminCommissionChargeRoute,
   AdminCommissionHistoryRoute: AdminCommissionHistoryRoute,
   AdminCommunityElectricityRoute: AdminCommunityElectricityRoute,
   AdminDataTopupsRoute: AdminDataTopupsRoute,

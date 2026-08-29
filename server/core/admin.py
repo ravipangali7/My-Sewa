@@ -28,6 +28,7 @@ from .models import (
     SecurityAuditLog,
     StatementReconcileRun,
     StatementDiscrepancy,
+    WalletBalanceIssue,
     HomePopup,
     HomePopupImpression,
     PushNotification,
@@ -113,15 +114,16 @@ class WalletAdmin(admin.ModelAdmin):
 @admin.register(WalletAdjustment)
 class WalletAdjustmentAdmin(admin.ModelAdmin):
     list_display = (
-        'user', 'adjustment_type', 'amount', 'balance_before', 'balance_after',
+        'user', 'adjustment_type', 'kind', 'amount', 'balance_before', 'balance_after',
         'created_by', 'created_at',
     )
-    list_filter = ('adjustment_type', 'created_at')
+    list_filter = ('adjustment_type', 'kind', 'created_at')
     search_fields = (
         'user__phone', 'reason', 'reference', 'created_by__phone',
     )
     readonly_fields = (
-        'wallet', 'user', 'amount', 'adjustment_type',
+        'wallet', 'user', 'amount', 'adjustment_type', 'kind',
+        'source_txn_type', 'source_txn_id',
         'balance_before', 'balance_after', 'reason', 'created_by',
         'created_at', 'reference',
     )
@@ -476,6 +478,7 @@ class UserFeeConfigAdmin(admin.ModelAdmin):
         'transfer_charge_flat',
         'transfer_charge_percent',
         'topup_charge_percent',
+        'cashback_flat',
         'updated_at',
     )
     search_fields = ('user__phone', 'user__email', 'user__first_name', 'user__last_name')
@@ -487,6 +490,7 @@ class UserFeeConfigAdmin(admin.ModelAdmin):
         'transfer_charge_flat',
         'transfer_charge_percent',
         'topup_charge_percent',
+        'cashback_flat',
         'updated_at',
     )
 
@@ -631,6 +635,31 @@ class StatementDiscrepancyAdmin(admin.ModelAdmin):
         return False
 
 
+@admin.register(WalletBalanceIssue)
+class WalletBalanceIssueAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'user', 'txn_type', 'direction', 'amount', 'status',
+        'txn_at', 'shared_by', 'shared_at',
+    )
+    list_filter = ('status', 'txn_type', 'direction', 'txn_at')
+    search_fields = (
+        'fingerprint', 'txn_reference', 'user__phone', 'reason', 'description',
+    )
+    readonly_fields = (
+        'fingerprint', 'user', 'txn_type', 'txn_id', 'party', 'direction',
+        'amount', 'balance_before', 'recorded_balance_after',
+        'expected_balance_after', 'current_wallet_balance', 'txn_at',
+        'txn_reference', 'txn_status', 'service_name', 'description',
+        'txn_snapshot', 'suggested_adjustment_type', 'suggested_amount',
+        'status', 'reason', 'detected_at', 'shared_by', 'shared_at',
+        'resolved_by', 'resolved_at', 'resolution_adjustment',
+        'email_sent_at', 'created_at', 'updated_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+
 @admin.register(HomePopup)
 class HomePopupAdmin(admin.ModelAdmin):
     list_display = (
@@ -712,7 +741,7 @@ class SupportChatReadStateAdmin(admin.ModelAdmin):
 class ServiceChargeConfigAdmin(admin.ModelAdmin):
     list_display = (
         'txn_type', 'system_charge_flat', 'system_charge_percent',
-        'dealer_commission_flat', 'dealer_commission_percent',
+        'user_charge_type', 'dealer_charge_type', 'dealer_commission_flat',
         'himalpay_charge_flat', 'himalpay_charge_percent', 'updated_at',
     )
     search_fields = ('txn_type',)
@@ -728,8 +757,8 @@ class TransactionChargeAdmin(admin.ModelAdmin):
     search_fields = ('txn_type',)
     readonly_fields = (
         'txn_type', 'txn_id', 'amount', 'system_charge', 'dealer_commission',
-        'himalpay_charge', 'total_charges', 'cashback', 'wallet_amount',
-        'direction', 'dealer', 'created_at', 'updated_at',
+        'himalpay_charge', 'total_charges', 'cashback', 'cashback_credited',
+        'wallet_amount', 'direction', 'dealer', 'created_at', 'updated_at',
     )
     ordering = ('-created_at',)
 

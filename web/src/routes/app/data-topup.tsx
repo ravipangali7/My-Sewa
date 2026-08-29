@@ -557,18 +557,8 @@ function DataTopUp() {
               <div className="rounded-xl bg-muted p-3 text-[14px]">
                 <FeeRow label={t("common.amount")} value={formatNPR(pkgAmount)} />
                 <FeeRow
-                  label={t("topup.providerCharge")}
-                  value={feeLoading ? "…" : formatNPR(providerCharge)}
-                />
-                {Number(platformCharge) > 0 ? (
-                  <FeeRow
-                    label={t("topup.platformCharge")}
-                    value={feeLoading ? "…" : formatNPR(platformCharge)}
-                  />
-                ) : null}
-                <FeeRow
-                  label={t("common.cashback")}
-                  value={feeLoading ? "…" : `− ${formatNPR(cashback)}`}
+                  label={t("common.charge")}
+                  value={feeLoading ? "…" : formatNPR(Number(totalDebited) - pkgAmount > 0 ? Number(totalDebited) - pkgAmount : 0)}
                 />
                 <div className="mt-2 border-t border-separator pt-2">
                   <FeeRow

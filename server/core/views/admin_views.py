@@ -44,6 +44,7 @@ from ..models import (
     KYCSubmission,
     StatementReconcileRun,
     StatementDiscrepancy,
+    WalletBalanceIssue,
     HomePopup,
     DeviceToken,
     PushNotification,
@@ -81,6 +82,7 @@ from ..serializers import (
     AdminKYCUpdateSerializer,
     StatementReconcileRunSerializer,
     StatementDiscrepancySerializer,
+    WalletBalanceIssueSerializer,
     HomePopupSerializer,
     PushNotificationSerializer,
 )
@@ -3812,6 +3814,7 @@ def admin_user_fees(request, user_id):
         'transfer_charge_flat',
         'transfer_charge_percent',
         'topup_charge_percent',
+        'cashback_flat',
     ):
         if field in payload:
             value = payload.get(field)
@@ -3831,10 +3834,12 @@ def admin_user_fees(request, user_id):
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_service_charges(request):
-    """GET/PUT global System / Dealer / HimalPay charges per transaction type."""
+    """GET/PUT per-service User charge and network fee (Charge Setup)."""
     from decimal import Decimal, InvalidOperation
     from ..models import ServiceChargeConfig
     from ..services.txn_charges import (
+        CHARGE_FLAT,
+        CHARGE_PERCENT,
         SERVICE_CHARGE_TXN_TYPES,
         TXN_TYPE_LABELS,
         default_service_charge_rows,
@@ -3843,16 +3848,29 @@ def admin_service_charges(request):
 
     def _rate(value, default='0'):
         try:
-            return Decimal(str(value if value is not None else default)).quantize(Decimal('0.0001'))
+            pct = Decimal(str(value if value is not None else default)).quantize(Decimal('0.0001'))
         except (InvalidOperation, TypeError, ValueError):
-            return Decimal(default).quantize(Decimal('0.0001'))
+            pct = Decimal(default).quantize(Decimal('0.0001'))
+        if pct < 0:
+            pct = Decimal('0.0000')
+        if pct > Decimal('100.0000'):
+            pct = Decimal('100.0000')
+        return pct
+
+    def _charge_type(value, default=CHARGE_FLAT):
+        raw = str(value or default).strip().lower()
+        return CHARGE_PERCENT if raw == CHARGE_PERCENT else CHARGE_FLAT
 
     def _serialize(row: ServiceChargeConfig) -> dict:
+        user_type = getattr(row, 'user_charge_type', None) or CHARGE_FLAT
+        dealer_type = getattr(row, 'dealer_charge_type', None) or CHARGE_FLAT
         return {
             'txn_type': row.txn_type,
             'label': TXN_TYPE_LABELS.get(row.txn_type, row.txn_type),
+            'user_charge_type': user_type,
             'system_charge_flat': str(row.system_charge_flat),
             'system_charge_percent': str(row.system_charge_percent),
+            'dealer_charge_type': dealer_type,
             'dealer_commission_flat': str(row.dealer_commission_flat),
             'dealer_commission_percent': str(row.dealer_commission_percent),
             'himalpay_charge_flat': str(row.himalpay_charge_flat),
@@ -3893,10 +3911,14 @@ def admin_service_charges(request):
         if txn_type not in SERVICE_CHARGE_TXN_TYPES:
             continue
         row, _ = ServiceChargeConfig.objects.get_or_create(txn_type=txn_type)
+        if 'user_charge_type' in item:
+            row.user_charge_type = _charge_type(item.get('user_charge_type'))
         if 'system_charge_flat' in item:
             row.system_charge_flat = money(item.get('system_charge_flat'))
         if 'system_charge_percent' in item:
             row.system_charge_percent = _rate(item.get('system_charge_percent'))
+        if 'dealer_charge_type' in item:
+            row.dealer_charge_type = _charge_type(item.get('dealer_charge_type'))
         if 'dealer_commission_flat' in item:
             row.dealer_commission_flat = money(item.get('dealer_commission_flat'))
         if 'dealer_commission_percent' in item:
@@ -3909,6 +3931,176 @@ def admin_service_charges(request):
         updated.append(_serialize(row))
 
     return Response({'message': 'Service charges updated', 'data': updated})
+
+
+def _dealer_display_name(user) -> str:
+    name = ' '.join(filter(None, [user.first_name or '', user.last_name or ''])).strip()
+    return name or user.phone
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_commission_setup_dealers(request):
+    """Searchable dealer list for Commission Setup (name, phone, flat commission)."""
+    from ..models import DealerCommissionConfig
+    from ..services.hierarchy import ROLE_DEALER
+    from ..services.txn_charges import money
+
+    q = (request.query_params.get('q') or '').strip()
+    dealers = User.objects.filter(role=ROLE_DEALER).select_related('dealer_commission_config')
+    if q:
+        dealers = dealers.filter(
+            Q(phone__icontains=q)
+            | Q(first_name__icontains=q)
+            | Q(last_name__icontains=q)
+            | Q(email__icontains=q)
+        )
+    dealers = dealers.order_by('first_name', 'last_name', 'phone')
+    items = []
+    for dealer in dealers[:200]:
+        config = getattr(dealer, 'dealer_commission_config', None)
+        items.append({
+            'id': dealer.pk,
+            'name': _dealer_display_name(dealer),
+            'phone': dealer.phone,
+            'commission_amount': str(money(config.commission_rate) if config else 0),
+            'user_count': dealer.network_users.count(),
+        })
+    return Response({'items': items, 'count': len(items)})
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_commission_setup_dealer_detail(request, dealer_id):
+    """Dealer commission amount plus referred users (cashback tree)."""
+    from ..models import DealerCommissionConfig, UserFeeConfig
+    from ..services.hierarchy import ROLE_DEALER
+    from ..services.txn_charges import money
+
+    try:
+        dealer = User.objects.select_related('dealer_commission_config').get(
+            pk=dealer_id, role=ROLE_DEALER,
+        )
+    except User.DoesNotExist:
+        return Response({'error': 'Dealer not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    config, _ = DealerCommissionConfig.objects.get_or_create(user=dealer)
+
+    if request.method == 'PUT':
+        if 'commission_amount' in request.data or 'commission_rate' in request.data:
+            raw = request.data.get('commission_amount', request.data.get('commission_rate'))
+            amount = money(raw)
+            if amount < 0:
+                return Response(
+                    {'error': 'Validation failed', 'message': 'Commission amount cannot be negative.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            config.commission_rate = amount
+            config.save(update_fields=['commission_rate', 'updated_at'])
+
+    users = list(
+        User.objects.filter(assigned_dealer=dealer)
+        .select_related('fee_config')
+        .order_by('first_name', 'last_name', 'phone')
+    )
+    fee_by_user = {u.pk: getattr(u, 'fee_config', None) for u in users}
+    tree = []
+    for person in users:
+        fee = fee_by_user.get(person.pk)
+        tree.append({
+            'id': person.pk,
+            'name': _dealer_display_name(person),
+            'phone': person.phone,
+            'cashback': str(money(getattr(fee, 'cashback_flat', 0) or 0)),
+        })
+    return Response({
+        'id': dealer.pk,
+        'name': _dealer_display_name(dealer),
+        'phone': dealer.phone,
+        'commission_amount': str(money(config.commission_rate)),
+        'users': tree,
+    })
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_commission_setup_dealer_cashback(request, dealer_id):
+    """Set cashback for one user or all users under a dealer."""
+    from ..models import UserFeeConfig
+    from ..services.hierarchy import ROLE_DEALER
+    from ..services.txn_charges import money
+
+    try:
+        dealer = User.objects.get(pk=dealer_id, role=ROLE_DEALER)
+    except User.DoesNotExist:
+        return Response({'error': 'Dealer not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    payload = request.data if isinstance(request.data, dict) else {}
+    apply_all = bool(payload.get('apply_to_all') or payload.get('apply_all'))
+    users_payload = payload.get('users')
+    cashback = payload.get('cashback', payload.get('cashback_flat'))
+
+    network = User.objects.filter(assigned_dealer=dealer)
+    updated = []
+
+    def _set_cashback(user, value):
+        amount = money(value)
+        if amount < 0:
+            amount = Decimal('0.00')
+        fee, _ = UserFeeConfig.objects.get_or_create(user=user)
+        fee.cashback_flat = amount
+        fee.save(update_fields=['cashback_flat', 'updated_at'])
+        updated.append({
+            'id': user.pk,
+            'name': _dealer_display_name(user),
+            'phone': user.phone,
+            'cashback': str(amount),
+        })
+
+    if apply_all:
+        if cashback is None:
+            return Response(
+                {'error': 'Validation failed', 'message': 'Provide cashback to apply to all users.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        with transaction.atomic():
+            for person in network.select_for_update().order_by('pk'):
+                _set_cashback(person, cashback)
+    elif isinstance(users_payload, list):
+        ids = [item.get('id') or item.get('user_id') for item in users_payload if isinstance(item, dict)]
+        people = {u.pk: u for u in network.filter(pk__in=[i for i in ids if i])}
+        with transaction.atomic():
+            for item in users_payload:
+                if not isinstance(item, dict):
+                    continue
+                person = people.get(item.get('id') or item.get('user_id'))
+                if person is None:
+                    continue
+                value = item.get('cashback', item.get('cashback_flat', cashback))
+                if value is None:
+                    continue
+                _set_cashback(person, value)
+    elif payload.get('user_id') is not None:
+        try:
+            person = network.get(pk=payload.get('user_id'))
+        except User.DoesNotExist:
+            return Response({'error': 'User not found under this dealer'}, status=status.HTTP_404_NOT_FOUND)
+        if cashback is None:
+            return Response(
+                {'error': 'Validation failed', 'message': 'Provide cashback.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        _set_cashback(person, cashback)
+    else:
+        return Response(
+            {
+                'error': 'Validation failed',
+                'message': 'Provide apply_to_all, users[], or user_id with cashback.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({'message': 'Cashback updated', 'users': updated})
 
 
 @api_view(['POST'])
@@ -4812,6 +5004,201 @@ def admin_statement_ignore(request, discrepancy_id):
     return Response({
         'message': 'Issue ignored',
         'data': StatementDiscrepancySerializer(disc).data,
+    })
+
+
+def _wallet_balance_issue_tables_missing():
+    return Response(
+        {
+            'error': (
+                'Wallet before/after tables are missing. '
+                'Run: python manage.py migrate core 0054_wallet_balance_issue'
+            ),
+            'items': [],
+            'count': 0,
+            'summary': {'open_issues': 0},
+        },
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_wallet_before_after_list(request):
+    """List persisted user-wallet before/after mismatches."""
+    try:
+        qs = (
+            WalletBalanceIssue.objects
+            .select_related('user', 'shared_by', 'resolved_by', 'resolution_adjustment')
+            .order_by('-txn_at', '-id')
+        )
+        status_filter = (request.query_params.get('status') or 'open').strip()
+        if status_filter and status_filter != 'all':
+            qs = qs.filter(status=status_filter)
+        start, end = _parse_date_range(request)
+        if start:
+            qs = qs.filter(txn_at__date__gte=start)
+        if end:
+            qs = qs.filter(txn_at__date__lte=end)
+        q = (request.query_params.get('q') or '').strip()
+        if q:
+            qs = qs.filter(
+                Q(txn_reference__icontains=q)
+                | Q(service_name__icontains=q)
+                | Q(description__icontains=q)
+                | Q(user__phone__icontains=q)
+                | Q(user__first_name__icontains=q)
+                | Q(user__last_name__icontains=q)
+                | Q(fingerprint__icontains=q)
+            )
+        if _is_csv_export(request):
+            rows = []
+            for item in qs[:2000]:
+                rows.append([
+                    item.id,
+                    item.status,
+                    getattr(item.user, 'phone', ''),
+                    item.txn_type,
+                    item.txn_reference,
+                    item.amount,
+                    item.balance_before,
+                    item.recorded_balance_after,
+                    item.expected_balance_after,
+                    item.txn_at.isoformat() if item.txn_at else '',
+                    item.reason,
+                ])
+            return _csv_response(
+                'wallet-before-after.csv',
+                [
+                    'id', 'status', 'user_phone', 'txn_type', 'reference',
+                    'amount', 'balance_before', 'recorded_after', 'expected_after',
+                    'txn_at', 'reason',
+                ],
+                rows,
+            )
+        open_count = WalletBalanceIssue.objects.filter(
+            status=WalletBalanceIssue.STATUS_OPEN,
+        ).count()
+        return Response({
+            'summary': {'open_issues': open_count},
+            'items': WalletBalanceIssueSerializer(qs[:500], many=True).data,
+            'count': qs.count(),
+        })
+    except (ProgrammingError, OperationalError):
+        return _wallet_balance_issue_tables_missing()
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_wallet_before_after_scan(request):
+    """Scan wallet/transaction records and persist new before/after mismatches."""
+    from ..services.wallet_before_after import scan_wallet_before_after
+
+    from_raw = (request.data.get('from_date') or request.data.get('start_date') or '').strip()
+    to_raw = (request.data.get('to_date') or request.data.get('end_date') or '').strip()
+    from_date = parse_date(from_raw) if from_raw else None
+    to_date = parse_date(to_raw) if to_raw else None
+    today = timezone.localdate()
+    if not from_date and not to_date:
+        from_date = today.replace(day=1)
+        to_date = today
+    elif from_date and not to_date:
+        to_date = today
+    elif to_date and not from_date:
+        from_date = to_date.replace(day=1)
+    user_id = request.data.get('user_id')
+    try:
+        user_id = int(user_id) if user_id not in (None, '') else None
+    except (TypeError, ValueError):
+        return Response({'error': 'Invalid user_id'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        stats = scan_wallet_before_after(
+            from_date=from_date,
+            to_date=to_date,
+            user_id=user_id,
+        )
+    except (ProgrammingError, OperationalError):
+        return _wallet_balance_issue_tables_missing()
+
+    qs = (
+        WalletBalanceIssue.objects
+        .filter(status=WalletBalanceIssue.STATUS_OPEN)
+        .select_related('user', 'shared_by', 'resolved_by', 'resolution_adjustment')
+        .order_by('-txn_at', '-id')
+    )
+    if start := from_date:
+        qs = qs.filter(txn_at__date__gte=start)
+    if end := to_date:
+        qs = qs.filter(txn_at__date__lte=end)
+    if user_id:
+        qs = qs.filter(user_id=user_id)
+    return Response({
+        'message': (
+            f'Scan complete — {stats["created"]} new issue(s), '
+            f'{stats["open"]} open.'
+        ),
+        'stats': stats,
+        'from_date': from_date,
+        'to_date': to_date,
+        'summary': {'open_issues': stats['open']},
+        'items': WalletBalanceIssueSerializer(qs[:500], many=True).data,
+        'count': qs.count(),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_wallet_before_after_detail(request, issue_id):
+    try:
+        issue = (
+            WalletBalanceIssue.objects
+            .select_related('user', 'shared_by', 'resolved_by', 'resolution_adjustment')
+            .get(pk=issue_id)
+        )
+    except WalletBalanceIssue.DoesNotExist:
+        return Response({'error': 'Issue not found'}, status=status.HTTP_404_NOT_FOUND)
+    except (ProgrammingError, OperationalError):
+        return _wallet_balance_issue_tables_missing()
+    return Response({'data': WalletBalanceIssueSerializer(issue).data})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_wallet_before_after_share(request, issue_id):
+    """Confirm Issue Share: correct wallet, write ledger, email the user."""
+    from ..services.wallet_before_after import IssueShareError, share_wallet_balance_issue
+
+    blocked = require_user_feature(request.user, 'wallet_adjustment')
+    if blocked:
+        return blocked
+    try:
+        issue, adj = share_wallet_balance_issue(issue_id, request.user)
+    except IssueShareError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except WalletBalanceIssue.DoesNotExist:
+        return Response({'error': 'Issue not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Wallet.DoesNotExist:
+        return Response({'error': 'User wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+    except (ProgrammingError, OperationalError):
+        return _wallet_balance_issue_tables_missing()
+
+    message = 'Issue confirmed'
+    if adj is not None:
+        message = (
+            f'Wallet {adj.adjustment_type} of Rs. {abs(adj.amount)} applied; '
+            f'user notified by email.'
+        )
+    elif issue.email_sent_at:
+        message = 'Issue confirmed and user emailed. Wallet already matched the expected balance.'
+    else:
+        message = 'Issue confirmed. Wallet already matched the expected balance; no adjustment needed.'
+    return Response({
+        'message': message,
+        'data': WalletBalanceIssueSerializer(issue).data,
+        'adjustment_id': adj.pk if adj else None,
+        'balance_before': str(adj.balance_before) if adj else None,
+        'balance_after': str(adj.balance_after) if adj else str(issue.current_wallet_balance),
     })
 
 

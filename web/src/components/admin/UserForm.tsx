@@ -284,7 +284,7 @@ export function UserForm({
         {values.role === "dealer" ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="commission_rate">Dealer commission rate (%)</Label>
+              <Label htmlFor="commission_rate">Dealer commission (Rs)</Label>
               <Input
                 id="commission_rate"
                 type="number"

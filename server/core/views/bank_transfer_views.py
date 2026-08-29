@@ -32,13 +32,11 @@ from ..services.himalpay import HimalPayAPI, HimalPayError, with_himapay_respons
 from ..services.nepali_banks import LEGACY_BANK_CODE_MAP, fallback_banks
 from ..services.app_config import (
     get_app_config,
-    platform_transfer_cashback,
     require_feature_enabled,
     require_user_feature,
     require_account_approved,
     require_wallet_not_blocked,
     is_auto_status_verified,
-    resolve_tx_cfg_for_user,
 )
 from ..services.notifications import notify_low_balance_if_needed, notify_transfer_success
 from ..services.txn_charges import (
@@ -103,21 +101,10 @@ def _get_or_create_wallet(user):
 
 
 def _bank_transfer_quote(amount, user, provider_charge=0, provider_cashback=0):
-    """Quote System + Dealer + HimalPay charges, keeping transfer cashback toggles."""
-    tx_cfg = resolve_tx_cfg_for_user(user)
-    cashback_enabled = bool(tx_cfg.get('cashback_enabled', True))
-    if cashback_enabled:
-        configured = platform_transfer_cashback(
-            amount,
-            tx_cfg.get('transfer_cashback_flat', 0),
-            tx_cfg.get('transfer_cashback_percent', 0),
-        )
-        cashback = configured if configured > 0 else Decimal(str(provider_cashback or 0))
-    else:
-        cashback = Decimal('0.00')
+    """Quote User + network + HimalPay charges. User cashback comes from Commission Setup."""
     return quote_charges(
         amount, TXN_BANK_TRANSFER, user,
-        provider_charge=provider_charge, cashback=cashback,
+        provider_charge=provider_charge, cashback=provider_cashback,
     )
 
 
@@ -127,6 +114,7 @@ def _quote_fee_payload(quote):
         'amount': public['amount'],
         'charge': public['charge'],
         'cashback': public['cashback'],
+        'cashback_credit': public.get('cashback_credit', '0.00'),
         'platform_charge': public['system_charge'],
         'system_charge': public['system_charge'],
         'dealer_commission': public['dealer_commission'],

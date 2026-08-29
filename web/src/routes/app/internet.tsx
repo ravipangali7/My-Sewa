@@ -553,10 +553,6 @@ function InternetBillPayment() {
               <div className="rounded-xl bg-muted p-3 text-[14px]">
                 <FeeRow label={t("common.amount")} value={formatNPR(pkgAmount)} />
                 <FeeRow label={t("common.charge")} value={feeLoading ? "…" : formatNPR(charge)} />
-                <FeeRow
-                  label={t("common.cashback")}
-                  value={feeLoading ? "…" : `− ${formatNPR(cashback)}`}
-                />
                 <div className="mt-2 border-t border-separator pt-2">
                   <FeeRow
                     label={t("common.totalDebited")}

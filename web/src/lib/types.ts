@@ -203,11 +203,15 @@ export interface PaymentConfig {
   deposit_instructions: string;
 }
 
+export type ChargeType = "flat" | "percent";
+
 export interface ServiceChargeConfig {
   txn_type: string;
   label: string;
+  user_charge_type?: ChargeType;
   system_charge_flat: string;
   system_charge_percent: string;
+  dealer_charge_type?: ChargeType;
   dealer_commission_flat: string;
   dealer_commission_percent: string;
   himalpay_charge_flat: string;
@@ -215,8 +219,31 @@ export interface ServiceChargeConfig {
   updated_at?: string | null;
 }
 
+export interface CommissionSetupDealer {
+  id: number;
+  name: string;
+  phone: string;
+  commission_amount: string;
+  user_count: number;
+}
+
+export interface CommissionSetupUser {
+  id: number;
+  name: string;
+  phone: string;
+  cashback: string;
+}
+
+export interface CommissionSetupDealerDetail {
+  id: number;
+  name: string;
+  phone: string;
+  commission_amount: string;
+  users: CommissionSetupUser[];
+}
+
 export interface CommissionConfig {
-  /** Default percent of transaction amount paid as gross dealer commission. */
+  /** Default flat dealer commission in Rs when a dealer has no per-user amount. */
   default_commission_rate: number;
   default_sub_agent_rate?: number;
   default_super_admin_rate?: number;
@@ -791,6 +818,9 @@ export interface WalletAdjustment {
   display_amount: string;
   adjustment_type: WalletAdjustmentType;
   adjustment_type_display: string;
+  kind?: "manual" | "cashback" | "dealer_commission";
+  source_txn_type?: string;
+  source_txn_id?: number | null;
   balance_before: string;
   balance_after: string;
   reason: string;
@@ -1483,6 +1513,66 @@ export interface StatementLedgerResponse {
   };
   items: StatementLedgerRow[];
   by_user?: StatementLedgerUserGroup[];
+}
+
+export interface WalletBalanceIssue {
+  id: number;
+  fingerprint: string;
+  user: number;
+  user_phone: string | null;
+  user_name: string | null;
+  user_email: string | null;
+  txn_type: string;
+  txn_type_display: string;
+  txn_id: number;
+  party: string;
+  direction: string;
+  direction_display: string;
+  amount: string;
+  balance_before: string;
+  recorded_balance_after: string;
+  expected_balance_after: string;
+  current_wallet_balance: string;
+  txn_at: string;
+  txn_reference: string;
+  txn_status: string;
+  service_name: string;
+  description: string;
+  txn_snapshot: Record<string, unknown>;
+  suggested_adjustment_type: string;
+  suggested_amount: string | null;
+  status: string;
+  status_display: string;
+  reason: string;
+  can_share: boolean;
+  detected_at: string;
+  shared_by: number | null;
+  shared_by_name: string | null;
+  shared_at: string | null;
+  resolved_by: number | null;
+  resolved_by_name: string | null;
+  resolved_at: string | null;
+  resolution_adjustment: number | null;
+  email_sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WalletBeforeAfterListResponse {
+  summary: { open_issues: number };
+  items: WalletBalanceIssue[];
+  count: number;
+  message?: string;
+  stats?: {
+    scanned: number;
+    mismatches: number;
+    created: number;
+    updated: number;
+    skipped: number;
+    open: number;
+  };
+  from_date?: string;
+  to_date?: string;
 }
 
 export interface HimalPayHistoryItem {

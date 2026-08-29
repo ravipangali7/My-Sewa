@@ -914,8 +914,6 @@ def request_change_phone_otp(request):
         'email_hint': email_hint,
         'expires_in': otp_timeout,
     }
-    if getattr(dj_settings, 'DEBUG', False):
-        payload['debug_otp'] = otp
     return Response(payload, status=status.HTTP_200_OK)
 
 
@@ -1052,8 +1050,6 @@ def request_email_change(request):
         ),
         'email_hint': email_hint,
     }
-    if getattr(dj_settings, 'DEBUG', False):
-        payload['debug_otp'] = otp
     return Response(payload, status=status.HTTP_200_OK)
 
 
@@ -1189,8 +1185,6 @@ def forgot_password(request):
         ),
         'email_hint': email_hint,
     }
-    if getattr(dj_settings, 'DEBUG', False):
-        payload['debug_otp'] = otp
 
     return Response(payload, status=status.HTTP_200_OK)
 
@@ -1445,8 +1439,6 @@ def request_transaction_pin_reset_otp(request):
         'email_hint': email_hint,
         'otp_available': True,
     }
-    if getattr(dj_settings, 'DEBUG', False):
-        payload['debug_otp'] = otp
 
     return Response(payload, status=status.HTTP_200_OK)
 

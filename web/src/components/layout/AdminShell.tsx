@@ -28,6 +28,7 @@ import {
   TrendingUp,
   MessageCircle,
   Landmark,
+  Receipt,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -85,6 +86,7 @@ const NAV = [
   { to: "/admin/water", label: "Khanepani", icon: Droplets },
   { to: "/admin/community-electricity", label: "Community Power", icon: Zap },
   { to: "/admin/transfers", label: "Bank transfers", icon: Banknote },
+  { to: "/admin/commission-charge", label: "Commission & Charge", icon: Receipt },
   { to: "/admin/commission-history", label: "Commission History", icon: Coins },
   { to: "/admin/popups", label: "Popups", icon: MessageSquare },
   { to: "/admin/push", label: "Push notifications", icon: Bell },

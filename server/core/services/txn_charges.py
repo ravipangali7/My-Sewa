@@ -1,10 +1,16 @@
 """
-Unified transaction charges: System, Dealer commission, HimalPay.
+Unified transaction charges: User service charge, network fee, HimalPay.
 
-Outgoing (debit):  wallet = amount + system + dealer + himalpay − cashback
-Incoming (credit): wallet = amount − system − dealer − himalpay + cashback
+Outgoing (debit):
+  wallet = amount + user_charge + network_fee + himalpay − provider_cashback + user_cashback
+  User cashback is held in the debit and credited back as a separate wallet row after success.
 
-Dealer commission is applied only when the user has an assigned Dealer.
+Incoming (credit):
+  wallet = amount − user_charge − network_fee − himalpay + provider_cashback
+  User cashback is still credited as a separate row after success.
+
+Network fee is applied only when the user has an assigned Dealer. It is folded into
+"applicable charges" on the user side and posted as dealer commission on the dealer side.
 HimalPay: configured charge if set, otherwise the live provider charge.
 """
 from __future__ import annotations
@@ -87,12 +93,22 @@ def _rate(value, default='0') -> Decimal:
         return Decimal(default).quantize(_RATE_Q, rounding=ROUND_HALF_UP)
 
 
+CHARGE_FLAT = 'flat'
+CHARGE_PERCENT = 'percent'
+
+
 def _component(amount: Decimal, flat, percent) -> Decimal:
     total = money(flat)
     pct = _rate(percent)
     if amount > 0 and pct > 0:
         total += (amount * pct / Decimal('100')).quantize(_Q, rounding=ROUND_HALF_UP)
     return money(total)
+
+
+def _typed_charge(amount: Decimal, charge_type, flat, percent) -> Decimal:
+    if (charge_type or CHARGE_FLAT) == CHARGE_PERCENT:
+        return _component(amount, 0, percent)
+    return money(flat)
 
 
 def txn_type_for(txn) -> Optional[str]:
@@ -133,11 +149,13 @@ def empty_quote(amount=0, *, direction='debit') -> dict:
         'himalpay_charge': _ZERO,
         'total_charges': _ZERO,
         'cashback': _ZERO,
+        'provider_cashback': _ZERO,
         'direction': direction,
         'wallet_amount': value,
         'dealer': None,
         'dealer_id': None,
         'txn_type': None,
+        'visible_charge': _ZERO,
     }
 
 
@@ -168,8 +186,8 @@ def _legacy_system_charge(amount: Decimal, txn_type: str, user) -> Decimal:
     return _ZERO
 
 
-def _dealer_override_percent(dealer, txn_type: str) -> Optional[Decimal]:
-    """Per-service dealer % from ServiceCommissionRule only (does not replace configured flats)."""
+def _dealer_override_flat(dealer, txn_type: str) -> Optional[Decimal]:
+    """Per-service dealer flat Rs from ServiceCommissionRule. None means use the next fallback."""
     if dealer is None:
         return None
     try:
@@ -177,11 +195,70 @@ def _dealer_override_percent(dealer, txn_type: str) -> Optional[Decimal]:
         rule = ServiceCommissionRule.objects.filter(
             dealer_id=dealer.pk, txn_type=txn_type,
         ).first()
-        if rule is not None and _rate(rule.dealer_rate) > 0:
-            return _rate(rule.dealer_rate)
+        if rule is not None:
+            amount = money(rule.dealer_rate)
+            if amount > 0:
+                return amount
     except Exception:
         logger.exception('Could not load dealer service rule')
     return None
+
+
+def _dealer_commission_flat(dealer) -> Decimal:
+    """Commission Setup flat amount for this dealer. 0 means use Charge Setup network fee."""
+    if dealer is None:
+        return _ZERO
+    try:
+        config = getattr(dealer, 'dealer_commission_config', None)
+        if config is None:
+            from ..models import DealerCommissionConfig
+            config = DealerCommissionConfig.objects.filter(user_id=dealer.pk).first()
+        if config is not None:
+            return money(config.commission_rate)
+    except Exception:
+        logger.exception('Could not load dealer commission config')
+    return _ZERO
+
+
+def _user_cashback_flat(user) -> Decimal:
+    if user is None:
+        return _ZERO
+    try:
+        fee = getattr(user, 'fee_config', None)
+        if fee is None:
+            from ..models import UserFeeConfig
+            fee = UserFeeConfig.objects.filter(user_id=user.pk).first()
+        if fee is not None:
+            return money(getattr(fee, 'cashback_flat', 0) or 0)
+    except Exception:
+        logger.exception('Could not load user cashback for %s', getattr(user, 'pk', None))
+    return _ZERO
+
+
+def _resolve_network_fee(amount: Decimal, txn_type: str, dealer, service_network_fee: Decimal) -> Decimal:
+    """
+    Extra amount charged to a dealer-network customer and earned by the dealer.
+
+    Precedence: per-service rule → Commission Setup flat amount → Charge Setup network fee.
+    """
+    override = _dealer_override_flat(dealer, txn_type)
+    if override is not None:
+        return override
+    setup_flat = _dealer_commission_flat(dealer)
+    if setup_flat > 0:
+        return setup_flat
+    return money(service_network_fee)
+
+
+def visible_user_extra(quote: dict) -> Decimal:
+    """Amount shown to the user as applicable charges (total movement minus principal)."""
+    principal = money(quote.get('amount', 0))
+    wallet = money(quote.get('wallet_amount', 0))
+    if quote.get('direction') == 'credit':
+        extra = principal - wallet
+        return extra if extra > 0 else _ZERO
+    extra = wallet - principal
+    return extra if extra > 0 else _ZERO
 
 
 def quote_charges(
@@ -194,102 +271,117 @@ def quote_charges(
     direction: str = 'debit',
 ) -> dict:
     """
-    Calculate System + Dealer + HimalPay charges for a principal amount.
+    Calculate User service charge + network fee + HimalPay for a principal amount.
+
+    ``cashback`` is the HimalPay provider cashback and is netted into the wallet
+    movement. User cashback from Commission Setup is held in debit then credited
+    separately after success.
 
     direction:
-      debit  — user pays amount + charges (transfer, bills, top-up)
+      debit  — user pays amount + charges + cashback hold (transfer, bills, top-up)
       credit — user receives amount − charges (remittance receive)
     """
     principal = money(amount)
     direction = 'credit' if direction == 'credit' else 'debit'
-    cashback_amt = money(cashback)
+    provider_cashback = money(cashback)
     provider = money(provider_charge)
-    dealer = resolve_assigned_dealer(user)
+    actor_is_dealer = user is not None and getattr(user, 'role', None) == ROLE_DEALER
+    dealer = None if actor_is_dealer else resolve_assigned_dealer(user)
     if dealer is not None and getattr(dealer, 'role', None) != ROLE_DEALER:
-        dealer = None
-    if user is not None and getattr(user, 'role', None) == ROLE_DEALER:
         dealer = None
 
     row = _load_service_config(txn_type)
     if row is not None:
-        system = _component(principal, row.system_charge_flat, row.system_charge_percent)
+        user_fee = _typed_charge(
+            principal,
+            getattr(row, 'user_charge_type', CHARGE_FLAT),
+            row.system_charge_flat,
+            row.system_charge_percent,
+        )
+        service_network_fee = _typed_charge(
+            principal,
+            getattr(row, 'dealer_charge_type', CHARGE_FLAT),
+            row.dealer_commission_flat,
+            row.dealer_commission_percent,
+        )
         configured_himalpay = _component(
             principal, row.himalpay_charge_flat, row.himalpay_charge_percent,
         )
-        dealer_from_config = _component(
-            principal, row.dealer_commission_flat, row.dealer_commission_percent,
-        )
     else:
-        system = _legacy_system_charge(principal, txn_type, user)
+        user_fee = _legacy_system_charge(principal, txn_type, user)
+        service_network_fee = money(
+            (get_app_config().get('commission') or {}).get('default_commission_rate', 0)
+        )
         configured_himalpay = _ZERO
-        dealer_from_config = _ZERO
-        default_rate = _rate((get_app_config().get('commission') or {}).get('default_commission_rate', 0))
-        if default_rate > 0:
-            dealer_from_config = _component(principal, 0, default_rate)
 
     himalpay = configured_himalpay if configured_himalpay > 0 else provider
 
-    dealer_commission = _ZERO
-    if dealer is not None:
-        override_pct = _dealer_override_percent(dealer, txn_type)
-        if override_pct is not None:
-            dealer_commission = _component(principal, 0, override_pct)
-        elif dealer_from_config > 0:
-            dealer_commission = dealer_from_config
-        else:
-            fallback_pct = None
-            try:
-                config = getattr(dealer, 'dealer_commission_config', None)
-                if config is None:
-                    from ..models import DealerCommissionConfig
-                    config = DealerCommissionConfig.objects.filter(user_id=dealer.pk).first()
-                if config is not None:
-                    fallback_pct = _rate(config.commission_rate)
-            except Exception:
-                logger.exception('Could not load dealer commission fallback')
-            if fallback_pct:
-                dealer_commission = _component(principal, 0, fallback_pct)
+    if actor_is_dealer:
+        system = service_network_fee if row is not None else user_fee
+        dealer_commission = _ZERO
+        user_cashback = _ZERO
+        dealer = None
+    else:
+        system = user_fee
+        dealer_commission = _ZERO
+        user_cashback = _ZERO
+        if dealer is not None:
+            dealer_commission = _resolve_network_fee(
+                principal, txn_type, dealer, service_network_fee,
+            )
+            user_cashback = _user_cashback_flat(user)
 
     total_charges = money(system + dealer_commission + himalpay)
     if direction == 'debit':
-        wallet_amount = money(principal + total_charges - cashback_amt)
+        wallet_amount = money(principal + total_charges - provider_cashback + user_cashback)
         if wallet_amount < 0:
             wallet_amount = _ZERO
     else:
-        wallet_amount = money(principal - total_charges + cashback_amt)
+        wallet_amount = money(principal - total_charges + provider_cashback)
         if wallet_amount < 0:
             wallet_amount = _ZERO
 
-    return {
+    quote = {
         'amount': principal,
         'system_charge': system,
         'dealer_commission': dealer_commission,
         'himalpay_charge': himalpay,
         'total_charges': total_charges,
-        'cashback': cashback_amt,
+        'cashback': user_cashback,
+        'provider_cashback': provider_cashback,
         'direction': direction,
         'wallet_amount': wallet_amount,
         'dealer': dealer,
         'dealer_id': getattr(dealer, 'pk', None),
         'txn_type': txn_type,
     }
+    quote['visible_charge'] = visible_user_extra(quote)
+    return quote
 
 
 def quote_to_public(quote: dict) -> dict:
-    """JSON-safe breakdown for calculate-charge / create responses."""
+    """JSON-safe breakdown for calculate-charge / create responses.
+
+    Dealer/network fee is folded into ``charge`` so the user never sees a
+    separate dealer-commission line. User cashback is returned as
+    ``cashback_credit`` (posted after success) and ``cashback`` is 0 so
+    clients do not subtract it from the debit.
+    """
+    visible = visible_user_extra(quote)
     return {
         'amount': str(quote.get('amount', _ZERO)),
-        'system_charge': str(quote.get('system_charge', _ZERO)),
-        'dealer_commission': str(quote.get('dealer_commission', _ZERO)),
-        'himalpay_charge': str(quote.get('himalpay_charge', _ZERO)),
-        'charge': str(quote.get('total_charges', _ZERO)),
-        'total_charges': str(quote.get('total_charges', _ZERO)),
-        'cashback': str(quote.get('cashback', _ZERO)),
+        'system_charge': str(visible),
+        'dealer_commission': '0.00',
+        'himalpay_charge': '0.00',
+        'charge': str(visible),
+        'total_charges': str(visible),
+        'cashback': '0.00',
+        'cashback_credit': str(quote.get('cashback', _ZERO)),
         'total_debited': str(quote['wallet_amount']) if quote.get('direction') != 'credit' else None,
         'total_credited': str(quote['wallet_amount']) if quote.get('direction') == 'credit' else None,
         'wallet_amount': str(quote.get('wallet_amount', _ZERO)),
         'direction': quote.get('direction') or 'debit',
-        'dealer_id': quote.get('dealer_id'),
+        'dealer_id': None,
         'txn_type': quote.get('txn_type'),
     }
 
@@ -341,7 +433,8 @@ def get_transaction_charge(txn) -> Optional[object]:
 
 def apply_debit_quote_to_txn(txn, quote: dict) -> None:
     """Write combined charge / total_debited onto an outbound transaction."""
-    txn.charge = quote['total_charges']
+    visible = visible_user_extra(quote)
+    txn.charge = visible
     if hasattr(txn, 'cashback'):
         txn.cashback = quote.get('cashback', _ZERO)
     if hasattr(txn, 'total_debited'):
@@ -378,7 +471,7 @@ def overlay_himalpay_debit(txn, himalpay, response: dict, amount, txn_type: str,
 
 def apply_credit_quote_to_txn(txn, quote: dict) -> None:
     """Write combined charge / total_credited onto an inbound transaction."""
-    txn.charge = quote['total_charges']
+    txn.charge = visible_user_extra(quote)
     if hasattr(txn, 'cashback'):
         txn.cashback = quote.get('cashback', _ZERO)
     if hasattr(txn, 'total_credited'):
@@ -422,7 +515,7 @@ def default_service_charge_rows() -> list[dict[str, Any]]:
     topup_pct = _rate(tx.get('topup_charge_percent', 0))
     transfer_flat = money(tx.get('transfer_charge_flat', 0))
     transfer_pct = _rate(tx.get('transfer_charge_percent', 0))
-    dealer_pct = _rate(commission.get('default_commission_rate', 0))
+    dealer_flat = money(commission.get('default_commission_rate', 0))
 
     rows = []
     for txn_type in SERVICE_CHARGE_TXN_TYPES:
@@ -436,10 +529,12 @@ def default_service_charge_rows() -> list[dict[str, Any]]:
         rows.append({
             'txn_type': txn_type,
             'label': TXN_TYPE_LABELS.get(txn_type, txn_type),
+            'user_charge_type': CHARGE_PERCENT if system_percent > 0 and system_flat == 0 else CHARGE_FLAT,
             'system_charge_flat': str(system_flat),
             'system_charge_percent': str(system_percent),
-            'dealer_commission_flat': '0.00',
-            'dealer_commission_percent': str(dealer_pct),
+            'dealer_charge_type': CHARGE_FLAT,
+            'dealer_commission_flat': str(dealer_flat),
+            'dealer_commission_percent': '0.0000',
             'himalpay_charge_flat': '0.00',
             'himalpay_charge_percent': '0.0000',
         })

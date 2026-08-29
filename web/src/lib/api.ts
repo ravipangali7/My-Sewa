@@ -355,7 +355,6 @@ export const apiClient = {
       phone_hint?: string | null;
       login_via?: "email" | "phone" | string | null;
       preferred_channel?: "email" | "sms" | string | null;
-      debug_otp?: string;
       token?: string;
       user?: {
         id: number;
@@ -404,7 +403,6 @@ export const apiClient = {
       phone_hint?: string | null;
       login_via?: "email" | "phone" | string | null;
       preferred_channel?: "email" | "sms" | string | null;
-      debug_otp?: string;
     }>("/api/auth/resend-login-otp/", {
       method: "POST",
       body: { challenge_id },
@@ -454,7 +452,6 @@ export const apiClient = {
       message: string;
       email_hint?: string;
       otp_available: boolean;
-      debug_otp?: string;
     }>("/api/auth/request-transaction-pin-reset-otp/", {
       method: "POST",
       body: {},
@@ -518,7 +515,7 @@ export const apiClient = {
     }),
 
   forgotPassword: (phone: string) =>
-    api<{ message: string; email_hint?: string; debug_otp?: string }>(
+    api<{ message: string; email_hint?: string }>(
       "/api/auth/forgot-password/",
       {
         method: "POST",
@@ -574,12 +571,11 @@ export const apiClient = {
     api<{
       message: string;
       email_hint?: string;
-      debug_otp?: string;
       expires_in?: number;
     }>("/api/auth/request-change-phone-otp/", { method: "POST", body }),
 
   requestEmailChange: (body: { new_email: string; current_password: string }) =>
-    api<{ message: string; email_hint?: string; debug_otp?: string }>(
+    api<{ message: string; email_hint?: string }>(
       "/api/auth/request-email-change/",
       { method: "POST", body },
     ),
@@ -642,6 +638,7 @@ export const apiClient = {
       himalpay_charge?: string;
       charge: string;
       cashback: string;
+      cashback_credit?: string;
       total_debited: string;
     }>("/api/topup/calculate-charge/", {
       method: "POST",
@@ -1535,6 +1532,39 @@ export const apiClient = {
       "/api/admin/service-charges/",
       { method: "PUT", body: { data } },
     ),
+  adminCommissionSetupDealers: (q = "") => {
+    const params = new URLSearchParams();
+    if (q.trim()) params.set("q", q.trim());
+    const query = params.toString();
+    return api<{ items: import("./types").CommissionSetupDealer[]; count: number }>(
+      `/api/admin/commission-setup/dealers/${query ? `?${query}` : ""}`,
+    );
+  },
+  adminCommissionSetupDealer: (dealerId: number) =>
+    api<import("./types").CommissionSetupDealerDetail>(
+      `/api/admin/commission-setup/dealers/${dealerId}/`,
+    ),
+  adminSaveCommissionSetupDealer: (
+    dealerId: number,
+    payload: { commission_amount: string | number },
+  ) =>
+    api<import("./types").CommissionSetupDealerDetail>(
+      `/api/admin/commission-setup/dealers/${dealerId}/`,
+      { method: "PUT", body: payload },
+    ),
+  adminSaveCommissionSetupCashback: (
+    dealerId: number,
+    payload: {
+      apply_to_all?: boolean;
+      cashback?: string | number;
+      user_id?: number;
+      users?: { id: number; cashback: string | number }[];
+    },
+  ) =>
+    api<{ message: string; users: import("./types").CommissionSetupUser[] }>(
+      `/api/admin/commission-setup/dealers/${dealerId}/cashback/`,
+      { method: "PUT", body: payload },
+    ),
   adminUpdateSettings: (payload: FormData | Record<string, unknown>) =>
     api<{ message: string; data: import("./types").AppSettings }>("/api/admin/settings/", {
       method: "PATCH",
@@ -1718,6 +1748,42 @@ export const apiClient = {
       `/api/admin/statement/discrepancies/${id}/ignore/`,
       { method: "POST", body: { reason: reason || "" } },
     ),
+
+  adminWalletBeforeAfter: (filters?: {
+    status?: string;
+    start_date?: string;
+    end_date?: string;
+    q?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.start_date) params.set("start_date", filters.start_date);
+    if (filters?.end_date) params.set("end_date", filters.end_date);
+    if (filters?.q) params.set("q", filters.q);
+    const query = params.toString();
+    return api<import("./types").WalletBeforeAfterListResponse>(
+      `/api/admin/statement/before-after/${query ? `?${query}` : ""}`,
+    );
+  },
+
+  adminWalletBeforeAfterScan: (payload: {
+    from_date: string;
+    to_date: string;
+    user_id?: number;
+  }) =>
+    api<import("./types").WalletBeforeAfterListResponse>(
+      "/api/admin/statement/before-after/scan/",
+      { method: "POST", body: payload },
+    ),
+
+  adminWalletBeforeAfterShare: (id: number) =>
+    api<{
+      message: string;
+      data: import("./types").WalletBalanceIssue;
+      adjustment_id: number | null;
+      balance_before: string | null;
+      balance_after: string | null;
+    }>(`/api/admin/statement/before-after/${id}/share/`, { method: "POST", body: {} }),
 
   adminTestSmtpEmail: (payload: {
     to_email: string;

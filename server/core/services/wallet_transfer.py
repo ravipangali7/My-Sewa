@@ -54,11 +54,13 @@ def perform_wallet_transfer(
             'himalpay_charge': Decimal('0.00'),
             'total_charges': Decimal('0.00'),
             'cashback': Decimal('0.00'),
+            'provider_cashback': Decimal('0.00'),
             'direction': 'debit',
             'wallet_amount': amount,
             'dealer': None,
             'dealer_id': None,
             'txn_type': TXN_WALLET_TRANSFER,
+            'visible_charge': Decimal('0.00'),
         }
     total_required = quote['wallet_amount']
 
@@ -130,12 +132,14 @@ def perform_wallet_transfer(
                 sender_balance_after=sender_locked.balance,
                 recipient_balance_before=recipient_before,
                 recipient_balance_after=recipient_locked.balance,
-                charge=quote['total_charges'],
+                charge=quote.get('visible_charge', quote['total_charges']),
                 total_debited=total_required,
             )
             persist_transaction_charge(transfer, quote)
             if apply_charges:
                 record_dealer_commission(transfer)
+                from .cashback import record_user_cashback
+                record_user_cashback(transfer, wallet=sender_locked)
     except Wallet.DoesNotExist:
         return None, Response(
             {'error': 'Wallet not found', 'message': 'Wallet not found.'},

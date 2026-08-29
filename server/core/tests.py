@@ -1624,6 +1624,181 @@ class StatementReconcileTests(TestCase):
         self.assertIn('issues_open', resp.data['data'])
 
 
+class WalletBeforeAfterCheckTests(TestCase):
+    """User wallet before/after mismatch detection and Issue Share correction."""
+
+    def setUp(self):
+        cache.clear()
+        self.admin = User.objects.create_user(
+            phone='9800000199',
+            password='testpass123',
+            email='admin-ba@example.com',
+            first_name='Super',
+            last_name='Admin',
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.user = User.objects.create_user(
+            phone='9800000177',
+            password='testpass123',
+            email='user-ba@example.com',
+            first_name='Ram',
+            last_name='Bahadur',
+        )
+        from .models import Wallet, TopupTransaction
+
+        self.wallet, _ = Wallet.objects.get_or_create(
+            user=self.user, defaults={'balance': Decimal('1000.00')},
+        )
+        self.wallet.balance = Decimal('1000.00')
+        self.wallet.save(update_fields=['balance'])
+        self.TopupTransaction = TopupTransaction
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.admin)
+
+    def _mismatched_topup(self, *, merchant='MYSEWA_BA_100'):
+        return self.TopupTransaction.objects.create(
+            user=self.user,
+            mobile_number='9801112233',
+            amount=Decimal('100.00'),
+            product_id=1,
+            status='success',
+            merchant_txn_id=merchant,
+            service_hub_txn_id='HP-BA-100',
+            total_debited=Decimal('100.00'),
+            balance_before=Decimal('1000.00'),
+            balance_after=Decimal('1000.00'),
+        )
+
+    def test_scan_detects_deduction_not_reflected_in_after_balance(self):
+        from .models import WalletBalanceIssue
+        from .services.wallet_before_after import scan_wallet_before_after
+
+        txn = self._mismatched_topup()
+        today = date.today()
+        stats = scan_wallet_before_after(from_date=today, to_date=today)
+        self.assertEqual(stats['created'], 1)
+        issue = WalletBalanceIssue.objects.get(status='open')
+        self.assertEqual(issue.txn_id, txn.pk)
+        self.assertEqual(issue.amount, Decimal('100.00'))
+        self.assertEqual(issue.balance_before, Decimal('1000.00'))
+        self.assertEqual(issue.recorded_balance_after, Decimal('1000.00'))
+        self.assertEqual(issue.expected_balance_after, Decimal('900.00'))
+        self.assertEqual(issue.suggested_adjustment_type, 'debit')
+        self.assertEqual(issue.suggested_amount, Decimal('100.00'))
+
+        scan_wallet_before_after(from_date=today, to_date=today)
+        self.assertEqual(WalletBalanceIssue.objects.count(), 1)
+
+    def test_matching_snapshot_is_not_flagged(self):
+        from .models import WalletBalanceIssue
+        from .services.wallet_before_after import scan_wallet_before_after
+
+        self.TopupTransaction.objects.create(
+            user=self.user,
+            mobile_number='9801112233',
+            amount=Decimal('100.00'),
+            product_id=1,
+            status='success',
+            merchant_txn_id='MYSEWA_BA_OK',
+            total_debited=Decimal('100.00'),
+            balance_before=Decimal('1000.00'),
+            balance_after=Decimal('900.00'),
+        )
+        today = date.today()
+        stats = scan_wallet_before_after(from_date=today, to_date=today)
+        self.assertEqual(stats['mismatches'], 0)
+        self.assertEqual(WalletBalanceIssue.objects.count(), 0)
+
+    def test_issue_share_adjusts_wallet_emails_and_blocks_duplicate(self):
+        from unittest.mock import patch
+        from .models import WalletAdjustment, WalletBalanceIssue
+        from .services.wallet_before_after import scan_wallet_before_after
+
+        self._mismatched_topup()
+        today = date.today()
+        scan_wallet_before_after(from_date=today, to_date=today)
+        issue = WalletBalanceIssue.objects.get(status='open')
+
+        list_resp = self.client.get(reverse('admin_wallet_before_after_list'))
+        self.assertEqual(list_resp.status_code, status.HTTP_200_OK, list_resp.content)
+        self.assertGreaterEqual(list_resp.data['summary']['open_issues'], 1)
+
+        with patch(
+            'core.services.notifications.notify_wallet_before_after_correction',
+            return_value=True,
+        ) as notify:
+            resp = self.client.post(
+                reverse('admin_wallet_before_after_share', args=[issue.pk]),
+                {},
+                format='json',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        notify.assert_called_once()
+        email_ctx = notify.call_args[0][1]
+        self.assertEqual(email_ctx['amount'], '100.00')
+        self.assertEqual(email_ctx['balance_before'], '1000.00')
+        self.assertEqual(email_ctx['expected_after'], '900.00')
+        self.assertEqual(email_ctx['corrected_balance'], '900.00')
+
+        issue.refresh_from_db()
+        self.wallet.refresh_from_db()
+        self.assertEqual(issue.status, 'resolved')
+        self.assertEqual(issue.shared_by_id, self.admin.pk)
+        self.assertIsNotNone(issue.shared_at)
+        self.assertEqual(self.wallet.balance, Decimal('900.00'))
+        adj = WalletAdjustment.objects.get(pk=issue.resolution_adjustment_id)
+        self.assertEqual(adj.adjustment_type, 'debit')
+        self.assertEqual(adj.amount, Decimal('-100.00'))
+        self.assertEqual(adj.reference, f'BA-ISSUE-{issue.pk}')
+        self.assertIsNotNone(issue.email_sent_at)
+
+        dup = self.client.post(
+            reverse('admin_wallet_before_after_share', args=[issue.pk]),
+            {},
+            format='json',
+        )
+        self.assertEqual(dup.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(WalletAdjustment.objects.filter(reference=adj.reference).count(), 1)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal('900.00'))
+
+    def test_correction_email_explains_date_amount_and_balance(self):
+        from unittest.mock import patch
+        from django.utils import timezone
+        from .services.notifications import notify_wallet_before_after_correction
+
+        captured = {}
+
+        def fake_send(**kwargs):
+            captured.update(kwargs)
+            return True
+
+        with patch('core.services.notifications._send_txn_email', side_effect=fake_send):
+            sent = notify_wallet_before_after_correction(self.user, {
+                'issue_id': 1,
+                'amount': '100.00',
+                'balance_before': '1000.00',
+                'expected_after': '900.00',
+                'corrected_balance': '900.00',
+                'txn_at': timezone.now(),
+                'txn_reference': 'MYSEWA_BA_100',
+                'service_name': 'Mobile top-up',
+                'direction': 'debit',
+                'description': 'Mobile top-up to 9801112233',
+            })
+        self.assertTrue(sent)
+        intro = captured.get('text_intro') or ''
+        self.assertIn('Rs. 1,000', intro)
+        self.assertIn('Rs. 100', intro)
+        self.assertIn('not reflected correctly', intro.lower())
+        self.assertIn('Rs. 900', intro)
+        rows = dict(captured.get('rows') or [])
+        self.assertEqual(rows.get('Transaction / reference ID'), 'MYSEWA_BA_100')
+        self.assertIn('Transaction date', rows)
+        self.assertIn('Transaction time', rows)
+
+
 class HomePopupFrequencyTests(TestCase):
     """Per-user 24-hour home popup display caps."""
 
@@ -2206,7 +2381,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
         )
         DealerCommissionConfig.objects.create(
             user=self.dealer,
-            commission_rate=Decimal('10.0000'),
+            commission_rate=Decimal('10.00'),
             tds_rate=Decimal('15.0000'),
         )
         self.agent = User.objects.create_user(
@@ -2248,10 +2423,10 @@ class DealerCommissionAndHierarchyTests(TestCase):
         from .services.dealer_commission import calculate_commission
         from .services.txn_status import apply_outbound_status_change
 
-        figures = calculate_commission(Decimal('200.00'), Decimal('10'), Decimal('15'))
-        self.assertEqual(figures['gross_commission'], Decimal('20.00'))
-        self.assertEqual(figures['tds_amount'], Decimal('3.00'))
-        self.assertEqual(figures['net_commission'], Decimal('17.00'))
+        figures = calculate_commission(Decimal('200.00'), Decimal('10.00'), Decimal('15'))
+        self.assertEqual(figures['gross_commission'], Decimal('10.00'))
+        self.assertEqual(figures['tds_amount'], Decimal('1.50'))
+        self.assertEqual(figures['net_commission'], Decimal('8.50'))
 
         txn = TopupTransaction.objects.create(
             user=self.customer,
@@ -2267,11 +2442,11 @@ class DealerCommissionAndHierarchyTests(TestCase):
         row = DealerCommission.objects.get(txn_type='topup', txn_id=txn.pk)
         self.assertEqual(row.dealer_id, self.dealer.pk)
         self.assertEqual(row.source_user_id, self.customer.pk)
-        self.assertEqual(row.gross_commission, Decimal('20.00'))
+        self.assertEqual(row.gross_commission, Decimal('10.00'))
         self.assertEqual(row.tds_rate, Decimal('15.0000'))
-        self.assertEqual(row.tds_amount, Decimal('3.00'))
-        self.assertEqual(row.net_commission, Decimal('17.00'))
-        self.assertEqual(row.commission_rate, Decimal('10.0000'))
+        self.assertEqual(row.tds_amount, Decimal('1.50'))
+        self.assertEqual(row.net_commission, Decimal('8.50'))
+        self.assertEqual(row.commission_rate, Decimal('10.00'))
 
     def test_customer_dealer_mapping_via_admin(self):
         other = User.objects.create_user(
@@ -2571,11 +2746,16 @@ class DealerCommissionAndHierarchyTests(TestCase):
         from .models import ServiceChargeConfig
         from .services.txn_charges import TXN_BANK_TRANSFER, TXN_REMITTANCE, quote_charges
 
+        self.dealer.dealer_commission_config.commission_rate = Decimal('0.00')
+        self.dealer.dealer_commission_config.save(update_fields=['commission_rate'])
+
         ServiceChargeConfig.objects.update_or_create(
             txn_type=TXN_BANK_TRANSFER,
             defaults={
+                'user_charge_type': 'flat',
                 'system_charge_flat': Decimal('100.00'),
                 'system_charge_percent': Decimal('0'),
+                'dealer_charge_type': 'flat',
                 'dealer_commission_flat': Decimal('100.00'),
                 'dealer_commission_percent': Decimal('0'),
                 'himalpay_charge_flat': Decimal('10.00'),
@@ -2585,8 +2765,10 @@ class DealerCommissionAndHierarchyTests(TestCase):
         ServiceChargeConfig.objects.update_or_create(
             txn_type=TXN_REMITTANCE,
             defaults={
+                'user_charge_type': 'flat',
                 'system_charge_flat': Decimal('100.00'),
                 'system_charge_percent': Decimal('0'),
+                'dealer_charge_type': 'flat',
                 'dealer_commission_flat': Decimal('100.00'),
                 'dealer_commission_percent': Decimal('0'),
                 'himalpay_charge_flat': Decimal('10.00'),
@@ -2599,11 +2781,22 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(debit['dealer_commission'], Decimal('100.00'))
         self.assertEqual(debit['himalpay_charge'], Decimal('10.00'))
 
+        ServiceChargeConfig.objects.filter(txn_type=TXN_BANK_TRANSFER).update(
+            dealer_charge_type='percent',
+            dealer_commission_percent=Decimal('50.0000'),
+        )
+        debit_percent = quote_charges(Decimal('1000.00'), TXN_BANK_TRANSFER, self.customer)
+        self.assertEqual(debit_percent['dealer_commission'], Decimal('500.00'))
+
         unassigned = User.objects.create_user(
             phone='9800000498',
             password='testpass123',
             email='no-dealer@example.com',
             account_status=User.ACCOUNT_STATUS_APPROVED,
+        )
+        ServiceChargeConfig.objects.filter(txn_type=TXN_BANK_TRANSFER).update(
+            dealer_charge_type='flat',
+            dealer_commission_percent=Decimal('0'),
         )
         debit_plain = quote_charges(Decimal('1000.00'), TXN_BANK_TRANSFER, unassigned)
         self.assertEqual(debit_plain['dealer_commission'], Decimal('0.00'))
@@ -2614,6 +2807,135 @@ class DealerCommissionAndHierarchyTests(TestCase):
         )
         self.assertEqual(credit['wallet_amount'], Decimal('790.00'))
 
+    def test_user_debit_holds_cashback_then_credits_separately(self):
+        from .models import (
+            DealerCommission,
+            ServiceChargeConfig,
+            UserFeeConfig,
+            Wallet,
+            WalletAdjustment,
+            TopupTransaction,
+        )
+        from .services.txn_charges import TXN_TOPUP, persist_transaction_charge, quote_charges
+        from .services.txn_status import apply_outbound_status_change
+
+        self.dealer.dealer_commission_config.commission_rate = Decimal('0.00')
+        self.dealer.dealer_commission_config.tds_rate = Decimal('0.0000')
+        self.dealer.dealer_commission_config.save(update_fields=['commission_rate', 'tds_rate'])
+        ServiceChargeConfig.objects.update_or_create(
+            txn_type=TXN_TOPUP,
+            defaults={
+                'user_charge_type': 'flat',
+                'system_charge_flat': Decimal('35.00'),
+                'system_charge_percent': Decimal('0'),
+                'dealer_charge_type': 'flat',
+                'dealer_commission_flat': Decimal('100.00'),
+                'dealer_commission_percent': Decimal('0'),
+                'himalpay_charge_flat': Decimal('0.00'),
+                'himalpay_charge_percent': Decimal('0'),
+            },
+        )
+        fee, _ = UserFeeConfig.objects.get_or_create(user=self.customer)
+        fee.cashback_flat = Decimal('65.00')
+        fee.save(update_fields=['cashback_flat'])
+
+        wallet = Wallet.objects.get(user=self.customer)
+        wallet.balance = Decimal('2000.00')
+        wallet.save(update_fields=['balance'])
+
+        quote = quote_charges(Decimal('1000.00'), TXN_TOPUP, self.customer)
+        self.assertEqual(quote['system_charge'], Decimal('35.00'))
+        self.assertEqual(quote['dealer_commission'], Decimal('100.00'))
+        self.assertEqual(quote['cashback'], Decimal('65.00'))
+        self.assertEqual(quote['wallet_amount'], Decimal('1200.00'))
+        self.assertEqual(quote['visible_charge'], Decimal('200.00'))
+
+        txn = TopupTransaction.objects.create(
+            user=self.customer,
+            mobile_number='9800000991',
+            amount=Decimal('1000.00'),
+            product_id=1,
+            status='pending',
+            merchant_txn_id='MYSEWA_NTC_CB1',
+            charge=quote['visible_charge'],
+            cashback=quote['cashback'],
+            total_debited=quote['wallet_amount'],
+        )
+        persist_transaction_charge(txn, quote)
+        ok, err = apply_outbound_status_change(txn, 'success')
+        self.assertTrue(ok, err)
+
+        wallet.refresh_from_db()
+        self.assertEqual(wallet.balance, Decimal('865.00'))
+        txn.refresh_from_db()
+        self.assertEqual(txn.balance_before, Decimal('2000.00'))
+        self.assertEqual(txn.balance_after, Decimal('800.00'))
+
+        cashback_row = WalletAdjustment.objects.get(
+            user=self.customer, kind=WalletAdjustment.KIND_CASHBACK, source_txn_id=txn.pk,
+        )
+        self.assertEqual(cashback_row.amount, Decimal('65.00'))
+        self.assertEqual(cashback_row.adjustment_type, 'credit')
+        self.assertEqual(cashback_row.balance_before, Decimal('800.00'))
+        self.assertEqual(cashback_row.balance_after, Decimal('865.00'))
+        self.assertFalse(
+            WalletAdjustment.objects.filter(
+                user=self.customer, kind=WalletAdjustment.KIND_DEALER_COMMISSION,
+            ).exists()
+        )
+
+        row = DealerCommission.objects.get(txn_type='topup', txn_id=txn.pk)
+        self.assertEqual(row.dealer_id, self.dealer.pk)
+        self.assertEqual(row.source_user_id, self.customer.pk)
+        self.assertEqual(row.gross_commission, Decimal('100.00'))
+        self.assertEqual(row.net_commission, Decimal('100.00'))
+        dealer_adj = WalletAdjustment.objects.get(
+            user=self.dealer, kind=WalletAdjustment.KIND_DEALER_COMMISSION, source_txn_id=txn.pk,
+        )
+        self.assertEqual(dealer_adj.amount, Decimal('100.00'))
+        self.assertIn(self.customer.phone, dealer_adj.reason)
+
+    def test_admin_commission_setup_dealers_and_cashback_tree(self):
+        from .models import UserFeeConfig
+
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.get(reverse('admin_commission_setup_dealers'), {'q': 'Dealer'})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        phones = [item['phone'] for item in resp.json().get('items') or []]
+        self.assertIn(self.dealer.phone, phones)
+
+        resp = self.client.put(
+            reverse('admin_commission_setup_dealer_detail', args=[self.dealer.pk]),
+            {'commission_amount': '100.00'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()['commission_amount'], '100.00')
+        user_phones = [u['phone'] for u in resp.json().get('users') or []]
+        self.assertIn(self.customer.phone, user_phones)
+
+        resp = self.client.put(
+            reverse('admin_commission_setup_dealer_cashback', args=[self.dealer.pk]),
+            {'apply_to_all': True, 'cashback': '65.00'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        fee = UserFeeConfig.objects.get(user=self.customer)
+        self.assertEqual(fee.cashback_flat, Decimal('65.00'))
+
+        resp = self.client.put(
+            reverse('admin_commission_setup_dealer_cashback', args=[self.dealer.pk]),
+            {'user_id': self.customer.pk, 'cashback': '40.00'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        fee.refresh_from_db()
+        self.assertEqual(fee.cashback_flat, Decimal('40.00'))
+
+        self.client.force_authenticate(user=self.customer)
+        resp = self.client.get(reverse('admin_commission_setup_dealers'))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_hierarchical_commission_and_historical_snapshot(self):
         from .models import DealerCommission, ServiceCommissionRule, TopupTransaction
         from .services.txn_status import apply_outbound_status_change
@@ -2621,7 +2943,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
         ServiceCommissionRule.objects.create(
             dealer=self.dealer,
             txn_type='topup',
-            dealer_rate=Decimal('10.0000'),
+            dealer_rate=Decimal('10.00'),
         )
 
         txn = TopupTransaction.objects.create(
@@ -2639,17 +2961,17 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(row.dealer_id, self.dealer.pk)
         self.assertIsNone(row.sub_agent_id)
         self.assertEqual(row.source_user_id, self.customer.pk)
-        self.assertEqual(row.gross_commission, Decimal('100.00'))
-        self.assertEqual(row.tds_amount, Decimal('15.00'))
-        self.assertEqual(row.net_commission, Decimal('85.00'))
+        self.assertEqual(row.gross_commission, Decimal('10.00'))
+        self.assertEqual(row.tds_amount, Decimal('1.50'))
+        self.assertEqual(row.net_commission, Decimal('8.50'))
         self.assertEqual(row.sub_agent_commission, Decimal('0.00'))
 
         config = self.dealer.dealer_commission_config
-        config.commission_rate = Decimal('1.0000')
+        config.commission_rate = Decimal('1.00')
         config.save(update_fields=['commission_rate', 'updated_at'])
         row.refresh_from_db()
-        self.assertEqual(row.commission_rate, Decimal('10.0000'))
-        self.assertEqual(row.gross_commission, Decimal('100.00'))
+        self.assertEqual(row.commission_rate, Decimal('10.00'))
+        self.assertEqual(row.gross_commission, Decimal('10.00'))
 
     def test_admin_hierarchy_and_profit_and_dealer_cannot_access_admin(self):
         self.client.force_authenticate(user=self.staff)

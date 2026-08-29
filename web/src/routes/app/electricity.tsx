@@ -707,10 +707,6 @@ function ElectricityBillPayment() {
                 <div className="mt-3 rounded-xl bg-[#F3F4F6] p-3 text-[14px]">
                   <FeeRow label={t("common.amount")} value={formatNPR(payAmount)} />
                   <FeeRow label={t("common.charge")} value={feeLoading ? "…" : formatNPR(charge)} />
-                  <FeeRow
-                    label={t("common.cashback")}
-                    value={feeLoading ? "…" : `− ${formatNPR(cashback)}`}
-                  />
                   <div className="mt-2 border-t border-[#E5E7EB] pt-2">
                     <FeeRow
                       label={t("common.totalDebited")}

@@ -42,7 +42,6 @@ function ForgotPasswordPage() {
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [debugOtp, setDebugOtp] = useState<string | null>(null);
   const [emailHint, setEmailHint] = useState<string | null>(null);
 
   useEffect(() => {
@@ -101,11 +100,9 @@ function ForgotPasswordPage() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 setSubmitting(true);
-                setDebugOtp(null);
                 setEmailHint(null);
                 try {
                   const res = await apiClient.forgotPassword(phone.trim());
-                  if (res.debug_otp) setDebugOtp(res.debug_otp);
                   if (res.email_hint) setEmailHint(res.email_hint);
                   toast.success(t("auth.checkEmail"), { description: res.message });
                   setStep("verify_dob");
@@ -203,11 +200,6 @@ function ForgotPasswordPage() {
                 }
               }}
             >
-              {debugOtp && (
-                <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
-                  {t("auth.devCode")} <span className="font-semibold text-foreground">{debugOtp}</span>
-                </p>
-              )}
               <div className="space-y-1.5">
                 <Label htmlFor="otp">{t("auth.verificationCode")}</Label>
                 <Input

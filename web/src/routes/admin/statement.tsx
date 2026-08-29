@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, RefreshCw, Users } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { HimalPayBalanceStrip } from "@/components/admin/HimalPayBalanceStrip";
+import { WalletBeforeAfterCheck } from "@/components/admin/WalletBeforeAfterCheck";
 import { StatsCards, type StatCardItem } from "@/components/admin/StatsCards";
 import { StatusChip } from "@/components/StatusChip";
 import { Button } from "@/components/ui/button";
@@ -53,15 +54,18 @@ import type { StatementDiscrepancy, StatementLedgerRow } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
 import { canWalletAdjust } from "@/lib/account-status";
 
+type StatementView = "himalpay" | "before-after";
 type StatementTab = "ledger" | "issues" | "runs";
 
 type StatementSearch = {
+  view?: StatementView;
   tab?: StatementTab;
   q?: string;
 };
 
 export const Route = createFileRoute("/admin/statement")({
   validateSearch: (search: Record<string, unknown>): StatementSearch => ({
+    view: search.view === "before-after" ? "before-after" : undefined,
     tab:
       search.tab === "issues" || search.tab === "runs" || search.tab === "ledger"
         ? search.tab
@@ -196,6 +200,7 @@ function StatementPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate({ from: "/admin/statement" });
   const routeSearch = Route.useSearch();
+  const view: StatementView = routeSearch.view ?? "himalpay";
   const tab: StatementTab = routeSearch.tab ?? "ledger";
   const { user } = useAuth();
   const allowAdjust = canWalletAdjust(user);
@@ -220,6 +225,15 @@ function StatementPage() {
       setIssueSearch(routeSearch.q);
     }
   }, [routeSearch.q]);
+
+  const setView = (next: StatementView) => {
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        view: next === "himalpay" ? undefined : next,
+      }),
+    });
+  };
 
   const setTab = (next: StatementTab) => {
     void navigate({
@@ -442,13 +456,20 @@ function StatementPage() {
   return (
     <AdminShell
       title="Statement"
-      description="HimalPay ↔ MySewa ledger by user — review, reconcile, and correct wallets"
+      description="HimalPay overall statement, plus user wallet before/after checks"
       actions={
         <Button asChild size="sm" variant="outline">
           <Link to="/admin/himalpay-history">HimalPay history</Link>
         </Button>
       }
     >
+      <Tabs value={view} onValueChange={(v) => setView(v as StatementView)} className="mt-1">
+        <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl sm:w-auto sm:min-w-[28rem]">
+          <TabsTrigger value="himalpay">HimalPay Overall</TabsTrigger>
+          <TabsTrigger value="before-after">Before & After Check</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="himalpay" className="mt-5 space-y-5">
       <div className="space-y-3">
         <HimalPayBalanceStrip linkHistory />
         <StatsCards items={ledgerCards} />
@@ -1154,6 +1175,12 @@ function StatementPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+        </TabsContent>
+
+        <TabsContent value="before-after" className="mt-5">
+          <WalletBeforeAfterCheck />
+        </TabsContent>
+      </Tabs>
     </AdminShell>
   );
 }

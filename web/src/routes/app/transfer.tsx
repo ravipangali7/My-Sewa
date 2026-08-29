@@ -925,15 +925,6 @@ function Transfer() {
 
               <div className="rounded-xl bg-muted p-3 text-[14px]">
                 <Row label={t("common.amount")} value={formatNPR(amt)} />
-                {Number(systemCharge) > 0 ? (
-                  <Row label="System charge" value={formatNPR(systemCharge)} />
-                ) : null}
-                {Number(dealerCommission) > 0 ? (
-                  <Row label="Dealer commission" value={formatNPR(dealerCommission)} />
-                ) : null}
-                {Number(himalpayCharge) > 0 ? (
-                  <Row label="HimalPay charge" value={formatNPR(himalpayCharge)} />
-                ) : null}
                 {Number(charge) > 0 ? <Row label={t("common.charge")} value={formatNPR(charge)} /> : null}
                 <div className="mt-2 border-t border-separator pt-2">
                   <Row label={t("common.totalDebited")} value={formatNPR(totalDebited || amt)} strong />
@@ -1182,20 +1173,8 @@ function Transfer() {
 
             <div className="rounded-xl bg-muted p-3 text-[14px]">
               <Row label={t("common.amount")} value={formatNPR(amt)} />
-              {Number(systemCharge) > 0 ? (
-                <Row label="System charge" value={formatNPR(systemCharge)} />
-              ) : null}
-              {Number(dealerCommission) > 0 ? (
-                <Row label="Dealer commission" value={formatNPR(dealerCommission)} />
-              ) : null}
-              {Number(himalpayCharge) > 0 ? (
-                <Row label="HimalPay charge" value={formatNPR(himalpayCharge)} />
-              ) : null}
-              {chargeEnabled && Number(charge) > 0 ? (
+              {Number(charge) > 0 ? (
                 <Row label={t("common.charge")} value={formatNPR(charge)} />
-              ) : null}
-              {cashbackEnabled ? (
-                <Row label={t("common.cashback")} value={`− ${formatNPR(cashback)}`} />
               ) : null}
               <div className="mt-2 border-t border-separator pt-2">
                 <Row label={t("common.totalDebited")} value={formatNPR(totalDebited)} strong />

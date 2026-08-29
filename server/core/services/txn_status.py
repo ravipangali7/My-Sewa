@@ -62,6 +62,11 @@ def debit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
         record_dealer_commission(txn)
     except Exception:
         pass
+    try:
+        from .cashback import record_user_cashback
+        record_user_cashback(txn, wallet=wallet)
+    except Exception:
+        pass
 
 
 def credit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
@@ -80,6 +85,11 @@ def credit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
     try:
         from .dealer_commission import record_dealer_commission
         record_dealer_commission(txn)
+    except Exception:
+        pass
+    try:
+        from .cashback import record_user_cashback
+        record_user_cashback(txn, wallet=wallet)
     except Exception:
         pass
 
@@ -136,10 +146,20 @@ def apply_outbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[s
             record_dealer_commission(txn)
         except Exception:
             pass
+        try:
+            from .cashback import record_user_cashback
+            record_user_cashback(txn)
+        except Exception:
+            pass
     elif old_status == 'success' and new_status != 'success':
         try:
             from .dealer_commission import reverse_dealer_commission
             reverse_dealer_commission(txn)
+        except Exception:
+            pass
+        try:
+            from .cashback import reverse_user_cashback
+            reverse_user_cashback(txn)
         except Exception:
             pass
 
@@ -205,10 +225,20 @@ def apply_inbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[st
             record_dealer_commission(txn)
         except Exception:
             pass
+        try:
+            from .cashback import record_user_cashback
+            record_user_cashback(txn)
+        except Exception:
+            pass
     elif old_status == 'success' and new_status != 'success':
         try:
             from .dealer_commission import reverse_dealer_commission
             reverse_dealer_commission(txn)
+        except Exception:
+            pass
+        try:
+            from .cashback import reverse_user_cashback
+            reverse_user_cashback(txn)
         except Exception:
             pass
 

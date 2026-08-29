@@ -100,7 +100,7 @@ function AdminDealersPage() {
                     {[u.first_name, u.last_name].filter(Boolean).join(" ") || "—"}
                   </TableCell>
                   <TableCell className="tabular">{formatNPR(u.wallet_balance)}</TableCell>
-                  <TableCell>{u.commission_rate ?? "0"}%</TableCell>
+                  <TableCell className="tabular">{formatNPR(u.commission_rate ?? "0")}</TableCell>
                   <TableCell>{u.tds_rate ?? "Global"}%</TableCell>
                   <TableCell>
                     <Badge variant={u.is_active && !u.wallet_frozen ? "default" : "secondary"}>
@@ -152,7 +152,7 @@ function AdminDealersPage() {
                 <AdminMobileMeta
                   items={[
                     { label: "Wallet", value: formatNPR(u.wallet_balance) },
-                    { label: "Commission", value: `${u.commission_rate ?? "0"}%` },
+                    { label: "Commission", value: formatNPR(u.commission_rate ?? "0") },
                   ]}
                 />
                 <div className="mt-3">

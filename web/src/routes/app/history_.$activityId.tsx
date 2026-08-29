@@ -562,16 +562,20 @@ function HistoryStatementPage() {
                   value={amountNpr}
                   icon={<Coins className="size-4" />}
                 />
-                <SettlementRow
-                  label={t("common.charge")}
-                  value={chargeNpr}
-                  icon={<Tag className="size-4" />}
-                />
-                <SettlementRow
-                  label={t("common.cashback")}
-                  value={cashbackNpr}
-                  icon={<BadgeCheck className="size-4" />}
-                />
+                {detailMap.has(t("common.charge")) ? (
+                  <SettlementRow
+                    label={t("common.charge")}
+                    value={chargeNpr}
+                    icon={<Tag className="size-4" />}
+                  />
+                ) : null}
+                {detailMap.has(t("common.cashback")) ? (
+                  <SettlementRow
+                    label={t("common.cashback")}
+                    value={cashbackNpr}
+                    icon={<BadgeCheck className="size-4" />}
+                  />
+                ) : null}
               </div>
               <div className="mx-3 mb-3 rounded-xl bg-brand-soft/80 px-3.5 py-3">
                 <div className="flex items-center justify-between gap-3">

@@ -20,8 +20,6 @@ import {
   ArrowDownToLine,
   Send,
   Smartphone,
-  Percent,
-  Receipt,
   Trash2,
 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
@@ -43,7 +41,7 @@ import {
   normalizePaymentAccounts,
   paymentAccountsToBankDetails,
 } from "@/lib/payment-accounts";
-import type { AppConfig, PaymentAccount, PaymentMethod, ServiceChargeConfig } from "@/lib/types";
+import type { AppConfig, PaymentAccount, PaymentMethod } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const DEPOSIT_METHODS: {
@@ -199,8 +197,6 @@ const SECTIONS = [
   { id: "site", label: "General", icon: Building2 },
   { id: "payment", label: "Payments", icon: CreditCard },
   { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
-  { id: "charges", label: "Service charges", icon: Receipt },
-  { id: "commission", label: "Dealer commission", icon: Percent },
   { id: "remittance", label: "Remittance agent", icon: ArrowDownToLine },
   { id: "deposit", label: "Deposit accounts", icon: QrCode },
   { id: "smtp", label: "Email / SMTP", icon: Mail },
@@ -988,7 +984,7 @@ function SettingsPage() {
           <TabsContent value="transactions">
             <SettingsPanel
               title="Transaction rules"
-              description="Limits, charges and cashback for top-ups and fund transfers."
+              description="Amount limits and auto-verification. Charges and cashback are configured on Commission & Charge."
               onSave={() => saveConfigSection("transactions", config.transactions)}
               saving={saving}
             >
@@ -1038,18 +1034,6 @@ function SettingsPage() {
                   }
                 />
                 <NumberField
-                  id="topup_charge_percent"
-                  label="Top-up charge (%)"
-                  value={config.transactions.topup_charge_percent}
-                  step="0.01"
-                  onChange={(v) =>
-                    setConfig((c) => ({
-                      ...c,
-                      transactions: { ...c.transactions, topup_charge_percent: v },
-                    }))
-                  }
-                />
-                <NumberField
                   id="daily_transfer_limit"
                   label="Daily transfer limit (Rs.)"
                   value={config.transactions.daily_transfer_limit}
@@ -1064,66 +1048,6 @@ function SettingsPage() {
 
               <div className="mt-5 space-y-3">
                 <ToggleRow
-                  label="Transfer charge"
-                  description="Apply transfer charges when enabled and a charge amount is configured"
-                  checked={config.transactions.transfer_charge_enabled !== false}
-                  onCheckedChange={(v) =>
-                    setConfig((c) => ({
-                      ...c,
-                      transactions: { ...c.transactions, transfer_charge_enabled: v },
-                    }))
-                  }
-                />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <NumberField
-                    id="transfer_charge_flat"
-                    label="Transfer charge (Rs.)"
-                    value={config.transactions.transfer_charge_flat}
-                    onChange={(v) =>
-                      setConfig((c) => ({
-                        ...c,
-                        transactions: { ...c.transactions, transfer_charge_flat: v },
-                      }))
-                    }
-                  />
-                </div>
-                <ToggleRow
-                  label="Cashback"
-                  description="Apply cashback when enabled; uses configured amounts or provider cashback"
-                  checked={config.transactions.cashback_enabled !== false}
-                  onCheckedChange={(v) =>
-                    setConfig((c) => ({
-                      ...c,
-                      transactions: { ...c.transactions, cashback_enabled: v },
-                    }))
-                  }
-                />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <NumberField
-                    id="transfer_cashback_flat"
-                    label="Transfer cashback (Rs.)"
-                    value={config.transactions.transfer_cashback_flat ?? 0}
-                    onChange={(v) =>
-                      setConfig((c) => ({
-                        ...c,
-                        transactions: { ...c.transactions, transfer_cashback_flat: v },
-                      }))
-                    }
-                  />
-                  <NumberField
-                    id="transfer_cashback_percent"
-                    label="Transfer cashback (%)"
-                    value={config.transactions.transfer_cashback_percent ?? 0}
-                    step="0.01"
-                    onChange={(v) =>
-                      setConfig((c) => ({
-                        ...c,
-                        transactions: { ...c.transactions, transfer_cashback_percent: v },
-                      }))
-                    }
-                  />
-                </div>
-                <ToggleRow
                   label="Auto Status Verified"
                   description="When enabled, top-ups/transfers/bills finalize as success automatically. Manual deposits always stay pending for Super Admin approval. When disabled, top-ups and transfers also stay pending until an admin updates status."
                   checked={config.transactions.auto_status_verified === true}
@@ -1131,54 +1055,6 @@ function SettingsPage() {
                     setConfig((c) => ({
                       ...c,
                       transactions: { ...c.transactions, auto_status_verified: v },
-                    }))
-                  }
-                />
-              </div>
-            </SettingsPanel>
-          </TabsContent>
-
-          <TabsContent value="charges">
-            <ServiceChargesPanel />
-          </TabsContent>
-
-          <TabsContent value="commission">
-            <SettingsPanel
-              title="Dealer commission & TDS"
-              description="Global defaults used when a Dealer has no per-user rate. Per-dealer rates are set on the user form."
-              onSave={() =>
-                saveConfigSection("commission", config.commission ?? DEFAULT_CONFIG.commission!)
-              }
-              saving={saving}
-            >
-              <div className="grid gap-4 sm:grid-cols-2">
-                <NumberField
-                  id="default_commission_rate"
-                  label="Default commission rate (%)"
-                  value={config.commission?.default_commission_rate ?? 0}
-                  step="0.01"
-                  onChange={(v) =>
-                    setConfig((c) => ({
-                      ...c,
-                      commission: {
-                        ...(c.commission ?? DEFAULT_CONFIG.commission!),
-                        default_commission_rate: v,
-                      },
-                    }))
-                  }
-                />
-                <NumberField
-                  id="default_tds_rate"
-                  label="Default TDS rate (%)"
-                  value={config.commission?.default_tds_rate ?? 15}
-                  step="0.01"
-                  onChange={(v) =>
-                    setConfig((c) => ({
-                      ...c,
-                      commission: {
-                        ...(c.commission ?? DEFAULT_CONFIG.commission!),
-                        default_tds_rate: v,
-                      },
                     }))
                   }
                 />
@@ -2419,89 +2295,6 @@ function SettingsPage() {
         </Tabs>
       )}
     </AdminShell>
-  );
-}
-
-function ServiceChargesPanel() {
-  const errorPopup = useErrorPopup("Service charges");
-  const [rows, setRows] = useState<ServiceChargeConfig[]>([]);
-  const query = useQuery({
-    queryKey: ["admin", "service-charges"],
-    queryFn: () => apiClient.adminGetServiceCharges(),
-  });
-  useEffect(() => {
-    if (query.data?.data) setRows(query.data.data);
-  }, [query.data]);
-
-  const saveMutation = useMutation({
-    mutationFn: () => apiClient.adminSaveServiceCharges(rows),
-    onSuccess: (res) => {
-      setRows(res.data);
-      toast.success(res.message || "Service charges saved");
-    },
-    onError: (err) => errorPopup.show(err),
-  });
-
-  const setRow = (txnType: string, field: keyof ServiceChargeConfig, value: string) => {
-    setRows((current) =>
-      current.map((row) => (row.txn_type === txnType ? { ...row, [field]: value } : row)),
-    );
-  };
-
-  return (
-    <SettingsPanel
-      title="Service charges"
-      description="System, Dealer, and HimalPay charges applied automatically on every matching transaction. Dealer commission is charged only when the User is assigned to a Dealer. If HimalPay is 0, the live provider fee is used."
-      onSave={() => saveMutation.mutate()}
-      saving={saveMutation.isPending}
-    >
-      {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading charges…</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-border text-muted-foreground">
-                <th className="py-2 pr-3 font-medium">Service</th>
-                <th className="py-2 pr-3 font-medium">System flat</th>
-                <th className="py-2 pr-3 font-medium">System %</th>
-                <th className="py-2 pr-3 font-medium">Dealer flat</th>
-                <th className="py-2 pr-3 font-medium">Dealer %</th>
-                <th className="py-2 pr-3 font-medium">HimalPay flat</th>
-                <th className="py-2 font-medium">HimalPay %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.txn_type} className="border-b border-border/60">
-                  <td className="py-2 pr-3 font-medium">{row.label}</td>
-                  {(
-                    [
-                      "system_charge_flat",
-                      "system_charge_percent",
-                      "dealer_commission_flat",
-                      "dealer_commission_percent",
-                      "himalpay_charge_flat",
-                      "himalpay_charge_percent",
-                    ] as const
-                  ).map((field) => (
-                    <td key={field} className="py-2 pr-3 last:pr-0">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={row[field]}
-                        onChange={(e) => setRow(row.txn_type, field, e.target.value)}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </SettingsPanel>
   );
 }
 
