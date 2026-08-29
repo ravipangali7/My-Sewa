@@ -176,11 +176,11 @@ class _WebViewScreenState extends State<WebViewScreen>
     var style = document.createElement('style');
     style.id = styleId;
     style.textContent = [
-      'html.mysewa-native,html{height:auto!important;min-height:0!important;',
+      'html.mysewa-native:not(.keyboard-lock),html:not(.keyboard-lock){height:auto!important;min-height:0!important;',
       'max-height:none!important;overflow-x:clip!important;overflow-y:auto!important;',
       '-webkit-overflow-scrolling:touch!important;touch-action:pan-x pan-y!important;',
       'overscroll-behavior-y:none!important;}',
-      'html.mysewa-native body,body{height:auto!important;min-height:0!important;',
+      'html.mysewa-native:not(.keyboard-lock) body,html:not(.keyboard-lock) body{height:auto!important;min-height:0!important;',
       'max-height:none!important;overflow-x:clip!important;overflow-y:visible!important;',
       '-webkit-overflow-scrolling:touch!important;touch-action:pan-x pan-y!important;',
       'overscroll-behavior-y:none!important;}'
@@ -192,6 +192,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (!el || el.nodeType !== 1) return;
     var cs = window.getComputedStyle(el);
     if (cs.position === 'fixed' || cs.position === 'absolute') return;
+    if (el.classList && el.classList.contains('mysewa-fill-height')) return;
     // Clear stale height locks from older unlock scripts (blank overscroll).
     if (el.style.getPropertyValue('height') || el.style.getPropertyValue('min-height') || el.style.getPropertyValue('max-height')) {
       el.style.removeProperty('height');

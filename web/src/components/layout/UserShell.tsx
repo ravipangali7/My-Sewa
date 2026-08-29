@@ -181,7 +181,7 @@ export function UserShell({
       className={cn(
         "mysewa-app-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-background lg:flex lg:h-dvh lg:max-h-dvh lg:flex-row lg:overflow-hidden",
         fillHeight &&
-          "flex h-[var(--vv-height,100dvh)] max-h-[var(--vv-height,100dvh)] flex-col overflow-hidden",
+          "mysewa-fill-height flex h-[var(--vv-height,100dvh)] max-h-[var(--vv-height,100dvh)] flex-col overflow-hidden",
       )}
     >
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex">

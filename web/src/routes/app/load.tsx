@@ -265,7 +265,7 @@ function LoadWallet() {
         </Button>
       }
     >
-      <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
+      <div className="grid min-w-0 max-w-full gap-5 lg:grid-cols-2">
         {accountPending || walletFrozen ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />

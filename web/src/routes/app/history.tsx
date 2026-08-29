@@ -202,7 +202,7 @@ function HistoryPage() {
         </Button>
       }
     >
-      <div className="min-w-0 max-w-full space-y-4 overflow-x-clip">
+      <div className="min-w-0 max-w-full space-y-4">
         {hasActiveFilters ? (
           <div className="flex flex-wrap items-center gap-2 px-0.5">
             <span className="rounded-md bg-muted px-2 py-1 text-[12px] font-medium text-muted-foreground">

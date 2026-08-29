@@ -196,9 +196,14 @@
 /* Clearance for fixed mobile bottom nav (elevated center FAB + safe area).
  * Sized to the real tab bar (~56–64px content + padding), not an extra
  * viewport chunk — excess here becomes blank overscroll on every page.
- * When the soft keyboard is open, nav is hidden so fields sit on the IME. */
+ * When the soft keyboard is open, nav is hidden so fields sit on the IME.
+ * --keyboard-inset is 0 when the layout already resized; on overlay IMEs
+ * it adds scroll room so the last field/button can sit above the keyboard. */
 @utility pb-safe {
-  padding-bottom: calc(var(--bottom-nav-space, 5.25rem) + var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)));
+  padding-bottom: calc(
+    var(--bottom-nav-space, 5.25rem) + var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)) +
+      var(--keyboard-inset, 0px)
+  );
 }
 
 @layer base {
@@ -260,11 +265,11 @@
     overscroll-behavior-y: none !important;
   }
 
-  html.mysewa-native {
+  html.mysewa-native:not(.keyboard-lock) {
     overflow-y: auto !important;
   }
 
-  html.mysewa-native body {
+  html.mysewa-native:not(.keyboard-lock) body {
     overflow-y: visible !important;
   }
 
@@ -286,9 +291,11 @@
   }
 
   /* Soft keyboard: hide the tab bar so search/chat fields stay at the
-   * visible bottom (WhatsApp-style) instead of stacking above the nav. */
+   * visible bottom (WhatsApp-style) instead of stacking above the nav.
+   * Keep a small --bottom-nav-space so the last form control is not
+   * flush against the system navigation bar. */
   html.keyboard-open {
-    --bottom-nav-space: 0px;
+    --bottom-nav-space: 0.75rem;
   }
 
   html.keyboard-open .mysewa-bottom-nav {
@@ -297,10 +304,13 @@
     visibility: hidden;
   }
 
-  html.keyboard-open,
-  html.keyboard-open body,
-  html.mysewa-native.keyboard-open,
-  html.mysewa-native.keyboard-open body {
+  /* Lock document scroll only on fill-height composer screens (chat).
+   * Applying this to every focused input froze Fund Transfer and other
+   * long forms so remarks / submit could not be scrolled into view. */
+  html.keyboard-open.keyboard-lock,
+  html.keyboard-open.keyboard-lock body,
+  html.mysewa-native.keyboard-open.keyboard-lock,
+  html.mysewa-native.keyboard-open.keyboard-lock body {
     overflow: hidden !important;
   }
 }

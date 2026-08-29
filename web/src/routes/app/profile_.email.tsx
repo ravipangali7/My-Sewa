@@ -57,7 +57,7 @@ function ChangeEmailPage() {
   return (
     <UserShell title={t("profile.changeEmail")} back="/app/profile">
       <form
-        className="inset-group min-w-0 max-w-full space-y-4 overflow-x-clip p-4"
+        className="inset-group min-w-0 max-w-full space-y-4 p-4"
         onSubmit={async (e) => {
           e.preventDefault();
           if (!otpSent) {

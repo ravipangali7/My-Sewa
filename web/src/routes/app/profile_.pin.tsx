@@ -160,7 +160,7 @@ function TransactionPinPage() {
         </div>
 
         <form
-          className="space-y-4 rounded-2xl border border-border/60 bg-white p-4 shadow-[0_8px_28px_-18px_rgba(2,8,23,0.28)] min-w-0 max-w-full overflow-x-clip"
+          className="space-y-4 rounded-2xl border border-border/60 bg-white p-4 shadow-[0_8px_28px_-18px_rgba(2,8,23,0.28)] min-w-0 max-w-full"
           onSubmit={async (e) => {
             e.preventDefault();
             const error = validate();

@@ -44,6 +44,7 @@ export function ensureNativeDocumentScroll(): void {
     if (!el) return;
     const style = window.getComputedStyle(el);
     if (style.position === "fixed" || style.position === "absolute") return;
+    if (el.classList.contains("mysewa-fill-height")) return;
     clearStaleHeightLocks(el);
     // Never leave overflow-x:hidden on expanding shells — it pairs to
     // overflow-y:auto and Android WebView swallows the gesture.

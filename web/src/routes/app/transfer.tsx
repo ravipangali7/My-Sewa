@@ -789,7 +789,7 @@ function Transfer() {
   }
 
   const transferMain = (
-      <div className="grid min-w-0 max-w-full gap-5 overflow-x-clip lg:grid-cols-2">
+      <div className="grid min-w-0 max-w-full gap-5 lg:grid-cols-2">
         {accountPending || walletLocked ? (
           <div className="lg:col-span-2">
             <AccountPendingBanner />

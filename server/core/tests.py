@@ -3264,7 +3264,9 @@ class SupportChatHierarchyTests(TestCase):
         items = resp.json().get('items') or []
         self.assertEqual(items[0].get('sender_display_name'), 'Cust Omer')
         resp = self.client.get(reverse('support_chat_attachment', args=[thread_id, msg_id]))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(getattr(resp, 'streaming', False))
+        b"".join(resp.streaming_content)
         reply = self.client.post(
             reverse('support_chat_messages', args=[thread_id]),
             {'body': 'We can help'},

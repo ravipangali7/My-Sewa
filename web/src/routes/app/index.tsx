@@ -200,7 +200,7 @@ function WalletHome() {
   return (
     <UserShell title="MySewa" hideHeader>
       <HomePopupDialog />
-      <div className="relative flex min-w-0 max-w-full flex-col overflow-x-clip bg-[#F3F5F8] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
+      <div className="relative flex min-w-0 max-w-full flex-col bg-[#F3F5F8] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
         {/* Header band */}
         <section
           className={cn(

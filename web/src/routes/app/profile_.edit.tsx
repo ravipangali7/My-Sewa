@@ -63,7 +63,7 @@ function EditProfilePage() {
   return (
     <UserShell title={t("profile.editProfile")} back="/app/profile">
       <form
-        className="inset-group min-w-0 max-w-full space-y-4 overflow-x-clip p-4"
+        className="inset-group min-w-0 max-w-full space-y-4 p-4"
         onSubmit={async (e) => {
           e.preventDefault();
           if (!identityLocked && !dateOfBirth) {

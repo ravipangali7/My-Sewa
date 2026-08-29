@@ -400,7 +400,7 @@ function ReceiveRemittance() {
         </Button>
       }
     >
-      <div className="min-w-0 max-w-full space-y-5 overflow-x-clip">
+      <div className="min-w-0 max-w-full space-y-5">
         {accountPending || isWalletFrozen(wallet, user) ? <AccountPendingBanner /> : null}
         {!remittancesEnabled && !accountPending && !isWalletFrozen(wallet, user) ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4">

@@ -409,7 +409,7 @@ function HistoryStatementPage() {
           </Link>
         </div>
       ) : (
-        <article className="relative mx-auto w-full min-w-0 max-w-lg overflow-x-clip bg-[#F5F7FA] px-3.5 pb-8 pt-[max(12px,var(--content-safe-top,var(--safe-area-top,env(safe-area-inset-top,0px))))] sm:max-w-2xl sm:px-5 print:max-w-none print:bg-white">
+        <article className="relative mx-auto w-full min-w-0 max-w-lg bg-[#F5F7FA] px-3.5 pb-8 pt-[max(12px,var(--content-safe-top,var(--safe-area-top,env(safe-area-inset-top,0px))))] sm:max-w-2xl sm:px-5 print:max-w-none print:bg-white">
           <div className="mb-3 flex min-w-0 items-center justify-between gap-2 print:hidden">
             <Link to="/app/history" className="shrink-0 text-[14px] font-semibold text-brand">
               {t("history.back")}

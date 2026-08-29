@@ -398,7 +398,7 @@ function WaterBillPayment() {
         </Button>
       }
     >
-      <div className="min-w-0 max-w-full space-y-4 overflow-x-clip">
+      <div className="min-w-0 max-w-full space-y-4">
         <AccountPendingBanner />
         {!enabled && !accountPending ? (
           <section className="inset-group border-destructive/20 bg-destructive/5 p-4">

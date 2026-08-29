@@ -146,7 +146,7 @@ function Profile() {
 
   return (
     <UserShell title={t("profile.title")} hideHeader>
-      <div className="min-w-0 max-w-full overflow-x-clip bg-[#F2F4F7] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
+      <div className="min-w-0 max-w-full bg-[#F2F4F7] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
         <section className="relative bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_32%,#0C6B7A_68%,#0A9B6E_100%)] px-4 pb-8 pt-[max(14px,var(--content-safe-top,var(--safe-area-top,env(safe-area-inset-top,0px))))]">
           <div className="flex items-center gap-1">
             {isNetworkRole(user) ? <DealerMenuButton className="mt-0 -ml-2" /> : null}
