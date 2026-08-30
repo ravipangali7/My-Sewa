@@ -929,27 +929,18 @@ function Transfer() {
                 />
               </div>
 
-              <div className="rounded-xl bg-muted p-3 text-[14px]">
-                <Row label={t("common.amount")} value={formatNPR(amt)} />
-                {Number(charge) > 0 ? <Row label={t("common.charge")} value={formatNPR(charge)} /> : null}
-                {Number(cashback) > 0 ? (
-                  <>
-                    <Row label={t("common.cashback")} value={formatNPR(cashback)} />
-                    <p className="mt-0.5 text-[12px] text-muted-foreground">{t("common.cashbackAfter")}</p>
-                  </>
-                ) : null}
-                <div className="mt-2 border-t border-separator pt-2">
-                  <Row label={t("common.totalDebited")} value={formatNPR(totalDebited || amt)} strong />
-                </div>
-                {insufficient ? (
-                  <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
-                    {t("transfer.insufficient", {
-                      required: formatNPR(totalDue),
-                      available: formatNPR(walletBalance),
-                    })}
-                  </p>
-                ) : null}
-              </div>
+              <ChargePreviewBox
+                amount={amt}
+                charge={charge}
+                himalpayCharge={himalpayCharge}
+                cashback={cashback}
+                totalDebited={totalDebited || amt.toFixed(2)}
+                insufficient={insufficient}
+                insufficientText={t("transfer.insufficient", {
+                  required: formatNPR(totalDue),
+                  available: formatNPR(walletBalance),
+                })}
+              />
 
               <Button
                 type="submit"
@@ -1183,29 +1174,18 @@ function Transfer() {
               />
             </div>
 
-            <div className="rounded-xl bg-muted p-3 text-[14px]">
-              <Row label={t("common.amount")} value={formatNPR(amt)} />
-              {Number(charge) > 0 ? (
-                <Row label={t("common.charge")} value={formatNPR(charge)} />
-              ) : null}
-              {Number(cashback) > 0 ? (
-                <>
-                  <Row label={t("common.cashback")} value={formatNPR(cashback)} />
-                  <p className="mt-0.5 text-[12px] text-muted-foreground">{t("common.cashbackAfter")}</p>
-                </>
-              ) : null}
-              <div className="mt-2 border-t border-separator pt-2">
-                <Row label={t("common.totalDebited")} value={formatNPR(totalDebited)} strong />
-              </div>
-              {insufficient ? (
-                <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
-                  {t("transfer.insufficient", {
-                    required: formatNPR(totalDue),
-                    available: formatNPR(walletBalance),
-                  })}
-                </p>
-              ) : null}
-            </div>
+            <ChargePreviewBox
+              amount={amt}
+              charge={charge}
+              himalpayCharge={himalpayCharge}
+              cashback={cashback}
+              totalDebited={totalDebited}
+              insufficient={insufficient}
+              insufficientText={t("transfer.insufficient", {
+                required: formatNPR(totalDue),
+                available: formatNPR(walletBalance),
+              })}
+            />
 
             <Button
               type="submit"
@@ -1518,11 +1498,55 @@ function VerifyStatusMessage({
   );
 }
 
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function otherApplicableCharges(charge: string, himalpayCharge: string): number {
+  const combined = Number(charge) || 0;
+  const himalpay = Number(himalpayCharge) || 0;
+  const other = combined - himalpay;
+  return other > 0.004 ? other : 0;
+}
+
+function ChargePreviewBox({
+  amount,
+  charge,
+  himalpayCharge,
+  cashback,
+  totalDebited,
+  insufficient,
+  insufficientText,
+}: {
+  amount: number;
+  charge: string;
+  himalpayCharge: string;
+  cashback: string;
+  totalDebited: string;
+  insufficient: boolean;
+  insufficientText: string;
+}) {
+  const { t } = useI18n();
+  const himalpay = Number(himalpayCharge) || 0;
+  const other = otherApplicableCharges(charge, himalpayCharge);
+  const cb = Number(cashback) || 0;
   return (
-    <div className="flex justify-between py-0.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("tabular", strong ? "font-semibold" : "font-medium")}>{value}</span>
+    <div className="rounded-xl bg-muted p-3 text-[14px]">
+      <Row label={t("common.amount")} value={formatNPR(amount)} />
+      {himalpay > 0 ? (
+        <Row label={t("common.himalpayCharge")} value={formatNPR(himalpayCharge)} />
+      ) : null}
+      {other > 0 ? <Row label={t("common.charge")} value={formatNPR(other)} /> : null}
+      {cb > 0 ? (
+        <>
+          <Row label={t("common.cashbackCharge")} value={formatNPR(cashback)} />
+          <p className="mt-0.5 text-[12px] text-muted-foreground">{t("common.cashbackAfter")}</p>
+        </>
+      ) : null}
+      <div className="mt-2 border-t border-separator pt-2">
+        <Row label={t("common.totalDebited")} value={formatNPR(totalDebited || amount)} strong />
+      </div>
+      {insufficient ? (
+        <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
+          {insufficientText}
+        </p>
+      ) : null}
     </div>
   );
 }

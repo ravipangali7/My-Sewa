@@ -301,7 +301,10 @@ function HistoryStatementPage() {
 
   const amountNpr = detailMap.get(t("common.amountNpr")) ?? statement?.headlineAmount ?? "—";
   const chargeNpr = detailMap.get(t("common.charge")) ?? "Rs. 0.00";
-  const cashbackNpr = detailMap.get(t("common.cashback")) ?? "Rs. 0.00";
+  const himalpayNpr = detailMap.get(t("common.himalpayCharge"));
+  const cashbackChargeNpr = detailMap.get(t("common.cashbackCharge"));
+  const cashbackReturnNpr = detailMap.get(t("common.cashbackReturn"));
+  const cashbackNpr = cashbackChargeNpr ?? detailMap.get(t("common.cashback")) ?? "Rs. 0.00";
   const grossCommissionNpr = detailMap.get(t("history.grossCommission"));
   const tdsChargeRateLabel = statement
     ? [...detailMap.keys()].find((label) => label.startsWith(t("history.tdsCharge")))
@@ -312,6 +315,7 @@ function HistoryStatementPage() {
   const balanceAfterNpr = detailMap.get(t("history.balanceAfter"));
   const totalNpr =
     netCommissionNpr ??
+    cashbackReturnNpr ??
     detailMap.get(t("history.totalCredited")) ??
     detailMap.get(t("common.totalDebited")) ??
     statement?.headlineAmount ??
@@ -325,7 +329,10 @@ function HistoryStatementPage() {
       t("history.channel"),
       t("common.amountNpr"),
       t("common.charge"),
+      t("common.himalpayCharge"),
       t("common.cashback"),
+      t("common.cashbackCharge"),
+      t("common.cashbackReturn"),
       t("history.grossCommission"),
       t("history.tdsCharge"),
       t("history.netCommissionCredited"),
@@ -369,6 +376,12 @@ function HistoryStatementPage() {
       label === t("history.netCommission")
     ) {
       return <Coins className="size-4" />;
+    }
+    if (label === t("common.himalpayCharge") || label === t("common.cashbackCharge")) {
+      return <Tag className="size-4" />;
+    }
+    if (label === t("common.cashbackReturn") || label === t("activity.cashbackReturn")) {
+      return <BadgeCheck className="size-4" />;
     }
     if (label === t("history.tdsCharge") || label.startsWith(t("history.tdsCharge"))) {
       return <Tag className="size-4" />;
@@ -610,6 +623,12 @@ function HistoryStatementPage() {
                       icon={<Coins className="size-4" />}
                     />
                   </>
+                ) : cashbackReturnNpr ? (
+                  <SettlementRow
+                    label={t("common.cashbackReturn")}
+                    value={cashbackReturnNpr}
+                    icon={<BadgeCheck className="size-4" />}
+                  />
                 ) : (
                   <SettlementRow
                     label={t("common.amountNpr")}
@@ -617,6 +636,13 @@ function HistoryStatementPage() {
                     icon={<Coins className="size-4" />}
                   />
                 )}
+                {himalpayNpr ? (
+                  <SettlementRow
+                    label={t("common.himalpayCharge")}
+                    value={himalpayNpr}
+                    icon={<Tag className="size-4" />}
+                  />
+                ) : null}
                 {detailMap.has(t("common.charge")) ? (
                   <SettlementRow
                     label={t("common.charge")}
@@ -624,7 +650,14 @@ function HistoryStatementPage() {
                     icon={<Tag className="size-4" />}
                   />
                 ) : null}
-                {detailMap.has(t("common.cashback")) ? (
+                {cashbackChargeNpr ? (
+                  <SettlementRow
+                    label={t("common.cashbackCharge")}
+                    value={`− ${cashbackChargeNpr}`}
+                    icon={<Tag className="size-4" />}
+                    debit
+                  />
+                ) : detailMap.has(t("common.cashback")) ? (
                   <SettlementRow
                     label={t("common.cashback")}
                     value={cashbackNpr}

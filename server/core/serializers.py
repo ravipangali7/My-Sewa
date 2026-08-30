@@ -730,6 +730,8 @@ class WalletTransferSerializer(serializers.ModelSerializer):
     counterparty_name = serializers.SerializerMethodField()
     balance_before = serializers.SerializerMethodField()
     balance_after = serializers.SerializerMethodField()
+    cashback = serializers.SerializerMethodField()
+    himalpay_charge = serializers.SerializerMethodField()
 
     class Meta:
         model = WalletTransfer
@@ -741,7 +743,7 @@ class WalletTransferSerializer(serializers.ModelSerializer):
             'balance_before', 'balance_after',
             'sender_balance_before', 'sender_balance_after',
             'recipient_balance_before', 'recipient_balance_after',
-            'charge', 'total_debited',
+            'charge', 'total_debited', 'cashback', 'himalpay_charge',
         )
         read_only_fields = fields
 
@@ -788,6 +790,33 @@ class WalletTransferSerializer(serializers.ModelSerializer):
             else obj.sender_balance_after
         )
         return f'{value:.2f}'
+
+    def _charge_snapshot(self, obj):
+        cached = getattr(obj, '_txn_charge_snap', None)
+        if cached is False:
+            return None
+        if cached is not None:
+            return cached
+        from .services.txn_charges import get_transaction_charge
+        found = get_transaction_charge(obj)
+        obj._txn_charge_snap = found if found is not None else False
+        return found
+
+    def get_cashback(self, obj):
+        if self._is_received(obj):
+            return '0.00'
+        snap = self._charge_snapshot(obj)
+        if snap is None:
+            return '0.00'
+        return f'{snap.cashback:.2f}'
+
+    def get_himalpay_charge(self, obj):
+        if self._is_received(obj):
+            return '0.00'
+        snap = self._charge_snapshot(obj)
+        if snap is None:
+            return '0.00'
+        return f'{snap.himalpay_charge:.2f}'
 
 
 class WalletTransferLookupSerializer(serializers.Serializer):

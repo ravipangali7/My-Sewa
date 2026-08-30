@@ -211,7 +211,9 @@ export function buildActivity(
       const isCredit = a.adjustment_type === "credit";
       const title =
         a.kind === "cashback"
-          ? t("activity.cashback")
+          ? isCredit
+            ? t("activity.cashbackReturn")
+            : t("activity.cashbackCharge")
           : a.kind === "dealer_commission"
             ? t("activity.dealerCommission")
             : isCredit
@@ -239,6 +241,7 @@ export function buildActivity(
     }),
     ...(tx.wallet_transfers ?? []).map((wt: WalletTransfer) => {
       const received = wt.direction === "received";
+      const sentTotal = Number(wt.total_debited);
       return {
         id: `wt-${wt.id}`,
         kind: "wallet_transfer" as const,
@@ -249,7 +252,10 @@ export function buildActivity(
           wt.counterparty_name
             ? `${wt.counterparty_name} · ${wt.counterparty_phone}`
             : wt.counterparty_phone,
-        amount: wt.amount,
+        amount:
+          !received && Number.isFinite(sentTotal) && sentTotal > 0
+            ? wt.total_debited!
+            : wt.amount,
         credit: received,
         status: wt.status,
         created_at: wt.created_at,
@@ -345,6 +351,36 @@ function pushBalanceRows(
   }
   if (balanceAfter != null && String(balanceAfter).trim() !== "") {
     pushDetail(rows, t("history.balanceAfter"), formatNPR(balanceAfter));
+  }
+}
+
+function pushDebitChargeBreakdown(
+  rows: StatementRow[],
+  t: TranslateFn,
+  opts: {
+    amount: string;
+    charge?: string | null;
+    himalpay?: string | null;
+    cashback?: string | null;
+    totalDebited?: string | null;
+  },
+) {
+  const himalpay = Number(opts.himalpay) || 0;
+  const combined = Number(opts.charge) || 0;
+  const other = combined - himalpay;
+  const cashback = Number(opts.cashback) || 0;
+  pushDetail(rows, t("common.amountNpr"), formatNPR(opts.amount));
+  if (himalpay > 0) {
+    pushDetail(rows, t("common.himalpayCharge"), formatNPR(opts.himalpay));
+  }
+  if (other > 0.004) {
+    pushDetail(rows, t("common.charge"), formatNPR(other));
+  }
+  if (cashback > 0) {
+    pushDetail(rows, t("common.cashbackCharge"), formatNPR(opts.cashback), { danger: true });
+  }
+  if (opts.totalDebited != null && String(opts.totalDebited).trim() !== "") {
+    pushDetail(rows, t("common.totalDebited"), formatNPR(opts.totalDebited));
   }
 }
 
@@ -454,12 +490,12 @@ export function buildActivityStatement(
       t("activity.topUp", { operator }),
     );
     pushDetail(details, t("common.status"), translateStatus(top.status, t));
-    pushDetail(details, t("common.amountNpr"), formatNPR(top.amount));
-    pushDetail(details, t("common.charge"), formatNPR(top.charge));
-    if (Number(top.cashback) > 0) {
-      pushDetail(details, t("common.cashback"), formatNPR(top.cashback));
-    }
-    pushDetail(details, t("common.totalDebited"), formatNPR(top.total_debited));
+    pushDebitChargeBreakdown(details, t, {
+      amount: top.amount,
+      charge: top.charge,
+      cashback: top.cashback,
+      totalDebited: top.total_debited,
+    });
     pushBalanceRows(details, t, top.balance_before, top.balance_after);
     pushDetail(details, t("history.merchantTxn"), top.merchant_txn_id, {
       mono: true,
@@ -509,9 +545,12 @@ export function buildActivityStatement(
     });
     pushDetail(details, t("internet.customerName"), bill.customer_name || "—");
     pushDetail(details, t("internet.currentPackage"), bill.package_name || "—");
-    pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
-    pushDetail(details, t("common.charge"), formatNPR(bill.charge));
-    pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
+    pushDebitChargeBreakdown(details, t, {
+      amount: bill.amount,
+      charge: bill.charge,
+      cashback: bill.cashback,
+      totalDebited: bill.total_debited,
+    });
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
       mono: true,
@@ -555,9 +594,12 @@ export function buildActivityStatement(
     pushDetail(details, t("common.status"), translateStatus(dp.status, t));
     pushDetail(details, t("common.operator"), dp.operator);
     pushDetail(details, t("internet.currentPackage"), dp.package_name || "—");
-    pushDetail(details, t("common.amountNpr"), formatNPR(dp.amount));
-    pushDetail(details, t("common.charge"), formatNPR(dp.charge));
-    pushDetail(details, t("common.totalDebited"), formatNPR(dp.total_debited));
+    pushDebitChargeBreakdown(details, t, {
+      amount: dp.amount,
+      charge: dp.charge,
+      cashback: dp.cashback,
+      totalDebited: dp.total_debited,
+    });
     pushBalanceRows(details, t, dp.balance_before, dp.balance_after);
     pushDetail(details, t("history.merchantTxn"), dp.merchant_txn_id, {
       mono: true,
@@ -601,9 +643,12 @@ export function buildActivityStatement(
     pushDetail(details, t("water.customerCode"), bill.customer_code, { mono: true });
     pushDetail(details, t("water.counter"), bill.counter);
     pushDetail(details, t("water.customerName"), bill.customer_name || "—");
-    pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
-    pushDetail(details, t("common.charge"), formatNPR(bill.charge));
-    pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
+    pushDebitChargeBreakdown(details, t, {
+      amount: bill.amount,
+      charge: bill.charge,
+      cashback: bill.cashback,
+      totalDebited: bill.total_debited,
+    });
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
       mono: true,
@@ -651,9 +696,12 @@ export function buildActivityStatement(
       bill.office_name || bill.office_code,
     );
     pushDetail(details, t("electricity.customerName"), bill.customer_name || "—");
-    pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
-    pushDetail(details, t("common.charge"), formatNPR(bill.charge));
-    pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
+    pushDebitChargeBreakdown(details, t, {
+      amount: bill.amount,
+      charge: bill.charge,
+      cashback: bill.cashback,
+      totalDebited: bill.total_debited,
+    });
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
       mono: true,
@@ -716,9 +764,12 @@ export function buildActivityStatement(
     if (bill.month != null) {
       pushDetail(details, t("communityElectricity.month"), String(bill.month));
     }
-    pushDetail(details, t("common.amountNpr"), formatNPR(bill.amount));
-    pushDetail(details, t("common.charge"), formatNPR(bill.charge));
-    pushDetail(details, t("common.totalDebited"), formatNPR(bill.total_debited));
+    pushDebitChargeBreakdown(details, t, {
+      amount: bill.amount,
+      charge: bill.charge,
+      cashback: bill.cashback,
+      totalDebited: bill.total_debited,
+    });
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
       mono: true,
@@ -752,24 +803,24 @@ export function buildActivityStatement(
     const details: StatementRow[] = [];
     const isCashback = adj.kind === "cashback";
     const isDealerCommission = adj.kind === "dealer_commission";
+    const isCredit = adj.adjustment_type === "credit";
     const serviceName = isCashback
-      ? t("activity.cashback")
+      ? isCredit
+        ? t("activity.cashbackReturn")
+        : t("activity.cashbackCharge")
       : isDealerCommission
         ? t("activity.dealerCommission")
         : t("notif.typeWalletAdjustment");
-    const typeLabel = isCashback
-      ? t("activity.cashback")
-      : isDealerCommission
-        ? t("activity.dealerCommission")
-        : adj.adjustment_type === "credit"
-          ? t("activity.walletCredit")
-          : t("activity.walletDebit");
+    const typeLabel = serviceName;
     pushDetail(details, t("history.referenceCode"), reference, { mono: true });
     pushDetail(details, t("history.dateTime"), formatDateTime(adj.created_at));
     pushDetail(details, t("history.channel"), t("history.channelOnline"));
     pushDetail(details, t("history.serviceName"), serviceName);
     pushDetail(details, t("common.status"), translateStatus("success", t));
     pushDetail(details, t("history.adjustmentType"), typeLabel);
+    if (isCashback && isCredit) {
+      pushDetail(details, t("common.cashbackReturn"), formatNPR(displayAmount));
+    }
     if (isDealerCommission && hasTdsCharge(adj) && adj.gross_commission) {
       const rate = formatTdsRate(adj.tds_rate);
       pushDetail(details, t("history.grossCommission"), formatNPR(adj.gross_commission));
@@ -784,8 +835,9 @@ export function buildActivityStatement(
         t("history.netCommissionCredited"),
         formatNPR(adj.net_commission || displayAmount),
       );
+    } else if (!(isCashback && isCredit)) {
+      pushDetail(details, t("common.amountNpr"), formatNPR(displayAmount));
     }
-    pushDetail(details, t("common.amountNpr"), formatNPR(displayAmount));
     pushDetail(details, t("history.balanceBefore"), formatNPR(adj.balance_before));
     pushDetail(details, t("history.balanceAfter"), formatNPR(adj.balance_after));
     pushDetail(details, t("common.note"), adj.reason?.trim() || "—");
@@ -798,7 +850,9 @@ export function buildActivityStatement(
       reference,
       headlineAmount: formatNPR(displayAmount),
       amountCaption: isCashback
-        ? t("activity.cashback")
+        ? isCredit
+          ? t("activity.cashbackReturn")
+          : t("activity.cashbackCharge")
         : isDealerCommission
           ? t("history.netCommissionCredited")
           : adj.adjustment_type === "credit"
@@ -827,7 +881,17 @@ export function buildActivityStatement(
         ? `${wt.counterparty_name} · ${wt.counterparty_phone}`
         : wt.counterparty_phone,
     );
-    pushDetail(details, t("common.amountNpr"), formatNPR(wt.amount));
+    if (received) {
+      pushDetail(details, t("common.amountNpr"), formatNPR(wt.amount));
+    } else {
+      pushDebitChargeBreakdown(details, t, {
+        amount: wt.amount,
+        charge: wt.charge,
+        himalpay: wt.himalpay_charge,
+        cashback: wt.cashback,
+        totalDebited: wt.total_debited,
+      });
+    }
     pushDetail(details, t("history.balanceBefore"), formatNPR(wt.balance_before));
     pushDetail(details, t("history.balanceAfter"), formatNPR(wt.balance_after));
     pushDetail(details, t("common.remarks"), wt.remarks?.trim() || "—");
@@ -835,7 +899,13 @@ export function buildActivityStatement(
     return {
       item,
       reference,
-      headlineAmount: formatNPR(wt.amount),
+      headlineAmount: formatNPR(
+        received
+          ? wt.amount
+          : Number(wt.total_debited) > 0
+            ? wt.total_debited!
+            : wt.amount,
+      ),
       amountCaption: received ? t("history.walletCredit") : t("history.walletDebit"),
       footer: t("history.footer"),
       details,
@@ -877,12 +947,13 @@ export function buildActivityStatement(
     t("history.verified"),
     b.verified ? t("history.yes") : t("history.no"),
   );
-  pushDetail(details, t("common.amountNpr"), formatNPR(b.amount));
-  pushDetail(details, t("common.charge"), formatNPR(b.charge));
-  if (Number(b.cashback) > 0) {
-    pushDetail(details, t("common.cashback"), formatNPR(b.cashback));
-  }
-  pushDetail(details, t("common.totalDebited"), formatNPR(b.total_debited));
+  pushDebitChargeBreakdown(details, t, {
+    amount: b.amount,
+    charge: b.charge,
+    himalpay: b.provider_charge,
+    cashback: b.cashback,
+    totalDebited: b.total_debited,
+  });
   pushBalanceRows(details, t, b.balance_before, b.balance_after);
   pushDetail(details, t("common.remarks"), b.transaction_remarks?.trim() || "—");
   pushDetail(details, t("history.merchantTxn"), b.merchant_txn_id, {

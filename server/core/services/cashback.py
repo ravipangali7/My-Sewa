@@ -91,7 +91,7 @@ def record_user_cashback(txn, wallet=None) -> Optional[object]:
                 source_txn_id=txn_id,
                 balance_before=before,
                 balance_after=expected,
-                reason=f'Cashback · {service}',
+                reason=f'Cashback return · {service}',
                 reference=ref,
             )
             TransactionCharge.objects.filter(txn_type=txn_type, txn_id=txn_id).update(
@@ -149,7 +149,7 @@ def reverse_user_cashback(txn) -> None:
                 source_txn_id=txn_id,
                 balance_before=before,
                 balance_after=expected,
-                reason='Cashback reversal',
+                reason='Cashback return reversed',
                 reference=reverse_ref,
             )
             TransactionCharge.objects.filter(txn_type=txn_type, txn_id=txn_id).update(

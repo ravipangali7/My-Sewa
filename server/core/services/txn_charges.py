@@ -389,22 +389,23 @@ def quote_charges(
 def quote_to_public(quote: dict) -> dict:
     """JSON-safe breakdown for calculate-charge / create responses.
 
-    Dealer/network fee is folded into ``charge`` so the user never sees a
+    Dealer/network fee stays inside ``charge`` so the user never sees a
     separate dealer-commission line. ``charge`` excludes the cashback hold so
-    the UI can show amount + charges + cashback = total. User cashback is
-    ``cashback_credit`` (posted after success). ``cashback`` stays 0 so older
-    clients do not subtract it from the debit.
+    the UI can show amount + HimalPay + other charges + cashback = total.
+    HimalPay and the cashback hold are returned with their real amounts.
+    ``cashback_credit`` is the same cashback amount, returned after success.
     """
     fee_extra = visible_fee_extra(quote)
+    himalpay = money(quote.get('himalpay_charge', 0))
     user_cb = money(quote.get('cashback', 0))
     return {
         'amount': str(quote.get('amount', _ZERO)),
         'system_charge': str(fee_extra),
         'dealer_commission': '0.00',
-        'himalpay_charge': '0.00',
+        'himalpay_charge': str(himalpay),
         'charge': str(fee_extra),
         'total_charges': str(fee_extra),
-        'cashback': '0.00',
+        'cashback': str(user_cb),
         'cashback_credit': str(user_cb),
         'total_debited': str(quote['wallet_amount']) if quote.get('direction') != 'credit' else None,
         'total_credited': str(quote['wallet_amount']) if quote.get('direction') == 'credit' else None,

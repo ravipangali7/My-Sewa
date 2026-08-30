@@ -161,7 +161,7 @@ function TopUp() {
           setCashback(String(res.cashback_credit ?? res.cashback));
           setPlatformCharge(String(res.system_charge ?? res.platform_charge ?? "0.00"));
           setDealerCommission(String(res.dealer_commission ?? "0.00"));
-          setHimalpayCharge(String(res.himalpay_charge ?? res.provider_charge ?? "0.00"));
+          setHimalpayCharge(String(res.himalpay_charge ?? "0.00"));
           setTotalDebited(String(res.total_debited));
         })
         .catch((err) => {
@@ -491,11 +491,32 @@ function TopUp() {
 
             <div className="rounded-xl bg-muted p-3 text-[14px]">
               <Row label={t("common.amount")} value={formatNPR(amt)} />
-              {Number(totalDebited || charge) - amt > 0 ? (
+              {Number(himalpayCharge) > 0 ? (
+                <Row
+                  label={t("common.himalpayCharge")}
+                  value={feeLoading ? "…" : formatNPR(himalpayCharge)}
+                />
+              ) : null}
+              {Number(charge) - Number(himalpayCharge) > 0.004 ? (
                 <Row
                   label={t("common.charge")}
-                  value={feeLoading ? "…" : formatNPR(Number(totalDebited || charge) - amt)}
+                  value={
+                    feeLoading
+                      ? "…"
+                      : formatNPR(Number(charge) - Number(himalpayCharge || 0))
+                  }
                 />
+              ) : null}
+              {Number(cashback) > 0 ? (
+                <>
+                  <Row
+                    label={t("common.cashbackCharge")}
+                    value={feeLoading ? "…" : formatNPR(cashback)}
+                  />
+                  <p className="mt-0.5 text-[12px] text-muted-foreground">
+                    {t("common.cashbackAfter")}
+                  </p>
+                </>
               ) : null}
               <div className="mt-2 border-t border-separator pt-2">
                 <Row

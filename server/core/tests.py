@@ -2764,7 +2764,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
 
     def test_configured_charges_debit_and_credit(self):
         from .models import ServiceChargeConfig
-        from .services.txn_charges import TXN_BANK_TRANSFER, TXN_REMITTANCE, quote_charges
+        from .services.txn_charges import TXN_BANK_TRANSFER, TXN_REMITTANCE, quote_charges, quote_to_public
 
         self.dealer.dealer_commission_config.commission_rate = Decimal('0.00')
         self.dealer.dealer_commission_config.save(update_fields=['commission_rate'])
@@ -2800,6 +2800,10 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(debit['system_charge'], Decimal('100.00'))
         self.assertEqual(debit['dealer_commission'], Decimal('100.00'))
         self.assertEqual(debit['himalpay_charge'], Decimal('10.00'))
+        public = quote_to_public(debit)
+        self.assertEqual(public['himalpay_charge'], '10.00')
+        self.assertEqual(public['cashback'], '0.00')
+        self.assertEqual(public['charge'], '210.00')
 
         ServiceChargeConfig.objects.filter(txn_type=TXN_BANK_TRANSFER).update(
             dealer_charge_type='percent',
@@ -2898,6 +2902,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(cashback_row.adjustment_type, 'credit')
         self.assertEqual(cashback_row.balance_before, Decimal('800.00'))
         self.assertEqual(cashback_row.balance_after, Decimal('865.00'))
+        self.assertIn('Cashback return', cashback_row.reason)
         self.assertFalse(
             WalletAdjustment.objects.filter(
                 user=self.customer, kind=WalletAdjustment.KIND_DEALER_COMMISSION,
@@ -2967,7 +2972,9 @@ class DealerCommissionAndHierarchyTests(TestCase):
         public = quote_to_public(quote)
         self.assertEqual(public['total_debited'], '250.00')
         self.assertEqual(public['cashback_credit'], '50.00')
+        self.assertEqual(public['cashback'], '50.00')
         self.assertEqual(public['charge'], '100.00')
+        self.assertEqual(public['himalpay_charge'], '0.00')
 
         wallet = Wallet.objects.get(user=self.customer)
         wallet.balance = Decimal('1000.00')
@@ -2997,7 +3004,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(cashback_row.adjustment_type, 'credit')
         self.assertEqual(cashback_row.balance_before, Decimal('750.00'))
         self.assertEqual(cashback_row.balance_after, Decimal('800.00'))
-        self.assertIn('Cashback', cashback_row.reason)
+        self.assertIn('Cashback return', cashback_row.reason)
 
     def test_admin_commission_setup_dealers_and_cashback_tree(self):
         from .models import UserFeeConfig

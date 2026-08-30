@@ -83,7 +83,7 @@ function DataTopUp() {
   const [packages, setPackages] = useState<DataPackOption[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<DataPackOption | null>(null);
   const [charge, setCharge] = useState("0.00");
-  const [providerCharge, setProviderCharge] = useState("0.00");
+  const [himalpayCharge, setHimalpayCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
   const [platformCharge, setPlatformCharge] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
@@ -155,7 +155,7 @@ function DataTopUp() {
   useEffect(() => {
     if (!selectedPackage || pkgAmount <= 0 || !enabled) {
       setCharge("0.00");
-      setProviderCharge("0.00");
+      setHimalpayCharge("0.00");
       setCashback("0.00");
       setPlatformCharge("0.00");
       setTotalDebited("0.00");
@@ -169,7 +169,7 @@ function DataTopUp() {
         .then((res) => {
           if (cancelled) return;
           setCharge(String(res.charge));
-          setProviderCharge(String(res.provider_charge ?? res.charge));
+          setHimalpayCharge(String(res.himalpay_charge ?? "0.00"));
           setCashback(String(res.cashback_credit ?? res.cashback));
           setPlatformCharge(String(res.platform_charge ?? "0.00"));
           setTotalDebited(String(res.total_debited));
@@ -556,10 +556,33 @@ function DataTopUp() {
 
               <div className="rounded-xl bg-muted p-3 text-[14px]">
                 <FeeRow label={t("common.amount")} value={formatNPR(pkgAmount)} />
-                <FeeRow
-                  label={t("common.charge")}
-                  value={feeLoading ? "…" : formatNPR(Number(totalDebited) - pkgAmount > 0 ? Number(totalDebited) - pkgAmount : 0)}
-                />
+                {Number(himalpayCharge) > 0 ? (
+                  <FeeRow
+                    label={t("common.himalpayCharge")}
+                    value={feeLoading ? "…" : formatNPR(himalpayCharge)}
+                  />
+                ) : null}
+                {Number(charge) - Number(himalpayCharge) > 0.004 ? (
+                  <FeeRow
+                    label={t("common.charge")}
+                    value={
+                      feeLoading
+                        ? "…"
+                        : formatNPR(Number(charge) - Number(himalpayCharge || 0))
+                    }
+                  />
+                ) : null}
+                {Number(cashback) > 0 ? (
+                  <>
+                    <FeeRow
+                      label={t("common.cashbackCharge")}
+                      value={feeLoading ? "…" : formatNPR(cashback)}
+                    />
+                    <p className="mt-0.5 text-[12px] text-muted-foreground">
+                      {t("common.cashbackAfter")}
+                    </p>
+                  </>
+                ) : null}
                 <div className="mt-2 border-t border-separator pt-2">
                   <FeeRow
                     label={t("common.totalDebited")}

@@ -24,6 +24,38 @@ export interface AppNotification {
   details: NotificationDetailRow[];
 }
 
+function chargeBreakdownRows(
+  t: TranslateFn,
+  opts: {
+    amount: string;
+    charge?: string | null;
+    himalpay?: string | null;
+    cashback?: string | null;
+    totalDebited?: string | null;
+  },
+): NotificationDetailRow[] {
+  const rows: NotificationDetailRow[] = [
+    { label: t("common.amount"), value: formatNPR(opts.amount) },
+  ];
+  const himalpay = Number(opts.himalpay) || 0;
+  const combined = Number(opts.charge) || 0;
+  const other = combined - himalpay;
+  const cashback = Number(opts.cashback) || 0;
+  if (himalpay > 0) {
+    rows.push({ label: t("common.himalpayCharge"), value: formatNPR(opts.himalpay) });
+  }
+  if (other > 0.004) {
+    rows.push({ label: t("common.charge"), value: formatNPR(other) });
+  }
+  if (cashback > 0) {
+    rows.push({ label: t("common.cashbackCharge"), value: formatNPR(opts.cashback) });
+  }
+  if (opts.totalDebited != null && String(opts.totalDebited).trim() !== "") {
+    rows.push({ label: t("common.totalDebited"), value: formatNPR(opts.totalDebited) });
+  }
+  return rows;
+}
+
 const READ_KEY = "mysewa_read_notifications";
 
 function readIds(): Set<string> {
@@ -112,10 +144,12 @@ function detailRows(
       { label: t("common.type"), value: t("notif.typeTopup") },
       { label: t("common.operator"), value: top.product_name },
       { label: t("common.mobile"), value: top.mobile_number },
-      { label: t("common.amount"), value: formatNPR(top.amount) },
-      { label: t("common.charge"), value: formatNPR(top.charge) },
-      { label: t("common.cashback"), value: formatNPR(top.cashback) },
-      { label: t("common.totalDebited"), value: formatNPR(top.total_debited) },
+      ...chargeBreakdownRows(t, {
+        amount: top.amount,
+        charge: top.charge,
+        cashback: top.cashback,
+        totalDebited: top.total_debited,
+      }),
       { label: t("common.status"), value: translateStatus(top.status, t) },
       { label: t("common.txnId"), value: top.merchant_txn_id, mono: true },
       { label: t("common.date"), value: formatDateTime(top.created_at) },
@@ -125,20 +159,27 @@ function detailRows(
     const adj = (tx.wallet_adjustments ?? []).find((x) => `adj-${x.id}` === item.id);
     if (!adj) return [];
     const isDealerCommission = adj.kind === "dealer_commission";
+    const isCashback = adj.kind === "cashback";
     const typeValue = isDealerCommission
       ? t("activity.dealerCommission")
-      : adj.adjustment_type === "credit"
-        ? t("notif.typeManualLoad")
-        : t("notif.typeWalletDebit");
+      : isCashback
+        ? adj.adjustment_type === "credit"
+          ? t("activity.cashbackReturn")
+          : t("activity.cashbackCharge")
+        : adj.adjustment_type === "credit"
+          ? t("notif.typeManualLoad")
+          : t("notif.typeWalletDebit");
     const rows: NotificationDetailRow[] = [
       { label: t("common.type"), value: typeValue },
       {
         label: t("history.adjustmentType"),
         value: isDealerCommission
           ? t("activity.dealerCommission")
-          : adj.adjustment_type === "credit"
-            ? t("notif.manualLoadAddFund")
-            : t("activity.walletDebit"),
+          : isCashback
+            ? typeValue
+            : adj.adjustment_type === "credit"
+              ? t("notif.manualLoadAddFund")
+              : t("activity.walletDebit"),
       },
     ];
     if (isDealerCommission && hasTdsCharge(adj) && adj.gross_commission) {
@@ -180,6 +221,15 @@ function detailRows(
           : wt.counterparty_phone,
       },
       { label: t("common.amount"), value: formatNPR(wt.amount) },
+      ...(received
+        ? []
+        : chargeBreakdownRows(t, {
+            amount: wt.amount,
+            charge: wt.charge,
+            himalpay: wt.himalpay_charge,
+            cashback: wt.cashback,
+            totalDebited: wt.total_debited,
+          }).filter((row) => row.label !== t("common.amount"))),
       { label: t("common.status"), value: translateStatus(wt.status, t) },
       { label: t("common.remarks"), value: wt.remarks || "—" },
       { label: t("common.txnId"), value: wt.reference, mono: true },
@@ -203,10 +253,13 @@ function detailRows(
       value: b.destination_acc_no,
     },
     { label: t("common.bank"), value: b.destination_bank_name || b.destination_bank },
-    { label: t("common.amount"), value: formatNPR(b.amount) },
-    { label: t("common.charge"), value: formatNPR(b.charge) },
-    { label: t("common.cashback"), value: formatNPR(b.cashback) },
-    { label: t("common.totalDebited"), value: formatNPR(b.total_debited) },
+    ...chargeBreakdownRows(t, {
+      amount: b.amount,
+      charge: b.charge,
+      himalpay: b.provider_charge,
+      cashback: b.cashback,
+      totalDebited: b.total_debited,
+    }),
     { label: t("common.remarks"), value: b.transaction_remarks || "—" },
     { label: t("common.status"), value: translateStatus(b.status, t) },
     { label: t("common.txnId"), value: b.merchant_txn_id, mono: true },
@@ -279,6 +332,7 @@ function notificationCopy(
   if (item.kind === "wallet_adjustment") {
     const adj = tx?.wallet_adjustments?.find((x) => `adj-${x.id}` === item.id);
     const isDealerCommission = adj?.kind === "dealer_commission";
+    const isCashback = adj?.kind === "cashback";
     const isCredit = adj?.adjustment_type === "credit" || item.credit;
     if (isDealerCommission) {
       return {
@@ -292,6 +346,15 @@ function notificationCopy(
               amount: formatNPR(item.amount),
               note: adj?.reason || "—",
             }),
+      };
+    }
+    if (isCashback) {
+      return {
+        title: isCredit ? t("activity.cashbackReturn") : t("activity.cashbackCharge"),
+        body: t("notif.walletAdjustmentBody", {
+          amount: formatNPR(item.amount),
+          note: item.subtitle || adj?.reason || "—",
+        }),
       };
     }
     return {

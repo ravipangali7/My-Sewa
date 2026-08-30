@@ -764,7 +764,20 @@ function CommunityElectricityPayment() {
 
               <div className="rounded-xl bg-muted p-3 text-[14px]">
                 <FeeRow label={t("common.amount")} value={formatNPR(payAmount)} />
-                <FeeRow label={t("common.charge")} value={feeLoading ? "…" : formatNPR(charge)} />
+                {Number(charge) > 0.004 ? (
+                  <FeeRow label={t("common.charge")} value={feeLoading ? "…" : formatNPR(charge)} />
+                ) : null}
+                {Number(cashback) > 0 ? (
+                  <>
+                    <FeeRow
+                      label={t("common.cashbackCharge")}
+                      value={feeLoading ? "…" : formatNPR(cashback)}
+                    />
+                    <p className="mt-0.5 text-[12px] text-muted-foreground">
+                      {t("common.cashbackAfter")}
+                    </p>
+                  </>
+                ) : null}
                 <div className="mt-2 border-t border-separator pt-2">
                   <FeeRow
                     label={t("common.totalDebited")}

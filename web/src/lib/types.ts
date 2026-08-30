@@ -856,6 +856,10 @@ export interface WalletTransfer {
   sender_balance_after: string;
   recipient_balance_before: string;
   recipient_balance_after: string;
+  charge?: string;
+  total_debited?: string;
+  cashback?: string;
+  himalpay_charge?: string;
 }
 
 export interface PushBalanceUser {
