@@ -27,7 +27,7 @@ import { HomePopupDialog } from "@/components/home/HomePopupDialog";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { apiClient } from "@/lib/api";
-import { buildActivity } from "@/lib/activity";
+import { buildActivity, tdsChargeCaption } from "@/lib/activity";
 import { buildNotifications } from "@/lib/notifications";
 import { useAuth } from "@/lib/auth";
 import { isNetworkRole } from "@/lib/auth-destination";
@@ -478,6 +478,7 @@ function WalletHome() {
                     "flex w-full items-center gap-3 px-3.5 py-3.5 text-left transition-colors active:bg-[#F7F9FC]",
                     idx > 0 && "border-t border-[#EEF1F5]",
                   );
+                  const tdsCaption = tdsChargeCaption(item, t);
 
                   return (
                     <li key={item.id}>
@@ -516,6 +517,11 @@ function WalletHome() {
                           )}
                         >
                           {item.credit ? "+" : "−"} {formatRu(item.amount)}
+                          {tdsCaption ? (
+                            <span className="mt-0.5 block max-w-32 text-[10px] font-semibold leading-tight text-destructive">
+                              − {tdsCaption}
+                            </span>
+                          ) : null}
                         </span>
                         <span
                           className="ml-1 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[#C0C7D1]"

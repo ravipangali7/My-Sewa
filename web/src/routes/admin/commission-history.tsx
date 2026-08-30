@@ -313,7 +313,7 @@ function CommissionHistoryPage() {
             },
             {
               key: "tds",
-              label: "TDS deducted",
+              label: "TDS Charge deducted",
               value: formatNPR(dealerQuery.data?.earnings?.tds_amount ?? 0),
               icon: Handshake,
               tone: "debit",
@@ -342,7 +342,7 @@ function CommissionHistoryPage() {
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead className="text-right">Flat</TableHead>
                   <TableHead className="text-right">Gross</TableHead>
-                  <TableHead className="text-right">TDS</TableHead>
+                  <TableHead className="text-right">TDS Charge</TableHead>
                   <TableHead className="text-right">Net</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>

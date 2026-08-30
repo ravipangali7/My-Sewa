@@ -170,7 +170,7 @@ function DataTopUp() {
           if (cancelled) return;
           setCharge(String(res.charge));
           setProviderCharge(String(res.provider_charge ?? res.charge));
-          setCashback(String(res.cashback));
+          setCashback(String(res.cashback_credit ?? res.cashback));
           setPlatformCharge(String(res.platform_charge ?? "0.00"));
           setTotalDebited(String(res.total_debited));
         })

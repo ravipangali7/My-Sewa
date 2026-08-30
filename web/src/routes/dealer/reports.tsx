@@ -69,7 +69,7 @@ function DealerReportsPage() {
               { key: "ok", label: "Successful", value: String(data.success_count) },
               { key: "fail", label: "Failed", value: String(data.failed_count) },
               { key: "gross", label: "Gross commission", value: formatNPR(data.gross_commission) },
-              { key: "tds", label: "TDS", value: formatNPR(data.tds_amount) },
+              { key: "tds", label: "TDS Charge", value: formatNPR(data.tds_amount) },
               { key: "net", label: "Net commission", value: formatNPR(data.net_commission) },
               { key: "wallet", label: "Wallet", value: formatNPR(data.wallet_balance) },
             ]}
@@ -86,7 +86,7 @@ function DealerReportsPage() {
                       <TableHead>Service</TableHead>
                       <TableHead>Sales</TableHead>
                       <TableHead>Gross</TableHead>
-                      <TableHead>TDS</TableHead>
+                      <TableHead>TDS Charge</TableHead>
                       <TableHead>Net</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -117,6 +117,8 @@ function DealerReportsPage() {
                       <AdminMobileMeta
                         items={[
                           { label: "Sales", value: formatNPR(row.sales ?? "0") },
+                          { label: "Gross", value: formatNPR(row.gross_commission ?? "0") },
+                          { label: "TDS Charge", value: formatNPR(row.tds_amount ?? "0") },
                           { label: "Net", value: formatNPR(row.net_commission ?? "0") },
                         ]}
                       />

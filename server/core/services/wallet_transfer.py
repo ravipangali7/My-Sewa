@@ -41,7 +41,12 @@ def perform_wallet_transfer(
     amount = Decimal(amount).quantize(Decimal('0.01'))
     remarks = (remarks or '').strip()
 
-    from .txn_charges import TXN_WALLET_TRANSFER, persist_transaction_charge, quote_charges
+    from .txn_charges import (
+        TXN_WALLET_TRANSFER,
+        persist_transaction_charge,
+        quote_charges,
+        visible_fee_extra,
+    )
     from .dealer_commission import record_dealer_commission
 
     if apply_charges:
@@ -132,7 +137,7 @@ def perform_wallet_transfer(
                 sender_balance_after=sender_locked.balance,
                 recipient_balance_before=recipient_before,
                 recipient_balance_after=recipient_locked.balance,
-                charge=quote.get('visible_charge', quote['total_charges']),
+                charge=visible_fee_extra(quote) if apply_charges else Decimal('0.00'),
                 total_debited=total_required,
             )
             persist_transaction_charge(transfer, quote)

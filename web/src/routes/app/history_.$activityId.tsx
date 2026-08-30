@@ -63,11 +63,13 @@ function DetailKv({
   value,
   icon,
   success,
+  danger,
 }: {
   label: string;
   value: string;
   icon?: ReactNode;
   success?: boolean;
+  danger?: boolean;
 }) {
   return (
     <div className="flex items-start gap-3 border-b border-border/50 py-3.5 last:border-b-0">
@@ -82,6 +84,7 @@ function DetailKv({
           className={cn(
             "mt-0.5 break-words text-[15px] font-semibold text-foreground",
             success && "text-brand",
+            danger && "text-destructive",
           )}
         >
           {value}
@@ -95,10 +98,12 @@ function SettlementRow({
   label,
   value,
   icon,
+  debit,
 }: {
   label: string;
   value: string;
   icon: ReactNode;
+  debit?: boolean;
 }) {
   return (
     <div className="flex items-center gap-3 py-2.5">
@@ -106,7 +111,12 @@ function SettlementRow({
         {icon}
       </span>
       <span className="min-w-0 flex-1 break-words text-[14px] text-foreground/80">{label}</span>
-      <span className="shrink-0 break-all text-right text-[14px] font-semibold tabular-nums text-foreground">
+      <span
+        className={cn(
+          "shrink-0 break-all text-right text-[14px] font-semibold tabular-nums",
+          debit ? "text-destructive" : "text-foreground",
+        )}
+      >
         {value}
       </span>
     </div>
@@ -292,30 +302,41 @@ function HistoryStatementPage() {
   const amountNpr = detailMap.get(t("common.amountNpr")) ?? statement?.headlineAmount ?? "—";
   const chargeNpr = detailMap.get(t("common.charge")) ?? "Rs. 0.00";
   const cashbackNpr = detailMap.get(t("common.cashback")) ?? "Rs. 0.00";
+  const grossCommissionNpr = detailMap.get(t("history.grossCommission"));
+  const tdsChargeRateLabel = statement
+    ? [...detailMap.keys()].find((label) => label.startsWith(t("history.tdsCharge")))
+    : undefined;
+  const tdsChargeNpr = tdsChargeRateLabel ? detailMap.get(tdsChargeRateLabel) : undefined;
+  const netCommissionNpr = detailMap.get(t("history.netCommissionCredited"));
   const balanceBeforeNpr = detailMap.get(t("history.balanceBefore"));
   const balanceAfterNpr = detailMap.get(t("history.balanceAfter"));
   const totalNpr =
+    netCommissionNpr ??
     detailMap.get(t("history.totalCredited")) ??
     detailMap.get(t("common.totalDebited")) ??
     statement?.headlineAmount ??
     "—";
+  const hasCommissionBreakdown = Boolean(grossCommissionNpr && tdsChargeNpr && netCommissionNpr);
 
-  const summaryLabels = useMemo(
-    () =>
-      new Set([
-        t("history.referenceCode"),
-        t("history.dateTime"),
-        t("history.channel"),
-        t("common.amountNpr"),
-        t("common.charge"),
-        t("common.cashback"),
-        t("history.totalCredited"),
-        t("common.totalDebited"),
-        t("history.balanceBefore"),
-        t("history.balanceAfter"),
-      ]),
-    [t],
-  );
+  const summaryLabels = useMemo(() => {
+    const labels = new Set([
+      t("history.referenceCode"),
+      t("history.dateTime"),
+      t("history.channel"),
+      t("common.amountNpr"),
+      t("common.charge"),
+      t("common.cashback"),
+      t("history.grossCommission"),
+      t("history.tdsCharge"),
+      t("history.netCommissionCredited"),
+      t("history.totalCredited"),
+      t("common.totalDebited"),
+      t("history.balanceBefore"),
+      t("history.balanceAfter"),
+    ]);
+    if (tdsChargeRateLabel) labels.add(tdsChargeRateLabel);
+    return labels;
+  }, [t, tdsChargeRateLabel]);
 
   const iconForLabel = (label: string) => {
     if (label === t("common.status")) return <CheckCircle2 className="size-4" />;
@@ -342,6 +363,16 @@ function HistoryStatementPage() {
     if (label === t("history.merchantTxn") || label === t("common.bank")) {
       return <Landmark className="size-4" />;
     }
+    if (
+      label === t("history.grossCommission") ||
+      label === t("history.netCommissionCredited") ||
+      label === t("history.netCommission")
+    ) {
+      return <Coins className="size-4" />;
+    }
+    if (label === t("history.tdsCharge") || label.startsWith(t("history.tdsCharge"))) {
+      return <Tag className="size-4" />;
+    }
     if (label === t("history.providerTxn") || label === t("history.verified")) {
       return <ShieldCheck className="size-4" />;
     }
@@ -362,6 +393,7 @@ function HistoryStatementPage() {
             row.label === t("common.status") &&
             (statement.item.status.toLowerCase() === "success" ||
               statement.item.status.toLowerCase() === "approved"),
+          danger: Boolean(row.danger),
         }))
     : [];
 
@@ -512,9 +544,11 @@ function HistoryStatementPage() {
                     {statement.item.credit ? "+" : "−"} {amountNpr}
                   </p>
                   <p className="mt-2.5 break-words text-[13px] font-medium text-muted-foreground">
-                    {statement.item.credit
-                      ? t("history.totalCredited")
-                      : t("common.totalDebited")}
+                    {hasCommissionBreakdown
+                      ? t("history.netCommissionCredited")
+                      : statement.item.credit
+                        ? t("history.totalCredited")
+                        : t("common.totalDebited")}
                     :{" "}
                     <span className="break-all font-semibold tabular-nums text-foreground">
                       {totalNpr}
@@ -557,11 +591,32 @@ function HistoryStatementPage() {
                 </p>
               </div>
               <div className="space-y-0.5 px-4 pb-3">
-                <SettlementRow
-                  label={t("common.amountNpr")}
-                  value={amountNpr}
-                  icon={<Coins className="size-4" />}
-                />
+                {hasCommissionBreakdown ? (
+                  <>
+                    <SettlementRow
+                      label={t("history.grossCommission")}
+                      value={grossCommissionNpr ?? "—"}
+                      icon={<Coins className="size-4" />}
+                    />
+                    <SettlementRow
+                      label={tdsChargeRateLabel ?? t("history.tdsCharge")}
+                      value={`− ${tdsChargeNpr}`}
+                      icon={<Tag className="size-4" />}
+                      debit
+                    />
+                    <SettlementRow
+                      label={t("history.netCommissionCredited")}
+                      value={netCommissionNpr ?? "—"}
+                      icon={<Coins className="size-4" />}
+                    />
+                  </>
+                ) : (
+                  <SettlementRow
+                    label={t("common.amountNpr")}
+                    value={amountNpr}
+                    icon={<Coins className="size-4" />}
+                  />
+                )}
                 {detailMap.has(t("common.charge")) ? (
                   <SettlementRow
                     label={t("common.charge")}
@@ -580,9 +635,11 @@ function HistoryStatementPage() {
               <div className="mx-3 mb-3 rounded-xl bg-brand-soft/80 px-3.5 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-[11px] font-semibold tracking-wide text-brand-dark/70 uppercase">
-                    {statement.item.credit
-                      ? t("history.totalCredited")
-                      : t("common.totalDebited")}
+                    {hasCommissionBreakdown
+                      ? t("history.netCommissionCredited")
+                      : statement.item.credit
+                        ? t("history.totalCredited")
+                        : t("common.totalDebited")}
                   </p>
                   <p className="break-all text-[22px] leading-none font-black tabular-nums text-brand-dark sm:text-[26px]">
                     {totalNpr}
@@ -625,6 +682,7 @@ function HistoryStatementPage() {
                     value={row.value}
                     icon={row.icon}
                     success={row.success}
+                    danger={row.danger}
                   />
                 ))}
               </dl>

@@ -158,7 +158,7 @@ function TopUp() {
           setProviderBlocked(false);
           setCharge(String(res.charge));
           setProviderCharge(String(res.provider_charge ?? res.charge));
-          setCashback(String(res.cashback));
+          setCashback(String(res.cashback_credit ?? res.cashback));
           setPlatformCharge(String(res.system_charge ?? res.platform_charge ?? "0.00"));
           setDealerCommission(String(res.dealer_commission ?? "0.00"));
           setHimalpayCharge(String(res.himalpay_charge ?? res.provider_charge ?? "0.00"));

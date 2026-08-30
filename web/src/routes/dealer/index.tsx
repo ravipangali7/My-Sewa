@@ -120,7 +120,9 @@ function DealerDashboard() {
                     <TableHead>When</TableHead>
                     <TableHead>Service</TableHead>
                     <TableHead>Amount</TableHead>
-                    <TableHead>Net / share</TableHead>
+                    <TableHead>Gross</TableHead>
+                    <TableHead>TDS Charge</TableHead>
+                    <TableHead>Net</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -129,6 +131,8 @@ function DealerDashboard() {
                       <TableCell>{formatDateTime(row.created_at)}</TableCell>
                       <TableCell>{row.txn_type_display || row.txn_type}</TableCell>
                       <TableCell className="tabular">{formatNPR(row.txn_amount)}</TableCell>
+                      <TableCell className="tabular">{formatNPR(row.gross_commission)}</TableCell>
+                      <TableCell className="tabular">{formatNPR(row.tds_amount)}</TableCell>
                       <TableCell className="tabular">
                         {formatNPR(row.net_commission)}
                       </TableCell>
@@ -145,6 +149,9 @@ function DealerDashboard() {
                     <AdminMobileMeta
                       items={[
                         { label: "Amount", value: formatNPR(row.txn_amount) },
+                        { label: "Gross", value: formatNPR(row.gross_commission) },
+                        { label: "TDS Charge", value: formatNPR(row.tds_amount) },
+                        { label: "Net", value: formatNPR(row.net_commission) },
                         { label: "When", value: formatDateTime(row.created_at) },
                       ]}
                     />

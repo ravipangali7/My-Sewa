@@ -154,7 +154,7 @@ function CommunityElectricityPayment() {
         .then((res) => {
           if (cancelled) return;
           setCharge(String(res.charge));
-          setCashback(String(res.cashback));
+          setCashback(String(res.cashback_credit ?? res.cashback));
           setTotalDebited(String(res.total_debited));
         })
         .catch(() => {

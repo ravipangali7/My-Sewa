@@ -2419,7 +2419,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.client = APIClient()
 
     def test_dealer_commission_and_tds_calculation(self):
-        from .models import DealerCommission, TopupTransaction
+        from .models import DealerCommission, TopupTransaction, WalletAdjustment
         from .services.dealer_commission import calculate_commission
         from .services.txn_status import apply_outbound_status_change
 
@@ -2447,6 +2447,26 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(row.tds_amount, Decimal('1.50'))
         self.assertEqual(row.net_commission, Decimal('8.50'))
         self.assertEqual(row.commission_rate, Decimal('10.00'))
+        dealer_adj = WalletAdjustment.objects.get(
+            user=self.dealer, kind=WalletAdjustment.KIND_DEALER_COMMISSION, source_txn_id=txn.pk,
+        )
+        self.assertEqual(dealer_adj.amount, Decimal('8.50'))
+        self.assertIn('TDS Charge', dealer_adj.reason)
+        self.assertIn('Gross Rs 10.00', dealer_adj.reason)
+        self.assertIn('Net Rs 8.50', dealer_adj.reason)
+        self.assertIn(self.customer.phone, dealer_adj.reason)
+
+        self.client.force_authenticate(user=self.dealer)
+        hist = self.client.get(reverse('transaction_history'))
+        self.assertEqual(hist.status_code, status.HTTP_200_OK, hist.content[:500])
+        adj_payload = next(
+            a for a in hist.json().get('wallet_adjustments') or []
+            if a.get('kind') == 'dealer_commission' and a.get('source_txn_id') == txn.pk
+        )
+        self.assertEqual(adj_payload['gross_commission'], '10.00')
+        self.assertEqual(adj_payload['tds_amount'], '1.50')
+        self.assertEqual(adj_payload['net_commission'], '8.50')
+        self.assertEqual(adj_payload['display_amount'], '8.50')
 
     def test_customer_dealer_mapping_via_admin(self):
         other = User.objects.create_user(
@@ -2894,6 +2914,90 @@ class DealerCommissionAndHierarchyTests(TestCase):
         )
         self.assertEqual(dealer_adj.amount, Decimal('100.00'))
         self.assertIn(self.customer.phone, dealer_adj.reason)
+
+    def test_fund_transfer_total_includes_commission_cashback_not_provider_fee(self):
+        """100 + user 60 + network 40 + cashback 50 = 250, not 205 (live HimalPay Rs 5)."""
+        from .models import (
+            BankTransferTransaction,
+            ServiceChargeConfig,
+            UserFeeConfig,
+            Wallet,
+            WalletAdjustment,
+        )
+        from .services.txn_charges import (
+            TXN_BANK_TRANSFER,
+            persist_transaction_charge,
+            quote_charges,
+            quote_to_public,
+        )
+        from .services.txn_status import apply_outbound_status_change
+
+        self.dealer.dealer_commission_config.commission_rate = Decimal('0.00')
+        self.dealer.dealer_commission_config.tds_rate = Decimal('0.0000')
+        self.dealer.dealer_commission_config.save(update_fields=['commission_rate', 'tds_rate'])
+        ServiceChargeConfig.objects.update_or_create(
+            txn_type=TXN_BANK_TRANSFER,
+            defaults={
+                'user_charge_type': 'flat',
+                'system_charge_flat': Decimal('60.00'),
+                'system_charge_percent': Decimal('0'),
+                'dealer_charge_type': 'flat',
+                'dealer_commission_flat': Decimal('40.00'),
+                'dealer_commission_percent': Decimal('0'),
+                'himalpay_charge_flat': Decimal('0.00'),
+                'himalpay_charge_percent': Decimal('0'),
+            },
+        )
+        fee, _ = UserFeeConfig.objects.get_or_create(user=self.customer)
+        fee.cashback_flat = Decimal('50.00')
+        fee.save(update_fields=['cashback_flat'])
+
+        quote = quote_charges(
+            Decimal('100.00'),
+            TXN_BANK_TRANSFER,
+            self.customer,
+            provider_charge=Decimal('5.00'),
+            cashback=Decimal('0.00'),
+        )
+        self.assertEqual(quote['system_charge'], Decimal('60.00'))
+        self.assertEqual(quote['dealer_commission'], Decimal('40.00'))
+        self.assertEqual(quote['himalpay_charge'], Decimal('0.00'))
+        self.assertEqual(quote['cashback'], Decimal('50.00'))
+        self.assertEqual(quote['wallet_amount'], Decimal('250.00'))
+        public = quote_to_public(quote)
+        self.assertEqual(public['total_debited'], '250.00')
+        self.assertEqual(public['cashback_credit'], '50.00')
+        self.assertEqual(public['charge'], '100.00')
+
+        wallet = Wallet.objects.get(user=self.customer)
+        wallet.balance = Decimal('1000.00')
+        wallet.save(update_fields=['balance'])
+        txn = BankTransferTransaction.objects.create(
+            user=self.customer,
+            amount=Decimal('100.00'),
+            destination_bank='NIBL',
+            destination_acc_no='1234567890',
+            destination_acc_name='Test',
+            status='pending',
+            merchant_txn_id='MYSEWA_BT_CB250',
+            charge=quote['system_charge'] + quote['dealer_commission'],
+            cashback=quote['cashback'],
+            total_debited=quote['wallet_amount'],
+        )
+        persist_transaction_charge(txn, quote)
+        ok, err = apply_outbound_status_change(txn, 'success')
+        self.assertTrue(ok, err)
+
+        wallet.refresh_from_db()
+        self.assertEqual(wallet.balance, Decimal('800.00'))
+        cashback_row = WalletAdjustment.objects.get(
+            user=self.customer, kind=WalletAdjustment.KIND_CASHBACK, source_txn_id=txn.pk,
+        )
+        self.assertEqual(cashback_row.amount, Decimal('50.00'))
+        self.assertEqual(cashback_row.adjustment_type, 'credit')
+        self.assertEqual(cashback_row.balance_before, Decimal('750.00'))
+        self.assertEqual(cashback_row.balance_after, Decimal('800.00'))
+        self.assertIn('Cashback', cashback_row.reason)
 
     def test_admin_commission_setup_dealers_and_cashback_tree(self):
         from .models import UserFeeConfig

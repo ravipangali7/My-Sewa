@@ -24,7 +24,7 @@ import {
 import { walletDisplayName } from "@/components/admin/WalletCard";
 import { apiClient, ApiError } from "@/lib/api";
 import { adminLiveQueryOptions } from "@/lib/refresh";
-import { buildActivity } from "@/lib/activity";
+import { buildActivity, hasTdsCharge } from "@/lib/activity";
 import { formatDateTime, formatNPR, sortByLatestFirst } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
 import type { ActivityKind } from "@/lib/types";
@@ -272,6 +272,11 @@ function WalletTransactionsPage() {
                     >
                       {item.credit ? "+" : "−"}
                       {formatNPR(item.amount)}
+                      {hasTdsCharge(item) ? (
+                        <div className="text-xs font-medium text-destructive">
+                          TDS Charge −{formatNPR(item.tds_amount ?? "0")}
+                        </div>
+                      ) : null}
                     </TableCell>
                     <TableCell className="tabular text-right text-sm text-muted-foreground">
                       {item.balance_before != null && item.balance_before !== ""
@@ -320,6 +325,13 @@ function WalletTransactionsPage() {
                   <AdminMobileMeta
                     items={[
                       { label: "Status", value: <StatusChip status={item.status} compact /> },
+                      ...(hasTdsCharge(item)
+                        ? [
+                            { label: "Gross commission", value: formatNPR(item.gross_commission ?? "0") },
+                            { label: "TDS Charge", value: formatNPR(item.tds_amount ?? "0") },
+                            { label: "Net commission", value: formatNPR(item.net_commission ?? item.amount) },
+                          ]
+                        : []),
                       {
                         label: "Before Wallet Balance",
                         value:

@@ -5,6 +5,7 @@ import re
 import secrets
 import string
 from datetime import date
+from collections import defaultdict
 from decimal import Decimal
 from django.db import IntegrityError, OperationalError, ProgrammingError, transaction
 from rest_framework import serializers
@@ -569,6 +570,31 @@ class AdminWalletWriteSerializer(serializers.ModelSerializer):
         fields = ('balance',)
 
 
+def _dealer_commission_map(adjustments) -> dict:
+    """Bulk-load DealerCommission rows keyed by (txn_type, txn_id)."""
+    by_type = defaultdict(list)
+    for adj in adjustments:
+        if getattr(adj, 'kind', None) != WalletAdjustment.KIND_DEALER_COMMISSION:
+            continue
+        txn_type = (getattr(adj, 'source_txn_type', None) or '').strip()
+        txn_id = getattr(adj, 'source_txn_id', None)
+        if txn_type and txn_id:
+            by_type[txn_type].append(txn_id)
+    if not by_type:
+        return {}
+    rows = []
+    for txn_type, ids in by_type.items():
+        rows.extend(DealerCommission.objects.filter(txn_type=txn_type, txn_id__in=ids))
+    return {(row.txn_type, row.txn_id): row for row in rows}
+
+
+class WalletAdjustmentListSerializer(serializers.ListSerializer):
+    def to_representation(self, data):
+        items = list(data)
+        self.child.context['_dealer_commissions'] = _dealer_commission_map(items)
+        return super().to_representation(items)
+
+
 class WalletAdjustmentSerializer(serializers.ModelSerializer):
     """Wallet adjustment as seen in transaction history."""
     created_by_phone = serializers.CharField(
@@ -579,13 +605,19 @@ class WalletAdjustmentSerializer(serializers.ModelSerializer):
     )
     # Absolute magnitude for display (amount field is signed).
     display_amount = serializers.SerializerMethodField()
+    gross_commission = serializers.SerializerMethodField()
+    tds_amount = serializers.SerializerMethodField()
+    tds_rate = serializers.SerializerMethodField()
+    net_commission = serializers.SerializerMethodField()
 
     class Meta:
         model = WalletAdjustment
+        list_serializer_class = WalletAdjustmentListSerializer
         fields = (
             'id', 'wallet', 'user', 'amount', 'display_amount',
             'adjustment_type', 'adjustment_type_display', 'kind',
             'source_txn_type', 'source_txn_id',
+            'gross_commission', 'tds_amount', 'tds_rate', 'net_commission',
             'balance_before', 'balance_after', 'reason',
             'created_by', 'created_by_phone', 'created_at', 'reference',
         )
@@ -593,6 +625,42 @@ class WalletAdjustmentSerializer(serializers.ModelSerializer):
 
     def get_display_amount(self, obj):
         return f"{abs(obj.amount):.2f}"
+
+    def _commission_row(self, obj):
+        if getattr(obj, 'kind', None) != WalletAdjustment.KIND_DEALER_COMMISSION:
+            return None
+        txn_type = (getattr(obj, 'source_txn_type', None) or '').strip()
+        txn_id = getattr(obj, 'source_txn_id', None)
+        if not txn_type or not txn_id:
+            return None
+        cache = self.context.get('_dealer_commissions')
+        key = (txn_type, txn_id)
+        if isinstance(cache, dict):
+            return cache.get(key)
+        return DealerCommission.objects.filter(txn_type=txn_type, txn_id=txn_id).first()
+
+    def _commission_money(self, obj, field: str):
+        row = self._commission_row(obj)
+        if row is None:
+            return None
+        value = getattr(row, field, None)
+        if value is None:
+            return None
+        if field == 'tds_rate':
+            return f'{Decimal(value):.4f}'
+        return f'{Decimal(value):.2f}'
+
+    def get_gross_commission(self, obj):
+        return self._commission_money(obj, 'gross_commission')
+
+    def get_tds_amount(self, obj):
+        return self._commission_money(obj, 'tds_amount')
+
+    def get_tds_rate(self, obj):
+        return self._commission_money(obj, 'tds_rate')
+
+    def get_net_commission(self, obj):
+        return self._commission_money(obj, 'net_commission')
 
 
 class WalletAdjustmentWriteSerializer(serializers.Serializer):

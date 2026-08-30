@@ -2,16 +2,17 @@
 Unified transaction charges: User service charge, network fee, HimalPay.
 
 Outgoing (debit):
-  wallet = amount + user_charge + network_fee + himalpay − provider_cashback + user_cashback
+  wallet = amount + user_charge + network_fee + himalpay + user_cashback
   User cashback is held in the debit and credited back as a separate wallet row after success.
 
 Incoming (credit):
-  wallet = amount − user_charge − network_fee − himalpay + provider_cashback
+  wallet = amount − user_charge − network_fee − himalpay
   User cashback is still credited as a separate row after success.
 
 Network fee is applied only when the user has an assigned Dealer. It is folded into
 "applicable charges" on the user side and posted as dealer commission on the dealer side.
-HimalPay: configured charge if set, otherwise the live provider charge.
+HimalPay on the user quote is the Charge Setup amount. Live provider fees are not added
+on top, so Commission cashback (e.g. Rs 50) is not replaced by a provider Rs 5.
 """
 from __future__ import annotations
 
@@ -204,12 +205,26 @@ def _dealer_override_flat(dealer, txn_type: str) -> Optional[Decimal]:
     return None
 
 
+def _related_or_none(instance, name: str):
+    """Forward/reverse OneToOne without treating a missing row as a hard failure.
+
+    ``getattr(obj, 'related', None)`` still raises for a reverse OneToOne miss,
+    which previously swallowed Commission Setup cashback as Rs 0.
+    """
+    if instance is None:
+        return None
+    try:
+        return getattr(instance, name)
+    except Exception:
+        return None
+
+
 def _dealer_commission_flat(dealer) -> Decimal:
     """Commission Setup flat amount for this dealer. 0 means use Charge Setup network fee."""
     if dealer is None:
         return _ZERO
     try:
-        config = getattr(dealer, 'dealer_commission_config', None)
+        config = _related_or_none(dealer, 'dealer_commission_config')
         if config is None:
             from ..models import DealerCommissionConfig
             config = DealerCommissionConfig.objects.filter(user_id=dealer.pk).first()
@@ -224,7 +239,7 @@ def _user_cashback_flat(user) -> Decimal:
     if user is None:
         return _ZERO
     try:
-        fee = getattr(user, 'fee_config', None)
+        fee = _related_or_none(user, 'fee_config')
         if fee is None:
             from ..models import UserFeeConfig
             fee = UserFeeConfig.objects.filter(user_id=user.pk).first()
@@ -261,6 +276,17 @@ def visible_user_extra(quote: dict) -> Decimal:
     return extra if extra > 0 else _ZERO
 
 
+def visible_fee_extra(quote: dict) -> Decimal:
+    """Applicable charges excluding the user-cashback hold, for receipts and previews."""
+    extra = visible_user_extra(quote)
+    if quote.get('direction') == 'credit':
+        return extra
+    held = money(quote.get('cashback', 0))
+    if extra > held:
+        return money(extra - held)
+    return extra
+
+
 def quote_charges(
     amount,
     txn_type: str,
@@ -273,9 +299,9 @@ def quote_charges(
     """
     Calculate User service charge + network fee + HimalPay for a principal amount.
 
-    ``cashback`` is the HimalPay provider cashback and is netted into the wallet
-    movement. User cashback from Commission Setup is held in debit then credited
-    separately after success.
+    ``cashback`` is unused on the user-facing quote when Charge Setup exists;
+    Commission Setup cashback is the rebate that is held in debit and credited
+    after success.
 
     direction:
       debit  — user pays amount + charges + cashback hold (transfer, bills, top-up)
@@ -307,14 +333,16 @@ def quote_charges(
         configured_himalpay = _component(
             principal, row.himalpay_charge_flat, row.himalpay_charge_percent,
         )
+        # Charge Setup owns the user-facing HimalPay line. Do not fold in the
+        # live/bypass provider fee (Rs 5 on fund transfer) or provider cashback.
+        himalpay = configured_himalpay
+        provider_cashback = _ZERO
     else:
         user_fee = _legacy_system_charge(principal, txn_type, user)
         service_network_fee = money(
             (get_app_config().get('commission') or {}).get('default_commission_rate', 0)
         )
-        configured_himalpay = _ZERO
-
-    himalpay = configured_himalpay if configured_himalpay > 0 else provider
+        himalpay = provider
 
     if actor_is_dealer:
         system = service_network_fee if row is not None else user_fee
@@ -324,20 +352,19 @@ def quote_charges(
     else:
         system = user_fee
         dealer_commission = _ZERO
-        user_cashback = _ZERO
         if dealer is not None:
             dealer_commission = _resolve_network_fee(
                 principal, txn_type, dealer, service_network_fee,
             )
-            user_cashback = _user_cashback_flat(user)
+        user_cashback = _user_cashback_flat(user)
 
     total_charges = money(system + dealer_commission + himalpay)
     if direction == 'debit':
-        wallet_amount = money(principal + total_charges - provider_cashback + user_cashback)
+        wallet_amount = money(principal + total_charges + user_cashback)
         if wallet_amount < 0:
             wallet_amount = _ZERO
     else:
-        wallet_amount = money(principal - total_charges + provider_cashback)
+        wallet_amount = money(principal - total_charges)
         if wallet_amount < 0:
             wallet_amount = _ZERO
 
@@ -363,20 +390,22 @@ def quote_to_public(quote: dict) -> dict:
     """JSON-safe breakdown for calculate-charge / create responses.
 
     Dealer/network fee is folded into ``charge`` so the user never sees a
-    separate dealer-commission line. User cashback is returned as
-    ``cashback_credit`` (posted after success) and ``cashback`` is 0 so
+    separate dealer-commission line. ``charge`` excludes the cashback hold so
+    the UI can show amount + charges + cashback = total. User cashback is
+    ``cashback_credit`` (posted after success). ``cashback`` stays 0 so older
     clients do not subtract it from the debit.
     """
-    visible = visible_user_extra(quote)
+    fee_extra = visible_fee_extra(quote)
+    user_cb = money(quote.get('cashback', 0))
     return {
         'amount': str(quote.get('amount', _ZERO)),
-        'system_charge': str(visible),
+        'system_charge': str(fee_extra),
         'dealer_commission': '0.00',
         'himalpay_charge': '0.00',
-        'charge': str(visible),
-        'total_charges': str(visible),
+        'charge': str(fee_extra),
+        'total_charges': str(fee_extra),
         'cashback': '0.00',
-        'cashback_credit': str(quote.get('cashback', _ZERO)),
+        'cashback_credit': str(user_cb),
         'total_debited': str(quote['wallet_amount']) if quote.get('direction') != 'credit' else None,
         'total_credited': str(quote['wallet_amount']) if quote.get('direction') == 'credit' else None,
         'wallet_amount': str(quote.get('wallet_amount', _ZERO)),
@@ -433,8 +462,7 @@ def get_transaction_charge(txn) -> Optional[object]:
 
 def apply_debit_quote_to_txn(txn, quote: dict) -> None:
     """Write combined charge / total_debited onto an outbound transaction."""
-    visible = visible_user_extra(quote)
-    txn.charge = visible
+    txn.charge = visible_fee_extra(quote)
     if hasattr(txn, 'cashback'):
         txn.cashback = quote.get('cashback', _ZERO)
     if hasattr(txn, 'total_debited'):

@@ -13,7 +13,7 @@ from typing import Optional
 
 from django.db import transaction
 
-from .txn_charges import get_transaction_charge, money, txn_type_for
+from .txn_charges import TXN_TYPE_LABELS, get_transaction_charge, money, txn_type_for
 from .wallet_guard import WalletFrozenError, assert_wallet_not_frozen
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ def record_user_cashback(txn, wallet=None) -> Optional[object]:
             expected = money(before + amount)
             wallet.balance = expected
             wallet.save(update_fields=['balance', 'updated_at'])
+            service = TXN_TYPE_LABELS.get(txn_type, txn_type.replace('_', ' '))
             adj = WalletAdjustment.objects.create(
                 wallet=wallet,
                 user=user,
@@ -90,7 +91,7 @@ def record_user_cashback(txn, wallet=None) -> Optional[object]:
                 source_txn_id=txn_id,
                 balance_before=before,
                 balance_after=expected,
-                reason='Cashback',
+                reason=f'Cashback · {service}',
                 reference=ref,
             )
             TransactionCharge.objects.filter(txn_type=txn_type, txn_id=txn_id).update(

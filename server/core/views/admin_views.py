@@ -3975,7 +3975,7 @@ def admin_commission_setup_dealer_detail(request, dealer_id):
     """Dealer commission amount plus referred users (cashback tree)."""
     from ..models import DealerCommissionConfig, UserFeeConfig
     from ..services.hierarchy import ROLE_DEALER
-    from ..services.txn_charges import money
+    from ..services.txn_charges import money, _related_or_none
 
     try:
         dealer = User.objects.select_related('dealer_commission_config').get(
@@ -4003,7 +4003,7 @@ def admin_commission_setup_dealer_detail(request, dealer_id):
         .select_related('fee_config')
         .order_by('first_name', 'last_name', 'phone')
     )
-    fee_by_user = {u.pk: getattr(u, 'fee_config', None) for u in users}
+    fee_by_user = {u.pk: _related_or_none(u, 'fee_config') for u in users}
     tree = []
     for person in users:
         fee = fee_by_user.get(person.pk)

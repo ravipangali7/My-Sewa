@@ -821,6 +821,10 @@ export interface WalletAdjustment {
   kind?: "manual" | "cashback" | "dealer_commission";
   source_txn_type?: string;
   source_txn_id?: number | null;
+  gross_commission?: string | null;
+  tds_amount?: string | null;
+  tds_rate?: string | null;
+  net_commission?: string | null;
   balance_before: string;
   balance_after: string;
   reason: string;
@@ -905,6 +909,7 @@ export interface ChargePreview {
   amount_paisa?: number;
   charge: string;
   cashback: string;
+  cashback_credit?: string;
   total_debited: string;
   platform_charge?: string;
   system_charge?: string;
@@ -925,6 +930,10 @@ export interface ActivityItem {
   created_at: string;
   balance_before?: string | null;
   balance_after?: string | null;
+  gross_commission?: string | null;
+  tds_amount?: string | null;
+  tds_rate?: string | null;
+  net_commission?: string | null;
 }
 
 export interface AdminUser extends UserProfile {

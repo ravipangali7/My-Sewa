@@ -227,7 +227,36 @@ def _get_or_create_wallet(user):
         return Wallet.objects.create(user=user, balance=_ZERO)
 
 
-def _credit_dealer_wallet(dealer, amount: Decimal, *, txn=None, source_user=None) -> bool:
+def _pct_label(value) -> str:
+    pct = _rate(value)
+    text = f'{pct:.4f}'.rstrip('0').rstrip('.')
+    return text or '0'
+
+
+def _commission_credit_reason(source_user, figures: Optional[dict] = None) -> str:
+    source_phone = getattr(source_user, 'phone', None) or 'customer'
+    source_name = ' '.join(filter(None, [
+        getattr(source_user, 'first_name', '') or '',
+        getattr(source_user, 'last_name', '') or '',
+    ])).strip()
+    who = f'{source_name} ({source_phone})' if source_name else source_phone
+    reason = f'Dealer commission from {who}'
+    if not figures:
+        return reason
+    tds_amount = money(figures.get('tds_amount', 0))
+    if tds_amount <= 0:
+        return reason
+    gross = money(figures.get('gross_commission', 0))
+    net = money(figures.get('net_commission', 0))
+    return (
+        f'{reason}. Gross Rs {gross:.2f} − TDS Charge Rs {tds_amount:.2f} '
+        f'({_pct_label(figures.get("tds_rate"))}%) = Net Rs {net:.2f}'
+    )
+
+
+def _credit_dealer_wallet(
+    dealer, amount: Decimal, *, txn=None, source_user=None, figures=None,
+) -> bool:
     from .wallet_guard import assert_wallet_not_frozen, WalletFrozenError
     from ..models import WalletAdjustment
 
@@ -248,12 +277,6 @@ def _credit_dealer_wallet(dealer, amount: Decimal, *, txn=None, source_user=None
     txn_type = _txn_type_for(txn) if txn is not None else None
     txn_id = getattr(txn, 'pk', None) if txn is not None else None
     if txn_type and txn_id:
-        source_phone = getattr(source_user, 'phone', None) or 'customer'
-        source_name = ' '.join(filter(None, [
-            getattr(source_user, 'first_name', '') or '',
-            getattr(source_user, 'last_name', '') or '',
-        ])).strip()
-        who = f'{source_name} ({source_phone})' if source_name else source_phone
         ref = f'DC:{txn_type}:{txn_id}'[:100]
         WalletAdjustment.objects.get_or_create(
             reference=ref,
@@ -267,7 +290,7 @@ def _credit_dealer_wallet(dealer, amount: Decimal, *, txn=None, source_user=None
                 'source_txn_id': txn_id,
                 'balance_before': before,
                 'balance_after': expected,
-                'reason': f'Dealer commission from {who}',
+                'reason': _commission_credit_reason(source_user, figures),
             },
         )
     return True
@@ -368,6 +391,7 @@ def record_dealer_commission(txn) -> Optional[object]:
             if should_credit and figures['net_commission'] > 0:
                 credited = _credit_dealer_wallet(
                     dealer, figures['net_commission'], txn=txn, source_user=user,
+                    figures=figures,
                 )
                 if credited and not obj.wallet_credited:
                     obj.wallet_credited = True

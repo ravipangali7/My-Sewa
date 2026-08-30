@@ -4,6 +4,7 @@ and wallet debit / refund when status changes.
 """
 from decimal import Decimal
 from typing import Optional, Tuple
+import logging
 
 from django.db import transaction
 
@@ -15,6 +16,8 @@ from .wallet_guard import (
     WALLET_FROZEN_MESSAGE,
     assert_wallet_not_frozen,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _money(value) -> Decimal:
@@ -66,7 +69,7 @@ def debit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
         from .cashback import record_user_cashback
         record_user_cashback(txn, wallet=wallet)
     except Exception:
-        pass
+        logger.exception('Failed to credit user cashback')
 
 
 def credit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
@@ -91,7 +94,7 @@ def credit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
         from .cashback import record_user_cashback
         record_user_cashback(txn, wallet=wallet)
     except Exception:
-        pass
+        logger.exception('Failed to credit user cashback')
 
 
 def apply_outbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[str]]:
@@ -150,7 +153,7 @@ def apply_outbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[s
             from .cashback import record_user_cashback
             record_user_cashback(txn)
         except Exception:
-            pass
+            logger.exception('Failed to credit user cashback')
     elif old_status == 'success' and new_status != 'success':
         try:
             from .dealer_commission import reverse_dealer_commission
@@ -161,7 +164,7 @@ def apply_outbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[s
             from .cashback import reverse_user_cashback
             reverse_user_cashback(txn)
         except Exception:
-            pass
+            logger.exception('Failed to reverse user cashback')
 
     return True, None
 
@@ -229,7 +232,7 @@ def apply_inbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[st
             from .cashback import record_user_cashback
             record_user_cashback(txn)
         except Exception:
-            pass
+            logger.exception('Failed to credit user cashback')
     elif old_status == 'success' and new_status != 'success':
         try:
             from .dealer_commission import reverse_dealer_commission
@@ -240,7 +243,7 @@ def apply_inbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[st
             from .cashback import reverse_user_cashback
             reverse_user_cashback(txn)
         except Exception:
-            pass
+            logger.exception('Failed to reverse user cashback')
 
     return True, None
 

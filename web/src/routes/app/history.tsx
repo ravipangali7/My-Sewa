@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { apiClient } from "@/lib/api";
-import { buildActivity, buildActivityStatement } from "@/lib/activity";
+import { buildActivity, buildActivityStatement, tdsChargeCaption } from "@/lib/activity";
 import type { ActivityKind } from "@/lib/types";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { serialNumber } from "@/lib/serial";
@@ -238,6 +238,7 @@ function HistoryPage() {
             {items.map((item, index) => {
               const isDownloading = downloadingId === item.id;
               const sn = serialNumber(1, items.length || 1, index);
+              const tdsCaption = tdsChargeCaption(item, t);
               return (
                 <li key={item.id} className="flex items-stretch">
                   <Link
@@ -265,7 +266,7 @@ function HistoryPage() {
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[15px] font-medium">{item.title}</p>
-                        <p className="truncate text-[13px] text-muted-foreground">
+                        <p className="line-clamp-2 text-[13px] text-muted-foreground">
                           {item.subtitle} · {formatDateTime(item.created_at)}
                         </p>
                       </div>
@@ -278,6 +279,11 @@ function HistoryPage() {
                         >
                           {item.credit ? "+" : "−"} {formatNPR(item.amount)}
                         </p>
+                        {tdsCaption ? (
+                          <p className="mt-0.5 max-w-36 text-right text-[11px] font-medium leading-tight text-destructive">
+                            − {tdsCaption}
+                          </p>
+                        ) : null}
                         <StatusChip status={item.status} compact className="mt-1" />
                       </div>
                       <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />

@@ -42,11 +42,11 @@ def resolve_tx_cfg_for_user(user=None, tx_cfg=None) -> Dict[str, Any]:
     if user is None:
         return cfg
     try:
-        fee = getattr(user, 'fee_config', None)
-        if fee is None:
-            fee = UserFeeConfig.objects.filter(user_id=getattr(user, 'pk', None)).first()
+        fee = getattr(user, 'fee_config')
     except Exception:
         fee = None
+    if fee is None:
+        fee = UserFeeConfig.objects.filter(user_id=getattr(user, 'pk', None)).first()
     if fee is None:
         return cfg
     for key in _USER_FEE_OVERRIDE_KEYS:

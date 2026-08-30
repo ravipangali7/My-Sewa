@@ -68,7 +68,7 @@ function DealerCommissionPage() {
                       label: "Gross",
                       value: formatNPR(earnings.gross_commission ?? 0),
                     },
-                    { key: "tds", label: "TDS", value: formatNPR(earnings.tds_amount ?? 0) },
+                    { key: "tds", label: "TDS Charge", value: formatNPR(earnings.tds_amount ?? 0) },
                     { key: "net", label: "Net", value: formatNPR(earnings.net_commission ?? 0) },
                     {
                       key: "sub",
@@ -97,7 +97,7 @@ function DealerCommissionPage() {
                 <TableHead>Service</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Gross</TableHead>
-                <TableHead>TDS</TableHead>
+                <TableHead>TDS Charge</TableHead>
                 <TableHead>Net</TableHead>
               </TableRow>
             </TableHeader>
@@ -109,7 +109,10 @@ function DealerCommissionPage() {
                   <TableCell>{row.txn_type_display || row.txn_type}</TableCell>
                   <TableCell className="tabular">{formatNPR(row.txn_amount)}</TableCell>
                   <TableCell className="tabular">{formatNPR(row.gross_commission)}</TableCell>
-                  <TableCell className="tabular">{formatNPR(row.tds_amount)}</TableCell>
+                  <TableCell className="tabular">
+                    {formatNPR(row.tds_amount)}
+                    {Number(row.tds_rate) > 0 ? ` (${Number(row.tds_rate)}%)` : ""}
+                  </TableCell>
                   <TableCell className="tabular">{formatNPR(row.net_commission)}</TableCell>
                 </TableRow>
               ))}
@@ -123,6 +126,8 @@ function DealerCommissionPage() {
                 <p className="text-sm font-semibold">{row.txn_type_display || row.txn_type}</p>
                 <AdminMobileMeta
                   items={[
+                    { label: "Gross", value: formatNPR(row.gross_commission) },
+                    { label: "TDS Charge", value: formatNPR(row.tds_amount) },
                     { label: "Net", value: formatNPR(row.net_commission) },
                     { label: "When", value: formatDateTime(row.created_at) },
                     { label: "Customer", value: row.source_phone || "—" },

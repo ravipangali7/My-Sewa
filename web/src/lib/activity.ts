@@ -43,6 +43,47 @@ function adjustmentDisplayAmount(a: WalletAdjustment): string {
   return Number.isNaN(n) ? a.amount : String(n);
 }
 
+export function formatTdsRate(rate: string | number | null | undefined): string {
+  const n = Number(rate);
+  if (!Number.isFinite(n)) return "";
+  return n
+    .toFixed(4)
+    .replace(/\.?0+$/, "")
+    .replace(/\.$/, "");
+}
+
+export function hasTdsCharge(item: {
+  tds_amount?: string | number | null;
+}): boolean {
+  const n = Number(item.tds_amount);
+  return Number.isFinite(n) && n > 0;
+}
+
+export function tdsChargeCaption(
+  item: {
+    tds_amount?: string | number | null;
+    tds_rate?: string | number | null;
+  },
+  t: TranslateFn,
+): string | null {
+  if (!hasTdsCharge(item)) return null;
+  const amount = formatNPR(item.tds_amount);
+  const rate = formatTdsRate(item.tds_rate);
+  return rate
+    ? t("history.tdsChargeWithRate", { amount, rate })
+    : `${t("history.tdsCharge")} ${amount}`;
+}
+
+function dealerCommissionSubtitle(a: WalletAdjustment, t: TranslateFn): string {
+  const fallback = a.reason?.trim() || a.reference || t("activity.walletAdjustment");
+  if (!hasTdsCharge(a) || !a.gross_commission) return fallback;
+  return t("activity.dealerCommissionBreakdown", {
+    gross: formatNPR(a.gross_commission),
+    tds: formatNPR(a.tds_amount),
+    net: formatNPR(a.net_commission || adjustmentDisplayAmount(a)),
+  });
+}
+
 export function buildActivity(
   tx: WalletTransactions,
   t: TranslateFn = (key) => key,
@@ -181,13 +222,19 @@ export function buildActivity(
         kind: "wallet_adjustment" as const,
         title,
         subtitle:
-          a.reason?.trim() || a.reference || t("activity.walletAdjustment"),
+          a.kind === "dealer_commission"
+            ? dealerCommissionSubtitle(a, t)
+            : a.reason?.trim() || a.reference || t("activity.walletAdjustment"),
         amount: adjustmentDisplayAmount(a),
         credit: isCredit,
         status: "success" as const,
         created_at: a.created_at,
         balance_before: a.balance_before,
         balance_after: a.balance_after,
+        gross_commission: a.gross_commission ?? null,
+        tds_amount: a.tds_amount ?? null,
+        tds_rate: a.tds_rate ?? null,
+        net_commission: a.net_commission ?? null,
       };
     }),
     ...(tx.wallet_transfers ?? []).map((wt: WalletTransfer) => {
@@ -409,6 +456,9 @@ export function buildActivityStatement(
     pushDetail(details, t("common.status"), translateStatus(top.status, t));
     pushDetail(details, t("common.amountNpr"), formatNPR(top.amount));
     pushDetail(details, t("common.charge"), formatNPR(top.charge));
+    if (Number(top.cashback) > 0) {
+      pushDetail(details, t("common.cashback"), formatNPR(top.cashback));
+    }
     pushDetail(details, t("common.totalDebited"), formatNPR(top.total_debited));
     pushBalanceRows(details, t, top.balance_before, top.balance_after);
     pushDetail(details, t("history.merchantTxn"), top.merchant_txn_id, {
@@ -720,6 +770,21 @@ export function buildActivityStatement(
     pushDetail(details, t("history.serviceName"), serviceName);
     pushDetail(details, t("common.status"), translateStatus("success", t));
     pushDetail(details, t("history.adjustmentType"), typeLabel);
+    if (isDealerCommission && hasTdsCharge(adj) && adj.gross_commission) {
+      const rate = formatTdsRate(adj.tds_rate);
+      pushDetail(details, t("history.grossCommission"), formatNPR(adj.gross_commission));
+      pushDetail(
+        details,
+        rate ? t("history.tdsChargeRate", { rate }) : t("history.tdsCharge"),
+        formatNPR(adj.tds_amount),
+        { danger: true },
+      );
+      pushDetail(
+        details,
+        t("history.netCommissionCredited"),
+        formatNPR(adj.net_commission || displayAmount),
+      );
+    }
     pushDetail(details, t("common.amountNpr"), formatNPR(displayAmount));
     pushDetail(details, t("history.balanceBefore"), formatNPR(adj.balance_before));
     pushDetail(details, t("history.balanceAfter"), formatNPR(adj.balance_after));
@@ -735,7 +800,7 @@ export function buildActivityStatement(
       amountCaption: isCashback
         ? t("activity.cashback")
         : isDealerCommission
-          ? t("activity.dealerCommission")
+          ? t("history.netCommissionCredited")
           : adj.adjustment_type === "credit"
             ? t("history.walletCredit")
             : t("history.walletDebit"),
@@ -814,6 +879,9 @@ export function buildActivityStatement(
   );
   pushDetail(details, t("common.amountNpr"), formatNPR(b.amount));
   pushDetail(details, t("common.charge"), formatNPR(b.charge));
+  if (Number(b.cashback) > 0) {
+    pushDetail(details, t("common.cashback"), formatNPR(b.cashback));
+  }
   pushDetail(details, t("common.totalDebited"), formatNPR(b.total_debited));
   pushBalanceRows(details, t, b.balance_before, b.balance_after);
   pushDetail(details, t("common.remarks"), b.transaction_remarks?.trim() || "—");

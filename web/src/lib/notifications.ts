@@ -1,5 +1,5 @@
 import type { ActivityItem, WalletTransactions } from "./types";
-import { buildActivity } from "./activity";
+import { buildActivity, formatTdsRate, hasTdsCharge } from "./activity";
 import { formatNPR, formatDateTime } from "./format";
 import type { TranslateFn } from "./i18n";
 import { translateStatus } from "./status";
@@ -124,27 +124,43 @@ function detailRows(
   if (item.kind === "wallet_adjustment") {
     const adj = (tx.wallet_adjustments ?? []).find((x) => `adj-${x.id}` === item.id);
     if (!adj) return [];
-    return [
-      {
-        label: t("common.type"),
-        value:
-          adj.adjustment_type === "credit"
-            ? t("notif.typeManualLoad")
-            : t("notif.typeWalletDebit"),
-      },
+    const isDealerCommission = adj.kind === "dealer_commission";
+    const typeValue = isDealerCommission
+      ? t("activity.dealerCommission")
+      : adj.adjustment_type === "credit"
+        ? t("notif.typeManualLoad")
+        : t("notif.typeWalletDebit");
+    const rows: NotificationDetailRow[] = [
+      { label: t("common.type"), value: typeValue },
       {
         label: t("history.adjustmentType"),
-        value:
-          adj.adjustment_type === "credit"
+        value: isDealerCommission
+          ? t("activity.dealerCommission")
+          : adj.adjustment_type === "credit"
             ? t("notif.manualLoadAddFund")
             : t("activity.walletDebit"),
       },
+    ];
+    if (isDealerCommission && hasTdsCharge(adj) && adj.gross_commission) {
+      const rate = formatTdsRate(adj.tds_rate);
+      rows.push({ label: t("history.grossCommission"), value: formatNPR(adj.gross_commission) });
+      rows.push({
+        label: rate ? t("history.tdsChargeRate", { rate }) : t("history.tdsCharge"),
+        value: formatNPR(adj.tds_amount),
+      });
+      rows.push({
+        label: t("history.netCommissionCredited"),
+        value: formatNPR(adj.net_commission || adj.display_amount || adj.amount),
+      });
+    }
+    rows.push(
       { label: t("common.amount"), value: formatNPR(adj.display_amount || adj.amount) },
       { label: t("history.balanceBefore"), value: formatNPR(adj.balance_before) },
       { label: t("history.balanceAfter"), value: formatNPR(adj.balance_after) },
       { label: t("common.note"), value: adj.reason || "—" },
       { label: t("common.date"), value: formatDateTime(adj.created_at) },
-    ];
+    );
+    return rows;
   }
   if (item.kind === "wallet_transfer") {
     const wt = (tx.wallet_transfers ?? []).find((x) => `wt-${x.id}` === item.id);
@@ -262,7 +278,22 @@ function notificationCopy(
   }
   if (item.kind === "wallet_adjustment") {
     const adj = tx?.wallet_adjustments?.find((x) => `adj-${x.id}` === item.id);
+    const isDealerCommission = adj?.kind === "dealer_commission";
     const isCredit = adj?.adjustment_type === "credit" || item.credit;
+    if (isDealerCommission) {
+      return {
+        title: t("activity.dealerCommission"),
+        body: item.subtitle
+          ? t("notif.walletAdjustmentBody", {
+              amount: formatNPR(item.amount),
+              note: item.subtitle,
+            })
+          : t("notif.walletAdjustmentBody", {
+              amount: formatNPR(item.amount),
+              note: adj?.reason || "—",
+            }),
+      };
+    }
     return {
       title: isCredit ? t("notif.manualLoadAddFund") : t("notif.walletDebitTitle"),
       body: t("notif.walletAdjustmentBody", {

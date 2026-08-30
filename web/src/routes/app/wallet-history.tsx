@@ -22,6 +22,7 @@ import {
   buildActivity,
   filterWalletCredits,
   filterWalletDebits,
+  tdsChargeCaption,
 } from "@/lib/activity";
 import type { ActivityItem } from "@/lib/types";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
@@ -108,6 +109,7 @@ function HistoryList({
     <ul className="divide-y divide-border">
       {items.map((item, index) => {
         const sn = serialNumber(1, items.length || 1, index);
+        const tdsCaption = tdsChargeCaption(item, t);
         return (
           <li key={item.id}>
             <Link
@@ -132,7 +134,7 @@ function HistoryList({
                   <span className="block truncate text-[15px] font-medium text-[#0B2B4A]">
                     {item.title}
                   </span>
-                  <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
+                  <span className="mt-0.5 block line-clamp-2 text-[12px] text-muted-foreground">
                     {item.subtitle} · {formatDateTime(item.created_at)}
                   </span>
                 </span>
@@ -145,6 +147,11 @@ function HistoryList({
                   >
                     {item.credit ? "+" : "−"} {formatNPR(item.amount)}
                   </span>
+                  {tdsCaption ? (
+                    <span className="mt-0.5 block max-w-36 text-right text-[11px] font-medium leading-tight text-destructive">
+                      − {tdsCaption}
+                    </span>
+                  ) : null}
                   <StatusChip status={item.status} compact className="mt-1" />
                 </span>
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />

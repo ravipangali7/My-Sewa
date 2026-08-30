@@ -39,6 +39,12 @@ function displayTransferTotal(item: BankTransferTransaction) {
   return formatNPR(Number.isFinite(combined) ? combined : item.amount);
 }
 
+function previewCashback(payload?: { cashback?: string; cashback_credit?: string }) {
+  const credit = Number(payload?.cashback_credit);
+  if (Number.isFinite(credit) && credit > 0) return String(payload?.cashback_credit);
+  return String(payload?.cashback ?? "0.00");
+}
+
 export const Route = createFileRoute("/app/transfer")({
   head: () => ({
     meta: [
@@ -353,7 +359,7 @@ function Transfer() {
             setSystemCharge(String(res.system_charge ?? "0.00"));
             setDealerCommission(String(res.dealer_commission ?? "0.00"));
             setHimalpayCharge(String(res.himalpay_charge ?? "0.00"));
-            setCashback(String(res.cashback ?? "0.00"));
+            setCashback(previewCashback(res));
             setTotalDebited(String(res.total_debited));
           })
           .catch(() => {
@@ -384,7 +390,7 @@ function Transfer() {
           setSystemCharge(String(res.data.system_charge ?? res.data.platform_charge ?? "0.00"));
           setDealerCommission(String(res.data.dealer_commission ?? "0.00"));
           setHimalpayCharge(String(res.data.himalpay_charge ?? "0.00"));
-          setCashback(String(res.data.cashback));
+          setCashback(previewCashback(res.data));
           setTotalDebited(String(res.data.total_debited));
         })
         .catch((err) => {
@@ -926,6 +932,12 @@ function Transfer() {
               <div className="rounded-xl bg-muted p-3 text-[14px]">
                 <Row label={t("common.amount")} value={formatNPR(amt)} />
                 {Number(charge) > 0 ? <Row label={t("common.charge")} value={formatNPR(charge)} /> : null}
+                {Number(cashback) > 0 ? (
+                  <>
+                    <Row label={t("common.cashback")} value={formatNPR(cashback)} />
+                    <p className="mt-0.5 text-[12px] text-muted-foreground">{t("common.cashbackAfter")}</p>
+                  </>
+                ) : null}
                 <div className="mt-2 border-t border-separator pt-2">
                   <Row label={t("common.totalDebited")} value={formatNPR(totalDebited || amt)} strong />
                 </div>
@@ -1175,6 +1187,12 @@ function Transfer() {
               <Row label={t("common.amount")} value={formatNPR(amt)} />
               {Number(charge) > 0 ? (
                 <Row label={t("common.charge")} value={formatNPR(charge)} />
+              ) : null}
+              {Number(cashback) > 0 ? (
+                <>
+                  <Row label={t("common.cashback")} value={formatNPR(cashback)} />
+                  <p className="mt-0.5 text-[12px] text-muted-foreground">{t("common.cashbackAfter")}</p>
+                </>
               ) : null}
               <div className="mt-2 border-t border-separator pt-2">
                 <Row label={t("common.totalDebited")} value={formatNPR(totalDebited)} strong />
