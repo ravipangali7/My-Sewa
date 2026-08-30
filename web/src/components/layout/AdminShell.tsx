@@ -404,6 +404,14 @@ export function AdminShell({
                   )}
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-2">
+                  <Link
+                    to="/admin/support-chat"
+                    aria-label="Support Chat"
+                    className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground transition-colors hover:bg-muted md:hidden"
+                  >
+                    <MessageCircle className="size-5" />
+                    <SupportChatUnreadBadge variant="icon" className="ring-surface" />
+                  </Link>
                   {/* Inline actions only when sidebar layout has room; avoid clipping on phones/tablets */}
                   <div className="hidden max-w-[min(100%,22rem)] items-center gap-2 overflow-x-auto md:flex [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
                     {actions}

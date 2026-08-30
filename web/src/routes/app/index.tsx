@@ -37,6 +37,7 @@ import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { isAccountPending, canFundTransfer, canWalletAdjust, isWalletBlocked, isWalletFrozen } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { SupportChatUnreadBadge, useSupportChatUnread } from "@/hooks/use-support-chat-unread";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/")({
@@ -177,6 +178,8 @@ function WalletHome() {
         : 0,
     [txQuery.data, t, locale],
   );
+  const chatUnread = useSupportChatUnread();
+  const chatUnreadCount = chatUnread.data?.count ?? 0;
   const dealerHome = isNetworkRole(user);
   const displayName =
     user?.business_name?.trim() ||
@@ -245,15 +248,25 @@ function WalletHome() {
 
             <div className="flex shrink-0 items-center gap-0.5">
               <LanguageToggle {...(dealerHome ? { className: "mt-0" } : {})} />
-              {dealerHome ? null : (
-                <Link
-                  to="/app/support-chat"
-                  aria-label={t("nav.supportChat")}
-                  className="relative mt-1 flex size-10 items-center justify-center rounded-full text-white"
-                >
-                  <MessageCircle className="size-[22px]" strokeWidth={1.75} />
-                </Link>
-              )}
+              <Link
+                to="/app/support-chat"
+                aria-label={
+                  chatUnreadCount > 0
+                    ? `${t("nav.supportChat")}, ${
+                        chatUnreadCount === 1
+                          ? t("chat.newMessage")
+                          : t("chat.newMessages", { count: chatUnreadCount })
+                      }`
+                    : t("nav.supportChat")
+                }
+                className={cn(
+                  "relative flex size-10 items-center justify-center rounded-full text-white",
+                  dealerHome ? "mt-0" : "mt-1",
+                )}
+              >
+                <MessageCircle className="size-[22px]" strokeWidth={1.75} />
+                <SupportChatUnreadBadge variant="icon" />
+              </Link>
               <Link
                 to="/app/notifications"
                 aria-label={t("home.notifications")}

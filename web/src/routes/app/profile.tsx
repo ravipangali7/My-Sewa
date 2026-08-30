@@ -27,6 +27,7 @@ import { isAccountActive, canRemittanceTransfer, isWalletFrozen } from "@/lib/ac
 import { isIdentityLocked } from "@/lib/kyc-lock";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
+import { SupportChatUnreadBadge } from "@/hooks/use-support-chat-unread";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -395,6 +396,7 @@ function Profile() {
                 icon={MessageCircle}
                 title={t("nav.supportChat")}
                 subtitle={t("chat.authorizedHint")}
+                trailing={<SupportChatUnreadBadge className="mr-1" />}
               />
             </div>
           </section>
@@ -528,11 +530,13 @@ function SettingsRow({
   icon: Icon,
   title,
   subtitle,
+  trailing,
 }: {
   to: "/app/profile/edit" | "/app/profile/kyc" | "/app/profile/password" | "/app/profile/pin" | "/app/support-chat";
   icon: typeof UserRound;
   title: string;
   subtitle: string;
+  trailing?: ReactNode;
 }) {
   return (
     <Link
@@ -550,6 +554,7 @@ function SettingsRow({
         <p className="text-[16px] font-semibold text-[#0F172A]">{title}</p>
         <p className="mt-0.5 text-[13px] text-[#8A94A6]">{subtitle}</p>
       </div>
+      {trailing}
       <ChevronRight className="size-5 shrink-0 text-[#C0C7D2]" strokeWidth={2} />
     </Link>
   );

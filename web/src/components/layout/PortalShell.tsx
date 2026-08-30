@@ -616,6 +616,16 @@ export function PortalShell({
                     {actions}
                   </div>
                 ) : null}
+                {pathname.startsWith("/app/support-chat") ? null : (
+                  <Link
+                    to="/app/support-chat"
+                    aria-label={t("nav.supportChat")}
+                    className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground hover:bg-muted md:hidden"
+                  >
+                    <MessageCircle className="size-5" />
+                    <SupportChatUnreadBadge variant="icon" className="ring-surface" />
+                  </Link>
+                )}
                 <div className="hidden shrink-0 md:block">{profileMenu("end")}</div>
               </div>
               {actions ? (

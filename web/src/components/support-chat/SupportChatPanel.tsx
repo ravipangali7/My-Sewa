@@ -33,6 +33,10 @@ import {
 } from "@/lib/support-chat-media";
 import type { SupportChatThread, SupportChatUser } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import {
+  ConversationUnreadBadge,
+  markSupportChatThreadReadInCache,
+} from "@/hooks/use-support-chat-unread";
 import { SupportChatMessageBubble } from "./SupportChatMessageBubble";
 
 const THREAD_STORAGE_KEY = "mysewa-support-chat-thread";
@@ -138,18 +142,28 @@ function PersonRow({
       </Avatar>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-medium">{displayName}</p>
+          <p
+            className={cn(
+              "truncate text-sm",
+              unread && unread > 0 ? "font-semibold text-foreground" : "font-medium",
+            )}
+          >
+            {displayName}
+          </p>
           <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
             {identityHidden ? "Super Admin" : roleLabel}
           </span>
         </div>
-        <p className="truncate text-[12px] text-muted-foreground">{subtitle}</p>
+        <p
+          className={cn(
+            "truncate text-[12px]",
+            unread && unread > 0 ? "font-medium text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {subtitle}
+        </p>
       </div>
-      {unread && unread > 0 ? (
-        <span className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
-          {unread > 9 ? "9+" : unread}
-        </span>
-      ) : null}
+      <ConversationUnreadBadge count={unread ?? 0} />
     </button>
   );
 }
@@ -168,7 +182,9 @@ export function SupportChatPanel({
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [selectedThreadId, setSelectedThreadId] = useState<number | null>(readStoredThreadId);
+  const [selectedThreadId, setSelectedThreadId] = useState<number | null>(() =>
+    mode === "admin" ? null : readStoredThreadId(),
+  );
   const [draft, setDraft] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingPreview, setPendingPreview] = useState<string | null>(null);
@@ -252,6 +268,11 @@ export function SupportChatPanel({
   const contacts = contactsQuery.data?.items ?? [];
   const messages = messagesQuery.data?.items ?? [];
   const searching = Boolean(debouncedQuery);
+
+  useEffect(() => {
+    if (selectedThreadId == null || !messagesQuery.isSuccess) return;
+    markSupportChatThreadReadInCache(queryClient, selectedThreadId);
+  }, [messagesQuery.dataUpdatedAt, messagesQuery.isSuccess, queryClient, selectedThreadId]);
   const threadByUserId = useMemo(() => {
     const map = new Map<number, SupportChatThread>();
     for (const thread of threads) map.set(thread.other_user.id, thread);
@@ -267,7 +288,8 @@ export function SupportChatPanel({
           user: contact,
           thread: existing ?? null,
           preview: existing?.last_message_preview || (isHiddenAdmin(contact) ? t("chat.supportSubtitle") : contact.phone),
-          unread: existing?.unread_count ?? 0,
+          unread:
+            existing && existing.id === selectedThreadId ? 0 : existing?.unread_count ?? 0,
         };
       });
     }
@@ -286,7 +308,7 @@ export function SupportChatPanel({
         user: thread.other_user,
         thread,
         preview: thread.last_message_preview || (isHiddenAdmin(thread.other_user) ? t("chat.supportSubtitle") : thread.other_user.phone),
-        unread: thread.unread_count,
+        unread: thread.id === selectedThreadId ? 0 : thread.unread_count,
       });
     }
     const leftover = contacts.filter((contact) => !seen.has(contact.id));
@@ -302,8 +324,20 @@ export function SupportChatPanel({
         });
       }
     }
+    if (mode === "admin" && !searching) {
+      items.sort((a, b) => Number(b.unread > 0) - Number(a.unread > 0));
+    }
     return items;
-  }, [contacts, mode, searching, t, threadByUserId, threads]);
+  }, [contacts, mode, searching, selectedThreadId, t, threadByUserId, threads]);
+
+  const inboxUnread = useMemo(
+    () =>
+      threads.reduce(
+        (sum, thread) => sum + (thread.id === selectedThreadId ? 0 : thread.unread_count),
+        0,
+      ),
+    [selectedThreadId, threads],
+  );
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
   const selectedUser = selectedThread?.other_user
@@ -440,6 +474,16 @@ export function SupportChatPanel({
           <p className="mt-2 px-0.5 text-[11px] text-muted-foreground">
             {t(mode === "admin" ? "chat.authorizedHintAdmin" : "chat.authorizedHint")}
           </p>
+          {mode === "admin" && inboxUnread > 0 ? (
+            <div className="mt-2 flex items-center gap-2 rounded-xl bg-[#FF3B30]/10 px-2.5 py-2">
+              <ConversationUnreadBadge count={inboxUnread} />
+              <p className="text-[12px] font-semibold text-[#B42318]">
+                {inboxUnread === 1
+                  ? t("chat.newMessage")
+                  : t("chat.newMessages", { count: inboxUnread })}
+              </p>
+            </div>
+          ) : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {threadsQuery.isLoading || contactsQuery.isLoading ? (

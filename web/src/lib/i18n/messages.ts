@@ -123,6 +123,8 @@ export const messages = {
     "chat.removeAttachment": "Remove attachment",
     "chat.read": "Read",
     "chat.sent": "Sent",
+    "chat.newMessage": "1 new message",
+    "chat.newMessages": "{count} new messages",
 
     "account.pending":
       "Your account is pending approval. You can browse the app, but remittance, top-up, fund transfer and other transactions stay disabled until an admin activates your account.",
@@ -1337,6 +1339,8 @@ export const messages = {
     "chat.removeAttachment": "संलग्नक हटाउनुहोस्",
     "chat.read": "पढिएको",
     "chat.sent": "पठाइयो",
+    "chat.newMessage": "१ नयाँ सन्देश",
+    "chat.newMessages": "{count} नयाँ सन्देश",
 
     "account.pending":
       "तपाईंको खाता स्वीकृतिको प्रतीक्षामा छ। तपाईं एप हेर्न सक्नुहुन्छ, तर रेमिटेन्स, टप-अप, फन्ड ट्रान्सफर र अन्य कारोबार एडमिनले खाता सक्रिय नगरेसम्म निष्क्रिय रहन्छन्।",

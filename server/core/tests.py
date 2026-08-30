@@ -3410,6 +3410,54 @@ class SupportChatHierarchyTests(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
         self.assertEqual(resp.json().get('code'), 'file_type_not_allowed')
 
+    def test_unread_counts_clear_when_messages_are_viewed(self):
+        resp = self._start_thread(self.customer, self.staff.pk)
+        thread_id = resp.json()['id']
+        self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'First ping'},
+            format='json',
+        )
+        self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'Second ping'},
+            format='json',
+        )
+
+        self.client.force_authenticate(user=self.staff)
+        unread = self.client.get(reverse('support_chat_unread'))
+        self.assertEqual(unread.status_code, status.HTTP_200_OK, unread.content)
+        self.assertEqual(unread.json().get('count'), 2)
+        threads = self.client.get(reverse('support_chat_threads'))
+        item = next(row for row in threads.json().get('items') or [] if row['id'] == thread_id)
+        self.assertEqual(item.get('unread_count'), 2)
+
+        viewed = self.client.get(reverse('support_chat_messages', args=[thread_id]))
+        self.assertEqual(viewed.status_code, status.HTTP_200_OK, viewed.content)
+        unread = self.client.get(reverse('support_chat_unread'))
+        self.assertEqual(unread.json().get('count'), 0)
+        threads = self.client.get(reverse('support_chat_threads'))
+        item = next(row for row in threads.json().get('items') or [] if row['id'] == thread_id)
+        self.assertEqual(item.get('unread_count'), 0)
+
+        reply = self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'We can help'},
+            format='json',
+        )
+        self.assertEqual(reply.status_code, status.HTTP_201_CREATED, reply.content)
+
+        self.client.force_authenticate(user=self.customer)
+        unread = self.client.get(reverse('support_chat_unread'))
+        self.assertEqual(unread.json().get('count'), 1)
+        threads = self.client.get(reverse('support_chat_threads'))
+        item = next(row for row in threads.json().get('items') or [] if row['id'] == thread_id)
+        self.assertEqual(item.get('unread_count'), 1)
+
+        self.client.get(reverse('support_chat_messages', args=[thread_id]))
+        unread = self.client.get(reverse('support_chat_unread'))
+        self.assertEqual(unread.json().get('count'), 0)
+
 
 class UserProvisioningAndPayoutTests(TestCase):
     """Dealer user creation, pending approval emails, payout accounts, dealer wallet load."""
