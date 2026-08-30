@@ -1498,6 +1498,15 @@ function VerifyStatusMessage({
   );
 }
 
+function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="flex justify-between py-0.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn("tabular", strong ? "font-semibold" : "font-medium")}>{value}</span>
+    </div>
+  );
+}
+
 function otherApplicableCharges(charge: string, himalpayCharge: string): number {
   const combined = Number(charge) || 0;
   const himalpay = Number(himalpayCharge) || 0;
