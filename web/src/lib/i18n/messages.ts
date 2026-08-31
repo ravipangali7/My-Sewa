@@ -534,7 +534,7 @@ export const messages = {
     "topup.pendingBody": "Payment is processing. Status will update automatically.",
     "topup.recent": "Recent top-ups",
     "topup.empty": "No top-ups yet.",
-    "topup.chargeLine": "Charge {charge} · Cashback {cashback} · Debited {debited}",
+    "topup.chargeLine": "Top-up Charge {charge} · Debited {debited}",
     "topup.providerBlocked": "Provider connection blocked",
     "topup.providerBlockedBody":
       "HimalPay could not be reached. Ask your admin to allowlist this server IP.",
@@ -1759,7 +1759,7 @@ export const messages = {
     "topup.pendingBody": "भुक्तानी प्रक्रियामा छ। स्थिति स्वतः अपडेट हुन्छ।",
     "topup.recent": "हालका टप-अपहरू",
     "topup.empty": "अहिले कुनै टप-अप छैन।",
-    "topup.chargeLine": "शुल्क {charge} · क्यासब्याक {cashback} · कट्टी {debited}",
+    "topup.chargeLine": "टप-अप शुल्क {charge} · कट्टी {debited}",
     "topup.providerBlocked": "प्रदायक जडान अवरुद्ध",
     "topup.providerBlockedBody":
       "HimalPay सम्पर्क गर्न सकिएन। यो सर्भर IP अनुमति सूचीमा राख्न एडमिनलाई भन्नुहोस्।",

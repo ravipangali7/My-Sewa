@@ -17,6 +17,7 @@ import {
 } from "@/lib/constants";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { userFacingChargeExtra } from "@/lib/user-charge";
+import { UserChargePreview } from "@/components/UserChargePreview";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -34,7 +35,7 @@ export const Route = createFileRoute("/app/topup")({
       {
         name: "description",
         content:
-          "Recharge NTC or NCELL mobile numbers from your MySewa business wallet balance with a clear charge and cashback breakdown.",
+          "Recharge NTC or NCELL mobile numbers from your MySewa business wallet balance with a single combined top-up charge.",
       },
       { property: "og:title", content: "Mobile Top-Up — MySewa" },
       {
@@ -55,9 +56,7 @@ function TopUp() {
   const [mobile, setMobile] = useState("");
   const [amount, setAmount] = useState("");
   const [charge, setCharge] = useState("0.00");
-  const [providerCharge, setProviderCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
-  const [platformCharge, setPlatformCharge] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [feeLoading, setFeeLoading] = useState(false);
   const [touchedMobile, setTouchedMobile] = useState(false);
@@ -140,9 +139,7 @@ function TopUp() {
   useEffect(() => {
     if (!topupsEnabled || amt < minTopup) {
       setCharge("0.00");
-      setProviderCharge("0.00");
       setCashback("0.00");
-      setPlatformCharge("0.00");
       setTotalDebited("0.00");
       setFeeLoading(false);
       return;
@@ -156,17 +153,13 @@ function TopUp() {
           if (cancelled) return;
           setProviderBlocked(false);
           setCharge(String(res.charge));
-          setProviderCharge(String(res.provider_charge ?? res.charge));
           setCashback(String(res.cashback_credit ?? res.cashback));
-          setPlatformCharge(String(res.system_charge ?? res.platform_charge ?? "0.00"));
           setTotalDebited(String(res.total_debited));
         })
         .catch((err) => {
           if (cancelled) return;
           setCharge("0.00");
-          setProviderCharge("0.00");
           setCashback("0.00");
-          setPlatformCharge("0.00");
           setTotalDebited(amt.toFixed(2));
           if (err instanceof ApiError) {
             const msg = err.message.toLowerCase();
@@ -298,9 +291,7 @@ function TopUp() {
       setAmount("");
       setTouchedMobile(false);
       setCharge("0.00");
-      setProviderCharge("0.00");
       setCashback("0.00");
-      setPlatformCharge("0.00");
       setTotalDebited("0.00");
       queryClient.invalidateQueries({ queryKey: ["topups"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
@@ -486,46 +477,19 @@ function TopUp() {
               </p>
             </div>
 
-            <div className="rounded-xl bg-muted p-3 text-[14px]">
-              <Row label={t("common.amount")} value={formatNPR(amt)} />
-              {userFacingChargeExtra({
-                amount: amt,
-                charge,
-                cashback,
-                totalDebited,
-              }) > 0 ? (
-                <Row
-                  label={t("topup.serviceCharge")}
-                  value={
-                    feeLoading
-                      ? "…"
-                      : formatNPR(
-                          userFacingChargeExtra({
-                            amount: amt,
-                            charge,
-                            cashback,
-                            totalDebited,
-                          }),
-                        )
-                  }
-                />
-              ) : null}
-              <div className="mt-2 border-t border-separator pt-2">
-                <Row
-                  label={t("common.totalDebited")}
-                  value={feeLoading ? "…" : formatNPR(totalDebited || amt)}
-                  strong
-                />
-              </div>
-              {insufficient ? (
-                <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
-                  {t("topup.insufficient", {
-                    required: formatNPR(totalDue),
-                    available: formatNPR(walletBalance),
-                  })}
-                </p>
-              ) : null}
-            </div>
+            <UserChargePreview
+              amount={amt}
+              charge={charge}
+              cashback={cashback}
+              chargeLabel={t("topup.serviceCharge")}
+              totalDebited={totalDebited || String(amt)}
+              loading={feeLoading}
+              insufficient={insufficient}
+              insufficientText={t("topup.insufficient", {
+                required: formatNPR(totalDue),
+                available: formatNPR(walletBalance),
+              })}
+            />
 
             <Button
               type="submit"
@@ -558,8 +522,15 @@ function TopUp() {
             </div>
           ) : (
             <ul className="inset-group min-w-0 divide-y divide-border overflow-hidden">
-              {topupItems.map((item) => (
-                <li key={item.id} className="min-w-0 px-4 py-3">
+              {topupItems.map((item) => {
+                const extra = userFacingChargeExtra({
+                  amount: item.amount,
+                  charge: item.charge,
+                  cashback: item.cashback,
+                  totalDebited: item.total_debited,
+                });
+                return (
+                  <li key={item.id} className="min-w-0 px-4 py-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[15px] font-medium">
@@ -570,17 +541,24 @@ function TopUp() {
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="tabular text-[15px] font-semibold">{formatNPR(item.amount)}</p>
+                      <p className="tabular text-[15px] font-semibold">
+                        {formatNPR(
+                          Number(item.total_debited) > 0 ? item.total_debited : item.amount,
+                        )}
+                      </p>
                       <StatusChip status={item.status} compact className="mt-1" />
                     </div>
                   </div>
                   <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
                     <p className="min-w-0 truncate text-[12px] text-muted-foreground">
-                      {t("topup.chargeLine", {
-                        charge: formatNPR(item.charge),
-                        cashback: formatNPR(item.cashback),
-                        debited: formatNPR(item.total_debited),
-                      })}
+                      {extra > 0
+                        ? t("topup.chargeLine", {
+                            charge: formatNPR(extra),
+                            debited: formatNPR(item.total_debited),
+                          })
+                        : t("transfer.debited", {
+                            amount: formatNPR(item.total_debited || item.amount),
+                          })}
                     </p>
                     {item.status === "pending" ? (
                       <button
@@ -596,7 +574,8 @@ function TopUp() {
                     ) : null}
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </section>
@@ -617,14 +596,5 @@ function TopUp() {
         }}
       />
     </UserShell>
-  );
-}
-
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex justify-between py-0.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("tabular", strong ? "font-semibold" : "font-medium")}>{value}</span>
-    </div>
   );
 }

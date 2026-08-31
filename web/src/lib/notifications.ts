@@ -29,9 +29,9 @@ function chargeBreakdownRows(
   t: TranslateFn,
   opts: {
     amount: string;
-    charge?: string | null;
-    cashback?: string | null;
-    totalDebited?: string | null;
+    charge?: string | null | undefined;
+    cashback?: string | null | undefined;
+    totalDebited?: string | null | undefined;
     chargeLabel: string;
   },
 ): NotificationDetailRow[] {
@@ -227,6 +227,97 @@ function detailRows(
       { label: t("common.remarks"), value: wt.remarks || "—" },
       { label: t("common.txnId"), value: wt.reference, mono: true },
       { label: t("common.date"), value: formatDateTime(wt.created_at) },
+    ];
+  }
+  if (item.kind === "internet") {
+    const bill = (tx.internet_bills ?? []).find((x) => `isp-${x.id}` === item.id);
+    if (!bill) return [];
+    return [
+      { label: t("common.type"), value: t("activity.internetBill", { isp: bill.isp_name }) },
+      { label: t("internet.isp"), value: bill.isp_name },
+      { label: t("internet.customerId"), value: bill.customer_id, mono: true },
+      ...chargeBreakdownRows(t, {
+        amount: bill.amount,
+        charge: bill.charge,
+        cashback: bill.cashback,
+        totalDebited: bill.total_debited,
+        chargeLabel: t("internet.serviceCharge"),
+      }),
+      { label: t("common.status"), value: translateStatus(bill.status, t) },
+      { label: t("common.date"), value: formatDateTime(bill.created_at) },
+    ];
+  }
+  if (item.kind === "data_pack") {
+    const dp = (tx.data_packs ?? []).find((x) => `data-${x.id}` === item.id);
+    if (!dp) return [];
+    return [
+      { label: t("common.type"), value: t("activity.dataPack", { operator: dp.operator }) },
+      { label: t("common.operator"), value: dp.operator },
+      { label: t("common.mobile"), value: dp.mobile_number },
+      ...chargeBreakdownRows(t, {
+        amount: dp.amount,
+        charge: dp.charge,
+        cashback: dp.cashback,
+        totalDebited: dp.total_debited,
+        chargeLabel: t("dataTopup.serviceCharge"),
+      }),
+      { label: t("common.status"), value: translateStatus(dp.status, t) },
+      { label: t("common.date"), value: formatDateTime(dp.created_at) },
+    ];
+  }
+  if (item.kind === "water") {
+    const bill = (tx.water_bills ?? []).find((x) => `water-${x.id}` === item.id);
+    if (!bill) return [];
+    return [
+      { label: t("common.type"), value: t("activity.waterBill") },
+      { label: t("water.connectionNo"), value: bill.connection_no, mono: true },
+      ...chargeBreakdownRows(t, {
+        amount: bill.amount,
+        charge: bill.charge,
+        cashback: bill.cashback,
+        totalDebited: bill.total_debited,
+        chargeLabel: t("water.serviceCharge"),
+      }),
+      { label: t("common.status"), value: translateStatus(bill.status, t) },
+      { label: t("common.date"), value: formatDateTime(bill.created_at) },
+    ];
+  }
+  if (item.kind === "electricity") {
+    const bill = (tx.electricity_bills ?? []).find((x) => `nea-${x.id}` === item.id);
+    if (!bill) return [];
+    return [
+      { label: t("common.type"), value: t("activity.electricityBill") },
+      { label: t("electricity.scNumber"), value: bill.sc_no, mono: true },
+      { label: t("electricity.consumerId"), value: bill.consumer_id, mono: true },
+      ...chargeBreakdownRows(t, {
+        amount: bill.amount,
+        charge: bill.charge,
+        cashback: bill.cashback,
+        totalDebited: bill.total_debited,
+        chargeLabel: t("electricity.serviceCharge"),
+      }),
+      { label: t("common.status"), value: translateStatus(bill.status, t) },
+      { label: t("common.date"), value: formatDateTime(bill.created_at) },
+    ];
+  }
+  if (item.kind === "community_electricity") {
+    const bill = (tx.community_electricity ?? []).find((x) => `ce-${x.id}` === item.id);
+    if (!bill) return [];
+    return [
+      {
+        label: t("common.type"),
+        value: t("activity.communityElectricity", { provider: bill.platform_name }),
+      },
+      { label: t("communityElectricity.provider"), value: bill.platform_name },
+      ...chargeBreakdownRows(t, {
+        amount: bill.amount,
+        charge: bill.charge,
+        cashback: bill.cashback,
+        totalDebited: bill.total_debited,
+        chargeLabel: t("communityElectricity.serviceCharge"),
+      }),
+      { label: t("common.status"), value: translateStatus(bill.status, t) },
+      { label: t("common.date"), value: formatDateTime(bill.created_at) },
     ];
   }
   const b = tx.bank_transfers.find((x) => `bt-${x.id}` === item.id);

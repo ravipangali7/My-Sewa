@@ -328,9 +328,7 @@ function HistoryStatementPage() {
       t("history.channel"),
       t("common.amountNpr"),
       t("common.charge"),
-      t("common.himalpayCharge"),
       t("common.cashback"),
-      t("common.cashbackCharge"),
       t("common.cashbackReturn"),
       t("history.grossCommission"),
       t("history.tdsCharge"),
@@ -378,9 +376,6 @@ function HistoryStatementPage() {
       return <Coins className="size-4" />;
     }
     if (userServiceChargeLabels(t).includes(label)) {
-      return <Tag className="size-4" />;
-    }
-    if (label === t("common.himalpayCharge") || label === t("common.cashbackCharge")) {
       return <Tag className="size-4" />;
     }
     if (label === t("common.cashbackReturn") || label === t("activity.cashbackReturn")) {

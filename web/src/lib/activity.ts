@@ -360,9 +360,9 @@ function pushDebitChargeBreakdown(
   t: TranslateFn,
   opts: {
     amount: string;
-    charge?: string | null;
-    cashback?: string | null;
-    totalDebited?: string | null;
+    charge?: string | null | undefined;
+    cashback?: string | null | undefined;
+    totalDebited?: string | null | undefined;
     chargeLabel: string;
   },
 ) {

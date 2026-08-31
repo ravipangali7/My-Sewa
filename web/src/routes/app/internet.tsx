@@ -12,7 +12,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
-import { userFacingChargeExtra } from "@/lib/user-charge";
+import { UserChargePreview } from "@/components/UserChargePreview";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -551,46 +551,19 @@ function InternetBillPayment() {
                 </p>
               </div>
 
-              <div className="rounded-xl bg-muted p-3 text-[14px]">
-                <FeeRow label={t("common.amount")} value={formatNPR(pkgAmount)} />
-                {userFacingChargeExtra({
-                  amount: pkgAmount,
-                  charge,
-                  cashback,
-                  totalDebited,
-                }) > 0 ? (
-                  <FeeRow
-                    label={t("internet.serviceCharge")}
-                    value={
-                      feeLoading
-                        ? "…"
-                        : formatNPR(
-                            userFacingChargeExtra({
-                              amount: pkgAmount,
-                              charge,
-                              cashback,
-                              totalDebited,
-                            }),
-                          )
-                    }
-                  />
-                ) : null}
-                <div className="mt-2 border-t border-separator pt-2">
-                  <FeeRow
-                    label={t("common.totalDebited")}
-                    value={feeLoading ? "…" : formatNPR(totalDebited)}
-                    strong
-                  />
-                </div>
-                {insufficient ? (
-                  <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
-                    {t("topup.insufficient", {
-                      required: formatNPR(totalDue),
-                      available: formatNPR(walletBalance),
-                    })}
-                  </p>
-                ) : null}
-              </div>
+              <UserChargePreview
+                amount={pkgAmount}
+                charge={charge}
+                cashback={cashback}
+                chargeLabel={t("internet.serviceCharge")}
+                totalDebited={totalDebited}
+                loading={feeLoading}
+                insufficient={insufficient}
+                insufficientText={t("topup.insufficient", {
+                  required: formatNPR(totalDue),
+                  available: formatNPR(walletBalance),
+                })}
+              />
 
               <Button
                 type="button"
@@ -658,7 +631,11 @@ function InternetBillPayment() {
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="tabular text-[15px] font-semibold">{formatNPR(item.amount)}</p>
+                      <p className="tabular text-[15px] font-semibold">
+                        {formatNPR(
+                          Number(item.total_debited) > 0 ? item.total_debited : item.amount,
+                        )}
+                      </p>
                       <StatusChip status={item.status} compact className="mt-1" />
                     </div>
                   </div>
@@ -758,15 +735,6 @@ function Row({
       >
         {value}
       </dd>
-    </div>
-  );
-}
-
-function FeeRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex justify-between py-0.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("tabular", strong ? "font-semibold" : "font-medium")}>{value}</span>
     </div>
   );
 }

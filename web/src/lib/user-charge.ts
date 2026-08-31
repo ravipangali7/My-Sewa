@@ -3,10 +3,10 @@ import type { MessageKey } from "./i18n/messages";
 
 /** Extra the user pays on top of the principal (dealer + system + HimalPay + cashback hold). */
 export function userFacingChargeExtra(opts: {
-  amount?: string | number | null;
-  charge?: string | number | null;
-  cashback?: string | number | null;
-  totalDebited?: string | number | null;
+  amount?: string | number | null | undefined;
+  charge?: string | number | null | undefined;
+  cashback?: string | number | null | undefined;
+  totalDebited?: string | number | null | undefined;
 }): number {
   const amount = Number(opts.amount) || 0;
   const total = Number(opts.totalDebited);

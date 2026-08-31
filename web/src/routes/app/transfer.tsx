@@ -18,6 +18,7 @@ import { mergeBankLists, matchBank, normalizeBankCode } from "@/lib/nepali-banks
 import type { BankOption, BankTransferTransaction } from "@/lib/types";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { userFacingChargeExtra } from "@/lib/user-charge";
+import { UserChargePreview } from "@/components/UserChargePreview";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -36,8 +37,13 @@ import { peekStashedQr, takeStashedQr } from "@/lib/scanned-qr";
 function displayTransferTotal(item: BankTransferTransaction) {
   const total = Number(item.total_debited);
   if (Number.isFinite(total) && total > 0) return formatNPR(item.total_debited);
-  const combined = Number(item.amount) + Number(item.charge || 0);
-  return formatNPR(Number.isFinite(combined) ? combined : item.amount);
+  const extra = userFacingChargeExtra({
+    amount: item.amount,
+    charge: item.charge,
+    cashback: item.cashback,
+    totalDebited: item.total_debited,
+  });
+  return formatNPR((Number(item.amount) || 0) + extra);
 }
 
 function previewCashback(payload?: { cashback?: string; cashback_credit?: string }) {
@@ -139,11 +145,6 @@ function Transfer() {
   const minTransfer = settingsQuery.data?.config?.transactions?.min_transfer ?? 10;
   const maxTransfer = settingsQuery.data?.config?.transactions?.max_transfer ?? 100000;
   const dailyLimit = settingsQuery.data?.config?.transactions?.daily_transfer_limit ?? 200000;
-  const chargeEnabled =
-    settingsQuery.data?.config?.transactions?.transfer_charge_enabled !== false;
-  const cashbackEnabled =
-    settingsQuery.data?.config?.transactions?.cashback_enabled !== false;
-
   const walletQuery = useQuery({
     queryKey: ["wallet", "balance"],
     queryFn: () => apiClient.walletBalance(),
@@ -909,7 +910,7 @@ function Transfer() {
                 />
               </div>
 
-              <ChargePreviewBox
+              <UserChargePreview
                 amount={amt}
                 charge={charge}
                 cashback={cashback}
@@ -1154,7 +1155,7 @@ function Transfer() {
               />
             </div>
 
-            <ChargePreviewBox
+            <UserChargePreview
               amount={amt}
               charge={charge}
               cashback={cashback}
@@ -1268,7 +1269,13 @@ function Transfer() {
                             </div>
                             <div className="text-right">
                               <p className="tabular text-[15px] font-semibold">
-                                {received ? `+ ${formatNPR(wt.amount)}` : formatNPR(wt.amount)}
+                                {received
+                                  ? `+ ${formatNPR(wt.amount)}`
+                                  : formatNPR(
+                                      Number(wt.total_debited) > 0
+                                        ? wt.total_debited!
+                                        : wt.amount,
+                                    )}
                               </p>
                               <StatusChip status={wt.status} compact className="mt-1" />
                             </div>
@@ -1474,55 +1481,6 @@ function VerifyStatusMessage({
     <div className="space-y-0.5">
       <p className="text-[13px] font-medium text-destructive">{unverifiedLabel}</p>
       <p className="text-[12px] text-muted-foreground">{unverifiedStatusLabel}</p>
-    </div>
-  );
-}
-
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex justify-between py-0.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("tabular", strong ? "font-semibold" : "font-medium")}>{value}</span>
-    </div>
-  );
-}
-
-function ChargePreviewBox({
-  amount,
-  charge,
-  cashback,
-  chargeLabel,
-  totalDebited,
-  insufficient,
-  insufficientText,
-}: {
-  amount: number;
-  charge: string;
-  cashback: string;
-  chargeLabel: string;
-  totalDebited: string;
-  insufficient: boolean;
-  insufficientText: string;
-}) {
-  const { t } = useI18n();
-  const extra = userFacingChargeExtra({
-    amount,
-    charge,
-    cashback,
-    totalDebited,
-  });
-  return (
-    <div className="rounded-xl bg-muted p-3 text-[14px]">
-      <Row label={t("common.amount")} value={formatNPR(amount)} />
-      {extra > 0 ? <Row label={chargeLabel} value={formatNPR(extra)} /> : null}
-      <div className="mt-2 border-t border-separator pt-2">
-        <Row label={t("common.totalDebited")} value={formatNPR(totalDebited || amount)} strong />
-      </div>
-      {insufficient ? (
-        <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
-          {insufficientText}
-        </p>
-      ) : null}
     </div>
   );
 }

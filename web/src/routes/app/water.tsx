@@ -26,7 +26,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR } from "@/lib/format";
-import { userFacingChargeExtra } from "@/lib/user-charge";
+import { UserChargePreview } from "@/components/UserChargePreview";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -647,46 +647,19 @@ function WaterBillPayment() {
                 </p>
               </div>
 
-              <div className="rounded-xl bg-muted p-3 text-[14px]">
-                <FeeRow label={t("common.amount")} value={formatNPR(payAmount)} />
-                {userFacingChargeExtra({
-                  amount: payAmount,
-                  charge,
-                  cashback,
-                  totalDebited,
-                }) > 0 ? (
-                  <FeeRow
-                    label={t("water.serviceCharge")}
-                    value={
-                      feeLoading
-                        ? "…"
-                        : formatNPR(
-                            userFacingChargeExtra({
-                              amount: payAmount,
-                              charge,
-                              cashback,
-                              totalDebited,
-                            }),
-                          )
-                    }
-                  />
-                ) : null}
-                <div className="mt-2 border-t border-separator pt-2">
-                  <FeeRow
-                    label={t("common.totalDebited")}
-                    value={feeLoading ? "…" : formatNPR(totalDebited)}
-                    strong
-                  />
-                </div>
-                {insufficient ? (
-                  <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
-                    {t("topup.insufficient", {
-                      required: formatNPR(totalDue),
-                      available: formatNPR(walletBalance),
-                    })}
-                  </p>
-                ) : null}
-              </div>
+              <UserChargePreview
+                amount={payAmount}
+                charge={charge}
+                cashback={cashback}
+                chargeLabel={t("water.serviceCharge")}
+                totalDebited={totalDebited}
+                loading={feeLoading}
+                insufficient={insufficient}
+                insufficientText={t("topup.insufficient", {
+                  required: formatNPR(totalDue),
+                  available: formatNPR(walletBalance),
+                })}
+              />
 
               <Button
                 type="button"
@@ -829,15 +802,6 @@ function Row({
       >
         {value}
       </dd>
-    </div>
-  );
-}
-
-function FeeRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex justify-between py-0.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("tabular", strong ? "font-semibold" : "font-medium")}>{value}</span>
     </div>
   );
 }

@@ -27,7 +27,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR } from "@/lib/format";
-import { userFacingChargeExtra } from "@/lib/user-charge";
+import { UserChargePreview } from "@/components/UserChargePreview";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -705,46 +705,21 @@ function ElectricityBillPayment() {
                     {walletQuery.isLoading ? "…" : formatNPR(walletBalance)}
                   </p>
                 </div>
-                <div className="mt-3 rounded-xl bg-[#F3F4F6] p-3 text-[14px]">
-                  <FeeRow label={t("common.amount")} value={formatNPR(payAmount)} />
-                  {userFacingChargeExtra({
-                    amount: payAmount,
-                    charge,
-                    cashback,
-                    totalDebited,
-                  }) > 0 ? (
-                    <FeeRow
-                      label={t("electricity.serviceCharge")}
-                      value={
-                        feeLoading
-                          ? "…"
-                          : formatNPR(
-                              userFacingChargeExtra({
-                                amount: payAmount,
-                                charge,
-                                cashback,
-                                totalDebited,
-                              }),
-                            )
-                      }
-                    />
-                  ) : null}
-                  <div className="mt-2 border-t border-[#E5E7EB] pt-2">
-                    <FeeRow
-                      label={t("common.totalDebited")}
-                      value={feeLoading ? "…" : formatNPR(totalDebited)}
-                      strong
-                    />
-                  </div>
-                  {insufficient ? (
-                    <p className="mt-2 text-[12px] font-medium text-destructive" role="alert">
-                      {t("topup.insufficient", {
-                        required: formatNPR(totalDue),
-                        available: formatNPR(walletBalance),
-                      })}
-                    </p>
-                  ) : null}
-                </div>
+                <UserChargePreview
+                  className="mt-3 bg-[#F3F4F6]"
+                  separatorClassName="border-[#E5E7EB]"
+                  amount={payAmount}
+                  charge={charge}
+                  cashback={cashback}
+                  chargeLabel={t("electricity.serviceCharge")}
+                  totalDebited={totalDebited}
+                  loading={feeLoading}
+                  insufficient={insufficient}
+                  insufficientText={t("topup.insufficient", {
+                    required: formatNPR(totalDue),
+                    available: formatNPR(walletBalance),
+                  })}
+                />
               </div>
               <button
                 type="button"
@@ -947,17 +922,6 @@ function Row({
       <dd className={cn("text-right font-medium text-[#111827]", mono && "font-mono text-[13px]")}>
         {value}
       </dd>
-    </div>
-  );
-}
-
-function FeeRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex justify-between py-0.5">
-      <span className="text-[#6B7280]">{label}</span>
-      <span className={cn("tabular", strong ? "font-semibold text-[#111827]" : "font-medium")}>
-        {value}
-      </span>
     </div>
   );
 }

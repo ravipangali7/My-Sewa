@@ -27,7 +27,7 @@ import {
   type PackCategory,
 } from "@/lib/data-packs";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
-import { userFacingChargeExtra } from "@/lib/user-charge";
+import { UserChargePreview } from "@/components/UserChargePreview";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -85,7 +85,6 @@ function DataTopUp() {
   const [selectedPackage, setSelectedPackage] = useState<DataPackOption | null>(null);
   const [charge, setCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
-  const [platformCharge, setPlatformCharge] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [feeLoading, setFeeLoading] = useState(false);
   const [pinOpen, setPinOpen] = useState(false);
@@ -156,7 +155,6 @@ function DataTopUp() {
     if (!selectedPackage || pkgAmount <= 0 || !enabled) {
       setCharge("0.00");
       setCashback("0.00");
-      setPlatformCharge("0.00");
       setTotalDebited("0.00");
       return;
     }
@@ -169,7 +167,6 @@ function DataTopUp() {
           if (cancelled) return;
           setCharge(String(res.charge));
           setCashback(String(res.cashback_credit ?? res.cashback));
-          setPlatformCharge(String(res.platform_charge ?? "0.00"));
           setTotalDebited(String(res.total_debited));
         })
         .catch(() => {
@@ -552,38 +549,14 @@ function DataTopUp() {
                 ) : null}
               </div>
 
-              <div className="rounded-xl bg-muted p-3 text-[14px]">
-                <FeeRow label={t("common.amount")} value={formatNPR(pkgAmount)} />
-                {userFacingChargeExtra({
-                  amount: pkgAmount,
-                  charge,
-                  cashback,
-                  totalDebited,
-                }) > 0 ? (
-                  <FeeRow
-                    label={t("dataTopup.serviceCharge")}
-                    value={
-                      feeLoading
-                        ? "…"
-                        : formatNPR(
-                            userFacingChargeExtra({
-                              amount: pkgAmount,
-                              charge,
-                              cashback,
-                              totalDebited,
-                            }),
-                          )
-                    }
-                  />
-                ) : null}
-                <div className="mt-2 border-t border-separator pt-2">
-                  <FeeRow
-                    label={t("common.totalDebited")}
-                    value={feeLoading ? "…" : formatNPR(totalDebited)}
-                    strong
-                  />
-                </div>
-              </div>
+              <UserChargePreview
+                amount={pkgAmount}
+                charge={charge}
+                cashback={cashback}
+                chargeLabel={t("dataTopup.serviceCharge")}
+                totalDebited={totalDebited}
+                loading={feeLoading}
+              />
 
               <Button
                 type="button"
@@ -702,7 +675,11 @@ function DataTopUp() {
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="tabular text-[15px] font-semibold">{formatNPR(item.amount)}</p>
+                      <p className="tabular text-[15px] font-semibold">
+                        {formatNPR(
+                          Number(item.total_debited) > 0 ? item.total_debited : item.amount,
+                        )}
+                      </p>
                       <StatusChip status={item.status} compact className="mt-1" />
                     </div>
                   </div>
@@ -805,14 +782,5 @@ function DataTopUp() {
         }}
       />
     </UserShell>
-  );
-}
-
-function FeeRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex justify-between py-0.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("tabular", strong ? "font-semibold" : "font-medium")}>{value}</span>
-    </div>
   );
 }
