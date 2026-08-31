@@ -18,6 +18,7 @@ from .models import (
     DealerCommissionConfig,
     DealerCommission,
     ServiceCommissionRule,
+    UserServiceCharge,
     DealerPayoutAccount,
     ServiceChargeConfig,
     TransactionCharge,
@@ -782,6 +783,14 @@ class ServiceCommissionRuleAdmin(admin.ModelAdmin):
     )
     list_filter = ('txn_type',)
     search_fields = ('dealer__phone',)
+
+
+@admin.register(UserServiceCharge)
+class UserServiceChargeAdmin(admin.ModelAdmin):
+    list_display = ('user', 'txn_type', 'charge_flat', 'updated_at')
+    list_filter = ('txn_type',)
+    search_fields = ('user__phone', 'user__first_name', 'user__last_name')
+    autocomplete_fields = ('user',)
 
 
 @admin.register(DealerCommission)

@@ -31,6 +31,7 @@ from .models import (
     DealerCommissionConfig,
     DealerCommission,
     ServiceCommissionRule,
+    UserServiceCharge,
     KYCSubmission,
     KYCDocument,
     KYCAuditLog,
@@ -1722,6 +1723,13 @@ class ServiceCommissionRuleSerializer(serializers.ModelSerializer):
             'id', 'dealer', 'txn_type', 'dealer_rate', 'sub_agent_rate',
             'super_admin_rate', 'updated_at',
         )
+        read_only_fields = ('id', 'updated_at')
+
+
+class UserServiceChargeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserServiceCharge
+        fields = ('id', 'user', 'txn_type', 'charge_flat', 'updated_at')
         read_only_fields = ('id', 'updated_at')
 
 

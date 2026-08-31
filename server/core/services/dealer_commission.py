@@ -124,7 +124,7 @@ def get_dealer_rates(dealer, txn_type: Optional[str] = None) -> tuple[Decimal, D
         rule = ServiceCommissionRule.objects.filter(
             dealer_id=getattr(dealer, 'pk', None), txn_type=txn_type,
         ).first() if dealer is not None and txn_type else None
-        if rule is not None and money(rule.dealer_rate) > 0:
+        if rule is not None:
             commission = money(rule.dealer_rate)
     except Exception:
         logger.exception('Could not load service commission rule')

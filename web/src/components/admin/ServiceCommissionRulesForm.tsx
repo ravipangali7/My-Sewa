@@ -4,17 +4,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiClient, ApiError } from "@/lib/api";
+import { SERVICE_CHARGE_OPTIONS } from "@/lib/services";
 
-const SERVICES = [
-  { id: "topup", label: "Top-up" },
-  { id: "data_pack", label: "Data pack" },
-  { id: "internet", label: "Internet" },
-  { id: "water", label: "Water" },
-  { id: "electricity", label: "Electricity" },
-  { id: "community_electricity", label: "Community electricity" },
-  { id: "bank_transfer", label: "Bank transfer" },
-  { id: "remittance", label: "Remittance" },
-] as const;
+const SERVICES = SERVICE_CHARGE_OPTIONS;
 
 type RateRow = {
   txn_type: string;
@@ -107,8 +99,7 @@ export function ServiceCommissionRulesForm({
         <h2 className="text-sm font-semibold">Service-wise commission</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           Flat amount in Rs per transaction. Blank uses this Dealer&apos;s default commission.
-          Saved amounts are snapshotted onto future transactions and do not change historical
-          ledger rows.
+          Fund transfer, wallet transfer, and every other service can be set independently.
         </p>
       </div>
       {query.isError ? <p className="text-sm text-danger">Could not load service rules.</p> : null}

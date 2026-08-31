@@ -1622,13 +1622,6 @@ export const apiClient = {
       { method: "POST", body: { status } },
     ),
   adminGetSettings: () => api<import("./types").AppSettings>("/api/admin/settings/"),
-  adminGetServiceCharges: () =>
-    api<{ data: import("./types").ServiceChargeConfig[] }>("/api/admin/service-charges/"),
-  adminSaveServiceCharges: (data: import("./types").ServiceChargeConfig[]) =>
-    api<{ message: string; data: import("./types").ServiceChargeConfig[] }>(
-      "/api/admin/service-charges/",
-      { method: "PUT", body: { data } },
-    ),
   adminCommissionSetupDealers: (q = "") => {
     const params = new URLSearchParams();
     if (q.trim()) params.set("q", q.trim());
@@ -1643,7 +1636,10 @@ export const apiClient = {
     ),
   adminSaveCommissionSetupDealer: (
     dealerId: number,
-    payload: { commission_amount: string | number },
+    payload: {
+      commission_amount?: string | number;
+      service_charges?: Array<{ txn_type: string; amount: string | number }>;
+    },
   ) =>
     api<import("./types").CommissionSetupDealerDetail>(
       `/api/admin/commission-setup/dealers/${dealerId}/`,
@@ -1654,8 +1650,13 @@ export const apiClient = {
     payload: {
       apply_to_all?: boolean;
       cashback?: string | number;
+      charges?: Record<string, string | number>;
       user_id?: number;
-      users?: { id: number; cashback: string | number }[];
+      users?: {
+        id: number;
+        cashback?: string | number;
+        charges?: Record<string, string | number>;
+      }[];
     },
   ) =>
     api<{ message: string; users: import("./types").CommissionSetupUser[] }>(

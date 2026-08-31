@@ -1976,8 +1976,41 @@ class UserFeeConfig(models.Model):
         verbose_name_plural = 'User Fee Configs'
 
 
+class UserServiceCharge(models.Model):
+    """Per-user, per-service charge applied when this user uses the matching service."""
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='service_charges',
+    )
+    txn_type = models.CharField(max_length=40, db_index=True)
+    charge_flat = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Flat service charge in Rs for this user on this service.',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.user.phone} {self.txn_type} Rs. {self.charge_flat}'
+
+    class Meta:
+        verbose_name = 'User Service Charge'
+        verbose_name_plural = 'User Service Charges'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'txn_type'],
+                name='uniq_user_service_charge_txn',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'txn_type'], name='core_usrchg_user_txn_idx'),
+        ]
+
+
 class ServiceChargeConfig(models.Model):
-    """Global per-service User and network-fee charges applied on matching transactions."""
+    """Legacy global HimalPay amounts. User and dealer charges are set in Commission Setup."""
 
     CHARGE_FLAT = 'flat'
     CHARGE_PERCENT = 'percent'

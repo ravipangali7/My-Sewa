@@ -2,20 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Receipt, Save, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Save, Search } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { useErrorPopup } from "@/components/ErrorPopup";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -26,7 +18,7 @@ import {
 } from "@/components/ui/table";
 import { apiClient } from "@/lib/api";
 import { formatNPR } from "@/lib/format";
-import type { ChargeType, ServiceChargeConfig } from "@/lib/types";
+import { amountsFromCharges, emptyServiceAmounts, SERVICE_CHARGE_OPTIONS } from "@/lib/services";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/commission-charge")({
@@ -36,7 +28,7 @@ export const Route = createFileRoute("/admin/commission-charge")({
       {
         name: "description",
         content:
-          "Configure per-service user and network fees, dealer commission, and user cashback.",
+          "Configure dealer commission and per-service charges for dealers and users, plus user cashback.",
       },
     ],
   }),
@@ -47,168 +39,37 @@ function CommissionChargePage() {
   return (
     <AdminShell
       title="Commission & Charge"
-      description="Set service charges for users and network fees, then configure dealer commission and user cashback."
+      description="Set a dealer’s default commission, then independent charges for each service. Users under a dealer get their own per-service charges and cashback."
     >
-      <Tabs defaultValue="charges" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="charges">Charge Setup</TabsTrigger>
-          <TabsTrigger value="commission">Commission Setup</TabsTrigger>
-        </TabsList>
-        <TabsContent value="charges">
-          <ChargeSetupPanel />
-        </TabsContent>
-        <TabsContent value="commission">
-          <CommissionSetupPanel />
-        </TabsContent>
-      </Tabs>
+      <CommissionSetupPanel />
     </AdminShell>
   );
 }
 
-function ChargeSetupPanel() {
-  const errorPopup = useErrorPopup("Charge setup");
-  const [rows, setRows] = useState<ServiceChargeConfig[]>([]);
-  const query = useQuery({
-    queryKey: ["admin", "service-charges"],
-    queryFn: () => apiClient.adminGetServiceCharges(),
-  });
-  useEffect(() => {
-    if (query.data?.data) setRows(query.data.data);
-  }, [query.data]);
-
-  const saveMutation = useMutation({
-    mutationFn: () => apiClient.adminSaveServiceCharges(rows),
-    onSuccess: (res) => {
-      setRows(res.data);
-      toast.success(res.message || "Charge setup saved");
-    },
-    onError: (err) => errorPopup.show(err),
-  });
-
-  const setRow = (txnType: string, patch: Partial<ServiceChargeConfig>) => {
-    setRows((current) =>
-      current.map((row) => (row.txn_type === txnType ? { ...row, ...patch } : row)),
-    );
-  };
-
-  return (
-    <form
-      className="rounded-xl border border-border bg-surface p-5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        saveMutation.mutate();
-      }}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold">Charge Setup</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            User charges apply to every customer. Network fees apply when the customer belongs to a
-            dealer and are shown to customers only as part of applicable charges.
-          </p>
-        </div>
-        <Button type="submit" disabled={saveMutation.isPending} className="gap-1.5">
-          <Save className="size-3.5" />
-          {saveMutation.isPending ? "Saving…" : "Save charges"}
-        </Button>
-      </div>
-
-      {query.isLoading ? (
-        <p className="mt-5 text-sm text-muted-foreground">Loading services…</p>
-      ) : (
-        <div className="mt-5 grid gap-4">
-          {rows.map((row) => (
-            <div key={row.txn_type} className="rounded-xl border border-border/80 p-4">
-              <div className="mb-3 flex items-center gap-2">
-                <Receipt className="size-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">{row.label}</h3>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <ChargeEditor
-                  title="User"
-                  description="Service charge for customers using this service."
-                  chargeType={row.user_charge_type || "flat"}
-                  flat={row.system_charge_flat}
-                  percent={row.system_charge_percent}
-                  onTypeChange={(user_charge_type) => setRow(row.txn_type, { user_charge_type })}
-                  onFlatChange={(system_charge_flat) => setRow(row.txn_type, { system_charge_flat })}
-                  onPercentChange={(system_charge_percent) =>
-                    setRow(row.txn_type, { system_charge_percent })
-                  }
-                />
-                <ChargeEditor
-                  title="Network fee"
-                  description="Added for customers in a dealer network. Combined into applicable charges on the customer receipt."
-                  chargeType={row.dealer_charge_type || "flat"}
-                  flat={row.dealer_commission_flat}
-                  percent={row.dealer_commission_percent}
-                  onTypeChange={(dealer_charge_type) => setRow(row.txn_type, { dealer_charge_type })}
-                  onFlatChange={(dealer_commission_flat) =>
-                    setRow(row.txn_type, { dealer_commission_flat })
-                  }
-                  onPercentChange={(dealer_commission_percent) =>
-                    setRow(row.txn_type, { dealer_commission_percent })
-                  }
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </form>
-  );
-}
-
-function ChargeEditor({
-  title,
-  description,
-  chargeType,
-  flat,
-  percent,
-  onTypeChange,
-  onFlatChange,
-  onPercentChange,
+function ServiceAmountGrid({
+  values,
+  onChange,
+  idPrefix,
 }: {
-  title: string;
-  description: string;
-  chargeType: ChargeType;
-  flat: string;
-  percent: string;
-  onTypeChange: (value: ChargeType) => void;
-  onFlatChange: (value: string) => void;
-  onPercentChange: (value: string) => void;
+  values: Record<string, string>;
+  onChange: (txnType: string, value: string) => void;
+  idPrefix: string;
 }) {
-  const isPercent = chargeType === "percent";
   return (
-    <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <div className="space-y-1.5">
-          <Label>Type</Label>
-          <Select value={chargeType} onValueChange={(v) => onTypeChange(v as ChargeType)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="flat">Flat amount</SelectItem>
-              <SelectItem value="percent">Percentage</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>{isPercent ? "Value (%)" : "Value (Rs)"}</Label>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {SERVICE_CHARGE_OPTIONS.map((service) => (
+        <div key={service.id} className="space-y-1.5">
+          <Label htmlFor={`${idPrefix}-${service.id}`}>{service.label} (Rs)</Label>
           <Input
+            id={`${idPrefix}-${service.id}`}
             type="number"
             min="0"
             step="0.01"
-            value={isPercent ? percent : flat}
-            onChange={(e) =>
-              isPercent ? onPercentChange(e.target.value) : onFlatChange(e.target.value)
-            }
+            value={values[service.id] ?? ""}
+            onChange={(e) => onChange(service.id, e.target.value)}
           />
         </div>
-      </div>
+      ))}
     </div>
   );
 }
@@ -228,8 +89,9 @@ function CommissionSetupPanel() {
     <div className="rounded-xl border border-border bg-surface p-5">
       <h2 className="text-base font-semibold">Commission Setup</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Flat dealer commission per transaction, plus cashback for each referred user. Opening a
-        dealer shows their users in a tree so cashback can be set together or one by one.
+        Default dealer commission applies when a service has no amount of its own. Open a dealer to
+        set Fund transfer, top-up, and every other service independently — for the dealer and for
+        each referred user, the same way cashback is set.
       </p>
       <div className="relative mt-4">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -310,39 +172,62 @@ function DealerSetupRow({
     enabled: open,
   });
   const [commission, setCommission] = useState(dealer.commission_amount);
+  const [serviceCharges, setServiceCharges] = useState<Record<string, string>>(emptyServiceAmounts);
   const [cashbacks, setCashbacks] = useState<Record<number, string>>({});
+  const [userCharges, setUserCharges] = useState<Record<number, Record<string, string>>>({});
   const [bulkCashback, setBulkCashback] = useState("");
+  const [bulkCharges, setBulkCharges] = useState<Record<string, string>>(emptyServiceAmounts);
 
   useEffect(() => {
-    if (detailQuery.data) {
-      setCommission(detailQuery.data.commission_amount);
-      const next: Record<number, string> = {};
-      for (const user of detailQuery.data.users) next[user.id] = user.cashback;
-      setCashbacks(next);
+    if (!detailQuery.data) return;
+    setCommission(detailQuery.data.commission_amount);
+    setServiceCharges(amountsFromCharges(detailQuery.data.service_charges));
+    const nextCashback: Record<number, string> = {};
+    const nextCharges: Record<number, Record<string, string>> = {};
+    for (const user of detailQuery.data.users) {
+      nextCashback[user.id] = user.cashback;
+      nextCharges[user.id] = amountsFromCharges(user.charges);
     }
+    setCashbacks(nextCashback);
+    setUserCharges(nextCharges);
   }, [detailQuery.data]);
 
-  const saveCommission = useMutation({
+  const saveDealer = useMutation({
     mutationFn: () =>
-      apiClient.adminSaveCommissionSetupDealer(dealer.id, { commission_amount: commission }),
+      apiClient.adminSaveCommissionSetupDealer(dealer.id, {
+        commission_amount: commission,
+        service_charges: SERVICE_CHARGE_OPTIONS.map((service) => ({
+          txn_type: service.id,
+          amount: serviceCharges[service.id] ?? "",
+        })),
+      }),
     onSuccess: () => {
-      toast.success("Dealer commission saved");
+      toast.success("Dealer commission and service charges saved");
       onChanged();
     },
     onError,
   });
 
   const saveUser = useMutation({
-    mutationFn: ({ userId, cashback }: { userId: number; cashback: string }) =>
+    mutationFn: ({
+      userId,
+      cashback,
+      charges,
+    }: {
+      userId: number;
+      cashback: string;
+      charges: Record<string, string>;
+    }) =>
       apiClient.adminSaveCommissionSetupCashback(dealer.id, {
         user_id: userId,
         cashback,
+        charges,
       }),
-    onSuccess: () => toast.success("Cashback saved"),
+    onSuccess: () => toast.success("User cashback and charges saved"),
     onError,
   });
 
-  const saveAll = useMutation({
+  const saveAllCashback = useMutation({
     mutationFn: () =>
       apiClient.adminSaveCommissionSetupCashback(dealer.id, {
         apply_to_all: true,
@@ -351,13 +236,35 @@ function DealerSetupRow({
     onSuccess: (res) => {
       const next: Record<number, string> = {};
       for (const user of res.users) next[user.id] = user.cashback;
-      setCashbacks(next);
+      setCashbacks((current) => ({ ...current, ...next }));
       toast.success("Cashback applied to all users");
     },
     onError,
   });
 
+  const saveAllCharges = useMutation({
+    mutationFn: () =>
+      apiClient.adminSaveCommissionSetupCashback(dealer.id, {
+        apply_to_all: true,
+        charges: Object.fromEntries(
+          SERVICE_CHARGE_OPTIONS.filter((service) => (bulkCharges[service.id] ?? "").trim()).map(
+            (service) => [service.id, bulkCharges[service.id]],
+          ),
+        ),
+      }),
+    onSuccess: (res) => {
+      const next: Record<number, Record<string, string>> = {};
+      for (const user of res.users) next[user.id] = amountsFromCharges(user.charges);
+      setUserCharges((current) => ({ ...current, ...next }));
+      toast.success("Service charges applied to all users");
+    },
+    onError,
+  });
+
   const users = detailQuery.data?.users ?? [];
+  const hasBulkCharges = SERVICE_CHARGE_OPTIONS.some((service) =>
+    (bulkCharges[service.id] ?? "").trim(),
+  );
 
   return (
     <>
@@ -377,33 +284,52 @@ function DealerSetupRow({
         <TableRow>
           <TableCell colSpan={5} className="bg-muted/20">
             <div className="space-y-4 py-2" onClick={(e) => e.stopPropagation()}>
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor={`commission-${dealer.id}`}>Dealer commission (Rs, flat)</Label>
-                  <Input
-                    id={`commission-${dealer.id}`}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="w-40"
-                    value={commission}
-                    onChange={(e) => setCommission(e.target.value)}
+              <div className="rounded-lg border border-border bg-background p-3">
+                <p className="text-sm font-medium">Dealer commission & service charges</p>
+                <p className="text-xs text-muted-foreground">
+                  Default commission is used when a service box is left blank. Set Fund transfer and
+                  every other service independently.
+                </p>
+                <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`commission-${dealer.id}`}>Dealer commission (Rs, default)</Label>
+                    <Input
+                      id={`commission-${dealer.id}`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="w-40"
+                      value={commission}
+                      onChange={(e) => setCommission(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <ServiceAmountGrid
+                    idPrefix={`dealer-${dealer.id}`}
+                    values={serviceCharges}
+                    onChange={(txnType, value) =>
+                      setServiceCharges((current) => ({ ...current, [txnType]: value }))
+                    }
                   />
                 </div>
                 <Button
                   type="button"
                   size="sm"
-                  disabled={saveCommission.isPending}
-                  onClick={() => saveCommission.mutate()}
+                  className="mt-4 gap-1.5"
+                  disabled={saveDealer.isPending}
+                  onClick={() => saveDealer.mutate()}
                 >
-                  Save commission
+                  <Save className="size-3.5" />
+                  {saveDealer.isPending ? "Saving…" : "Save dealer charges"}
                 </Button>
               </div>
 
               <div className="rounded-lg border border-border bg-background p-3">
                 <p className="text-sm font-medium">Referred users</p>
                 <p className="text-xs text-muted-foreground">
-                  Set the same cashback for everyone, then adjust individuals as needed.
+                  Each user has cashback plus a separate charge for every service. Apply the same
+                  values to everyone, then adjust individuals.
                 </p>
                 <div className="mt-3 flex flex-wrap items-end gap-2">
                   <div className="space-y-1.5">
@@ -422,10 +348,33 @@ function DealerSetupRow({
                     type="button"
                     size="sm"
                     variant="secondary"
-                    disabled={saveAll.isPending || !bulkCashback.trim()}
-                    onClick={() => saveAll.mutate()}
+                    disabled={saveAllCashback.isPending || !bulkCashback.trim()}
+                    onClick={() => saveAllCashback.mutate()}
                   >
-                    Apply to all users
+                    Apply cashback to all
+                  </Button>
+                </div>
+
+                <div className="mt-4 rounded-md border border-border/70 p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Charges for all users</p>
+                  <div className="mt-3">
+                    <ServiceAmountGrid
+                      idPrefix={`bulk-charges-${dealer.id}`}
+                      values={bulkCharges}
+                      onChange={(txnType, value) =>
+                        setBulkCharges((current) => ({ ...current, [txnType]: value }))
+                      }
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="mt-3"
+                    disabled={saveAllCharges.isPending || !hasBulkCharges}
+                    onClick={() => saveAllCharges.mutate()}
+                  >
+                    Apply charges to all users
                   </Button>
                 </div>
 
@@ -434,42 +383,76 @@ function DealerSetupRow({
                 ) : users.length === 0 ? (
                   <p className="mt-3 text-sm text-muted-foreground">No users under this dealer.</p>
                 ) : (
-                  <ul className="mt-4 space-y-2">
+                  <ul className="mt-4 space-y-3">
                     <li className="text-sm font-semibold">{dealer.name}</li>
-                    {users.map((user) => (
-                      <li key={user.id} className="flex flex-wrap items-center gap-3 pl-6">
-                        <span className="text-muted-foreground">→</span>
-                        <span className="min-w-40 text-sm">
-                          {user.name}{" "}
-                          <span className="text-muted-foreground">· {user.phone}</span>
-                        </span>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="h-8 w-28"
-                          value={cashbacks[user.id] ?? user.cashback}
-                          onChange={(e) =>
-                            setCashbacks((current) => ({ ...current, [user.id]: e.target.value }))
-                          }
-                          aria-label={`Cashback for ${user.name}`}
-                        />
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={saveUser.isPending}
-                          onClick={() =>
-                            saveUser.mutate({
-                              userId: user.id,
-                              cashback: cashbacks[user.id] ?? user.cashback,
-                            })
-                          }
+                    {users.map((user) => {
+                      const charges = userCharges[user.id] ?? amountsFromCharges(user.charges);
+                      return (
+                        <li
+                          key={user.id}
+                          className="rounded-md border border-border/70 bg-muted/20 p-3 pl-4"
                         >
-                          Save
-                        </Button>
-                      </li>
-                    ))}
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-muted-foreground">→</span>
+                            <span className="min-w-40 text-sm">
+                              {user.name}{" "}
+                              <span className="text-muted-foreground">· {user.phone}</span>
+                            </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Label
+                                htmlFor={`cb-${dealer.id}-${user.id}`}
+                                className="text-xs text-muted-foreground"
+                              >
+                                Cashback
+                              </Label>
+                              <Input
+                                id={`cb-${dealer.id}-${user.id}`}
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                className="h-8 w-28"
+                                value={cashbacks[user.id] ?? user.cashback}
+                                onChange={(e) =>
+                                  setCashbacks((current) => ({
+                                    ...current,
+                                    [user.id]: e.target.value,
+                                  }))
+                                }
+                                aria-label={`Cashback for ${user.name}`}
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-3">
+                            <ServiceAmountGrid
+                              idPrefix={`user-${dealer.id}-${user.id}`}
+                              values={charges}
+                              onChange={(txnType, value) =>
+                                setUserCharges((current) => ({
+                                  ...current,
+                                  [user.id]: { ...(current[user.id] ?? charges), [txnType]: value },
+                                }))
+                              }
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="mt-3"
+                            disabled={saveUser.isPending}
+                            onClick={() =>
+                              saveUser.mutate({
+                                userId: user.id,
+                                cashback: cashbacks[user.id] ?? user.cashback,
+                                charges,
+                              })
+                            }
+                          >
+                            Save
+                          </Button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>

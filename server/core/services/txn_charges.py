@@ -9,10 +9,11 @@ Incoming (credit):
   wallet = amount − user_charge − network_fee − himalpay
   User cashback is still credited as a separate row after success.
 
-Network fee is applied only when the user has an assigned Dealer. It is folded into
-"applicable charges" on the user side and posted as dealer commission on the dealer side.
-HimalPay on the user quote is the Charge Setup amount. Live provider fees are not added
-on top, so Commission cashback (e.g. Rs 50) is not replaced by a provider Rs 5.
+User charges come from Commission Setup (per-user, per-service).
+Network fee comes from Commission Setup (per-dealer per-service, else the dealer default).
+It is folded into "applicable charges" on the user side and posted as dealer commission.
+HimalPay uses the leftover ServiceChargeConfig amount when a row exists so live provider
+fees are not added on top of Commission cashback.
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ from typing import Any, Optional
 
 from django.db import transaction
 
-from .app_config import get_app_config, resolve_tx_cfg_for_user
+from .app_config import get_app_config
 from .hierarchy import ROLE_DEALER, resolve_assigned_dealer
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,14 @@ def txn_type_from_service_name(service_name: str) -> str:
     return TXN_TOPUP
 
 
+def service_catalog() -> list[dict[str, str]]:
+    """Txn types the admin can configure independently (Commission Setup)."""
+    return [
+        {'txn_type': txn_type, 'label': TXN_TYPE_LABELS.get(txn_type, txn_type)}
+        for txn_type in SERVICE_CHARGE_TXN_TYPES
+    ]
+
+
 def empty_quote(amount=0, *, direction='debit') -> dict:
     value = money(amount)
     return {
@@ -171,25 +180,28 @@ def _load_service_config(txn_type: str):
         return None
 
 
-def _legacy_system_charge(amount: Decimal, txn_type: str, user) -> Decimal:
-    """Fall back to the older transfer/top-up settings when no service row exists."""
-    cfg = resolve_tx_cfg_for_user(user)
-    if txn_type in (TXN_TOPUP, TXN_DATA_PACK):
-        return _component(amount, 0, cfg.get('topup_charge_percent', 0))
-    if txn_type in (TXN_BANK_TRANSFER, TXN_WALLET_TRANSFER):
-        if not bool(cfg.get('transfer_charge_enabled', True)):
-            return _ZERO
-        return _component(
-            amount,
-            cfg.get('transfer_charge_flat', 0),
-            cfg.get('transfer_charge_percent', 0),
+def _user_service_charge_flat(user, txn_type: str) -> Decimal:
+    """Commission Setup per-user, per-service charge. 0 when unset."""
+    if user is None or not txn_type:
+        return _ZERO
+    try:
+        from ..models import UserServiceCharge
+        row = UserServiceCharge.objects.filter(
+            user_id=getattr(user, 'pk', None), txn_type=txn_type,
+        ).first()
+        if row is not None:
+            return money(row.charge_flat)
+    except Exception:
+        logger.exception(
+            'Could not load user service charge for %s / %s',
+            getattr(user, 'pk', None), txn_type,
         )
     return _ZERO
 
 
 def _dealer_override_flat(dealer, txn_type: str) -> Optional[Decimal]:
-    """Per-service dealer flat Rs from ServiceCommissionRule. None means use the next fallback."""
-    if dealer is None:
+    """Per-service dealer flat Rs from ServiceCommissionRule. None means use the dealer default."""
+    if dealer is None or not txn_type:
         return None
     try:
         from ..models import ServiceCommissionRule
@@ -197,9 +209,7 @@ def _dealer_override_flat(dealer, txn_type: str) -> Optional[Decimal]:
             dealer_id=dealer.pk, txn_type=txn_type,
         ).first()
         if rule is not None:
-            amount = money(rule.dealer_rate)
-            if amount > 0:
-                return amount
+            return money(rule.dealer_rate)
     except Exception:
         logger.exception('Could not load dealer service rule')
     return None
@@ -220,7 +230,7 @@ def _related_or_none(instance, name: str):
 
 
 def _dealer_commission_flat(dealer) -> Decimal:
-    """Commission Setup flat amount for this dealer. 0 means use Charge Setup network fee."""
+    """Commission Setup default flat amount for this dealer. 0 means no default network fee."""
     if dealer is None:
         return _ZERO
     try:
@@ -254,7 +264,8 @@ def _resolve_network_fee(amount: Decimal, txn_type: str, dealer, service_network
     """
     Extra amount charged to a dealer-network customer and earned by the dealer.
 
-    Precedence: per-service rule → Commission Setup flat amount → Charge Setup network fee.
+    Precedence: per-service Commission Setup amount (including explicit 0) →
+    dealer default commission. Charge Setup is not used.
     """
     override = _dealer_override_flat(dealer, txn_type)
     if override is not None:
@@ -299,9 +310,9 @@ def quote_charges(
     """
     Calculate User service charge + network fee + HimalPay for a principal amount.
 
-    ``cashback`` is unused on the user-facing quote when Charge Setup exists;
-    Commission Setup cashback is the rebate that is held in debit and credited
-    after success.
+    User charge and network fee come from Commission Setup. ``cashback`` from the
+    provider is unused when a ServiceChargeConfig row exists; Commission Setup
+    cashback is the rebate held in debit and credited after success.
 
     direction:
       debit  — user pays amount + charges + cashback hold (transfer, bills, top-up)
@@ -316,36 +327,21 @@ def quote_charges(
     if dealer is not None and getattr(dealer, 'role', None) != ROLE_DEALER:
         dealer = None
 
+    user_fee = _user_service_charge_flat(user, txn_type)
     row = _load_service_config(txn_type)
     if row is not None:
-        user_fee = _typed_charge(
-            principal,
-            getattr(row, 'user_charge_type', CHARGE_FLAT),
-            row.system_charge_flat,
-            row.system_charge_percent,
-        )
-        service_network_fee = _typed_charge(
-            principal,
-            getattr(row, 'dealer_charge_type', CHARGE_FLAT),
-            row.dealer_commission_flat,
-            row.dealer_commission_percent,
-        )
         configured_himalpay = _component(
             principal, row.himalpay_charge_flat, row.himalpay_charge_percent,
         )
-        # Charge Setup owns the user-facing HimalPay line. Do not fold in the
-        # live/bypass provider fee (Rs 5 on fund transfer) or provider cashback.
+        # Keep leftover HimalPay config so live provider fees are not added on
+        # top of Commission cashback (e.g. Rs 50 vs a provider Rs 5).
         himalpay = configured_himalpay
         provider_cashback = _ZERO
     else:
-        user_fee = _legacy_system_charge(principal, txn_type, user)
-        service_network_fee = money(
-            (get_app_config().get('commission') or {}).get('default_commission_rate', 0)
-        )
         himalpay = provider
 
     if actor_is_dealer:
-        system = service_network_fee if row is not None else user_fee
+        system = user_fee
         dealer_commission = _ZERO
         user_cashback = _ZERO
         dealer = None
@@ -354,7 +350,7 @@ def quote_charges(
         dealer_commission = _ZERO
         if dealer is not None:
             dealer_commission = _resolve_network_fee(
-                principal, txn_type, dealer, service_network_fee,
+                principal, txn_type, dealer, _ZERO,
             )
         user_cashback = _user_cashback_flat(user)
 

@@ -3774,10 +3774,102 @@ def admin_reject_kyc(request, kyc_id):
     })
 
 
+def _parse_service_charge_items(raw) -> list[tuple[str, object]]:
+    """Normalize {txn_type: amount} or [{txn_type, amount}] into (txn_type, amount) pairs."""
+    from ..services.txn_charges import SERVICE_CHARGE_TXN_TYPES
+
+    items = []
+    if isinstance(raw, dict):
+        for txn_type, amount in raw.items():
+            items.append((str(txn_type).strip(), amount))
+    elif isinstance(raw, list):
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            txn_type = str(entry.get('txn_type') or entry.get('id') or '').strip()
+            amount = entry.get('amount', entry.get('charge', entry.get('charge_flat')))
+            if 'dealer_rate' in entry and amount is None:
+                amount = entry.get('dealer_rate')
+            items.append((txn_type, amount))
+    return [
+        (txn_type, amount)
+        for txn_type, amount in items
+        if txn_type in SERVICE_CHARGE_TXN_TYPES
+    ]
+
+
+def _save_user_service_charges(user, raw) -> None:
+    from ..models import UserServiceCharge
+    from ..services.txn_charges import money
+
+    for txn_type, amount in _parse_service_charge_items(raw):
+        if amount is None or amount == '':
+            UserServiceCharge.objects.filter(user=user, txn_type=txn_type).delete()
+            continue
+        value = money(amount)
+        if value < 0:
+            value = Decimal('0.00')
+        UserServiceCharge.objects.update_or_create(
+            user=user,
+            txn_type=txn_type,
+            defaults={'charge_flat': value},
+        )
+
+
+def _save_dealer_service_charges(dealer, raw) -> None:
+    from ..models import ServiceCommissionRule
+    from ..services.txn_charges import money
+
+    for txn_type, amount in _parse_service_charge_items(raw):
+        if amount is None or amount == '':
+            ServiceCommissionRule.objects.filter(dealer=dealer, txn_type=txn_type).delete()
+            continue
+        value = money(amount)
+        if value < 0:
+            value = Decimal('0.00')
+        ServiceCommissionRule.objects.update_or_create(
+            dealer=dealer,
+            txn_type=txn_type,
+            defaults={'dealer_rate': value},
+        )
+
+
+def _dealer_service_charge_rows(dealer) -> list[dict]:
+    from ..models import ServiceCommissionRule
+    from ..services.txn_charges import SERVICE_CHARGE_TXN_TYPES, TXN_TYPE_LABELS, money
+
+    existing = {
+        row.txn_type: row
+        for row in ServiceCommissionRule.objects.filter(dealer=dealer)
+    }
+    rows = []
+    for txn_type in SERVICE_CHARGE_TXN_TYPES:
+        row = existing.get(txn_type)
+        rows.append({
+            'txn_type': txn_type,
+            'label': TXN_TYPE_LABELS.get(txn_type, txn_type),
+            'amount': '' if row is None else str(money(row.dealer_rate)),
+        })
+    return rows
+
+
+def _user_service_charge_map(user_ids) -> dict:
+    from collections import defaultdict
+    from ..models import UserServiceCharge
+    from ..services.txn_charges import money
+
+    by_user = defaultdict(dict)
+    if not user_ids:
+        return by_user
+    for row in UserServiceCharge.objects.filter(user_id__in=user_ids):
+        by_user[row.user_id][row.txn_type] = str(money(row.charge_flat))
+    return by_user
+
+
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_user_fees(request, user_id):
-    """GET/PUT per-user transfer and top-up charge overrides."""
+    """GET/PUT per-user cashback and per-service charges (Commission Setup)."""
     try:
         user = User.objects.get(pk=user_id)
     except User.DoesNotExist:
@@ -3793,11 +3885,30 @@ def admin_user_fees(request, user_id):
 
     fee_config, _created = UserFeeConfig.objects.get_or_create(user=user)
 
+    from ..models import UserServiceCharge
+    from ..services.txn_charges import SERVICE_CHARGE_TXN_TYPES, TXN_TYPE_LABELS, money
+
+    def _service_charge_rows():
+        existing = {
+            row.txn_type: row
+            for row in UserServiceCharge.objects.filter(user=user)
+        }
+        rows = []
+        for txn_type in SERVICE_CHARGE_TXN_TYPES:
+            row = existing.get(txn_type)
+            rows.append({
+                'txn_type': txn_type,
+                'label': TXN_TYPE_LABELS.get(txn_type, txn_type),
+                'amount': str(money(row.charge_flat) if row is not None else 0),
+            })
+        return rows
+
     if request.method == 'GET':
         data = UserFeeConfigSerializer(fee_config).data
         return Response({
             'user_id': user.id,
             'fees': data,
+            'service_charges': _service_charge_rows(),
             'defaults': defaults,
         })
 
@@ -3819,14 +3930,23 @@ def admin_user_fees(request, user_id):
         if field in payload:
             value = payload.get(field)
             if value is None or value == '':
-                setattr(fee_config, field, None)
+                if field == 'cashback_flat':
+                    setattr(fee_config, field, Decimal('0.00'))
+                else:
+                    setattr(fee_config, field, None)
             else:
                 setattr(fee_config, field, serializer.validated_data.get(field, value))
     fee_config.save()
+
+    charges_payload = payload.get('service_charges') or payload.get('charges')
+    if charges_payload is not None:
+        _save_user_service_charges(user, charges_payload)
+
     return Response({
         'message': 'User fees updated successfully',
         'user_id': user.id,
         'fees': UserFeeConfigSerializer(fee_config).data,
+        'service_charges': _service_charge_rows(),
         'defaults': defaults,
     })
 
@@ -3834,7 +3954,7 @@ def admin_user_fees(request, user_id):
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_service_charges(request):
-    """GET/PUT per-service User charge and network fee (Charge Setup)."""
+    """GET/PUT leftover HimalPay amounts. User and dealer charges live in Commission Setup."""
     from decimal import Decimal, InvalidOperation
     from ..models import ServiceChargeConfig
     from ..services.txn_charges import (
@@ -3972,10 +4092,10 @@ def admin_commission_setup_dealers(request):
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_commission_setup_dealer_detail(request, dealer_id):
-    """Dealer commission amount plus referred users (cashback tree)."""
-    from ..models import DealerCommissionConfig, UserFeeConfig
+    """Dealer default commission, per-service charges, and referred users (cashback + charges)."""
+    from ..models import DealerCommissionConfig
     from ..services.hierarchy import ROLE_DEALER
-    from ..services.txn_charges import money, _related_or_none
+    from ..services.txn_charges import SERVICE_CHARGE_TXN_TYPES, TXN_TYPE_LABELS, money, _related_or_none
 
     try:
         dealer = User.objects.select_related('dealer_commission_config').get(
@@ -3997,6 +4117,13 @@ def admin_commission_setup_dealer_detail(request, dealer_id):
                 )
             config.commission_rate = amount
             config.save(update_fields=['commission_rate', 'updated_at'])
+        service_payload = (
+            request.data.get('service_charges')
+            or request.data.get('charges')
+            or request.data.get('services')
+        )
+        if service_payload is not None:
+            _save_dealer_service_charges(dealer, service_payload)
 
     users = list(
         User.objects.filter(assigned_dealer=dealer)
@@ -4004,20 +4131,31 @@ def admin_commission_setup_dealer_detail(request, dealer_id):
         .order_by('first_name', 'last_name', 'phone')
     )
     fee_by_user = {u.pk: _related_or_none(u, 'fee_config') for u in users}
+    charges_by_user = _user_service_charge_map([u.pk for u in users])
     tree = []
     for person in users:
         fee = fee_by_user.get(person.pk)
+        stored = charges_by_user.get(person.pk) or {}
         tree.append({
             'id': person.pk,
             'name': _dealer_display_name(person),
             'phone': person.phone,
             'cashback': str(money(getattr(fee, 'cashback_flat', 0) or 0)),
+            'charges': {
+                txn_type: stored.get(txn_type, '0.00')
+                for txn_type in SERVICE_CHARGE_TXN_TYPES
+            },
         })
     return Response({
         'id': dealer.pk,
         'name': _dealer_display_name(dealer),
         'phone': dealer.phone,
         'commission_amount': str(money(config.commission_rate)),
+        'services': [
+            {'txn_type': txn_type, 'label': TXN_TYPE_LABELS.get(txn_type, txn_type)}
+            for txn_type in SERVICE_CHARGE_TXN_TYPES
+        ],
+        'service_charges': _dealer_service_charge_rows(dealer),
         'users': tree,
     })
 
@@ -4025,10 +4163,10 @@ def admin_commission_setup_dealer_detail(request, dealer_id):
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_commission_setup_dealer_cashback(request, dealer_id):
-    """Set cashback for one user or all users under a dealer."""
+    """Set cashback and/or per-service charges for one user or all users under a dealer."""
     from ..models import UserFeeConfig
     from ..services.hierarchy import ROLE_DEALER
-    from ..services.txn_charges import money
+    from ..services.txn_charges import SERVICE_CHARGE_TXN_TYPES, money, _related_or_none
 
     try:
         dealer = User.objects.get(pk=dealer_id, role=ROLE_DEALER)
@@ -4039,33 +4177,36 @@ def admin_commission_setup_dealer_cashback(request, dealer_id):
     apply_all = bool(payload.get('apply_to_all') or payload.get('apply_all'))
     users_payload = payload.get('users')
     cashback = payload.get('cashback', payload.get('cashback_flat'))
+    charges = payload.get('charges', payload.get('service_charges'))
+    has_charges = charges is not None
 
     network = User.objects.filter(assigned_dealer=dealer)
-    updated = []
+    updated_ids = []
 
-    def _set_cashback(user, value):
-        amount = money(value)
-        if amount < 0:
-            amount = Decimal('0.00')
-        fee, _ = UserFeeConfig.objects.get_or_create(user=user)
-        fee.cashback_flat = amount
-        fee.save(update_fields=['cashback_flat', 'updated_at'])
-        updated.append({
-            'id': user.pk,
-            'name': _dealer_display_name(user),
-            'phone': user.phone,
-            'cashback': str(amount),
-        })
+    def _set_user(user, value=None, user_charges=None):
+        if value is not None:
+            amount = money(value)
+            if amount < 0:
+                amount = Decimal('0.00')
+            fee, _ = UserFeeConfig.objects.get_or_create(user=user)
+            fee.cashback_flat = amount
+            fee.save(update_fields=['cashback_flat', 'updated_at'])
+        if user_charges is not None:
+            _save_user_service_charges(user, user_charges)
+        updated_ids.append(user.pk)
 
     if apply_all:
-        if cashback is None:
+        if cashback is None and not has_charges:
             return Response(
-                {'error': 'Validation failed', 'message': 'Provide cashback to apply to all users.'},
+                {
+                    'error': 'Validation failed',
+                    'message': 'Provide cashback and/or charges to apply to all users.',
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         with transaction.atomic():
             for person in network.select_for_update().order_by('pk'):
-                _set_cashback(person, cashback)
+                _set_user(person, cashback, charges if has_charges else None)
     elif isinstance(users_payload, list):
         ids = [item.get('id') or item.get('user_id') for item in users_payload if isinstance(item, dict)]
         people = {u.pk: u for u in network.filter(pk__in=[i for i in ids if i])}
@@ -4077,30 +4218,51 @@ def admin_commission_setup_dealer_cashback(request, dealer_id):
                 if person is None:
                     continue
                 value = item.get('cashback', item.get('cashback_flat', cashback))
-                if value is None:
+                item_charges = item.get('charges', item.get('service_charges', charges if has_charges else None))
+                if value is None and item_charges is None:
                     continue
-                _set_cashback(person, value)
+                _set_user(person, value, item_charges)
     elif payload.get('user_id') is not None:
         try:
             person = network.get(pk=payload.get('user_id'))
         except User.DoesNotExist:
             return Response({'error': 'User not found under this dealer'}, status=status.HTTP_404_NOT_FOUND)
-        if cashback is None:
+        if cashback is None and not has_charges:
             return Response(
-                {'error': 'Validation failed', 'message': 'Provide cashback.'},
+                {'error': 'Validation failed', 'message': 'Provide cashback and/or charges.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        _set_cashback(person, cashback)
+        _set_user(person, cashback, charges if has_charges else None)
     else:
         return Response(
             {
                 'error': 'Validation failed',
-                'message': 'Provide apply_to_all, users[], or user_id with cashback.',
+                'message': 'Provide apply_to_all, users[], or user_id with cashback and/or charges.',
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    return Response({'message': 'Cashback updated', 'users': updated})
+    people = list(
+        User.objects.filter(pk__in=updated_ids)
+        .select_related('fee_config')
+        .order_by('first_name', 'last_name', 'phone')
+    )
+    charges_by_user = _user_service_charge_map(updated_ids)
+    users_out = []
+    for person in people:
+        fee = _related_or_none(person, 'fee_config')
+        stored = charges_by_user.get(person.pk) or {}
+        users_out.append({
+            'id': person.pk,
+            'name': _dealer_display_name(person),
+            'phone': person.phone,
+            'cashback': str(money(getattr(fee, 'cashback_flat', 0) or 0)),
+            'charges': {
+                txn_type: stored.get(txn_type, '0.00')
+                for txn_type in SERVICE_CHARGE_TXN_TYPES
+            },
+        })
+    return Response({'message': 'User setup updated', 'users': users_out})
 
 
 @api_view(['POST'])
