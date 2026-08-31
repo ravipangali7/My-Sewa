@@ -3774,14 +3774,38 @@ def admin_reject_kyc(request, kyc_id):
     })
 
 
-def _parse_service_charge_items(raw) -> list[tuple[str, object]]:
-    """Normalize {txn_type: amount} or [{txn_type, amount}] into (txn_type, amount) pairs."""
+def _charge_type_value(value, default='flat') -> str:
+    from ..services.txn_charges import CHARGE_FLAT, CHARGE_PERCENT
+    raw = str(value or default).strip().lower()
+    return CHARGE_PERCENT if raw == CHARGE_PERCENT else CHARGE_FLAT
+
+
+def _charge_amount_and_type(raw_amount, charge_type='flat'):
+    """Return (display_amount, charge_type) from a scalar or {amount, charge_type} payload."""
+    from ..services.txn_charges import CHARGE_PERCENT
+
+    ctype = _charge_type_value(charge_type)
+    amount = raw_amount
+    if isinstance(raw_amount, dict):
+        ctype = _charge_type_value(raw_amount.get('charge_type', charge_type))
+        amount = raw_amount.get(
+            'amount',
+            raw_amount.get('charge', raw_amount.get('charge_flat', raw_amount.get('dealer_rate'))),
+        )
+        if ctype == CHARGE_PERCENT and amount is None:
+            amount = raw_amount.get('charge_percent')
+    return amount, ctype
+
+
+def _parse_service_charge_items(raw) -> list[tuple[str, object, str]]:
+    """Normalize payloads into (txn_type, amount, charge_type) triples."""
     from ..services.txn_charges import SERVICE_CHARGE_TXN_TYPES
 
     items = []
     if isinstance(raw, dict):
         for txn_type, amount in raw.items():
-            items.append((str(txn_type).strip(), amount))
+            value, ctype = _charge_amount_and_type(amount)
+            items.append((str(txn_type).strip(), value, ctype))
     elif isinstance(raw, list):
         for entry in raw:
             if not isinstance(entry, dict):
@@ -3790,53 +3814,86 @@ def _parse_service_charge_items(raw) -> list[tuple[str, object]]:
             amount = entry.get('amount', entry.get('charge', entry.get('charge_flat')))
             if 'dealer_rate' in entry and amount is None:
                 amount = entry.get('dealer_rate')
-            items.append((txn_type, amount))
+            if amount is None and entry.get('charge_percent') is not None:
+                amount = entry.get('charge_percent')
+            ctype = _charge_type_value(entry.get('charge_type'))
+            items.append((txn_type, amount, ctype))
     return [
-        (txn_type, amount)
-        for txn_type, amount in items
+        (txn_type, amount, ctype)
+        for txn_type, amount, ctype in items
         if txn_type in SERVICE_CHARGE_TXN_TYPES
     ]
 
 
 def _save_user_service_charges(user, raw) -> None:
     from ..models import UserServiceCharge
-    from ..services.txn_charges import money
+    from ..services.txn_charges import CHARGE_PERCENT, money
 
-    for txn_type, amount in _parse_service_charge_items(raw):
+    for txn_type, amount, ctype in _parse_service_charge_items(raw):
         if amount is None or amount == '':
             UserServiceCharge.objects.filter(user=user, txn_type=txn_type).delete()
             continue
         value = money(amount)
         if value < 0:
             value = Decimal('0.00')
+        if ctype == CHARGE_PERCENT:
+            UserServiceCharge.objects.update_or_create(
+                user=user,
+                txn_type=txn_type,
+                defaults={
+                    'charge_type': CHARGE_PERCENT,
+                    'charge_flat': Decimal('0.00'),
+                    'charge_percent': value,
+                },
+            )
+            continue
         UserServiceCharge.objects.update_or_create(
             user=user,
             txn_type=txn_type,
-            defaults={'charge_flat': value},
+            defaults={
+                'charge_type': ctype,
+                'charge_flat': value,
+                'charge_percent': Decimal('0.0000'),
+            },
         )
 
 
 def _save_dealer_service_charges(dealer, raw) -> None:
     from ..models import ServiceCommissionRule
-    from ..services.txn_charges import money
+    from ..services.txn_charges import CHARGE_PERCENT, money
 
-    for txn_type, amount in _parse_service_charge_items(raw):
+    for txn_type, amount, ctype in _parse_service_charge_items(raw):
         if amount is None or amount == '':
             ServiceCommissionRule.objects.filter(dealer=dealer, txn_type=txn_type).delete()
             continue
         value = money(amount)
         if value < 0:
             value = Decimal('0.00')
+        if ctype == CHARGE_PERCENT:
+            ServiceCommissionRule.objects.update_or_create(
+                dealer=dealer,
+                txn_type=txn_type,
+                defaults={
+                    'charge_type': CHARGE_PERCENT,
+                    'dealer_rate': Decimal('0.00'),
+                    'charge_percent': value,
+                },
+            )
+            continue
         ServiceCommissionRule.objects.update_or_create(
             dealer=dealer,
             txn_type=txn_type,
-            defaults={'dealer_rate': value},
+            defaults={
+                'charge_type': ctype,
+                'dealer_rate': value,
+                'charge_percent': Decimal('0.0000'),
+            },
         )
 
 
 def _dealer_service_charge_rows(dealer) -> list[dict]:
     from ..models import ServiceCommissionRule
-    from ..services.txn_charges import SERVICE_CHARGE_TXN_TYPES, TXN_TYPE_LABELS, money
+    from ..services.txn_charges import CHARGE_FLAT, CHARGE_PERCENT, SERVICE_CHARGE_TXN_TYPES, TXN_TYPE_LABELS, money
 
     existing = {
         row.txn_type: row
@@ -3845,10 +3902,18 @@ def _dealer_service_charge_rows(dealer) -> list[dict]:
     rows = []
     for txn_type in SERVICE_CHARGE_TXN_TYPES:
         row = existing.get(txn_type)
+        ctype = _charge_type_value(getattr(row, 'charge_type', None)) if row is not None else CHARGE_FLAT
+        if row is None:
+            amount = ''
+        elif ctype == CHARGE_PERCENT:
+            amount = str(getattr(row, 'charge_percent', 0) or '0.0000')
+        else:
+            amount = str(money(row.dealer_rate))
         rows.append({
             'txn_type': txn_type,
             'label': TXN_TYPE_LABELS.get(txn_type, txn_type),
-            'amount': '' if row is None else str(money(row.dealer_rate)),
+            'amount': amount,
+            'charge_type': ctype,
         })
     return rows
 
@@ -3856,13 +3921,22 @@ def _dealer_service_charge_rows(dealer) -> list[dict]:
 def _user_service_charge_map(user_ids) -> dict:
     from collections import defaultdict
     from ..models import UserServiceCharge
-    from ..services.txn_charges import money
+    from ..services.txn_charges import CHARGE_FLAT, CHARGE_PERCENT, money
 
     by_user = defaultdict(dict)
     if not user_ids:
         return by_user
     for row in UserServiceCharge.objects.filter(user_id__in=user_ids):
-        by_user[row.user_id][row.txn_type] = str(money(row.charge_flat))
+        ctype = _charge_type_value(getattr(row, 'charge_type', None))
+        amount = (
+            str(getattr(row, 'charge_percent', 0) or '0.0000')
+            if ctype == CHARGE_PERCENT
+            else str(money(row.charge_flat))
+        )
+        by_user[row.user_id][row.txn_type] = {
+            'amount': amount,
+            'charge_type': ctype or CHARGE_FLAT,
+        }
     return by_user
 
 
@@ -3886,7 +3960,9 @@ def admin_user_fees(request, user_id):
     fee_config, _created = UserFeeConfig.objects.get_or_create(user=user)
 
     from ..models import UserServiceCharge
-    from ..services.txn_charges import SERVICE_CHARGE_TXN_TYPES, TXN_TYPE_LABELS, money
+    from ..services.txn_charges import (
+        CHARGE_FLAT, CHARGE_PERCENT, SERVICE_CHARGE_TXN_TYPES, TXN_TYPE_LABELS, money,
+    )
 
     def _service_charge_rows():
         existing = {
@@ -3896,10 +3972,18 @@ def admin_user_fees(request, user_id):
         rows = []
         for txn_type in SERVICE_CHARGE_TXN_TYPES:
             row = existing.get(txn_type)
+            ctype = _charge_type_value(getattr(row, 'charge_type', None)) if row is not None else CHARGE_FLAT
+            if row is None:
+                amount = '0.00'
+            elif ctype == CHARGE_PERCENT:
+                amount = str(getattr(row, 'charge_percent', 0) or '0.0000')
+            else:
+                amount = str(money(row.charge_flat))
             rows.append({
                 'txn_type': txn_type,
                 'label': TXN_TYPE_LABELS.get(txn_type, txn_type),
-                'amount': str(money(row.charge_flat) if row is not None else 0),
+                'amount': amount,
+                'charge_type': ctype,
             })
         return rows
 
@@ -4142,7 +4226,7 @@ def admin_commission_setup_dealer_detail(request, dealer_id):
             'phone': person.phone,
             'cashback': str(money(getattr(fee, 'cashback_flat', 0) or 0)),
             'charges': {
-                txn_type: stored.get(txn_type, '0.00')
+                txn_type: stored.get(txn_type) or {'amount': '0.00', 'charge_type': 'flat'}
                 for txn_type in SERVICE_CHARGE_TXN_TYPES
             },
         })
@@ -4258,7 +4342,7 @@ def admin_commission_setup_dealer_cashback(request, dealer_id):
             'phone': person.phone,
             'cashback': str(money(getattr(fee, 'cashback_flat', 0) or 0)),
             'charges': {
-                txn_type: stored.get(txn_type, '0.00')
+                txn_type: stored.get(txn_type) or {'amount': '0.00', 'charge_type': 'flat'}
                 for txn_type in SERVICE_CHARGE_TXN_TYPES
             },
         })

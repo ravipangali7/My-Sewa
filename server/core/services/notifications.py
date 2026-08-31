@@ -2353,3 +2353,45 @@ def notify_kyc_rejected(submission) -> None:
         event='kyc',
         extra={'kyc_id': submission.id, 'subtype': 'rejected'},
     )
+
+
+def notify_support_chat_message(msg, thread, sender) -> None:
+    """Deliver a Firebase notification for a new Support Chat message."""
+    from .hierarchy import admin_actors_qs, is_admin_actor
+    from .support_chat import other_participant
+
+    site_name = _site_name()
+    sender_name = (
+        f'{(getattr(sender, "first_name", None) or "").strip()} '
+        f'{(getattr(sender, "last_name", None) or "").strip()}'.strip()
+        or getattr(sender, 'phone', None)
+        or site_name
+    )
+    preview = (
+        getattr(msg, 'body', None)
+        or getattr(thread, 'last_message_preview', None)
+        or 'New message'
+    )
+    preview = str(preview).strip()[:180] or 'New message'
+    title = f'{site_name}: {sender_name}'
+    extra = {
+        'thread_id': getattr(thread, 'pk', ''),
+        'message_id': getattr(msg, 'pk', ''),
+        'kind': getattr(msg, 'kind', 'text') or 'text',
+    }
+
+    recipients = []
+    if is_admin_actor(sender):
+        other = other_participant(thread, sender)
+        if other is not None and getattr(other, 'pk', None) != getattr(sender, 'pk', None):
+            recipients.append(other)
+    else:
+        recipients = list(admin_actors_qs())
+
+    seen = set()
+    for user in recipients:
+        pk = getattr(user, 'pk', None)
+        if pk is None or pk in seen or pk == getattr(sender, 'pk', None):
+            continue
+        seen.add(pk)
+        _push(user, title, preview, event='support_chat', extra=extra)

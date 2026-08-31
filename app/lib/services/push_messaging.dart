@@ -3,9 +3,17 @@ import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../firebase_options.dart';
 import 'fcm_log.dart';
+
+const String kAlertChannelId = 'mysewa_alerts';
+const String kAlertChannelName = 'MySewa alerts';
+const String kAlertChannelDescription = 'Transaction and chat notifications';
+
+final FlutterLocalNotificationsPlugin _localNotifications =
+    FlutterLocalNotificationsPlugin();
 
 /// Background isolate handler required by firebase_messaging.
 @pragma('vm:entry-point')
@@ -23,6 +31,72 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   } catch (e) {
     FcmLog.fail('background Firebase init', e);
   }
+}
+
+Future<void> _ensureLocalNotifications() async {
+  const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const ios = DarwinInitializationSettings(
+    requestAlertPermission: false,
+    requestBadgePermission: false,
+    requestSoundPermission: false,
+  );
+  await _localNotifications.initialize(
+    const InitializationSettings(android: android, iOS: ios),
+  );
+  final androidPlugin = _localNotifications
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+  await androidPlugin?.createNotificationChannel(
+    const AndroidNotificationChannel(
+      kAlertChannelId,
+      kAlertChannelName,
+      description: kAlertChannelDescription,
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+      showBadge: true,
+    ),
+  );
+}
+
+Future<void> showForegroundPushNotification(RemoteMessage message) async {
+  final title = (message.notification?.title ??
+          message.data['title'] ??
+          '')
+      .toString()
+      .trim();
+  final body = (message.notification?.body ?? message.data['body'] ?? '')
+      .toString()
+      .trim();
+  if (title.isEmpty && body.isEmpty) return;
+
+  final id = message.hashCode & 0x7fffffff;
+  await _localNotifications.show(
+    id == 0 ? DateTime.now().millisecondsSinceEpoch.remainder(100000) : id,
+    title.isEmpty ? 'MySewa' : title,
+    body,
+    const NotificationDetails(
+      android: AndroidNotificationDetails(
+        kAlertChannelId,
+        kAlertChannelName,
+        channelDescription: kAlertChannelDescription,
+        importance: Importance.max,
+        priority: Priority.max,
+        playSound: true,
+        enableVibration: true,
+        category: AndroidNotificationCategory.message,
+        visibility: NotificationVisibility.public,
+        ticker: 'MySewa',
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        sound: 'default',
+      ),
+    ),
+    payload: message.data['event']?.toString(),
+  );
 }
 
 /// Loads the FCM token as soon as the native app starts, then streams
@@ -74,6 +148,7 @@ class PushMessaging {
       }
 
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      await _ensureLocalNotifications();
 
       final messaging = FirebaseMessaging.instance;
       await messaging.setAutoInitEnabled(true);
@@ -146,6 +221,11 @@ class PushMessaging {
         FcmLog.ok('foreground push', {
           'title': message.notification?.title ?? '',
         });
+        // Android does not auto-display FCM alerts while the app is open.
+        // Show a heads-up local notification with sound (Messenger-style).
+        if (Platform.isAndroid) {
+          unawaited(showForegroundPushNotification(message));
+        }
         if (!_foregroundController.isClosed) {
           _foregroundController.add(message);
         }

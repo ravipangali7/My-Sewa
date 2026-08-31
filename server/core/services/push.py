@@ -314,15 +314,23 @@ def _send_fcm_http_v1(
                 'priority': 'HIGH',
                 'notification': {
                     'sound': 'default',
-                    'channel_id': 'mysewa_default',
+                    'channel_id': 'mysewa_alerts',
                     'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+                    'notification_priority': 'PRIORITY_MAX',
+                    'default_sound': True,
+                    'default_vibrate_timings': True,
                 },
             },
             'apns': {
+                'headers': {
+                    'apns-priority': '10',
+                    'apns-push-type': 'alert',
+                },
                 'payload': {
                     'aps': {
                         'sound': 'default',
                         'badge': 1,
+                        'content-available': 1,
                     },
                 },
             },
@@ -385,7 +393,7 @@ def _send_fcm_legacy(
             'title': title,
             'body': body,
             'sound': 'default',
-            'android_channel_id': 'mysewa_default',
+            'android_channel_id': 'mysewa_alerts',
         },
         'priority': 'high',
     }

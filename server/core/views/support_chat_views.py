@@ -289,6 +289,11 @@ def support_chat_messages(request, thread_id):
         thread.last_message_preview = preview
         thread.save(update_fields=['last_message_at', 'last_message_preview'])
         mark_thread_read(thread, request.user)
+        try:
+            from ..services.notifications import notify_support_chat_message
+            notify_support_chat_message(msg, thread, request.user)
+        except Exception:
+            pass
         return Response(
             _serialize_message(msg, request, _peer_read_at(thread, request.user)),
             status=status.HTTP_201_CREATED,

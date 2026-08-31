@@ -1790,13 +1790,33 @@ class ServiceCommissionRule(models.Model):
         related_name='service_commission_rules',
         limit_choices_to={'role': 'dealer'},
     )
+    CHARGE_FLAT = 'flat'
+    CHARGE_PERCENT = 'percent'
+    CHARGE_TYPE_CHOICES = [
+        (CHARGE_FLAT, 'Flat amount'),
+        (CHARGE_PERCENT, 'Percentage'),
+    ]
+
     txn_type = models.CharField(max_length=40, db_index=True)
+    charge_type = models.CharField(
+        max_length=10,
+        choices=CHARGE_TYPE_CHOICES,
+        default=CHARGE_FLAT,
+        help_text='How this dealer service charge is calculated (flat Rs or percent of amount).',
+    )
     dealer_rate = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0'))],
-        help_text="Flat dealer commission in Rs for this service. Zero uses the Dealer's default amount.",
+        help_text="Flat dealer service charge in Rs when charge type is flat.",
+    )
+    charge_percent = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Dealer service charge as a percent of the transaction amount.',
     )
     sub_agent_rate = models.DecimalField(
         max_digits=7,
@@ -1979,16 +1999,36 @@ class UserFeeConfig(models.Model):
 class UserServiceCharge(models.Model):
     """Per-user, per-service charge applied when this user uses the matching service."""
 
+    CHARGE_FLAT = 'flat'
+    CHARGE_PERCENT = 'percent'
+    CHARGE_TYPE_CHOICES = [
+        (CHARGE_FLAT, 'Flat amount'),
+        (CHARGE_PERCENT, 'Percentage'),
+    ]
+
     user = models.ForeignKey(
         CustomUser, on_delete=models.CASCADE, related_name='service_charges',
     )
     txn_type = models.CharField(max_length=40, db_index=True)
+    charge_type = models.CharField(
+        max_length=10,
+        choices=CHARGE_TYPE_CHOICES,
+        default=CHARGE_FLAT,
+        help_text='How this user service charge is calculated (flat Rs or percent of amount).',
+    )
     charge_flat = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0'))],
         help_text='Flat service charge in Rs for this user on this service.',
+    )
+    charge_percent = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='User service charge as a percent of the transaction amount.',
     )
     updated_at = models.DateTimeField(auto_now=True)
 

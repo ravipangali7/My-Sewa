@@ -191,6 +191,8 @@ function handleForegroundPush(ev: Event) {
   const title = (detail?.title || "").trim();
   const body = (detail?.body || "").trim();
   notifyLiveRefresh();
+  // The native app shows a sounding Firebase/local heads-up notification.
+  if (isMySewaNativeApp()) return;
   if (!title && !body) return;
   if (title && body) {
     toast.info(title, { description: body });

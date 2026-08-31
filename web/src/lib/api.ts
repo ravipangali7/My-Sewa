@@ -1638,7 +1638,11 @@ export const apiClient = {
     dealerId: number,
     payload: {
       commission_amount?: string | number;
-      service_charges?: Array<{ txn_type: string; amount: string | number }>;
+      service_charges?: Array<{
+        txn_type: string;
+        amount: string | number;
+        charge_type?: import("./types").ChargeType;
+      }>;
     },
   ) =>
     api<import("./types").CommissionSetupDealerDetail>(
@@ -1650,12 +1654,18 @@ export const apiClient = {
     payload: {
       apply_to_all?: boolean;
       cashback?: string | number;
-      charges?: Record<string, string | number>;
+      charges?: Record<
+        string,
+        string | number | { amount?: string | number; charge_type?: import("./types").ChargeType }
+      >;
       user_id?: number;
       users?: {
         id: number;
         cashback?: string | number;
-        charges?: Record<string, string | number>;
+        charges?: Record<
+          string,
+          string | number | { amount?: string | number; charge_type?: import("./types").ChargeType }
+        >;
       }[];
     },
   ) =>

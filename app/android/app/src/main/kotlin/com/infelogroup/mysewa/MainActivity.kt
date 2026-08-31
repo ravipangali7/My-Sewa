@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -219,14 +220,49 @@ class MainActivity : FlutterActivity() {
     private fun ensureDefaultNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(DEFAULT_CHANNEL_ID) != null) return
-        val channel = NotificationChannel(
+        val sound = Settings.System.DEFAULT_NOTIFICATION_URI
+        val attrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+        ensureChannel(
+            manager,
+            ALERT_CHANNEL_ID,
+            "MySewa alerts",
+            "Transaction and chat notifications",
+            sound,
+            attrs,
+        )
+        ensureChannel(
+            manager,
             DEFAULT_CHANNEL_ID,
             "MySewa",
+            "App push notifications",
+            sound,
+            attrs,
+        )
+    }
+
+    private fun ensureChannel(
+        manager: NotificationManager,
+        id: String,
+        name: String,
+        description: String,
+        sound: Uri,
+        attrs: AudioAttributes,
+    ) {
+        val existing = manager.getNotificationChannel(id)
+        val channel = existing ?: NotificationChannel(
+            id,
+            name,
             NotificationManager.IMPORTANCE_HIGH,
         )
-        channel.description = "App push notifications"
+        channel.description = description
         channel.enableVibration(true)
+        channel.enableLights(true)
+        channel.setShowBadge(true)
+        channel.setSound(sound, attrs)
+        channel.lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
         manager.createNotificationChannel(channel)
     }
 
@@ -235,6 +271,7 @@ class MainActivity : FlutterActivity() {
         private const val UPDATE_CHANNEL = "com.mysewa.app/app_update"
         private const val MARKER_NAME = "install_session_v1"
         private const val DEFAULT_CHANNEL_ID = "mysewa_default"
+        private const val ALERT_CHANNEL_ID = "mysewa_alerts"
         private const val CAMERA_REQ = 48101
     }
 }

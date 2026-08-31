@@ -5,7 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiClient, ApiError } from "@/lib/api";
-import { amountsFromCharges, emptyServiceAmounts, SERVICE_CHARGE_OPTIONS } from "@/lib/services";
+import {
+  emptyServiceChargeValues,
+  payloadFromChargeValues,
+  SERVICE_CHARGE_OPTIONS,
+  valuesFromCharges,
+  type ServiceChargeValue,
+} from "@/lib/services";
 
 export function UserFeesForm({ userId }: { userId: number }) {
   const queryClient = useQueryClient();
@@ -15,23 +21,17 @@ export function UserFeesForm({ userId }: { userId: number }) {
     enabled: Number.isFinite(userId),
   });
 
-  const [cashback, setCashback] = useState("");
-  const [charges, setCharges] = useState<Record<string, string>>(emptyServiceAmounts);
+  const [charges, setCharges] = useState<Record<string, ServiceChargeValue>>(emptyServiceChargeValues);
 
   useEffect(() => {
     if (!feesQuery.data) return;
-    setCashback(String(feesQuery.data.fees.cashback_flat ?? "0.00"));
-    setCharges(amountsFromCharges(feesQuery.data.service_charges));
+    setCharges(valuesFromCharges(feesQuery.data.service_charges));
   }, [feesQuery.data]);
 
   const saveMutation = useMutation({
     mutationFn: () =>
       apiClient.adminUpdateUserFees(userId, {
-        cashback_flat: cashback || "0",
-        service_charges: SERVICE_CHARGE_OPTIONS.map((service) => ({
-          txn_type: service.id,
-          amount: charges[service.id] || "0",
-        })),
+        service_charges: payloadFromChargeValues(charges),
       }),
     onSuccess: (data) => {
       toast.success("User charges updated");
@@ -77,8 +77,8 @@ export function UserFeesForm({ userId }: { userId: number }) {
         <div>
           <h2 className="text-base font-semibold">Service charges</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Independent charge for each service this user pays, plus cashback credited after a
-            successful transaction. Same values are edited on Commission & Charge.
+            Independent charge for each service. Choose Flat or Percentage. A user charge of Rs 200
+            becomes Rs 100 dealer commission, Rs 50 cashback, and Rs 50 system charge.
           </p>
         </div>
         <Button type="submit" size="sm" disabled={saveMutation.isPending}>
@@ -86,34 +86,49 @@ export function UserFeesForm({ userId }: { userId: number }) {
         </Button>
       </div>
 
-      <div className="mt-4 max-w-xs space-y-1.5">
-        <Label htmlFor={`user-cashback-${userId}`}>Cashback (Rs)</Label>
-        <Input
-          id={`user-cashback-${userId}`}
-          type="number"
-          min="0"
-          step="0.01"
-          value={cashback}
-          onChange={(e) => setCashback(e.target.value)}
-        />
-      </div>
-
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {SERVICE_CHARGE_OPTIONS.map((service) => (
-          <div key={service.id} className="space-y-1.5">
-            <Label htmlFor={`user-charge-${userId}-${service.id}`}>{service.label} (Rs)</Label>
-            <Input
-              id={`user-charge-${userId}-${service.id}`}
-              type="number"
-              min="0"
-              step="0.01"
-              value={charges[service.id] ?? ""}
-              onChange={(e) =>
-                setCharges((current) => ({ ...current, [service.id]: e.target.value }))
-              }
-            />
-          </div>
-        ))}
+        {SERVICE_CHARGE_OPTIONS.map((service) => {
+          const entry = charges[service.id] ?? { amount: "", charge_type: "flat" as const };
+          const unit = entry.charge_type === "percent" ? "%" : "Rs";
+          return (
+            <div key={service.id} className="space-y-1.5 rounded-md border border-border/60 p-2.5">
+              <Label htmlFor={`user-charge-${userId}-${service.id}`}>{service.label}</Label>
+              <div className="flex gap-2">
+                <select
+                  aria-label={`${service.label} charge type`}
+                  className="h-9 w-[7.5rem] shrink-0 rounded-md border border-input bg-transparent px-2 text-sm"
+                  value={entry.charge_type}
+                  onChange={(e) =>
+                    setCharges((current) => ({
+                      ...current,
+                      [service.id]: {
+                        ...entry,
+                        charge_type: e.target.value === "percent" ? "percent" : "flat",
+                      },
+                    }))
+                  }
+                >
+                  <option value="flat">Flat</option>
+                  <option value="percent">Percentage</option>
+                </select>
+                <Input
+                  id={`user-charge-${userId}-${service.id}`}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder={unit}
+                  value={entry.amount}
+                  onChange={(e) =>
+                    setCharges((current) => ({
+                      ...current,
+                      [service.id]: { ...entry, amount: e.target.value },
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          );
+        })}
       </div>
     </form>
   );

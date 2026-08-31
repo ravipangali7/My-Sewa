@@ -779,7 +779,8 @@ class DealerCommissionConfigAdmin(admin.ModelAdmin):
 @admin.register(ServiceCommissionRule)
 class ServiceCommissionRuleAdmin(admin.ModelAdmin):
     list_display = (
-        'dealer', 'txn_type', 'dealer_rate', 'sub_agent_rate', 'super_admin_rate', 'updated_at',
+        'dealer', 'txn_type', 'charge_type', 'dealer_rate', 'charge_percent',
+        'sub_agent_rate', 'super_admin_rate', 'updated_at',
     )
     list_filter = ('txn_type',)
     search_fields = ('dealer__phone',)
@@ -787,7 +788,7 @@ class ServiceCommissionRuleAdmin(admin.ModelAdmin):
 
 @admin.register(UserServiceCharge)
 class UserServiceChargeAdmin(admin.ModelAdmin):
-    list_display = ('user', 'txn_type', 'charge_flat', 'updated_at')
+    list_display = ('user', 'txn_type', 'charge_type', 'charge_flat', 'charge_percent', 'updated_at')
     list_filter = ('txn_type',)
     search_fields = ('user__phone', 'user__first_name', 'user__last_name')
     autocomplete_fields = ('user',)

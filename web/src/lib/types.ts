@@ -232,13 +232,14 @@ export interface CommissionSetupUser {
   name: string;
   phone: string;
   cashback: string;
-  charges?: Record<string, string>;
+  charges?: Record<string, string | { amount?: string; charge_type?: ChargeType }>;
 }
 
 export interface CommissionSetupService {
   txn_type: string;
   label: string;
   amount?: string;
+  charge_type?: ChargeType;
 }
 
 export interface CommissionSetupDealerDetail {
@@ -1043,7 +1044,11 @@ export type UserFeeConfigPayload = {
   transfer_charge_percent?: string | number | null;
   topup_charge_percent?: string | number | null;
   cashback_flat?: string | number | null;
-  service_charges?: Array<{ txn_type: string; amount: string | number }>;
+  service_charges?: Array<{
+    txn_type: string;
+    amount: string | number;
+    charge_type?: ChargeType;
+  }>;
 };
 
 export interface UserFeeDefaults {
@@ -1057,6 +1062,7 @@ export interface ServiceChargeAmount {
   txn_type: string;
   label: string;
   amount: string;
+  charge_type?: ChargeType;
 }
 
 export interface AdminUserFeesResponse {

@@ -1720,8 +1720,8 @@ class ServiceCommissionRuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceCommissionRule
         fields = (
-            'id', 'dealer', 'txn_type', 'dealer_rate', 'sub_agent_rate',
-            'super_admin_rate', 'updated_at',
+            'id', 'dealer', 'txn_type', 'charge_type', 'dealer_rate', 'charge_percent',
+            'sub_agent_rate', 'super_admin_rate', 'updated_at',
         )
         read_only_fields = ('id', 'updated_at')
 
@@ -1729,7 +1729,10 @@ class ServiceCommissionRuleSerializer(serializers.ModelSerializer):
 class UserServiceChargeSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserServiceCharge
-        fields = ('id', 'user', 'txn_type', 'charge_flat', 'updated_at')
+        fields = (
+            'id', 'user', 'txn_type', 'charge_type', 'charge_flat', 'charge_percent',
+            'updated_at',
+        )
         read_only_fields = ('id', 'updated_at')
 
 
