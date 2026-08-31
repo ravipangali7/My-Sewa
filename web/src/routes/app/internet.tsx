@@ -12,6 +12,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
+import { userFacingChargeExtra } from "@/lib/user-charge";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -552,19 +553,27 @@ function InternetBillPayment() {
 
               <div className="rounded-xl bg-muted p-3 text-[14px]">
                 <FeeRow label={t("common.amount")} value={formatNPR(pkgAmount)} />
-                {Number(charge) > 0.004 ? (
-                  <FeeRow label={t("common.charge")} value={feeLoading ? "…" : formatNPR(charge)} />
-                ) : null}
-                {Number(cashback) > 0 ? (
-                  <>
-                    <FeeRow
-                      label={t("common.cashbackCharge")}
-                      value={feeLoading ? "…" : formatNPR(cashback)}
-                    />
-                    <p className="mt-0.5 text-[12px] text-muted-foreground">
-                      {t("common.cashbackAfter")}
-                    </p>
-                  </>
+                {userFacingChargeExtra({
+                  amount: pkgAmount,
+                  charge,
+                  cashback,
+                  totalDebited,
+                }) > 0 ? (
+                  <FeeRow
+                    label={t("internet.serviceCharge")}
+                    value={
+                      feeLoading
+                        ? "…"
+                        : formatNPR(
+                            userFacingChargeExtra({
+                              amount: pkgAmount,
+                              charge,
+                              cashback,
+                              totalDebited,
+                            }),
+                          )
+                    }
+                  />
                 ) : null}
                 <div className="mt-2 border-t border-separator pt-2">
                   <FeeRow

@@ -17,6 +17,7 @@ import type {
 import { OPERATORS } from "./constants";
 import type { TranslateFn } from "./i18n";
 import { formatNPR, formatDateTime, formatDate, sortByLatestFirst } from "./format";
+import { userFacingChargeExtra } from "./user-charge";
 import { translateStatus } from "./status";
 
 export type { ActivityKind };
@@ -360,24 +361,15 @@ function pushDebitChargeBreakdown(
   opts: {
     amount: string;
     charge?: string | null;
-    himalpay?: string | null;
     cashback?: string | null;
     totalDebited?: string | null;
+    chargeLabel: string;
   },
 ) {
-  const himalpay = Number(opts.himalpay) || 0;
-  const combined = Number(opts.charge) || 0;
-  const other = combined - himalpay;
-  const cashback = Number(opts.cashback) || 0;
+  const extra = userFacingChargeExtra(opts);
   pushDetail(rows, t("common.amountNpr"), formatNPR(opts.amount));
-  if (himalpay > 0) {
-    pushDetail(rows, t("common.himalpayCharge"), formatNPR(opts.himalpay));
-  }
-  if (other > 0.004) {
-    pushDetail(rows, t("common.charge"), formatNPR(other));
-  }
-  if (cashback > 0) {
-    pushDetail(rows, t("common.cashbackCharge"), formatNPR(opts.cashback), { danger: true });
+  if (extra > 0) {
+    pushDetail(rows, opts.chargeLabel, formatNPR(extra));
   }
   if (opts.totalDebited != null && String(opts.totalDebited).trim() !== "") {
     pushDetail(rows, t("common.totalDebited"), formatNPR(opts.totalDebited));
@@ -495,6 +487,7 @@ export function buildActivityStatement(
       charge: top.charge,
       cashback: top.cashback,
       totalDebited: top.total_debited,
+      chargeLabel: t("topup.serviceCharge"),
     });
     pushBalanceRows(details, t, top.balance_before, top.balance_after);
     pushDetail(details, t("history.merchantTxn"), top.merchant_txn_id, {
@@ -550,6 +543,7 @@ export function buildActivityStatement(
       charge: bill.charge,
       cashback: bill.cashback,
       totalDebited: bill.total_debited,
+      chargeLabel: t("internet.serviceCharge"),
     });
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
@@ -599,6 +593,7 @@ export function buildActivityStatement(
       charge: dp.charge,
       cashback: dp.cashback,
       totalDebited: dp.total_debited,
+      chargeLabel: t("dataTopup.serviceCharge"),
     });
     pushBalanceRows(details, t, dp.balance_before, dp.balance_after);
     pushDetail(details, t("history.merchantTxn"), dp.merchant_txn_id, {
@@ -648,6 +643,7 @@ export function buildActivityStatement(
       charge: bill.charge,
       cashback: bill.cashback,
       totalDebited: bill.total_debited,
+      chargeLabel: t("water.serviceCharge"),
     });
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
@@ -701,6 +697,7 @@ export function buildActivityStatement(
       charge: bill.charge,
       cashback: bill.cashback,
       totalDebited: bill.total_debited,
+      chargeLabel: t("electricity.serviceCharge"),
     });
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
@@ -769,6 +766,7 @@ export function buildActivityStatement(
       charge: bill.charge,
       cashback: bill.cashback,
       totalDebited: bill.total_debited,
+      chargeLabel: t("communityElectricity.serviceCharge"),
     });
     pushBalanceRows(details, t, bill.balance_before, bill.balance_after);
     pushDetail(details, t("history.merchantTxn"), bill.merchant_txn_id, {
@@ -887,9 +885,9 @@ export function buildActivityStatement(
       pushDebitChargeBreakdown(details, t, {
         amount: wt.amount,
         charge: wt.charge,
-        himalpay: wt.himalpay_charge,
         cashback: wt.cashback,
         totalDebited: wt.total_debited,
+        chargeLabel: t("transfer.walletCharge"),
       });
     }
     pushDetail(details, t("history.balanceBefore"), formatNPR(wt.balance_before));
@@ -950,9 +948,9 @@ export function buildActivityStatement(
   pushDebitChargeBreakdown(details, t, {
     amount: b.amount,
     charge: b.charge,
-    himalpay: b.provider_charge,
     cashback: b.cashback,
     totalDebited: b.total_debited,
+    chargeLabel: t("transfer.charge"),
   });
   pushBalanceRows(details, t, b.balance_before, b.balance_after);
   pushDetail(details, t("common.remarks"), b.transaction_remarks?.trim() || "—");

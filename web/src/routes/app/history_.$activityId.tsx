@@ -34,6 +34,7 @@ import { downloadReceiptFromElement, shareReceiptFromElement } from "@/lib/state
 import { liveQueryOptions } from "@/lib/refresh";
 import { cn } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { userServiceChargeLabels } from "@/lib/user-charge";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { STATUS_TONE, type StatusKey } from "@/constants/colors";
 
@@ -300,11 +301,9 @@ function HistoryStatementPage() {
   }, [statement, summaryMeta?.reference]);
 
   const amountNpr = detailMap.get(t("common.amountNpr")) ?? statement?.headlineAmount ?? "—";
-  const chargeNpr = detailMap.get(t("common.charge")) ?? "Rs. 0.00";
-  const himalpayNpr = detailMap.get(t("common.himalpayCharge"));
-  const cashbackChargeNpr = detailMap.get(t("common.cashbackCharge"));
+  const serviceChargeLabel = userServiceChargeLabels(t).find((label) => detailMap.has(label));
+  const serviceChargeNpr = serviceChargeLabel ? detailMap.get(serviceChargeLabel) : undefined;
   const cashbackReturnNpr = detailMap.get(t("common.cashbackReturn"));
-  const cashbackNpr = cashbackChargeNpr ?? detailMap.get(t("common.cashback")) ?? "Rs. 0.00";
   const grossCommissionNpr = detailMap.get(t("history.grossCommission"));
   const tdsChargeRateLabel = statement
     ? [...detailMap.keys()].find((label) => label.startsWith(t("history.tdsCharge")))
@@ -340,6 +339,7 @@ function HistoryStatementPage() {
       t("common.totalDebited"),
       t("history.balanceBefore"),
       t("history.balanceAfter"),
+      ...userServiceChargeLabels(t),
     ]);
     if (tdsChargeRateLabel) labels.add(tdsChargeRateLabel);
     return labels;
@@ -376,6 +376,9 @@ function HistoryStatementPage() {
       label === t("history.netCommission")
     ) {
       return <Coins className="size-4" />;
+    }
+    if (userServiceChargeLabels(t).includes(label)) {
+      return <Tag className="size-4" />;
     }
     if (label === t("common.himalpayCharge") || label === t("common.cashbackCharge")) {
       return <Tag className="size-4" />;
@@ -636,32 +639,11 @@ function HistoryStatementPage() {
                     icon={<Coins className="size-4" />}
                   />
                 )}
-                {himalpayNpr ? (
+                {serviceChargeLabel && serviceChargeNpr ? (
                   <SettlementRow
-                    label={t("common.himalpayCharge")}
-                    value={himalpayNpr}
+                    label={serviceChargeLabel}
+                    value={serviceChargeNpr}
                     icon={<Tag className="size-4" />}
-                  />
-                ) : null}
-                {detailMap.has(t("common.charge")) ? (
-                  <SettlementRow
-                    label={t("common.charge")}
-                    value={chargeNpr}
-                    icon={<Tag className="size-4" />}
-                  />
-                ) : null}
-                {cashbackChargeNpr ? (
-                  <SettlementRow
-                    label={t("common.cashbackCharge")}
-                    value={`− ${cashbackChargeNpr}`}
-                    icon={<Tag className="size-4" />}
-                    debit
-                  />
-                ) : detailMap.has(t("common.cashback")) ? (
-                  <SettlementRow
-                    label={t("common.cashback")}
-                    value={cashbackNpr}
-                    icon={<BadgeCheck className="size-4" />}
                   />
                 ) : null}
               </div>

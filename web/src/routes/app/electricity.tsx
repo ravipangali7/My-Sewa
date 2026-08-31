@@ -27,6 +27,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { toastApiError } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR } from "@/lib/format";
+import { userFacingChargeExtra } from "@/lib/user-charge";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -706,19 +707,27 @@ function ElectricityBillPayment() {
                 </div>
                 <div className="mt-3 rounded-xl bg-[#F3F4F6] p-3 text-[14px]">
                   <FeeRow label={t("common.amount")} value={formatNPR(payAmount)} />
-                  {Number(charge) > 0.004 ? (
-                    <FeeRow label={t("common.charge")} value={feeLoading ? "…" : formatNPR(charge)} />
-                  ) : null}
-                  {Number(cashback) > 0 ? (
-                    <>
-                      <FeeRow
-                        label={t("common.cashbackCharge")}
-                        value={feeLoading ? "…" : formatNPR(cashback)}
-                      />
-                      <p className="mt-0.5 text-[12px] text-[#6B7280]">
-                        {t("common.cashbackAfter")}
-                      </p>
-                    </>
+                  {userFacingChargeExtra({
+                    amount: payAmount,
+                    charge,
+                    cashback,
+                    totalDebited,
+                  }) > 0 ? (
+                    <FeeRow
+                      label={t("electricity.serviceCharge")}
+                      value={
+                        feeLoading
+                          ? "…"
+                          : formatNPR(
+                              userFacingChargeExtra({
+                                amount: payAmount,
+                                charge,
+                                cashback,
+                                totalDebited,
+                              }),
+                            )
+                      }
+                    />
                   ) : null}
                   <div className="mt-2 border-t border-[#E5E7EB] pt-2">
                     <FeeRow

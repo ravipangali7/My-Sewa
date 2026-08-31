@@ -17,6 +17,7 @@ import { parseBankQr, phonesMatch } from "@/lib/bank-qr";
 import { mergeBankLists, matchBank, normalizeBankCode } from "@/lib/nepali-banks";
 import type { BankOption, BankTransferTransaction } from "@/lib/types";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
+import { userFacingChargeExtra } from "@/lib/user-charge";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -105,9 +106,6 @@ function Transfer() {
   );
   const [verifiedDetails, setVerifiedDetails] = useState<VerifiedDestination | null>(null);
   const [charge, setCharge] = useState("0.00");
-  const [systemCharge, setSystemCharge] = useState("0.00");
-  const [dealerCommission, setDealerCommission] = useState("0.00");
-  const [himalpayCharge, setHimalpayCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [verifying, setVerifying] = useState(false);
@@ -344,9 +342,6 @@ function Transfer() {
       const next = Number(amount) || 0;
       if (next <= 0) {
         setCharge("0.00");
-        setSystemCharge("0.00");
-        setDealerCommission("0.00");
-        setHimalpayCharge("0.00");
         setCashback("0.00");
         setTotalDebited("0.00");
         return;
@@ -356,17 +351,11 @@ function Transfer() {
           .calculateCharge("WALLET_TRANSFER", next)
           .then((res) => {
             setCharge(String(res.charge));
-            setSystemCharge(String(res.system_charge ?? "0.00"));
-            setDealerCommission(String(res.dealer_commission ?? "0.00"));
-            setHimalpayCharge(String(res.himalpay_charge ?? "0.00"));
             setCashback(previewCashback(res));
             setTotalDebited(String(res.total_debited));
           })
           .catch(() => {
             setCharge("0.00");
-            setSystemCharge("0.00");
-            setDealerCommission("0.00");
-            setHimalpayCharge("0.00");
             setCashback("0.00");
             setTotalDebited(next.toFixed(2));
           });
@@ -375,9 +364,6 @@ function Transfer() {
     }
     if (!transfersEnabled || !verified || amt < minTransfer) {
       setCharge("0.00");
-      setSystemCharge("0.00");
-      setDealerCommission("0.00");
-      setHimalpayCharge("0.00");
       setCashback("0.00");
       setTotalDebited("0.00");
       return;
@@ -387,17 +373,11 @@ function Transfer() {
         .calculateTransfer(amt)
         .then((res) => {
           setCharge(String(res.data.charge));
-          setSystemCharge(String(res.data.system_charge ?? res.data.platform_charge ?? "0.00"));
-          setDealerCommission(String(res.data.dealer_commission ?? "0.00"));
-          setHimalpayCharge(String(res.data.himalpay_charge ?? "0.00"));
           setCashback(previewCashback(res.data));
           setTotalDebited(String(res.data.total_debited));
         })
         .catch((err) => {
           setCharge("0.00");
-          setSystemCharge("0.00");
-          setDealerCommission("0.00");
-          setHimalpayCharge("0.00");
           setCashback("0.00");
           setTotalDebited(amt.toFixed(2));
           if (err instanceof ApiError) {
@@ -932,10 +912,8 @@ function Transfer() {
               <ChargePreviewBox
                 amount={amt}
                 charge={charge}
-                systemCharge={systemCharge}
-                dealerCommission={dealerCommission}
-                himalpayCharge={himalpayCharge}
                 cashback={cashback}
+                chargeLabel={t("transfer.walletCharge")}
                 totalDebited={totalDebited || amt.toFixed(2)}
                 insufficient={insufficient}
                 insufficientText={t("transfer.insufficient", {
@@ -1179,10 +1157,8 @@ function Transfer() {
             <ChargePreviewBox
               amount={amt}
               charge={charge}
-              systemCharge={systemCharge}
-              dealerCommission={dealerCommission}
-              himalpayCharge={himalpayCharge}
               cashback={cashback}
+              chargeLabel={t("transfer.charge")}
               totalDebited={totalDebited}
               insufficient={insufficient}
               insufficientText={t("transfer.insufficient", {
@@ -1511,65 +1487,34 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
-function otherApplicableCharges(
-  charge: string,
-  himalpayCharge: string,
-  systemCharge: string,
-  dealerCommission: string,
-): number {
-  const combined = Number(charge) || 0;
-  const accounted =
-    (Number(himalpayCharge) || 0) + (Number(systemCharge) || 0) + (Number(dealerCommission) || 0);
-  const other = combined - accounted;
-  return other > 0.004 ? other : 0;
-}
-
 function ChargePreviewBox({
   amount,
   charge,
-  systemCharge,
-  dealerCommission,
-  himalpayCharge,
   cashback,
+  chargeLabel,
   totalDebited,
   insufficient,
   insufficientText,
 }: {
   amount: number;
   charge: string;
-  systemCharge: string;
-  dealerCommission: string;
-  himalpayCharge: string;
   cashback: string;
+  chargeLabel: string;
   totalDebited: string;
   insufficient: boolean;
   insufficientText: string;
 }) {
   const { t } = useI18n();
-  const himalpay = Number(himalpayCharge) || 0;
-  const dealer = Number(dealerCommission) || 0;
-  const system = Number(systemCharge) || 0;
-  const other = otherApplicableCharges(charge, himalpayCharge, systemCharge, dealerCommission);
-  const cb = Number(cashback) || 0;
+  const extra = userFacingChargeExtra({
+    amount,
+    charge,
+    cashback,
+    totalDebited,
+  });
   return (
     <div className="rounded-xl bg-muted p-3 text-[14px]">
       <Row label={t("common.amount")} value={formatNPR(amount)} />
-      {dealer > 0 ? (
-        <Row label={t("common.dealerCharge")} value={formatNPR(dealerCommission)} />
-      ) : null}
-      {system > 0 ? <Row label={t("common.charge")} value={formatNPR(systemCharge)} /> : null}
-      {himalpay > 0 ? (
-        <Row label={t("common.himalpayCharge")} value={formatNPR(himalpayCharge)} />
-      ) : null}
-      {other > 0 ? <Row label={t("common.charge")} value={formatNPR(other)} /> : null}
-      {cb > 0 ? (
-        <>
-          <Row label={t("common.cashbackCharge")} value={formatNPR(cashback)} />
-          <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">
-            {t("common.cashbackAfter")}
-          </p>
-        </>
-      ) : null}
+      {extra > 0 ? <Row label={chargeLabel} value={formatNPR(extra)} /> : null}
       <div className="mt-2 border-t border-separator pt-2">
         <Row label={t("common.totalDebited")} value={formatNPR(totalDebited || amount)} strong />
       </div>

@@ -2,6 +2,7 @@ import type { ActivityItem, WalletTransactions } from "./types";
 import { buildActivity, formatTdsRate, hasTdsCharge } from "./activity";
 import { formatNPR, formatDateTime } from "./format";
 import type { TranslateFn } from "./i18n";
+import { userFacingChargeExtra } from "./user-charge";
 import { translateStatus } from "./status";
 
 export interface NotificationDetailRow {
@@ -29,26 +30,17 @@ function chargeBreakdownRows(
   opts: {
     amount: string;
     charge?: string | null;
-    himalpay?: string | null;
     cashback?: string | null;
     totalDebited?: string | null;
+    chargeLabel: string;
   },
 ): NotificationDetailRow[] {
   const rows: NotificationDetailRow[] = [
     { label: t("common.amount"), value: formatNPR(opts.amount) },
   ];
-  const himalpay = Number(opts.himalpay) || 0;
-  const combined = Number(opts.charge) || 0;
-  const other = combined - himalpay;
-  const cashback = Number(opts.cashback) || 0;
-  if (himalpay > 0) {
-    rows.push({ label: t("common.himalpayCharge"), value: formatNPR(opts.himalpay) });
-  }
-  if (other > 0.004) {
-    rows.push({ label: t("common.charge"), value: formatNPR(other) });
-  }
-  if (cashback > 0) {
-    rows.push({ label: t("common.cashbackCharge"), value: formatNPR(opts.cashback) });
+  const extra = userFacingChargeExtra(opts);
+  if (extra > 0) {
+    rows.push({ label: opts.chargeLabel, value: formatNPR(extra) });
   }
   if (opts.totalDebited != null && String(opts.totalDebited).trim() !== "") {
     rows.push({ label: t("common.totalDebited"), value: formatNPR(opts.totalDebited) });
@@ -149,6 +141,7 @@ function detailRows(
         charge: top.charge,
         cashback: top.cashback,
         totalDebited: top.total_debited,
+        chargeLabel: t("topup.serviceCharge"),
       }),
       { label: t("common.status"), value: translateStatus(top.status, t) },
       { label: t("common.txnId"), value: top.merchant_txn_id, mono: true },
@@ -226,9 +219,9 @@ function detailRows(
         : chargeBreakdownRows(t, {
             amount: wt.amount,
             charge: wt.charge,
-            himalpay: wt.himalpay_charge,
             cashback: wt.cashback,
             totalDebited: wt.total_debited,
+            chargeLabel: t("transfer.walletCharge"),
           }).filter((row) => row.label !== t("common.amount"))),
       { label: t("common.status"), value: translateStatus(wt.status, t) },
       { label: t("common.remarks"), value: wt.remarks || "—" },
@@ -256,9 +249,9 @@ function detailRows(
     ...chargeBreakdownRows(t, {
       amount: b.amount,
       charge: b.charge,
-      himalpay: b.provider_charge,
       cashback: b.cashback,
       totalDebited: b.total_debited,
+      chargeLabel: t("transfer.charge"),
     }),
     { label: t("common.remarks"), value: b.transaction_remarks || "—" },
     { label: t("common.status"), value: translateStatus(b.status, t) },

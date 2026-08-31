@@ -16,6 +16,7 @@ import {
   validateOperatorMobile,
 } from "@/lib/constants";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
+import { userFacingChargeExtra } from "@/lib/user-charge";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
@@ -57,8 +58,6 @@ function TopUp() {
   const [providerCharge, setProviderCharge] = useState("0.00");
   const [cashback, setCashback] = useState("0.00");
   const [platformCharge, setPlatformCharge] = useState("0.00");
-  const [dealerCommission, setDealerCommission] = useState("0.00");
-  const [himalpayCharge, setHimalpayCharge] = useState("0.00");
   const [totalDebited, setTotalDebited] = useState("0.00");
   const [feeLoading, setFeeLoading] = useState(false);
   const [touchedMobile, setTouchedMobile] = useState(false);
@@ -160,8 +159,6 @@ function TopUp() {
           setProviderCharge(String(res.provider_charge ?? res.charge));
           setCashback(String(res.cashback_credit ?? res.cashback));
           setPlatformCharge(String(res.system_charge ?? res.platform_charge ?? "0.00"));
-          setDealerCommission(String(res.dealer_commission ?? "0.00"));
-          setHimalpayCharge(String(res.himalpay_charge ?? "0.00"));
           setTotalDebited(String(res.total_debited));
         })
         .catch((err) => {
@@ -491,37 +488,32 @@ function TopUp() {
 
             <div className="rounded-xl bg-muted p-3 text-[14px]">
               <Row label={t("common.amount")} value={formatNPR(amt)} />
-              {Number(himalpayCharge) > 0 ? (
+              {userFacingChargeExtra({
+                amount: amt,
+                charge,
+                cashback,
+                totalDebited,
+              }) > 0 ? (
                 <Row
-                  label={t("common.himalpayCharge")}
-                  value={feeLoading ? "…" : formatNPR(himalpayCharge)}
-                />
-              ) : null}
-              {Number(charge) - Number(himalpayCharge) > 0.004 ? (
-                <Row
-                  label={t("common.charge")}
+                  label={t("topup.serviceCharge")}
                   value={
                     feeLoading
                       ? "…"
-                      : formatNPR(Number(charge) - Number(himalpayCharge || 0))
+                      : formatNPR(
+                          userFacingChargeExtra({
+                            amount: amt,
+                            charge,
+                            cashback,
+                            totalDebited,
+                          }),
+                        )
                   }
                 />
-              ) : null}
-              {Number(cashback) > 0 ? (
-                <>
-                  <Row
-                    label={t("common.cashbackCharge")}
-                    value={feeLoading ? "…" : formatNPR(cashback)}
-                  />
-                  <p className="mt-0.5 text-[12px] text-muted-foreground">
-                    {t("common.cashbackAfter")}
-                  </p>
-                </>
               ) : null}
               <div className="mt-2 border-t border-separator pt-2">
                 <Row
                   label={t("common.totalDebited")}
-                  value={feeLoading ? "…" : formatNPR(totalDebited || charge)}
+                  value={feeLoading ? "…" : formatNPR(totalDebited || amt)}
                   strong
                 />
               </div>
