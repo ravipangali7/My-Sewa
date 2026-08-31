@@ -932,6 +932,8 @@ function Transfer() {
               <ChargePreviewBox
                 amount={amt}
                 charge={charge}
+                systemCharge={systemCharge}
+                dealerCommission={dealerCommission}
                 himalpayCharge={himalpayCharge}
                 cashback={cashback}
                 totalDebited={totalDebited || amt.toFixed(2)}
@@ -1177,6 +1179,8 @@ function Transfer() {
             <ChargePreviewBox
               amount={amt}
               charge={charge}
+              systemCharge={systemCharge}
+              dealerCommission={dealerCommission}
               himalpayCharge={himalpayCharge}
               cashback={cashback}
               totalDebited={totalDebited}
@@ -1507,16 +1511,24 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
-function otherApplicableCharges(charge: string, himalpayCharge: string): number {
+function otherApplicableCharges(
+  charge: string,
+  himalpayCharge: string,
+  systemCharge: string,
+  dealerCommission: string,
+): number {
   const combined = Number(charge) || 0;
-  const himalpay = Number(himalpayCharge) || 0;
-  const other = combined - himalpay;
+  const accounted =
+    (Number(himalpayCharge) || 0) + (Number(systemCharge) || 0) + (Number(dealerCommission) || 0);
+  const other = combined - accounted;
   return other > 0.004 ? other : 0;
 }
 
 function ChargePreviewBox({
   amount,
   charge,
+  systemCharge,
+  dealerCommission,
   himalpayCharge,
   cashback,
   totalDebited,
@@ -1525,6 +1537,8 @@ function ChargePreviewBox({
 }: {
   amount: number;
   charge: string;
+  systemCharge: string;
+  dealerCommission: string;
   himalpayCharge: string;
   cashback: string;
   totalDebited: string;
@@ -1533,11 +1547,17 @@ function ChargePreviewBox({
 }) {
   const { t } = useI18n();
   const himalpay = Number(himalpayCharge) || 0;
-  const other = otherApplicableCharges(charge, himalpayCharge);
+  const dealer = Number(dealerCommission) || 0;
+  const system = Number(systemCharge) || 0;
+  const other = otherApplicableCharges(charge, himalpayCharge, systemCharge, dealerCommission);
   const cb = Number(cashback) || 0;
   return (
     <div className="rounded-xl bg-muted p-3 text-[14px]">
       <Row label={t("common.amount")} value={formatNPR(amount)} />
+      {dealer > 0 ? (
+        <Row label={t("common.dealerCharge")} value={formatNPR(dealerCommission)} />
+      ) : null}
+      {system > 0 ? <Row label={t("common.charge")} value={formatNPR(systemCharge)} /> : null}
       {himalpay > 0 ? (
         <Row label={t("common.himalpayCharge")} value={formatNPR(himalpayCharge)} />
       ) : null}
@@ -1545,7 +1565,9 @@ function ChargePreviewBox({
       {cb > 0 ? (
         <>
           <Row label={t("common.cashbackCharge")} value={formatNPR(cashback)} />
-          <p className="mt-0.5 text-[12px] text-muted-foreground">{t("common.cashbackAfter")}</p>
+          <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">
+            {t("common.cashbackAfter")}
+          </p>
         </>
       ) : null}
       <div className="mt-2 border-t border-separator pt-2">

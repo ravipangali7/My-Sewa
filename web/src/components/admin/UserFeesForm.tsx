@@ -22,15 +22,18 @@ export function UserFeesForm({ userId }: { userId: number }) {
   });
 
   const [charges, setCharges] = useState<Record<string, ServiceChargeValue>>(emptyServiceChargeValues);
+  const [cashback, setCashback] = useState("");
 
   useEffect(() => {
     if (!feesQuery.data) return;
     setCharges(valuesFromCharges(feesQuery.data.service_charges));
+    setCashback(String(feesQuery.data.fees?.cashback_flat ?? "0.00"));
   }, [feesQuery.data]);
 
   const saveMutation = useMutation({
     mutationFn: () =>
       apiClient.adminUpdateUserFees(userId, {
+        cashback_flat: cashback,
         service_charges: payloadFromChargeValues(charges),
       }),
     onSuccess: (data) => {
@@ -77,13 +80,30 @@ export function UserFeesForm({ userId }: { userId: number }) {
         <div>
           <h2 className="text-base font-semibold">Service charges</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Independent charge for each service. Choose Flat or Percentage. A user charge of Rs 200
-            becomes Rs 100 dealer commission, Rs 50 cashback, and Rs 50 system charge.
+            Independent charge for each service (Flat or Percentage), plus a separate cashback
+            amount. The dealer’s per-service charge is added on top when this user transacts.
           </p>
         </div>
         <Button type="submit" size="sm" disabled={saveMutation.isPending}>
           {saveMutation.isPending ? "Saving…" : "Save charges"}
         </Button>
+      </div>
+
+      <div className="mt-4 space-y-1.5">
+        <Label htmlFor={`user-cashback-${userId}`}>Cashback charge (Rs)</Label>
+        <Input
+          id={`user-cashback-${userId}`}
+          type="number"
+          min="0"
+          step="0.01"
+          className="w-40"
+          placeholder="Rs"
+          value={cashback}
+          onChange={(e) => setCashback(e.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          Held in the debit and credited back to this user after a successful transaction.
+        </p>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
