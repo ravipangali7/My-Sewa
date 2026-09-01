@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+import django.core.validators
 from django.db import migrations, models
 
 
@@ -30,6 +31,7 @@ class Migration(migrations.Migration):
                 default=Decimal('0.00'),
                 help_text='Flat customer cashback in Rs for this user on this service.',
                 max_digits=10,
+                validators=[django.core.validators.MinValueValidator(Decimal('0'))],
             ),
         ),
         migrations.AddField(
@@ -40,6 +42,7 @@ class Migration(migrations.Migration):
                 default=Decimal('0.0000'),
                 help_text='Customer cashback as a percent of the transaction amount.',
                 max_digits=7,
+                validators=[django.core.validators.MinValueValidator(Decimal('0'))],
             ),
         ),
         migrations.AddField(
