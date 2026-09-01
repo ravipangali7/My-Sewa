@@ -1646,10 +1646,10 @@ def device_token(request):
         }, status=status.HTTP_400_BAD_REQUEST)
 
     deleted, _ = DeviceToken.objects.filter(user=request.user, token=token).delete()
-    if not deleted:
-        # Also allow unregistered tokens that belong to this user by exact match only
-        return Response({
-            'message': 'Device token not found',
-        }, status=status.HTTP_404_NOT_FOUND)
-
+    logger.info(
+        'Device token unregistered user_id=%s token=…%s deleted=%s',
+        getattr(request.user, 'pk', None),
+        token[-8:] if token else '',
+        deleted,
+    )
     return Response({'message': 'Device token unregistered'}, status=status.HTTP_200_OK)

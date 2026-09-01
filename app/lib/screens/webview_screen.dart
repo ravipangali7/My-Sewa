@@ -298,7 +298,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       unawaited(_deliverForegroundPushToWeb(message));
     });
     _fcmOpenedSub = PushMessaging.instance.onOpenedMessage.listen((data) {
-      unawaited(_deliverOpenedPushToWeb(data));
+      unawaited(_handleOpenedPush(data, consume: true, navigate: true));
     });
     if (PushMessaging.instance.token != null) {
       unawaited(_syncDeviceToken(reason: 'token-already-fetched'));
@@ -400,10 +400,7 @@ class _WebViewScreenState extends State<WebViewScreen>
           // First thing after the SPA is ready: send the FCM token to React
           // and persist it to the API if the user is already logged in.
           await _deliverFcmTokenToWeb();
-          final opened = PushMessaging.instance.takePendingOpenedData();
-          if (opened != null) {
-            unawaited(_deliverOpenedPushToWeb(opened));
-          }
+          await _deliverPendingOpenedPush(navigateIfLoggedIn: true);
           _startFcmPoller('page-finished');
           if (mounted) {
             final padding = MediaQuery.paddingOf(context);
@@ -676,6 +673,28 @@ class _WebViewScreenState extends State<WebViewScreen>
         FcmLog.banner('LOGIN / AUTH READY');
         await _deliverFcmTokenToWeb(forceRefresh: true);
         _startFcmPoller('auth-ready');
+        await _deliverPendingOpenedPush(navigateIfLoggedIn: true, forceNavigate: true);
+        return;
+      }
+
+      if (type == 'logout' || type == 'signed_out') {
+        final fcm = (_lastPostedFcm ?? PushMessaging.instance.token)?.trim() ?? '';
+        final auth = (_lastPostedAuth ?? '').trim();
+        final apiBase = _apiBaseHint;
+        _lastPostedFcm = null;
+        _lastPostedAuth = null;
+        _fcmPollTimer?.cancel();
+        if (fcm.isNotEmpty && auth.isNotEmpty) {
+          FcmLog.ok('native logout — unregistering this device token');
+          unawaited(DeviceTokenApi.unregister(
+            fcmToken: fcm,
+            authToken: auth,
+            apiBaseHint: apiBase,
+            reason: 'logout',
+          ));
+        } else {
+          FcmLog.ok('native logout — no stored FCM registration to remove');
+        }
         return;
       }
 
@@ -893,9 +912,20 @@ class _WebViewScreenState extends State<WebViewScreen>
       reason: reason,
     );
     if (result.status == DeviceTokenSyncStatus.saved) {
+      final previousFcm = _lastPostedFcm;
       _lastPostedFcm = fcmToken;
       _lastPostedAuth = authToken;
       _fcmPollTimer?.cancel();
+      if (previousFcm != null &&
+          previousFcm.isNotEmpty &&
+          previousFcm != fcmToken) {
+        unawaited(DeviceTokenApi.unregister(
+          fcmToken: previousFcm,
+          authToken: authToken,
+          apiBaseHint: _apiBaseHint,
+          reason: 'token-refresh-replace',
+        ));
+      }
     }
     return result;
   }
@@ -942,15 +972,15 @@ class _WebViewScreenState extends State<WebViewScreen>
   Future<void> _deliverForegroundPushToWeb(dynamic message) async {
     try {
       final notification = message.notification;
-      final title = notification?.title?.toString() ?? '';
-      final body = notification?.body?.toString() ?? '';
-      final data = <String, String>{};
       final rawData = message.data;
+      final data = <String, String>{};
       if (rawData is Map) {
         rawData.forEach((key, value) {
           data['$key'] = '$value';
         });
       }
+      final title = (notification?.title?.toString() ?? data['title'] ?? '').trim();
+      final body = (notification?.body?.toString() ?? data['body'] ?? '').trim();
       if (title.isEmpty && body.isEmpty && data.isEmpty) return;
       final titleJson = jsonEncode(title);
       final bodyJson = jsonEncode(body);
@@ -969,22 +999,72 @@ class _WebViewScreenState extends State<WebViewScreen>
     } catch (_) {}
   }
 
-  Future<void> _deliverOpenedPushToWeb(Map<String, String> data) async {
+  Future<void> _deliverPendingOpenedPush({
+    required bool navigateIfLoggedIn,
+    bool forceNavigate = false,
+  }) async {
+    final opened = PushMessaging.instance.peekPendingOpenedData();
+    if (opened == null || opened.isEmpty) return;
+    var navigate = forceNavigate;
+    if (!navigate && navigateIfLoggedIn) {
+      final webAuth = await _readWebAuth();
+      navigate = webAuth.authToken.isNotEmpty;
+    }
+    await _handleOpenedPush(opened, consume: navigate, navigate: navigate);
+  }
+
+  Future<void> _handleOpenedPush(
+    Map<String, String> data, {
+    required bool consume,
+    required bool navigate,
+  }) async {
     if (data.isEmpty) return;
+    FcmLog.ok('notification tap', {
+      'event': data['event'] ?? data['type'] ?? '',
+      'thread': data['thread_id'] ?? data['conversation_id'] ?? '',
+      'navigate': '$navigate',
+    });
     try {
       final dataJson = jsonEncode(data);
+      final navigateJs = navigate ? 'true' : 'false';
       await _safeControllerCall((c) async {
         await c.runJavaScript('''
 (function() {
   try {
+    var data = $dataJson;
+    var navigate = $navigateJs;
+    window.__mysewaPendingPush = data;
+    try { sessionStorage.setItem('mysewa-pending-push', JSON.stringify(data)); } catch (e) {}
+    var thread = String(data.thread_id || data.conversation_id || '');
+    if (thread) {
+      try { sessionStorage.setItem('mysewa-support-chat-thread', thread); } catch (e2) {}
+    }
     window.dispatchEvent(new CustomEvent('mysewa-push-opened', {
-      detail: { data: $dataJson }
+      detail: { data: data }
     }));
+    var eventName = String(data.event || data.type || '');
+    var isSupport = eventName === 'support_chat' || eventName === 'support_message';
+    if (!navigate || !isSupport) return;
+    var admin = (window.location.pathname || '').indexOf('/admin') === 0;
+    var path = admin ? '/admin/support-chat' : '/app/support-chat';
+    var url = thread ? (path + '?thread=' + encodeURIComponent(thread)) : path;
+    if ((window.location.pathname || '').indexOf(path) === 0) {
+      window.dispatchEvent(new CustomEvent('mysewa-open-support-thread', {
+        detail: { threadId: thread }
+      }));
+      return;
+    }
+    window.location.assign(url);
   } catch (e) {}
 })();
 ''');
       });
-    } catch (_) {}
+      if (consume) {
+        PushMessaging.instance.takePendingOpenedData();
+      }
+    } catch (e) {
+      FcmLog.fail('deliver opened push to WebView', e);
+    }
   }
 
   String _sanitizeFilename(String name) {

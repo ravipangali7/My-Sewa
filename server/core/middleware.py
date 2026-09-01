@@ -14,6 +14,8 @@ from .services.app_config import get_app_config
 MAINTENANCE_ALLOW_PREFIXES = (
     '/api/auth/login/',
     '/api/auth/logout/',
+    '/api/auth/device-token/',
+    '/api/notifications/fcm-token/',
     '/api/settings/',
     '/admin/',  # Django admin
     '/media/',

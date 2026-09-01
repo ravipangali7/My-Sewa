@@ -3709,9 +3709,12 @@ class SupportChatHierarchyTests(TestCase):
             self.assertIn('Support', title)
             self.assertTrue(body)
             self.assertEqual(data.get('event'), 'support_chat')
+            self.assertEqual(data.get('type'), 'support_message')
             self.assertEqual(data.get('sound'), 'default')
             self.assertTrue(data.get('thread_id'))
+            self.assertTrue(data.get('conversation_id'))
             self.assertTrue(data.get('message_id'))
+            self.assertEqual(data.get('screen'), 'support_chat')
 
     @patch('core.services.notifications.send_push_to_user', return_value=1)
     def test_user_message_pushes_admins(self, mock_push):
@@ -3740,9 +3743,14 @@ class FcmPayloadTests(SimpleTestCase):
             {'event': 'support_chat', 'message_id': '42', 'thread_id': '9'},
         )
         message = payload['message']
-        self.assertNotIn('notification', message)
-        self.assertNotIn('notification', message['android'])
+        self.assertEqual(message['notification']['title'], 'MySewa Support')
+        self.assertEqual(message['notification']['body'], 'Your deposit was approved')
         self.assertEqual(message['android']['priority'], 'HIGH')
+        self.assertEqual(message['android']['collapse_key'], '9')
+        self.assertEqual(message['android']['notification']['channel_id'], 'mysewa_messages')
+        self.assertEqual(message['android']['notification']['sound'], 'default')
+        self.assertEqual(message['android']['notification']['visibility'], 'PUBLIC')
+        self.assertEqual(message['android']['notification']['tag'], 'mysewa-9')
         self.assertEqual(message['data']['title'], 'MySewa Support')
         self.assertEqual(message['data']['body'], 'Your deposit was approved')
         self.assertEqual(message['data']['event'], 'support_chat')
@@ -3764,10 +3772,21 @@ class FcmPayloadTests(SimpleTestCase):
             {'event': 'support_chat'},
         )
         self.assertEqual(payload['priority'], 'high')
-        self.assertNotIn('notification', payload)
+        self.assertEqual(payload['notification']['sound'], 'default')
+        self.assertEqual(payload['notification']['android_channel_id'], 'mysewa_messages')
         self.assertEqual(payload['data']['event'], 'support_chat')
         self.assertEqual(payload['data']['title'], 'MySewa Support')
         self.assertEqual(payload['data']['body'], 'New chat message')
+
+
+class DeviceTokenUrlTests(SimpleTestCase):
+    def test_device_token_routes_are_registered(self):
+        from django.urls import resolve
+
+        self.assertEqual(reverse('device_token'), '/api/auth/device-token/')
+        self.assertEqual(reverse('fcm_token'), '/api/notifications/fcm-token/')
+        self.assertEqual(resolve('/api/auth/device-token/').url_name, 'device_token')
+        self.assertEqual(resolve('/api/notifications/fcm-token/').url_name, 'fcm_token')
 
 
 class SupportChatPushNotifyTests(SimpleTestCase):
@@ -3820,9 +3839,13 @@ class SupportChatPushNotifyTests(SimpleTestCase):
         self.assertEqual(title, 'MySewa Support')
         self.assertEqual(body, 'Wallet help please')
         self.assertEqual(data['event'], 'support_chat')
+        self.assertEqual(data['type'], 'support_message')
         self.assertEqual(data['sound'], 'default')
         self.assertEqual(data['thread_id'], '10')
+        self.assertEqual(data['conversation_id'], '10')
         self.assertEqual(data['message_id'], '99')
+        self.assertEqual(data['sender_id'], '1')
+        self.assertEqual(data['screen'], 'support_chat')
 
     @patch('core.services.notifications._site_name', return_value='MySewa')
     @patch('core.services.notifications.send_push_to_user', return_value=1)
@@ -3838,6 +3861,8 @@ class SupportChatPushNotifyTests(SimpleTestCase):
         self.assertEqual(mock_push.call_args.args[0].pk, dealer.pk)
         self.assertEqual(mock_push.call_args.args[1], 'MySewa Support')
         self.assertEqual(mock_push.call_args.args[3]['event'], 'support_chat')
+        self.assertEqual(mock_push.call_args.args[3]['type'], 'support_message')
+        self.assertEqual(mock_push.call_args.args[3]['screen'], 'support_chat')
 
 
 class UserProvisioningAndPayoutTests(TestCase):

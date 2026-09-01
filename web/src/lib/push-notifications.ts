@@ -93,6 +93,15 @@ function readPendingToken(): { token: string; platform?: string } | null {
   return { token, ...(platform ? { platform } : {}) };
 }
 
+export function notifyNativeLogout() {
+  if (typeof window === "undefined") return;
+  try {
+    window.MySewaBridge?.postMessage(JSON.stringify({ type: "logout" }));
+  } catch {
+    /* native channel may not exist in the browser */
+  }
+}
+
 function notifyNativeAuthReady() {
   if (typeof window === "undefined") return;
   const payload = JSON.stringify({
@@ -202,22 +211,49 @@ function handleForegroundPush(ev: Event) {
   toast.info(title || body);
 }
 
-function supportChatPathForLocation(): string {
+function supportChatPathForLocation(threadId?: string): string {
   if (typeof window === "undefined") return "/app/support-chat";
-  return window.location.pathname.startsWith("/admin")
+  const path = window.location.pathname.startsWith("/admin")
     ? "/admin/support-chat"
     : "/app/support-chat";
+  const id = (threadId || "").trim();
+  return id ? `${path}?thread=${encodeURIComponent(id)}` : path;
+}
+
+function threadIdFromPushData(data: Record<string, string>): string {
+  return String(data.thread_id || data.conversation_id || "").trim();
+}
+
+function persistOpenedThread(threadId: string) {
+  if (!threadId || typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem("mysewa-support-chat-thread", threadId);
+  } catch {
+    /* private mode */
+  }
+}
+
+function isSupportChatPush(data: Record<string, string>): boolean {
+  const event = (data.event || data.type || "").toLowerCase();
+  return event === "support_chat" || event === "support_message";
 }
 
 function handleOpenedPush(ev: Event) {
   const detail = (ev as CustomEvent<{ data?: Record<string, string> }>).detail;
   const data = detail?.data || {};
   notifyLiveRefresh();
-  if ((data.event || "") !== "support_chat") return;
+  const threadId = threadIdFromPushData(data);
+  if (threadId) persistOpenedThread(threadId);
+  if (!isSupportChatPush(data)) return;
   const target = supportChatPathForLocation();
   if (typeof window === "undefined") return;
-  if (window.location.pathname.startsWith(target)) return;
-  window.location.assign(target);
+  if (window.location.pathname.startsWith(target.split("?")[0])) {
+    window.dispatchEvent(
+      new CustomEvent("mysewa-open-support-thread", { detail: { threadId } }),
+    );
+    return;
+  }
+  window.location.assign(supportChatPathForLocation(threadId));
 }
 
 /**

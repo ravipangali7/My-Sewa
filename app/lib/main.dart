@@ -21,11 +21,16 @@ Future<void> main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-  } catch (_) {
+    FcmLog.ok('Firebase.initializeApp in main (DefaultFirebaseOptions)');
+  } catch (e) {
+    FcmLog.wait('options init failed in main, trying native defaults', {
+      'error': '$e',
+    });
     try {
       await Firebase.initializeApp();
-    } catch (e) {
-      FcmLog.fail('Firebase.initializeApp in main', e);
+      FcmLog.ok('Firebase.initializeApp in main (native google-services)');
+    } catch (e2) {
+      FcmLog.fail('Firebase.initializeApp in main', e2);
     }
   }
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);

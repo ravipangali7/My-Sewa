@@ -68,6 +68,8 @@ urlpatterns = [
     ),
     path('api/auth/has-transaction-pin/', auth_views.has_transaction_pin, name='has_transaction_pin'),
     path('api/auth/verify-transaction-pin/', auth_views.verify_transaction_pin, name='verify_transaction_pin'),
+    path('api/auth/device-token/', auth_views.device_token, name='device_token'),
+    path('api/notifications/fcm-token/', auth_views.device_token, name='fcm_token'),
     path(
         'api/agent/sub-agents/',
         hierarchy_views.agent_sub_agents,

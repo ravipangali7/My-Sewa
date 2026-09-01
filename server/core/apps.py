@@ -33,3 +33,19 @@ class CoreConfig(AppConfig):
             _ensure_support_chat_attachment_columns()
         except Exception:
             pass
+        try:
+            from core.services.push import is_push_configured, push_mode, push_status
+            status = push_status() if is_push_configured() else {
+                'configured': False,
+                'mode': push_mode(),
+            }
+            import logging
+            logging.getLogger(__name__).info(
+                'Firebase push ready=%s mode=%s project=%s devices=%s',
+                status.get('configured'),
+                status.get('mode'),
+                status.get('project_id') or '-',
+                status.get('device_count', 0),
+            )
+        except Exception:
+            pass

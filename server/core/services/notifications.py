@@ -2378,9 +2378,16 @@ def notify_support_chat_message(msg, thread, sender) -> None:
     preview = str(preview).strip()[:180] or 'New message'
     sender_is_admin = is_admin_actor(sender)
     title = f'{site_name} Support' if sender_is_admin else f'{site_name}: {sender_name}'
+    thread_id = getattr(thread, 'pk', '') or ''
+    message_id = getattr(msg, 'pk', '') or ''
+    sender_id = getattr(sender, 'pk', '') or ''
     extra = {
-        'thread_id': getattr(thread, 'pk', ''),
-        'message_id': getattr(msg, 'pk', ''),
+        'type': 'support_message',
+        'conversation_id': thread_id,
+        'thread_id': thread_id,
+        'message_id': message_id,
+        'sender_id': sender_id,
+        'screen': 'support_chat',
         'kind': kind,
         'sound': 'default',
     }
@@ -2402,13 +2409,16 @@ def notify_support_chat_message(msg, thread, sender) -> None:
         try:
             sent = _push(user, title, preview, event='support_chat', extra=extra)
             logger.info(
-                'Support chat push user=%s sent=%s title=%s',
+                'Support chat push user=%s sent=%s thread=%s msg=%s',
                 getattr(user, 'phone', pk),
                 sent,
-                title,
+                thread_id,
+                message_id,
             )
         except Exception:
             logger.exception(
-                'Support chat push failed user=%s',
+                'Support chat push failed user=%s thread=%s msg=%s',
                 getattr(user, 'phone', pk),
+                thread_id,
+                message_id,
             )

@@ -2499,7 +2499,7 @@ class UserFeeConfigSerializer(serializers.ModelSerializer):
 class DeviceTokenSerializer(serializers.Serializer):
     """Register or update an FCM / web push device token."""
 
-    token = serializers.CharField(max_length=512)
+    token = serializers.CharField(max_length=1024)
     platform = serializers.ChoiceField(
         choices=DeviceToken.PLATFORM_CHOICES,
         required=False,

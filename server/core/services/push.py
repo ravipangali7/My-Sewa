@@ -126,30 +126,46 @@ def _credentials_json_raw() -> str:
     ).strip()
 
 
-def _default_credentials_file() -> str:
+def _default_credentials_files() -> list[str]:
     base = getattr(django_settings, 'BASE_DIR', None)
     if not base:
-        return ''
-    path = os.path.join(str(base), 'firebase-service-account.json')
-    return path if os.path.isfile(path) else ''
+        return []
+    return [
+        os.path.join(str(base), 'firebase-service.json'),
+        os.path.join(str(base), 'firebase-service-account.json'),
+    ]
 
 
 def _load_service_account_info() -> Optional[dict]:
     raw = _credentials_json_raw()
     if raw:
-        try:
-            data = json.loads(raw)
-            if isinstance(data, dict) and data.get('private_key'):
-                return data
-        except json.JSONDecodeError:
-            logger.warning('FIREBASE_CREDENTIALS_JSON is not valid JSON')
+        if raw.endswith('.json') and os.path.sep not in raw and '{' not in raw:
+            logger.warning(
+                'FIREBASE_CREDENTIALS_JSON looks like a filename (%s). '
+                'Use FIREBASE_CREDENTIALS_PATH for a file, or set inline JSON.',
+                raw,
+            )
+        else:
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict) and data.get('private_key'):
+                    return data
+            except json.JSONDecodeError:
+                logger.warning('FIREBASE_CREDENTIALS_JSON is not valid JSON')
 
-    path = _credentials_path() or _default_credentials_file()
-    if path and os.path.isfile(path):
+    seen: set[str] = set()
+    candidates = [_credentials_path(), *_default_credentials_files()]
+    for path in candidates:
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        if not os.path.isfile(path):
+            continue
         try:
             with open(path, encoding='utf-8') as fh:
                 data = json.load(fh)
             if isinstance(data, dict) and data.get('private_key'):
+                logger.info('Loaded Firebase service account from %s', os.path.basename(path))
                 return data
         except Exception:
             logger.exception('Failed to read Firebase service account file: %s', path)
@@ -256,23 +272,44 @@ def build_fcm_http_v1_payload(
     data: Optional[dict] = None,
 ) -> dict[str, Any]:
     """
-    HTTP v1 message that is delivered in every Android app state.
+    HTTP v1 message that is displayed in every Android / iOS app state.
 
-    Android is data-only + HIGH priority so the app process always receives
-    the message (Play Services will not swallow it as a tray-only alert).
-    The native receiver then posts a sounding heads-up notification.
-    iOS still uses an APNs alert so the system banner plays sound when
-    the app is backgrounded.
+    Include both `notification` and `data` so:
+    - background / terminated: Play Services / APNs show a system tray alert
+      with sound (data-only messages are dropped by many OEMs)
+    - foreground: Flutter `onMessage` receives the payload and shows a local
+      notification (the OS does not auto-display while the app is open)
     """
     extra = _message_data(title, body, data)
+    collapse = (
+        extra.get('thread_id')
+        or extra.get('conversation_id')
+        or extra.get('event')
+        or 'mysewa'
+    )[:64]
     return {
         'message': {
             'token': token,
+            'notification': {
+                'title': title,
+                'body': body,
+            },
             'data': extra,
             'android': {
                 'priority': 'HIGH',
                 'ttl': '86400s',
                 'direct_boot_ok': True,
+                'collapse_key': collapse,
+                'notification': {
+                    'channel_id': FCM_ANDROID_CHANNEL_ID,
+                    'sound': 'default',
+                    'default_sound': True,
+                    'default_vibrate_timings': True,
+                    'notification_priority': 'PRIORITY_MAX',
+                    'visibility': 'PUBLIC',
+                    'tag': f'mysewa-{collapse}'[:64],
+                    'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+                },
             },
             'apns': {
                 'headers': {
@@ -303,6 +340,13 @@ def build_fcm_legacy_payload(
     extra = _message_data(title, body, data)
     return {
         'to': token,
+        'notification': {
+            'title': title,
+            'body': body,
+            'sound': 'default',
+            'android_channel_id': FCM_ANDROID_CHANNEL_ID,
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        },
         'data': extra,
         'priority': 'high',
         'time_to_live': 86400,
@@ -386,15 +430,23 @@ def _send_fcm_http_v1(
         with urllib.request.urlopen(req, timeout=20) as resp:
             raw = resp.read().decode('utf-8', errors='replace')
             parsed = _parse_json_body(raw)
-            logger.info('FCM HTTP v1 sent to …%s: %s', token[-8:], title)
+            logger.info(
+                'FCM HTTP v1 sent project=%s token=…%s title=%s',
+                project_id,
+                token[-8:],
+                title,
+            )
             return _delivery(ok=True, http_status=getattr(resp, 'status', 200), firebase=parsed)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode('utf-8', errors='replace') if exc.fp else ''
         parsed = _parse_json_body(detail)
         extracted = _extract_fcm_error(parsed, exc.code, detail)
         logger.warning(
-            'FCM HTTP v1 %s for …%s: %s',
-            exc.code, token[-8:], (detail or '')[:400],
+            'FCM HTTP v1 failed status=%s token=…%s code=%s detail=%s',
+            exc.code,
+            token[-8:],
+            extracted.get('error_code'),
+            (detail or '')[:400],
         )
         return _delivery(
             ok=False,
@@ -485,7 +537,7 @@ def _delete_invalid_token(token: str) -> None:
 
         deleted, _ = DeviceToken.objects.filter(token=token).delete()
         if deleted:
-            logger.info('Removed invalid FCM token …%s', token[-8:])
+            logger.info('Removed invalid/expired FCM token …%s', token[-8:])
     except Exception:
         logger.exception('Failed to delete invalid FCM token …%s', token[-8:])
 
@@ -752,12 +804,22 @@ def send_push_to_user(
     )
     if not tokens:
         logger.info(
-            'Push skipped (no device tokens) user=%s: %s',
+            'Push skipped (no device tokens) user=%s title=%s',
             getattr(user, 'phone', user),
             title,
         )
         return 0
-    return send_push_to_tokens(tokens, title, body, data)['sent']
+    result = send_push_to_tokens(tokens, title, body, data)
+    logger.info(
+        'Push to user=%s sent=%s failed=%s skipped=%s mode=%s title=%s',
+        getattr(user, 'phone', user),
+        result.get('sent'),
+        result.get('failed'),
+        result.get('skipped'),
+        result.get('mode'),
+        title,
+    )
+    return result['sent']
 
 
 def send_push_to_all(title: str, body: str, data: Optional[dict] = None) -> dict[str, Any]:

@@ -40,11 +40,31 @@ class DeviceTokenApi {
     if (trimmed.isEmpty) return fallback;
     final parsed = Uri.tryParse(trimmed);
     if (parsed == null || parsed.host.isEmpty) return fallback;
-    if (parsed.path.contains('device-token')) return parsed;
-    final path = parsed.path.endsWith('/')
-        ? '${parsed.path}api/auth/device-token/'
-        : '${parsed.path}/api/auth/device-token/';
-    return parsed.replace(path: path, query: '', fragment: '');
+    // The SPA host serves static files; FCM registration must hit Django.
+    final spaHost = Uri.tryParse(AppConfig.webUrl)?.host ?? AppConfig.host;
+    if (parsed.host == AppConfig.host || parsed.host == spaHost) {
+      return fallback;
+    }
+    if (parsed.path.contains('device-token')) {
+      return Uri(
+        scheme: parsed.scheme,
+        host: parsed.host,
+        port: parsed.hasPort ? parsed.port : null,
+        path: parsed.path.endsWith('/') ? parsed.path : '${parsed.path}/',
+      );
+    }
+    final prefix = parsed.path.endsWith('/')
+        ? parsed.path
+        : (parsed.path.isEmpty ? '/' : '${parsed.path}/');
+    final path = prefix.endsWith('/api/auth/device-token/')
+        ? prefix
+        : '${prefix}api/auth/device-token/';
+    return Uri(
+      scheme: parsed.scheme.isEmpty ? fallback.scheme : parsed.scheme,
+      host: parsed.host,
+      port: parsed.hasPort ? parsed.port : null,
+      path: path.startsWith('/') ? path : '/$path',
+    );
   }
 
   static Future<DeviceTokenSyncResult> register({
@@ -94,8 +114,12 @@ class DeviceTokenApi {
       );
       final response = await request.close().timeout(const Duration(seconds: 15));
       final body = await utf8.decodeStream(response);
+      final mime = response.headers.contentType?.mimeType ?? '';
+      final looksJson = mime.contains('json') || body.trimLeft().startsWith('{');
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          looksJson) {
         FcmLog.box(
           step: 'POST /api/auth/device-token/',
           status: 'SAVED',
@@ -135,6 +159,68 @@ class DeviceTokenApi {
         'reason': reason,
         'url': uri.toString(),
       });
+      return DeviceTokenSyncResult(
+        DeviceTokenSyncStatus.networkError,
+        uri: uri,
+        body: '$e',
+      );
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  static Future<DeviceTokenSyncResult> unregister({
+    required String fcmToken,
+    required String authToken,
+    String? apiBaseHint,
+    required String reason,
+  }) async {
+    final uri = endpoint(apiBaseHint).replace(queryParameters: {'token': fcmToken});
+    HttpClient? client;
+    try {
+      FcmLog.box(
+        step: 'DELETE /api/auth/device-token/',
+        status: 'SENDING',
+        fields: {
+          'reason': reason,
+          'url': uri.toString(),
+          'auth': FcmLog.preview(authToken),
+          'fcm': FcmLog.preview(fcmToken),
+        },
+      );
+      client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 12);
+      final request = await client.deleteUrl(uri).timeout(const Duration(seconds: 15));
+      request.headers.set(HttpHeaders.authorizationHeader, 'Token $authToken');
+      request.headers.set(
+        HttpHeaders.contentTypeHeader,
+        'application/json; charset=utf-8',
+      );
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.add(utf8.encode(jsonEncode({'token': fcmToken})));
+      final response = await request.close().timeout(const Duration(seconds: 15));
+      final body = await utf8.decodeStream(response);
+      FcmLog.box(
+        step: 'DELETE /api/auth/device-token/',
+        status: response.statusCode >= 200 && response.statusCode < 300
+            ? 'REMOVED'
+            : 'HTTP ${response.statusCode}',
+        fields: {
+          'reason': reason,
+          'http': '${response.statusCode}',
+          'fcm': FcmLog.preview(fcmToken),
+        },
+      );
+      return DeviceTokenSyncResult(
+        response.statusCode >= 200 && response.statusCode < 300
+            ? DeviceTokenSyncStatus.saved
+            : DeviceTokenSyncStatus.httpError,
+        statusCode: response.statusCode,
+        body: body,
+        uri: uri,
+      );
+    } catch (e) {
+      FcmLog.fail('DELETE failed', e, {'reason': reason, 'url': uri.toString()});
       return DeviceTokenSyncResult(
         DeviceTokenSyncStatus.networkError,
         uri: uri,

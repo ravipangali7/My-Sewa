@@ -40,9 +40,21 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   } catch (e) {
     FcmLog.fail('background Firebase init', e);
   }
+  FcmLog.ok('background push', {
+    'title': message.notification?.title ?? message.data['title'] ?? '',
+    'event': message.data['event'] ?? message.data['type'] ?? '',
+    'has_notification': '${message.notification != null}',
+  });
   try {
+    // When FCM includes a notification payload, Play Services already posted
+    // the tray alert. Drawing another local notification would duplicate it.
+    if (message.notification != null) {
+      FcmLog.ok('background skip local notification — OS displayed FCM alert');
+      return;
+    }
     await _ensureLocalNotifications(registerTapHandler: false);
     await showPushNotification(message);
+    FcmLog.ok('background local notification displayed');
   } catch (e) {
     FcmLog.fail('background notification display', e);
   }
@@ -93,6 +105,9 @@ Future<void> _ensureLocalNotifications({bool registerTapHandler = true}) async {
 
 void _onLocalNotificationTap(NotificationResponse response) {
   final payload = (response.payload ?? '').trim();
+  FcmLog.ok('local notification tapped', {
+    'payload_len': '${payload.length}',
+  });
   if (payload.isEmpty) return;
   try {
     final decoded = jsonDecode(payload);
@@ -165,6 +180,10 @@ Future<void> showPushNotification(RemoteMessage message) async {
     ),
     payload: payload,
   );
+  FcmLog.ok('local notification displayed', {
+    'title': title.isEmpty ? 'MySewa' : title,
+    'event': message.data['event'] ?? message.data['type'] ?? '',
+  });
 }
 
 /// Loads the FCM token as soon as the native app starts, then streams
@@ -206,6 +225,8 @@ class PushMessaging {
     }
   }
 
+  Map<String, String>? peekPendingOpenedData() => _pendingOpenedData;
+
   Map<String, String>? takePendingOpenedData() {
     final data = _pendingOpenedData;
     _pendingOpenedData = null;
@@ -240,6 +261,7 @@ class PushMessaging {
 
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       await _ensureLocalNotifications();
+      await _restoreLocalNotificationLaunch();
 
       final messaging = FirebaseMessaging.instance;
       await messaging.setAutoInitEnabled(true);
@@ -294,9 +316,13 @@ class PushMessaging {
       _foregroundSub = FirebaseMessaging.onMessage.listen((message) {
         FcmLog.ok('foreground push', {
           'title': message.notification?.title ?? message.data['title'] ?? '',
-          'event': message.data['event'] ?? '',
+          'event': message.data['event'] ?? message.data['type'] ?? '',
         });
-        unawaited(showPushNotification(message));
+        // Android does not auto-display FCM alerts while the app is open.
+        // Show a heads-up local notification. iOS uses presentation options.
+        if (Platform.isAndroid) {
+          unawaited(showPushNotification(message));
+        }
         if (!_foregroundController.isClosed) {
           _foregroundController.add(message);
         }
@@ -305,13 +331,18 @@ class PushMessaging {
       await _openedSub?.cancel();
       _openedSub = FirebaseMessaging.onMessageOpenedApp.listen((message) {
         FcmLog.ok('opened from push', {
-          'event': message.data['event'] ?? '',
+          'event': message.data['event'] ?? message.data['type'] ?? '',
+          'thread': message.data['thread_id'] ?? message.data['conversation_id'] ?? '',
         });
         _emitOpenedData(_dataFromMessage(message));
       });
 
       final initial = await messaging.getInitialMessage();
       if (initial != null) {
+        FcmLog.ok('launched from terminated push', {
+          'event': initial.data['event'] ?? initial.data['type'] ?? '',
+          'thread': initial.data['thread_id'] ?? initial.data['conversation_id'] ?? '',
+        });
         _emitOpenedData(_dataFromMessage(initial));
       }
 
@@ -344,6 +375,31 @@ class PushMessaging {
       await Future<void>.delayed(const Duration(milliseconds: 400));
     }
     FcmLog.fail('APNs token not available after waiting');
+  }
+
+  Future<void> _restoreLocalNotificationLaunch() async {
+    try {
+      final launch = await _localNotifications.getNotificationAppLaunchDetails();
+      if (launch?.didNotificationLaunchApp != true) return;
+      final payload = launch?.notificationResponse?.payload?.trim() ?? '';
+      if (payload.isEmpty) return;
+      FcmLog.ok('launched from local notification', {
+        'payload_len': '${payload.length}',
+      });
+      try {
+        final decoded = jsonDecode(payload);
+        if (decoded is Map) {
+          _emitOpenedData(
+            decoded.map((key, value) => MapEntry('$key', '$value')),
+          );
+          return;
+        }
+      } catch (_) {
+        _emitOpenedData({'event': payload});
+      }
+    } catch (e) {
+      FcmLog.fail('reading local notification launch details', e);
+    }
   }
 
   Future<String?> refreshToken() async {

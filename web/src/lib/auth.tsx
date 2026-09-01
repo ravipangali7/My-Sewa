@@ -17,6 +17,7 @@ import {
   listenForNativePushToken,
   setupPushNotifications,
   unregisterStoredDeviceToken,
+  notifyNativeLogout,
 } from "./push-notifications";
 
 export type LoginOtpChallenge = {
@@ -220,6 +221,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     try {
       await unregisterStoredDeviceToken();
+      notifyNativeLogout();
       if (getToken()) await apiClient.logout();
     } catch {
       // ignore logout errors

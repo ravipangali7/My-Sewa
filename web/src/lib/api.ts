@@ -567,10 +567,10 @@ export const apiClient = {
     }>("/api/auth/device-token/", { method: "POST", body }),
 
   unregisterDeviceToken: (token: string) =>
-    api<{ message: string }>("/api/auth/device-token/", {
-      method: "DELETE",
-      body: { token },
-    }),
+    api<{ message: string }>(
+      `/api/auth/device-token/?token=${encodeURIComponent(token)}`,
+      { method: "DELETE", body: { token } },
+    ),
 
   adminPushStatus: () =>
     api<import("./types").AdminPushStatus>("/api/admin/push/"),

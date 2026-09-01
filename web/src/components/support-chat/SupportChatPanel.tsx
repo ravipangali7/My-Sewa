@@ -49,7 +49,20 @@ function readStoredThreadId() {
   if (typeof window === "undefined") return null;
   const raw = window.sessionStorage.getItem(THREAD_STORAGE_KEY);
   const id = raw ? Number(raw) : NaN;
-  return Number.isFinite(id) ? id : null;
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function readThreadIdFromLocation() {
+  if (typeof window === "undefined") return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("thread") || params.get("thread_id") || params.get("conversation_id");
+    const id = raw ? Number(raw) : NaN;
+    if (Number.isFinite(id) && id > 0) return id;
+  } catch {
+    /* ignore */
+  }
+  return readStoredThreadId();
 }
 
 export function ChatPeerTitle({ user }: { user: SupportChatUser }) {
@@ -183,7 +196,7 @@ export function SupportChatPanel({
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(() =>
-    mode === "admin" ? null : readStoredThreadId(),
+    readThreadIdFromLocation(),
   );
   const [draft, setDraft] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -358,6 +371,29 @@ export function SupportChatPanel({
       window.sessionStorage.setItem(THREAD_STORAGE_KEY, String(selectedThreadId));
     }
   }, [selectedThreadId]);
+
+  useEffect(() => {
+    const applyThread = (raw: string | number | null | undefined) => {
+      const id = Number(raw);
+      if (!Number.isFinite(id) || id <= 0) return;
+      setSelectedThreadId(id);
+    };
+    const onOpenThread = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ threadId?: string | number }>).detail;
+      applyThread(detail?.threadId);
+    };
+    const onOpenedPush = (ev: Event) => {
+      const data = (ev as CustomEvent<{ data?: Record<string, string> }>).detail?.data || {};
+      applyThread(data.thread_id || data.conversation_id);
+    };
+    window.addEventListener("mysewa-open-support-thread", onOpenThread);
+    window.addEventListener("mysewa-push-opened", onOpenedPush);
+    applyThread(readThreadIdFromLocation());
+    return () => {
+      window.removeEventListener("mysewa-open-support-thread", onOpenThread);
+      window.removeEventListener("mysewa-push-opened", onOpenedPush);
+    };
+  }, []);
 
   useEffect(() => {
     onPeerChange?.(peer);
