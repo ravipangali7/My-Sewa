@@ -857,7 +857,7 @@ export interface WalletAdjustment {
   display_amount: string;
   adjustment_type: WalletAdjustmentType;
   adjustment_type_display: string;
-  kind?: "manual" | "cashback" | "dealer_commission";
+  kind?: "manual" | "cashback" | "dealer_commission" | "system_charge";
   source_txn_type?: string;
   source_txn_id?: number | null;
   gross_commission?: string | null;

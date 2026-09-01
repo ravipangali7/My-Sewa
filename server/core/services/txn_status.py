@@ -41,6 +41,44 @@ def snapshot_wallet_balances(txn, balance_before: Decimal, balance_after: Decima
     txn.balance_after = balance_after
 
 
+def settle_posted_charges(txn, wallet=None) -> None:
+    """Post dealer commission, user cashback, and Super Admin system charge."""
+    try:
+        from .dealer_commission import record_dealer_commission
+        record_dealer_commission(txn)
+    except Exception:
+        pass
+    try:
+        from .cashback import record_user_cashback
+        record_user_cashback(txn, wallet=wallet)
+    except Exception:
+        logger.exception('Failed to credit user cashback')
+    try:
+        from .system_charge import record_system_charge
+        record_system_charge(txn)
+    except Exception:
+        logger.exception('Failed to credit system charge')
+
+
+def reverse_posted_charges(txn) -> None:
+    """Undo dealer commission, user cashback, and Super Admin system charge."""
+    try:
+        from .dealer_commission import reverse_dealer_commission
+        reverse_dealer_commission(txn)
+    except Exception:
+        pass
+    try:
+        from .cashback import reverse_user_cashback
+        reverse_user_cashback(txn)
+    except Exception:
+        logger.exception('Failed to reverse user cashback')
+    try:
+        from .system_charge import reverse_system_charge
+        reverse_system_charge(txn)
+    except Exception:
+        logger.exception('Failed to reverse system charge')
+
+
 def debit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
     """
     Debit wallet and snapshot balances onto txn.
@@ -60,16 +98,7 @@ def debit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
     if actual != expected:
         raise WalletBalanceMismatchError(expected, actual)
     snapshot_wallet_balances(txn, before, actual)
-    try:
-        from .dealer_commission import record_dealer_commission
-        record_dealer_commission(txn)
-    except Exception:
-        pass
-    try:
-        from .cashback import record_user_cashback
-        record_user_cashback(txn, wallet=wallet)
-    except Exception:
-        logger.exception('Failed to credit user cashback')
+    settle_posted_charges(txn, wallet=wallet)
 
 
 def credit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
@@ -85,16 +114,7 @@ def credit_wallet_for_txn(wallet: Wallet, txn, amount: Decimal) -> None:
     if actual != expected:
         raise WalletBalanceMismatchError(expected, actual)
     snapshot_wallet_balances(txn, before, actual)
-    try:
-        from .dealer_commission import record_dealer_commission
-        record_dealer_commission(txn)
-    except Exception:
-        pass
-    try:
-        from .cashback import record_user_cashback
-        record_user_cashback(txn, wallet=wallet)
-    except Exception:
-        logger.exception('Failed to credit user cashback')
+    settle_posted_charges(txn, wallet=wallet)
 
 
 def apply_outbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[str]]:
@@ -144,27 +164,9 @@ def apply_outbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[s
         return False, str(exc)
 
     if old_status != 'success' and new_status == 'success':
-        try:
-            from .dealer_commission import record_dealer_commission
-            record_dealer_commission(txn)
-        except Exception:
-            pass
-        try:
-            from .cashback import record_user_cashback
-            record_user_cashback(txn)
-        except Exception:
-            logger.exception('Failed to credit user cashback')
+        settle_posted_charges(txn)
     elif old_status == 'success' and new_status != 'success':
-        try:
-            from .dealer_commission import reverse_dealer_commission
-            reverse_dealer_commission(txn)
-        except Exception:
-            pass
-        try:
-            from .cashback import reverse_user_cashback
-            reverse_user_cashback(txn)
-        except Exception:
-            logger.exception('Failed to reverse user cashback')
+        reverse_posted_charges(txn)
 
     return True, None
 
@@ -223,27 +225,9 @@ def apply_inbound_status_change(txn, new_status: str) -> Tuple[bool, Optional[st
         return False, str(exc)
 
     if old_status != 'success' and new_status == 'success':
-        try:
-            from .dealer_commission import record_dealer_commission
-            record_dealer_commission(txn)
-        except Exception:
-            pass
-        try:
-            from .cashback import record_user_cashback
-            record_user_cashback(txn)
-        except Exception:
-            logger.exception('Failed to credit user cashback')
+        settle_posted_charges(txn)
     elif old_status == 'success' and new_status != 'success':
-        try:
-            from .dealer_commission import reverse_dealer_commission
-            reverse_dealer_commission(txn)
-        except Exception:
-            pass
-        try:
-            from .cashback import reverse_user_cashback
-            reverse_user_cashback(txn)
-        except Exception:
-            logger.exception('Failed to reverse user cashback')
+        reverse_posted_charges(txn)
 
     return True, None
 

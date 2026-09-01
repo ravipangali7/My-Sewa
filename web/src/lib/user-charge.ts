@@ -1,7 +1,7 @@
 import type { TranslateFn } from "./i18n";
 import type { MessageKey } from "./i18n/messages";
 
-/** Extra the user pays on top of the principal (dealer + system + HimalPay + cashback hold). */
+/** Extra the user pays on top of the principal (service charge + HimalPay). */
 export function userFacingChargeExtra(opts: {
   amount?: string | number | null | undefined;
   charge?: string | number | null | undefined;

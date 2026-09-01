@@ -47,13 +47,13 @@ def perform_wallet_transfer(
         quote_charges,
         visible_fee_extra,
     )
-    from .dealer_commission import record_dealer_commission
 
     if apply_charges:
         quote = quote_charges(amount, TXN_WALLET_TRANSFER, sender)
     else:
         quote = {
             'amount': amount,
+            'service_charge': Decimal('0.00'),
             'system_charge': Decimal('0.00'),
             'dealer_commission': Decimal('0.00'),
             'himalpay_charge': Decimal('0.00'),
@@ -142,9 +142,8 @@ def perform_wallet_transfer(
             )
             persist_transaction_charge(transfer, quote)
             if apply_charges:
-                record_dealer_commission(transfer)
-                from .cashback import record_user_cashback
-                record_user_cashback(transfer, wallet=sender_locked)
+                from .txn_status import settle_posted_charges
+                settle_posted_charges(transfer, wallet=sender_locked)
     except Wallet.DoesNotExist:
         return None, Response(
             {'error': 'Wallet not found', 'message': 'Wallet not found.'},

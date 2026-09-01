@@ -806,7 +806,7 @@ class Wallet(models.Model):
 
 
 class WalletAdjustment(models.Model):
-    """Wallet credit/debit row in transaction history (manual, cashback, or dealer earning)."""
+    """Wallet credit/debit row in transaction history (manual, cashback, dealer earning, or system charge)."""
     ADJUSTMENT_TYPE_CHOICES = [
         ('credit', 'Manual Load (Add Fund)'),
         ('debit', 'Debit'),
@@ -814,10 +814,12 @@ class WalletAdjustment(models.Model):
     KIND_MANUAL = 'manual'
     KIND_CASHBACK = 'cashback'
     KIND_DEALER_COMMISSION = 'dealer_commission'
+    KIND_SYSTEM_CHARGE = 'system_charge'
     KIND_CHOICES = [
         (KIND_MANUAL, 'Manual load / debit'),
         (KIND_CASHBACK, 'Cashback'),
         (KIND_DEALER_COMMISSION, 'Dealer commission'),
+        (KIND_SYSTEM_CHARGE, 'System charge'),
     ]
 
     wallet = models.ForeignKey(
@@ -838,7 +840,7 @@ class WalletAdjustment(models.Model):
         choices=KIND_CHOICES,
         default=KIND_MANUAL,
         db_index=True,
-        help_text="manual = admin load; cashback = user rebate; dealer_commission = dealer earning.",
+        help_text="manual = admin load; cashback = user rebate; dealer_commission = dealer earning; system_charge = Super Admin leftover.",
     )
     source_txn_type = models.CharField(max_length=40, blank=True, default='')
     source_txn_id = models.PositiveIntegerField(null=True, blank=True)

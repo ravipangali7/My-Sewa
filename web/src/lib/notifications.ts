@@ -153,9 +153,12 @@ function detailRows(
     if (!adj) return [];
     const isDealerCommission = adj.kind === "dealer_commission";
     const isCashback = adj.kind === "cashback";
+    const isSystemCharge = adj.kind === "system_charge";
     const typeValue = isDealerCommission
       ? t("activity.dealerCommission")
-      : isCashback
+      : isSystemCharge
+        ? t("activity.systemCharge")
+        : isCashback
         ? adj.adjustment_type === "credit"
           ? t("activity.cashbackReturn")
           : t("activity.cashbackCharge")
@@ -417,7 +420,17 @@ function notificationCopy(
     const adj = tx?.wallet_adjustments?.find((x) => `adj-${x.id}` === item.id);
     const isDealerCommission = adj?.kind === "dealer_commission";
     const isCashback = adj?.kind === "cashback";
+    const isSystemCharge = adj?.kind === "system_charge";
     const isCredit = adj?.adjustment_type === "credit" || item.credit;
+    if (isSystemCharge) {
+      return {
+        title: t("activity.systemCharge"),
+        body: t("notif.walletAdjustmentBody", {
+          amount: formatNPR(item.amount),
+          note: item.subtitle || adj?.reason || "—",
+        }),
+      };
+    }
     if (isDealerCommission) {
       return {
         title: t("activity.dealerCommission"),

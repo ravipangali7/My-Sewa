@@ -16,6 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -55,6 +56,8 @@ type AmountForm = {
   amount: string;
 };
 
+type CustomerMode = "one" | "multiple" | "all";
+
 const emptyAmount = (chargeType: ChargeType = "percent"): AmountForm => ({
   charge_type: chargeType,
   amount: "",
@@ -70,6 +73,25 @@ function formatCharge(entry?: CommissionSetupAmount | AmountForm | null) {
   if (!entry || entry.amount === "" || entry.amount == null) return "—";
   const amount = trimAmount(entry.amount);
   return entry.charge_type === "percent" ? `${amount}%` : `Rs. ${amount}`;
+}
+
+function splitRemainderHint(service: AmountForm, dealer: AmountForm, customer: AmountForm): string | null {
+  if (
+    service.charge_type !== dealer.charge_type ||
+    service.charge_type !== customer.charge_type
+  ) {
+    return null;
+  }
+  const total = Number(service.amount);
+  const dealerAmt = Number(dealer.amount);
+  const customerAmt = Number(customer.amount);
+  if (![total, dealerAmt, customerAmt].every((n) => Number.isFinite(n))) return null;
+  const system = total - dealerAmt - customerAmt;
+  if (system < -0.0001) {
+    return "Dealer commission plus customer commission cannot exceed the service charge.";
+  }
+  const unit = service.charge_type === "percent" ? "%" : "Rs.";
+  return `From ${trimAmount(service.amount)} ${unit}: dealer ${trimAmount(dealer.amount)} ${unit}, customer ${trimAmount(customer.amount)} ${unit}, Super Admin System Charge ${trimAmount(String(system))} ${unit}.`;
 }
 
 function toAmountForm(entry?: CommissionSetupAmount | null): AmountForm {
@@ -221,6 +243,8 @@ function CommissionSetupFormCard({
   const [dealerId, setDealerId] = useState("");
   const [txnType, setTxnType] = useState("");
   const [userId, setUserId] = useState("");
+  const [userIds, setUserIds] = useState<string[]>([]);
+  const [customerMode, setCustomerMode] = useState<CustomerMode>("one");
   const [serviceCharge, setServiceCharge] = useState<AmountForm>(emptyAmount());
   const [dealerCommission, setDealerCommission] = useState<AmountForm>(emptyAmount());
   const [customerCommission, setCustomerCommission] = useState<AmountForm>(emptyAmount());
@@ -232,6 +256,8 @@ function CommissionSetupFormCard({
     setDealerId(editingRule.dealer_id ? String(editingRule.dealer_id) : "");
     setTxnType(editingRule.txn_type);
     setUserId(String(editingRule.user_id));
+    setUserIds([String(editingRule.user_id)]);
+    setCustomerMode("one");
     setServiceCharge(toAmountForm(editingRule.service_charge));
     setDealerCommission(toAmountForm(editingRule.dealer_commission));
     setCustomerCommission(toAmountForm(editingRule.customer_commission));
@@ -252,10 +278,11 @@ function CommissionSetupFormCard({
   const customers = dealerDetailQuery.data?.users ?? [];
 
   useEffect(() => {
-    if (!userId || editingId) return;
-    if (customers.some((user) => String(user.id) === userId)) return;
+    if (editingId) return;
     if (dealerDetailQuery.isFetching) return;
-    setUserId("");
+    const valid = new Set(customers.map((user) => String(user.id)));
+    if (userId && !valid.has(userId)) setUserId("");
+    setUserIds((current) => current.filter((id) => valid.has(id)));
   }, [customers, dealerDetailQuery.isFetching, editingId, userId]);
 
   const resetForm = () => {
@@ -263,6 +290,8 @@ function CommissionSetupFormCard({
     setDealerId("");
     setTxnType("");
     setUserId("");
+    setUserIds([]);
+    setCustomerMode("one");
     setServiceCharge(emptyAmount());
     setDealerCommission(emptyAmount());
     setCustomerCommission(emptyAmount());
@@ -271,11 +300,10 @@ function CommissionSetupFormCard({
   };
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      apiClient.adminSaveCommissionSetupRule({
+    mutationFn: () => {
+      const payload: Parameters<typeof apiClient.adminSaveCommissionSetupRule>[0] = {
         ...(editingId ? { id: editingId } : {}),
         dealer_id: Number(dealerId),
-        user_id: Number(userId),
         txn_type: txnType,
         service_charge: {
           amount: serviceCharge.amount,
@@ -290,22 +318,47 @@ function CommissionSetupFormCard({
           charge_type: customerCommission.charge_type,
         },
         is_active: isActive,
-      }),
-    onSuccess: () => {
-      toast.success(editingId ? "Commission setup updated" : "Commission setup saved");
+      };
+      if (editingId || customerMode === "one") {
+        payload.user_id = Number(userId);
+      } else if (customerMode === "all") {
+        payload.apply_to_all = true;
+      } else {
+        payload.user_ids = userIds.map((id) => Number(id));
+      }
+      return apiClient.adminSaveCommissionSetupRule(payload);
+    },
+    onSuccess: (res) => {
+      const count = res.items?.length ?? 1;
+      toast.success(
+        editingId
+          ? "Commission setup updated"
+          : count > 1
+            ? `${count} commission setups saved`
+            : "Commission setup saved",
+      );
       queryClient.invalidateQueries({ queryKey: ["admin", "commission-setup"] });
       resetForm();
     },
     onError,
   });
 
+  const customersSelected =
+    editingId || customerMode === "one"
+      ? Boolean(userId)
+      : customerMode === "all"
+        ? customers.length > 0
+        : userIds.length > 0;
+
+  const splitHint = splitRemainderHint(serviceCharge, dealerCommission, customerCommission);
   const canSave =
     Boolean(dealerId) &&
     Boolean(txnType) &&
-    Boolean(userId) &&
+    customersSelected &&
     serviceCharge.amount.trim() !== "" &&
     dealerCommission.amount.trim() !== "" &&
-    customerCommission.amount.trim() !== "";
+    customerCommission.amount.trim() !== "" &&
+    (splitHint == null || !splitHint.startsWith("Dealer commission plus"));
 
   return (
     <section className="rounded-xl border border-border bg-white p-5 shadow-sm sm:p-6">
@@ -334,6 +387,7 @@ function CommissionSetupFormCard({
               onChange={(value) => {
                 setDealerId(value);
                 setUserId("");
+                setUserIds([]);
               }}
               placeholder="Select dealer"
             >
@@ -372,7 +426,11 @@ function CommissionSetupFormCard({
           </div>
           <div className="flex items-start gap-2.5 rounded-lg border border-[#bfdbfe] bg-[#eff6ff] px-3.5 py-3 text-sm text-[#1e40af]">
             <Info className="mt-0.5 size-4 shrink-0" />
-            <p>Service Charge will be applied on each transaction.</p>
+            <p>
+              Service Charge is the extra amount collected on each transaction for this dealer
+              and the selected customer(s). Dealer and customer commissions come out of this
+              amount; any leftover is credited to Super Admin as a System Charge.
+            </p>
           </div>
         </div>
 
@@ -392,19 +450,91 @@ function CommissionSetupFormCard({
             <RequiredLabel htmlFor="cs-customer" index={5}>
               Select Customer
             </RequiredLabel>
-            <NativeSelect
-              id="cs-customer"
-              value={userId}
-              onChange={setUserId}
-              disabled={!dealerId}
-              placeholder={dealerId ? "Select customer" : "Select a dealer first"}
-            >
-              {customers.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name} · {user.phone}
-                </option>
-              ))}
-            </NativeSelect>
+            {!editingId ? (
+              <RadioGroup
+                value={customerMode}
+                onValueChange={(next) => {
+                  const mode = next === "multiple" || next === "all" ? next : "one";
+                  setCustomerMode(mode);
+                  if (mode === "one" && userIds.length === 1) setUserId(userIds[0]);
+                }}
+                className="flex flex-wrap items-center gap-x-5 gap-y-2 pb-1"
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <RadioGroupItem value="one" id="cs-customer-one" />
+                  One customer
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <RadioGroupItem value="multiple" id="cs-customer-multiple" />
+                  Multiple customers
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <RadioGroupItem value="all" id="cs-customer-all" />
+                  All customers
+                </label>
+              </RadioGroup>
+            ) : null}
+            {editingId || customerMode === "one" ? (
+              <NativeSelect
+                id="cs-customer"
+                value={userId}
+                onChange={(value) => {
+                  setUserId(value);
+                  setUserIds(value ? [value] : []);
+                }}
+                disabled={!dealerId}
+                placeholder={dealerId ? "Select customer" : "Select a dealer first"}
+              >
+                {customers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name} · {user.phone}
+                  </option>
+                ))}
+              </NativeSelect>
+            ) : customerMode === "all" ? (
+              <p className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                {dealerId
+                  ? customers.length
+                    ? `Will save ${customers.length} customer setup${customers.length === 1 ? "" : "s"} for this dealer.`
+                    : "This dealer has no customers yet."
+                  : "Select a dealer first"}
+              </p>
+            ) : (
+              <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border border-input p-2">
+                {!dealerId ? (
+                  <p className="px-1 py-1.5 text-sm text-muted-foreground">Select a dealer first</p>
+                ) : customers.length === 0 ? (
+                  <p className="px-1 py-1.5 text-sm text-muted-foreground">No customers under this dealer.</p>
+                ) : (
+                  customers.map((user) => {
+                    const id = String(user.id);
+                    const checked = userIds.includes(id);
+                    return (
+                      <label
+                        key={user.id}
+                        className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-muted/60"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(next) => {
+                            setUserIds((current) =>
+                              next === true
+                                ? current.includes(id)
+                                  ? current
+                                  : [...current, id]
+                                : current.filter((value) => value !== id),
+                            );
+                          }}
+                        />
+                        <span>
+                          {user.name} · {user.phone}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <RequiredLabel htmlFor="cs-customer-commission" index={6}>
@@ -417,7 +547,9 @@ function CommissionSetupFormCard({
             />
             <p className="text-xs text-muted-foreground">
               Credited back to the customer as cashback after a successful transaction.
+              Internal dealer commission and Super Admin system-charge rows are not shown to the user.
             </p>
+            {splitHint ? <p className="text-xs font-medium text-[#1e40af]">{splitHint}</p> : null}
           </div>
         </div>
 

@@ -1686,14 +1686,20 @@ export const apiClient = {
   adminSaveCommissionSetupRule: (payload: {
     id?: number;
     dealer_id: number;
-    user_id: number;
+    user_id?: number;
+    user_ids?: number[];
+    apply_to_all?: boolean;
     txn_type: string;
     service_charge: import("./types").CommissionSetupAmount;
     dealer_commission: import("./types").CommissionSetupAmount;
     customer_commission: import("./types").CommissionSetupAmount;
     is_active?: boolean;
   }) =>
-    api<{ message: string; item: import("./types").CommissionSetupRule }>(
+    api<{
+      message: string;
+      item: import("./types").CommissionSetupRule;
+      items?: import("./types").CommissionSetupRule[];
+    }>(
       "/api/admin/commission-setup/rules/",
       { method: "PUT", body: payload },
     ),

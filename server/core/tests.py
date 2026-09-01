@@ -2819,18 +2819,20 @@ class DealerCommissionAndHierarchyTests(TestCase):
             defaults={'dealer_rate': Decimal('100.00')},
         )
         debit = quote_charges(Decimal('1000.00'), TXN_BANK_TRANSFER, self.customer)
-        # User 100 + dealer 100 + HimalPay 10. Cashback is independent (unset = 0).
-        self.assertEqual(debit['system_charge'], Decimal('100.00'))
+        # Collected service 100 is split (dealer 100, leftover 0) + HimalPay 10.
+        self.assertEqual(debit['service_charge'], Decimal('100.00'))
+        self.assertEqual(debit['system_charge'], Decimal('0.00'))
         self.assertEqual(debit['dealer_commission'], Decimal('100.00'))
         self.assertEqual(debit['cashback'], Decimal('0.00'))
         self.assertEqual(debit['himalpay_charge'], Decimal('10.00'))
-        self.assertEqual(debit['wallet_amount'], Decimal('1210.00'))
+        self.assertEqual(debit['wallet_amount'], Decimal('1110.00'))
         public = quote_to_public(debit)
         self.assertEqual(public['himalpay_charge'], '10.00')
         self.assertEqual(public['cashback'], '0.00')
         self.assertEqual(public['dealer_commission'], '100.00')
+        self.assertEqual(public['service_charge'], '100.00')
         self.assertEqual(public['system_charge'], '100.00')
-        self.assertEqual(public['charge'], '210.00')
+        self.assertEqual(public['charge'], '110.00')
 
         ServiceCommissionRule.objects.update_or_create(
             dealer=self.dealer, txn_type=TXN_BANK_TRANSFER,
@@ -2838,6 +2840,8 @@ class DealerCommissionAndHierarchyTests(TestCase):
         )
         debit_other = quote_charges(Decimal('1000.00'), TXN_BANK_TRANSFER, self.customer)
         self.assertEqual(debit_other['dealer_commission'], Decimal('25.00'))
+        self.assertEqual(debit_other['system_charge'], Decimal('75.00'))
+        self.assertEqual(debit_other['wallet_amount'], Decimal('1110.00'))
 
         unassigned = User.objects.create_user(
             phone='9800000498',
@@ -2853,10 +2857,10 @@ class DealerCommissionAndHierarchyTests(TestCase):
         credit = quote_charges(
             Decimal('1000.00'), TXN_REMITTANCE, self.customer, direction='credit',
         )
-        self.assertEqual(credit['wallet_amount'], Decimal('790.00'))
+        self.assertEqual(credit['wallet_amount'], Decimal('890.00'))
 
     def test_user_flat_charge_splits_dealer_cashback_system(self):
-        """Transfer 100 + dealer 100 + user charge 50 + cashback 50 = 300."""
+        """Transfer 100 + service charge 200 (dealer 100, cashback 50, system 50) = 300."""
         from .models import ServiceCommissionRule, UserFeeConfig, UserServiceCharge
         from .services.txn_charges import TXN_BANK_TRANSFER, quote_charges, quote_to_public
 
@@ -2868,19 +2872,22 @@ class DealerCommissionAndHierarchyTests(TestCase):
         )
         UserServiceCharge.objects.update_or_create(
             user=self.customer, txn_type=TXN_BANK_TRANSFER,
-            defaults={'charge_type': 'flat', 'charge_flat': Decimal('50.00')},
+            defaults={'charge_type': 'flat', 'charge_flat': Decimal('200.00')},
         )
         UserFeeConfig.objects.update_or_create(
             user=self.customer, defaults={'cashback_flat': Decimal('50.00')},
         )
         quote = quote_charges(Decimal('100.00'), TXN_BANK_TRANSFER, self.customer)
+        self.assertEqual(quote['service_charge'], Decimal('200.00'))
         self.assertEqual(quote['dealer_commission'], Decimal('100.00'))
         self.assertEqual(quote['cashback'], Decimal('50.00'))
         self.assertEqual(quote['system_charge'], Decimal('50.00'))
         self.assertEqual(quote['wallet_amount'], Decimal('300.00'))
         public = quote_to_public(quote)
         self.assertEqual(public['dealer_commission'], '100.00')
-        self.assertEqual(public['system_charge'], '50.00')
+        self.assertEqual(public['service_charge'], '200.00')
+        self.assertEqual(public['system_charge'], '200.00')
+        self.assertEqual(public['system_charge_net'], '50.00')
         self.assertEqual(public['cashback'], '50.00')
         self.assertEqual(public['total_debited'], '300.00')
 
@@ -2905,14 +2912,20 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(quote['wallet_amount'], Decimal('10200.00'))
 
     def test_dealer_flat_charge_splits_cashback_system(self):
-        from .models import ServiceCommissionRule
+        from .models import UserServiceCharge
         from .services.txn_charges import TXN_BANK_TRANSFER, quote_charges
 
-        ServiceCommissionRule.objects.update_or_create(
-            dealer=self.dealer, txn_type=TXN_BANK_TRANSFER,
-            defaults={'charge_type': 'flat', 'dealer_rate': Decimal('100.00')},
+        UserServiceCharge.objects.update_or_create(
+            user=self.dealer, txn_type=TXN_BANK_TRANSFER,
+            defaults={
+                'charge_type': 'flat',
+                'charge_flat': Decimal('100.00'),
+                'cashback_type': 'flat',
+                'cashback_flat': Decimal('50.00'),
+            },
         )
         quote = quote_charges(Decimal('1000.00'), TXN_BANK_TRANSFER, self.dealer)
+        self.assertEqual(quote['service_charge'], Decimal('100.00'))
         self.assertEqual(quote['dealer_commission'], Decimal('0.00'))
         self.assertEqual(quote['cashback'], Decimal('50.00'))
         self.assertEqual(quote['system_charge'], Decimal('50.00'))
@@ -2962,7 +2975,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
         )
         UserServiceCharge.objects.update_or_create(
             user=self.customer, txn_type=TXN_TOPUP,
-            defaults={'charge_type': 'flat', 'charge_flat': Decimal('50.00')},
+            defaults={'charge_type': 'flat', 'charge_flat': Decimal('200.00')},
         )
         UserFeeConfig.objects.update_or_create(
             user=self.customer, defaults={'cashback_flat': Decimal('50.00')},
@@ -2973,6 +2986,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
         wallet.save(update_fields=['balance'])
 
         quote = quote_charges(Decimal('1000.00'), TXN_TOPUP, self.customer)
+        self.assertEqual(quote['service_charge'], Decimal('200.00'))
         self.assertEqual(quote['system_charge'], Decimal('50.00'))
         self.assertEqual(quote['dealer_commission'], Decimal('100.00'))
         self.assertEqual(quote['cashback'], Decimal('50.00'))
@@ -3025,8 +3039,28 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(dealer_adj.amount, Decimal('100.00'))
         self.assertIn(self.customer.phone, dealer_adj.reason)
 
+        system_adj = WalletAdjustment.objects.get(
+            user=self.staff, kind=WalletAdjustment.KIND_SYSTEM_CHARGE, source_txn_id=txn.pk,
+        )
+        self.assertEqual(system_adj.amount, Decimal('50.00'))
+        self.assertIn(self.customer.phone, system_adj.reason)
+        self.assertIn('System Charge', system_adj.reason)
+        self.assertFalse(
+            WalletAdjustment.objects.filter(
+                user=self.customer, kind=WalletAdjustment.KIND_SYSTEM_CHARGE,
+            ).exists()
+        )
+
+        self.client.force_authenticate(user=self.customer)
+        hist = self.client.get(reverse('transaction_history'))
+        self.assertEqual(hist.status_code, status.HTTP_200_OK, hist.content[:500])
+        kinds = {a.get('kind') for a in hist.json().get('wallet_adjustments') or []}
+        self.assertIn('cashback', kinds)
+        self.assertNotIn('dealer_commission', kinds)
+        self.assertNotIn('system_charge', kinds)
+
     def test_fund_transfer_total_includes_commission_cashback_not_provider_fee(self):
-        """Transfer 100 + dealer 100 + user charge 50 + cashback 50 = 300. HimalPay leftover is not stacked."""
+        """Transfer 100 + service charge 200. HimalPay leftover is not stacked."""
         from .models import (
             BankTransferTransaction,
             ServiceChargeConfig,
@@ -3060,7 +3094,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
         )
         UserServiceCharge.objects.update_or_create(
             user=self.customer, txn_type=TXN_BANK_TRANSFER,
-            defaults={'charge_type': 'flat', 'charge_flat': Decimal('50.00')},
+            defaults={'charge_type': 'flat', 'charge_flat': Decimal('200.00')},
         )
         UserFeeConfig.objects.update_or_create(
             user=self.customer, defaults={'cashback_flat': Decimal('50.00')},
@@ -3073,6 +3107,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
             provider_charge=Decimal('5.00'),
             cashback=Decimal('0.00'),
         )
+        self.assertEqual(quote['service_charge'], Decimal('200.00'))
         self.assertEqual(quote['system_charge'], Decimal('50.00'))
         self.assertEqual(quote['dealer_commission'], Decimal('100.00'))
         self.assertEqual(quote['himalpay_charge'], Decimal('0.00'))
@@ -3083,8 +3118,10 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(public['cashback_credit'], '50.00')
         self.assertEqual(public['cashback'], '50.00')
         self.assertEqual(public['dealer_commission'], '100.00')
-        self.assertEqual(public['system_charge'], '50.00')
-        self.assertEqual(public['charge'], '150.00')
+        self.assertEqual(public['service_charge'], '200.00')
+        self.assertEqual(public['system_charge'], '200.00')
+        self.assertEqual(public['system_charge_net'], '50.00')
+        self.assertEqual(public['charge'], '200.00')
         self.assertEqual(public['himalpay_charge'], '0.00')
 
         wallet = Wallet.objects.get(user=self.customer)
@@ -3098,7 +3135,7 @@ class DealerCommissionAndHierarchyTests(TestCase):
             destination_acc_name='Test',
             status='pending',
             merchant_txn_id='MYSEWA_BT_CB250',
-            charge=quote['system_charge'] + quote['dealer_commission'],
+            charge=quote['wallet_amount'] - quote['amount'],
             cashback=quote['cashback'],
             total_debited=quote['wallet_amount'],
         )
@@ -3189,15 +3226,17 @@ class DealerCommissionAndHierarchyTests(TestCase):
         topup_quote = quote_charges(Decimal('100.00'), TXN_TOPUP, self.customer)
         transfer_quote = quote_charges(Decimal('100.00'), TXN_BANK_TRANSFER, self.customer)
         wallet_quote = quote_charges(Decimal('100.00'), TXN_WALLET_TRANSFER, self.customer)
-        self.assertEqual(topup_quote['system_charge'], Decimal('12.00'))
-        self.assertEqual(topup_quote['dealer_commission'], Decimal('100.00'))
-        self.assertEqual(topup_quote['cashback'], Decimal('40.00'))
-        self.assertEqual(transfer_quote['system_charge'], Decimal('30.00'))
+        self.assertEqual(topup_quote['service_charge'], Decimal('12.00'))
+        self.assertEqual(topup_quote['dealer_commission'], Decimal('12.00'))
+        self.assertEqual(topup_quote['cashback'], Decimal('0.00'))
+        self.assertEqual(topup_quote['system_charge'], Decimal('0.00'))
+        self.assertEqual(transfer_quote['service_charge'], Decimal('30.00'))
         self.assertEqual(transfer_quote['dealer_commission'], Decimal('20.00'))
-        self.assertEqual(transfer_quote['cashback'], Decimal('40.00'))
-        self.assertEqual(wallet_quote['system_charge'], Decimal('0.00'))
-        self.assertEqual(wallet_quote['dealer_commission'], Decimal('8.00'))
-        self.assertEqual(wallet_quote['cashback'], Decimal('40.00'))
+        self.assertEqual(transfer_quote['cashback'], Decimal('10.00'))
+        self.assertEqual(transfer_quote['system_charge'], Decimal('0.00'))
+        self.assertEqual(wallet_quote['service_charge'], Decimal('0.00'))
+        self.assertEqual(wallet_quote['dealer_commission'], Decimal('0.00'))
+        self.assertEqual(wallet_quote['cashback'], Decimal('0.00'))
 
         self.client.force_authenticate(user=self.customer)
         resp = self.client.get(reverse('admin_commission_setup_dealers'))
@@ -3239,9 +3278,16 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(rule.charge_percent, Decimal('1.0000'))
 
         quote = quote_charges(Decimal('100.00'), TXN_TOPUP, self.customer)
-        self.assertEqual(quote['system_charge'], Decimal('2.00'))
+        self.assertEqual(quote['service_charge'], Decimal('2.00'))
+        self.assertEqual(quote['system_charge'], Decimal('0.50'))
         self.assertEqual(quote['dealer_commission'], Decimal('1.00'))
         self.assertEqual(quote['cashback'], Decimal('0.50'))
+        self.assertEqual(quote['wallet_amount'], Decimal('102.00'))
+        self.assertTrue(
+            UserServiceCharge.objects.filter(user=self.dealer, txn_type=TXN_TOPUP).exists()
+        )
+        dealer_charge = UserServiceCharge.objects.get(user=self.dealer, txn_type=TXN_TOPUP)
+        self.assertEqual(dealer_charge.charge_percent, Decimal('2.0000'))
 
         resp = self.client.get(reverse('admin_commission_setup_rules'), {'q': 'Cust'})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -3260,6 +3306,54 @@ class DealerCommissionAndHierarchyTests(TestCase):
         resp = self.client.delete(reverse('admin_commission_setup_rule_detail', args=[charge.pk]))
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertFalse(UserServiceCharge.objects.filter(pk=charge.pk).exists())
+
+    def test_admin_commission_setup_saves_multiple_customers(self):
+        from .models import UserServiceCharge
+        from .services.txn_charges import TXN_BANK_TRANSFER, quote_charges
+
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.put(
+            reverse('admin_commission_setup_rules'),
+            {
+                'dealer_id': self.dealer.pk,
+                'user_ids': [self.customer.pk, self.agent.pk],
+                'txn_type': TXN_BANK_TRANSFER,
+                'service_charge': {'amount': '200', 'charge_type': 'flat'},
+                'dealer_commission': {'amount': '100', 'charge_type': 'flat'},
+                'customer_commission': {'amount': '50', 'charge_type': 'flat'},
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        items = resp.json().get('items') or []
+        self.assertEqual(len(items), 2)
+        self.assertEqual(
+            UserServiceCharge.objects.filter(
+                user__in=[self.customer, self.agent], txn_type=TXN_BANK_TRANSFER,
+            ).count(),
+            2,
+        )
+        dealer_row = UserServiceCharge.objects.get(user=self.dealer, txn_type=TXN_BANK_TRANSFER)
+        self.assertEqual(dealer_row.charge_flat, Decimal('200.00'))
+
+        quote = quote_charges(Decimal('1000.00'), TXN_BANK_TRANSFER, self.customer)
+        self.assertEqual(quote['service_charge'], Decimal('200.00'))
+        self.assertEqual(quote['dealer_commission'], Decimal('100.00'))
+        self.assertEqual(quote['cashback'], Decimal('50.00'))
+        self.assertEqual(quote['system_charge'], Decimal('50.00'))
+        self.assertEqual(quote['wallet_amount'], Decimal('1200.00'))
+
+        inherited = quote_charges(Decimal('1000.00'), TXN_BANK_TRANSFER, self.other_agent)
+        self.assertEqual(inherited['service_charge'], Decimal('200.00'))
+        self.assertEqual(inherited['dealer_commission'], Decimal('100.00'))
+        self.assertEqual(inherited['cashback'], Decimal('0.00'))
+        self.assertEqual(inherited['system_charge'], Decimal('100.00'))
+        self.assertEqual(inherited['wallet_amount'], Decimal('1200.00'))
+
+        dealer_quote = quote_charges(Decimal('1000.00'), TXN_BANK_TRANSFER, self.dealer)
+        self.assertEqual(dealer_quote['service_charge'], Decimal('200.00'))
+        self.assertEqual(dealer_quote['dealer_commission'], Decimal('0.00'))
+        self.assertEqual(dealer_quote['wallet_amount'], Decimal('1200.00'))
 
     def test_hierarchical_commission_and_historical_snapshot(self):
         from .models import DealerCommission, ServiceCommissionRule, TopupTransaction, UserServiceCharge

@@ -207,6 +207,7 @@ export const messages = {
     "activity.cashbackCharge": "Cashback Charge",
     "activity.dealerCommission": "Dealer commission",
     "activity.dealerCommissionBreakdown": "Gross {gross} · TDS Charge {tds} · Net {net}",
+    "activity.systemCharge": "System Charge",
     "activity.walletTransferSent": "Wallet transfer sent",
     "activity.walletTransferReceived": "Wallet transfer received",
 
@@ -1432,6 +1433,7 @@ export const messages = {
     "activity.cashbackCharge": "क्यासब्याक शुल्क",
     "activity.dealerCommission": "डिलर कमिसन",
     "activity.dealerCommissionBreakdown": "कुल {gross} · TDS शुल्क {tds} · खुद {net}",
+    "activity.systemCharge": "सिस्टम शुल्क",
     "activity.walletTransferSent": "वालेट ट्रान्सफर पठाइयो",
     "activity.walletTransferReceived": "वालेट ट्रान्सफर प्राप्त",
 

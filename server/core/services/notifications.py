@@ -669,16 +669,24 @@ def _send_txn_email(
     )
 
 
-def _charge_breakdown_rows(txn) -> List[Row]:
+def _charge_breakdown_rows(txn, *, for_user: bool = False) -> List[Row]:
     if txn is None:
         return []
     try:
-        from .txn_charges import get_transaction_charge
+        from .txn_charges import get_transaction_charge, money
         row = get_transaction_charge(txn)
     except Exception:
         row = None
     if row is None:
         return []
+    if for_user:
+        service = money(row.system_charge) + money(row.dealer_commission) + money(row.cashback)
+        rows: List[Row] = []
+        if service > 0:
+            rows.append(('Service charge', _fmt_amount(service)))
+        if row.cashback:
+            rows.append(('Cashback', _fmt_amount(row.cashback)))
+        return rows
     rows: List[Row] = [
         ('System charge', _fmt_amount(row.system_charge)),
         ('Dealer commission', _fmt_amount(row.dealer_commission)),
@@ -1513,7 +1521,6 @@ def notify_topup_success(topup, balance_after=None) -> None:
         ('Date', _format_when(getattr(topup, 'created_at', None))),
         ('Status', 'Debited'),
     ]
-    rows[4:4] = _charge_breakdown_rows(topup)
     if cfg.get('email_on_topup', True):
         if _user_email(topup.user):
             _send_txn_email(
@@ -1627,7 +1634,6 @@ def notify_transfer_success(transfer, balance_after=None) -> None:
         ('Date', _format_when(getattr(transfer, 'created_at', None))),
         ('Status', 'Debited'),
     ]
-    rows[3:3] = _charge_breakdown_rows(transfer)
     if cfg.get('email_on_transfer', True) or cfg.get('email_on_wallet_debit', True):
         if _user_email(transfer.user):
             _send_txn_email(
@@ -1971,7 +1977,6 @@ def notify_wallet_transfer(transfer) -> None:
         ('Date', _format_when(getattr(transfer, 'created_at', None))),
         ('Status', 'Success'),
     ]
-    sender_rows[4:4] = _charge_breakdown_rows(transfer)
     recipient_rows: List[Row] = [
         ('Type', 'Wallet transfer received'),
         ('Sender', f'{sender_name} ({sender.phone})'),
@@ -2101,7 +2106,6 @@ def notify_remittance_success(remittance, balance_after=None) -> None:
             ('Date', _format_when(getattr(remittance, 'created_at', None))),
             ('Status', 'Credited'),
         ]
-        rows[4:4] = _charge_breakdown_rows(remittance)
         if _user_email(remittance.user):
             _send_txn_email(
                 recipients=[remittance.user.email],

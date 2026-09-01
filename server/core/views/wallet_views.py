@@ -60,6 +60,15 @@ def _sum_or_zero(qs, field='amount'):
 def _user_ordered(model, user):
     """Return user txs, or empty qs if the model table is missing."""
     qs = model.objects.filter(user=user).order_by('-created_at')
+    if model is WalletAdjustment:
+        hidden = []
+        from ..services.hierarchy import ROLE_DEALER
+        if getattr(user, 'role', None) != ROLE_DEALER:
+            hidden.append(WalletAdjustment.KIND_DEALER_COMMISSION)
+        if not (getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)):
+            hidden.append(WalletAdjustment.KIND_SYSTEM_CHARGE)
+        if hidden:
+            qs = qs.exclude(kind__in=hidden)
     try:
         qs.exists()
         return qs

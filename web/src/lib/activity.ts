@@ -217,9 +217,11 @@ export function buildActivity(
             : t("activity.cashbackCharge")
           : a.kind === "dealer_commission"
             ? t("activity.dealerCommission")
-            : isCredit
-              ? t("activity.walletCredit")
-              : t("activity.walletDebit");
+            : a.kind === "system_charge"
+              ? t("activity.systemCharge")
+              : isCredit
+                ? t("activity.walletCredit")
+                : t("activity.walletDebit");
       return {
         id: `adj-${a.id}`,
         kind: "wallet_adjustment" as const,
@@ -801,6 +803,7 @@ export function buildActivityStatement(
     const details: StatementRow[] = [];
     const isCashback = adj.kind === "cashback";
     const isDealerCommission = adj.kind === "dealer_commission";
+    const isSystemCharge = adj.kind === "system_charge";
     const isCredit = adj.adjustment_type === "credit";
     const serviceName = isCashback
       ? isCredit
@@ -808,7 +811,9 @@ export function buildActivityStatement(
         : t("activity.cashbackCharge")
       : isDealerCommission
         ? t("activity.dealerCommission")
-        : t("notif.typeWalletAdjustment");
+        : isSystemCharge
+          ? t("activity.systemCharge")
+          : t("notif.typeWalletAdjustment");
     const typeLabel = serviceName;
     pushDetail(details, t("history.referenceCode"), reference, { mono: true });
     pushDetail(details, t("history.dateTime"), formatDateTime(adj.created_at));
@@ -853,9 +858,11 @@ export function buildActivityStatement(
           : t("activity.cashbackCharge")
         : isDealerCommission
           ? t("history.netCommissionCredited")
-          : adj.adjustment_type === "credit"
-            ? t("history.walletCredit")
-            : t("history.walletDebit"),
+          : isSystemCharge
+            ? t("activity.systemCharge")
+            : adj.adjustment_type === "credit"
+              ? t("history.walletCredit")
+              : t("history.walletDebit"),
       footer: t("history.footer"),
       details,
     };
