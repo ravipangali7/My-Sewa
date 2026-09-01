@@ -984,7 +984,7 @@ function SettingsPage() {
           <TabsContent value="transactions">
             <SettingsPanel
               title="Transaction rules"
-              description="Amount limits and auto-verification. Charges and cashback are configured on Commission & Charge."
+              description="Amount limits and auto-verification. Charges and cashback are configured on Commission Setup."
               onSave={() => saveConfigSection("transactions", config.transactions)}
               saving={saving}
             >

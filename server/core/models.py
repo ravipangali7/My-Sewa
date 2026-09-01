@@ -2030,6 +2030,30 @@ class UserServiceCharge(models.Model):
         validators=[MinValueValidator(Decimal('0'))],
         help_text='User service charge as a percent of the transaction amount.',
     )
+    cashback_type = models.CharField(
+        max_length=10,
+        choices=CHARGE_TYPE_CHOICES,
+        default=CHARGE_FLAT,
+        help_text='How customer cashback (customer commission) is calculated.',
+    )
+    cashback_flat = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Flat customer cashback in Rs for this user on this service.',
+    )
+    cashback_percent = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Customer cashback as a percent of the transaction amount.',
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Inactive setups skip this user service charge and cashback.',
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):

@@ -1,13 +1,24 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Save, Search } from "lucide-react";
+import { Info, Pencil, Save, Search, Trash2 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { useErrorPopup } from "@/components/ErrorPopup";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Table,
   TableBody,
@@ -17,472 +28,638 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiClient } from "@/lib/api";
-import { formatNPR } from "@/lib/format";
-import {
-  emptyServiceChargeValues,
-  payloadFromChargeValues,
-  SERVICE_CHARGE_OPTIONS,
-  valuesFromCharges,
-  type ServiceChargeValue,
-} from "@/lib/services";
+import { SERVICE_CHARGE_OPTIONS, type ChargeType } from "@/lib/services";
+import { serialNumber } from "@/lib/serial";
 import { cn } from "@/lib/utils";
+import type { CommissionSetupAmount, CommissionSetupRule } from "@/lib/types";
+
+const PAGE_SIZE = 5;
+const TITLE_BLUE = "text-[#2563eb]";
 
 export const Route = createFileRoute("/admin/commission-charge")({
   head: () => ({
     meta: [
-      { title: "Commission & Charge — MySewa Admin" },
+      { title: "Commission Setup — MySewa Admin" },
       {
         name: "description",
         content:
-          "Configure dealer charges, user service charges, and user cashback as independent amounts.",
+          "Configure service charge, dealer commission, and customer cashback for each dealer and service.",
       },
     ],
   }),
-  component: CommissionChargePage,
+  component: CommissionSetupPage,
 });
 
-function CommissionChargePage() {
+type AmountForm = {
+  charge_type: ChargeType;
+  amount: string;
+};
+
+const emptyAmount = (chargeType: ChargeType = "percent"): AmountForm => ({
+  charge_type: chargeType,
+  amount: "",
+});
+
+function trimAmount(value: string) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value || "0";
+  return String(n);
+}
+
+function formatCharge(entry?: CommissionSetupAmount | AmountForm | null) {
+  if (!entry || entry.amount === "" || entry.amount == null) return "—";
+  const amount = trimAmount(entry.amount);
+  return entry.charge_type === "percent" ? `${amount}%` : `Rs. ${amount}`;
+}
+
+function toAmountForm(entry?: CommissionSetupAmount | null): AmountForm {
+  if (!entry) return emptyAmount();
+  return {
+    charge_type: entry.charge_type === "percent" ? "percent" : "flat",
+    amount: trimAmount(entry.amount),
+  };
+}
+
+function RequiredLabel({
+  htmlFor,
+  index,
+  children,
+}: {
+  htmlFor?: string;
+  index: number;
+  children: string;
+}) {
   return (
-    <AdminShell
-      title="Commission & Charge"
-      description="Set the dealer’s per-service charge, each user’s service charge (Flat or Percentage), and a separate cashback amount. On a fund transfer those three amounts are added on top of the transfer."
-    >
-      <CommissionSetupPanel />
-    </AdminShell>
+    <Label htmlFor={htmlFor} className="text-sm font-semibold text-foreground">
+      {index}. {children} <span className="text-red-500">*</span>
+    </Label>
   );
 }
 
-function ServiceAmountGrid({
-  values,
+function NativeSelect({
+  id,
+  value,
   onChange,
-  idPrefix,
+  disabled,
+  placeholder,
+  children,
 }: {
-  values: Record<string, ServiceChargeValue>;
-  onChange: (txnType: string, next: ServiceChargeValue) => void;
-  idPrefix: string;
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  placeholder: string;
+  children: ReactNode;
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {SERVICE_CHARGE_OPTIONS.map((service) => {
-        const entry = values[service.id] ?? { amount: "", charge_type: "flat" as const };
-        const unit = entry.charge_type === "percent" ? "%" : "Rs";
-        return (
-          <div key={service.id} className="space-y-1.5 rounded-md border border-border/60 p-2.5">
-            <Label htmlFor={`${idPrefix}-${service.id}`}>{service.label}</Label>
-            <div className="flex gap-2">
-              <select
-                aria-label={`${service.label} charge type`}
-                className="h-9 w-[7.5rem] shrink-0 rounded-md border border-input bg-transparent px-2 text-sm"
-                value={entry.charge_type}
-                onChange={(e) =>
-                  onChange(service.id, {
-                    ...entry,
-                    charge_type: e.target.value === "percent" ? "percent" : "flat",
-                  })
-                }
-              >
-                <option value="flat">Flat</option>
-                <option value="percent">Percentage</option>
-              </select>
-              <Input
-                id={`${idPrefix}-${service.id}`}
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder={unit}
-                value={entry.amount}
-                onChange={(e) => onChange(service.id, { ...entry, amount: e.target.value })}
-              />
-            </div>
-            <p className="text-[11px] leading-snug text-muted-foreground">
-              {entry.charge_type === "percent" ? "Percent of transaction amount" : "Amount in Rs"}
-            </p>
-          </div>
-        );
-      })}
+    <select
+      id={id}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn(
+        "h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm",
+        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        !value && "text-muted-foreground",
+      )}
+    >
+      <option value="">{placeholder}</option>
+      {children}
+    </select>
+  );
+}
+
+function ChargeField({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: AmountForm;
+  onChange: (next: AmountForm) => void;
+}) {
+  const suffix = value.charge_type === "percent" ? "%" : "Rs.";
+  return (
+    <div className="space-y-2.5">
+      <RadioGroup
+        value={value.charge_type}
+        onValueChange={(next) =>
+          onChange({
+            ...value,
+            charge_type: next === "percent" ? "percent" : "flat",
+          })
+        }
+        className="flex flex-wrap items-center gap-x-6 gap-y-2"
+      >
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <RadioGroupItem value="percent" id={`${id}-percent`} />
+          Percentage (%)
+        </label>
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <RadioGroupItem value="flat" id={`${id}-flat`} />
+          Flat Amount (Rs.)
+        </label>
+      </RadioGroup>
+      <div className="relative max-w-xs">
+        <Input
+          id={id}
+          type="number"
+          min="0"
+          step="0.01"
+          value={value.amount}
+          onChange={(e) => onChange({ ...value, amount: e.target.value })}
+          className="h-10 pr-12"
+        />
+        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-medium text-muted-foreground">
+          {suffix}
+        </span>
+      </div>
     </div>
   );
 }
 
-function CommissionSetupPanel() {
+function CommissionSetupPage() {
+  const [editingRule, setEditingRule] = useState<CommissionSetupRule | null>(null);
   const errorPopup = useErrorPopup("Commission setup");
-  const queryClient = useQueryClient();
-  const [q, setQ] = useState("");
-  const [openId, setOpenId] = useState<number | null>(null);
-  const listQuery = useQuery({
-    queryKey: ["admin", "commission-setup", q],
-    queryFn: () => apiClient.adminCommissionSetupDealers(q),
-  });
-  const items = listQuery.data?.items ?? [];
-
   return (
-    <div className="rounded-xl border border-border bg-surface p-5">
-      <h2 className="text-base font-semibold">Commission Setup</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Open a dealer to set Fund Transfer and every other service independently (Flat or
-        Percentage). Example: transfer Rs 100 + dealer charge Rs 100 + user charge Rs 50 +
-        cashback Rs 50 = Rs 300 debited. The user charge stays with the system, cashback is
-        returned to the user, and the dealer charge is credited to the dealer.
+    <AdminShell title="Commission Setup" dense>
+      {errorPopup.popup}
+      <p className="-mt-1 mb-5 text-sm text-[#3b82f6]">
+        <Link to="/admin" className="hover:underline">
+          Dashboard
+        </Link>
+        <span className="px-1">/</span>
+        <span>Commission Setup</span>
       </p>
-      <div className="relative mt-4">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search dealer by name or phone"
-          className="pl-9"
+      <div className="space-y-5">
+        <CommissionSetupFormCard
+          editingRule={editingRule}
+          onCancelEdit={() => setEditingRule(null)}
+          onError={(err) => errorPopup.showError(err)}
+        />
+        <CommissionSetupListCard
+          onEdit={setEditingRule}
+          onError={(err) => errorPopup.showError(err)}
         />
       </div>
-      <div className="mt-4 overflow-x-auto">
-        <Table>
+    </AdminShell>
+  );
+}
+
+function CommissionSetupFormCard({
+  editingRule,
+  onCancelEdit,
+  onError,
+}: {
+  editingRule: CommissionSetupRule | null;
+  onCancelEdit: () => void;
+  onError: (err: unknown) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [dealerId, setDealerId] = useState("");
+  const [txnType, setTxnType] = useState("");
+  const [userId, setUserId] = useState("");
+  const [serviceCharge, setServiceCharge] = useState<AmountForm>(emptyAmount());
+  const [dealerCommission, setDealerCommission] = useState<AmountForm>(emptyAmount());
+  const [customerCommission, setCustomerCommission] = useState<AmountForm>(emptyAmount());
+  const [isActive, setIsActive] = useState(true);
+
+  useEffect(() => {
+    if (!editingRule) return;
+    setEditingId(editingRule.id);
+    setDealerId(editingRule.dealer_id ? String(editingRule.dealer_id) : "");
+    setTxnType(editingRule.txn_type);
+    setUserId(String(editingRule.user_id));
+    setServiceCharge(toAmountForm(editingRule.service_charge));
+    setDealerCommission(toAmountForm(editingRule.dealer_commission));
+    setCustomerCommission(toAmountForm(editingRule.customer_commission));
+    setIsActive(editingRule.is_active);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [editingRule]);
+
+  const dealersQuery = useQuery({
+    queryKey: ["admin", "commission-setup", "dealers"],
+    queryFn: () => apiClient.adminCommissionSetupDealers(),
+  });
+  const dealerDetailQuery = useQuery({
+    queryKey: ["admin", "commission-setup", "dealer", dealerId],
+    queryFn: () => apiClient.adminCommissionSetupDealer(Number(dealerId)),
+    enabled: Boolean(dealerId),
+  });
+
+  const customers = dealerDetailQuery.data?.users ?? [];
+
+  useEffect(() => {
+    if (!userId || editingId) return;
+    if (customers.some((user) => String(user.id) === userId)) return;
+    if (dealerDetailQuery.isFetching) return;
+    setUserId("");
+  }, [customers, dealerDetailQuery.isFetching, editingId, userId]);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setDealerId("");
+    setTxnType("");
+    setUserId("");
+    setServiceCharge(emptyAmount());
+    setDealerCommission(emptyAmount());
+    setCustomerCommission(emptyAmount());
+    setIsActive(true);
+    onCancelEdit();
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      apiClient.adminSaveCommissionSetupRule({
+        ...(editingId ? { id: editingId } : {}),
+        dealer_id: Number(dealerId),
+        user_id: Number(userId),
+        txn_type: txnType,
+        service_charge: {
+          amount: serviceCharge.amount,
+          charge_type: serviceCharge.charge_type,
+        },
+        dealer_commission: {
+          amount: dealerCommission.amount,
+          charge_type: dealerCommission.charge_type,
+        },
+        customer_commission: {
+          amount: customerCommission.amount,
+          charge_type: customerCommission.charge_type,
+        },
+        is_active: isActive,
+      }),
+    onSuccess: () => {
+      toast.success(editingId ? "Commission setup updated" : "Commission setup saved");
+      queryClient.invalidateQueries({ queryKey: ["admin", "commission-setup"] });
+      resetForm();
+    },
+    onError,
+  });
+
+  const canSave =
+    Boolean(dealerId) &&
+    Boolean(txnType) &&
+    Boolean(userId) &&
+    serviceCharge.amount.trim() !== "" &&
+    dealerCommission.amount.trim() !== "" &&
+    customerCommission.amount.trim() !== "";
+
+  return (
+    <section className="rounded-xl border border-border bg-white p-5 shadow-sm sm:p-6">
+      <h2 className={cn("text-lg font-semibold", TITLE_BLUE)}>
+        {editingId ? "Edit Commission Setup" : "Add Commission Setup"}
+      </h2>
+      <form
+        className="mt-5 space-y-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!canSave) {
+            toast.error("Fill every required field before saving.");
+            return;
+          }
+          saveMutation.mutate();
+        }}
+      >
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <RequiredLabel htmlFor="cs-dealer" index={1}>
+              Select Dealer
+            </RequiredLabel>
+            <NativeSelect
+              id="cs-dealer"
+              value={dealerId}
+              onChange={(value) => {
+                setDealerId(value);
+                setUserId("");
+              }}
+              placeholder="Select dealer"
+            >
+              {(dealersQuery.data?.items ?? []).map((dealer) => (
+                <option key={dealer.id} value={dealer.id}>
+                  {dealer.name} · {dealer.phone}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+          <div className="space-y-2">
+            <RequiredLabel htmlFor="cs-service" index={2}>
+              Select Service
+            </RequiredLabel>
+            <NativeSelect
+              id="cs-service"
+              value={txnType}
+              onChange={setTxnType}
+              placeholder="Select service"
+            >
+              {SERVICE_CHARGE_OPTIONS.map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.label}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,18rem)] lg:items-start">
+          <div className="space-y-2">
+            <RequiredLabel htmlFor="cs-service-charge" index={3}>
+              Service Charge
+            </RequiredLabel>
+            <ChargeField id="cs-service-charge" value={serviceCharge} onChange={setServiceCharge} />
+          </div>
+          <div className="flex items-start gap-2.5 rounded-lg border border-[#bfdbfe] bg-[#eff6ff] px-3.5 py-3 text-sm text-[#1e40af]">
+            <Info className="mt-0.5 size-4 shrink-0" />
+            <p>Service Charge will be applied on each transaction.</p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <RequiredLabel htmlFor="cs-dealer-commission" index={4}>
+            Dealer Commission
+          </RequiredLabel>
+          <ChargeField
+            id="cs-dealer-commission"
+            value={dealerCommission}
+            onChange={setDealerCommission}
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <RequiredLabel htmlFor="cs-customer" index={5}>
+              Select Customer
+            </RequiredLabel>
+            <NativeSelect
+              id="cs-customer"
+              value={userId}
+              onChange={setUserId}
+              disabled={!dealerId}
+              placeholder={dealerId ? "Select customer" : "Select a dealer first"}
+            >
+              {customers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name} · {user.phone}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+          <div className="space-y-2">
+            <RequiredLabel htmlFor="cs-customer-commission" index={6}>
+              Customer Commission
+            </RequiredLabel>
+            <ChargeField
+              id="cs-customer-commission"
+              value={customerCommission}
+              onChange={setCustomerCommission}
+            />
+            <p className="text-xs text-muted-foreground">
+              Credited back to the customer as cashback after a successful transaction.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center">
+          <Button
+            type="submit"
+            disabled={saveMutation.isPending}
+            className="h-11 w-full bg-[#16a34a] text-base font-semibold text-white hover:bg-[#15803d] sm:max-w-md"
+          >
+            <Save className="size-4" />
+            {saveMutation.isPending ? "Saving…" : "Save Commission"}
+          </Button>
+          {editingId ? (
+            <Button type="button" variant="outline" className="h-11" onClick={resetForm}>
+              Cancel edit
+            </Button>
+          ) : null}
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function CommissionSetupListCard({
+  onEdit,
+  onError,
+}: {
+  onEdit: (rule: CommissionSetupRule) => void;
+  onError: (err: unknown) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQ(q);
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [q]);
+
+  const listQuery = useQuery({
+    queryKey: ["admin", "commission-setup", "rules", debouncedQ, page],
+    queryFn: () =>
+      apiClient.adminCommissionSetupRules({
+        q: debouncedQ,
+        page,
+        page_size: PAGE_SIZE,
+      }),
+  });
+
+  const items = listQuery.data?.items ?? [];
+  const count = listQuery.data?.count ?? 0;
+  const pageCount = Math.max(1, Math.ceil(count / PAGE_SIZE));
+  const from = count === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, count);
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) =>
+      apiClient.adminUpdateCommissionSetupRule(id, { is_active }),
+    onSuccess: (res) => {
+      toast.success(res.item.is_active ? "Setup activated" : "Setup deactivated");
+      queryClient.invalidateQueries({ queryKey: ["admin", "commission-setup"] });
+    },
+    onError,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiClient.adminDeleteCommissionSetupRule(id),
+    onSuccess: () => {
+      toast.success("Commission setup deleted");
+      setDeleteId(null);
+      queryClient.invalidateQueries({ queryKey: ["admin", "commission-setup"] });
+    },
+    onError,
+  });
+
+  const pages = useMemo(() => {
+    return Array.from({ length: pageCount }, (_, index) => index + 1);
+  }, [pageCount]);
+
+  return (
+    <section className="rounded-xl border border-border bg-white p-5 shadow-sm sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className={cn("text-lg font-semibold", TITLE_BLUE)}>Commission Setup List</h2>
+        <div className="relative w-full sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search..."
+            className="h-10 pl-9"
+          />
+        </div>
+      </div>
+
+      <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+        <Table className="min-w-[56rem]">
           <TableHeader>
-            <TableRow>
-              <TableHead className="w-8" />
-              <TableHead>Dealer name</TableHead>
-              <TableHead>Phone number</TableHead>
-              <TableHead className="text-right">Commission amount</TableHead>
-              <TableHead className="text-right">Users</TableHead>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableHead className="w-12">#</TableHead>
+              <TableHead>Dealer</TableHead>
+              <TableHead>Service</TableHead>
+              <TableHead>Service Charge</TableHead>
+              <TableHead>Dealer Commission</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Customer Commission</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {listQuery.isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-sm text-muted-foreground">
-                  Loading dealers…
+                <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
+                  Loading commission setups…
                 </TableCell>
               </TableRow>
             ) : items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-sm text-muted-foreground">
-                  No dealers found.
+                <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
+                  No commission setups yet.
                 </TableCell>
               </TableRow>
             ) : (
-              items.map((dealer) => (
-                <DealerSetupRow
-                  key={dealer.id}
-                  dealer={dealer}
-                  open={openId === dealer.id}
-                  onToggle={() => setOpenId((current) => (current === dealer.id ? null : dealer.id))}
-                  onChanged={() => {
-                    queryClient.invalidateQueries({ queryKey: ["admin", "commission-setup"] });
-                  }}
-                  onError={(err) => errorPopup.show(err)}
-                />
+              items.map((row, index) => (
+                <TableRow key={row.id}>
+                  <TableCell className="tabular">{serialNumber(page, PAGE_SIZE, index)}</TableCell>
+                  <TableCell className="font-medium">{row.dealer_name}</TableCell>
+                  <TableCell>{row.service_label}</TableCell>
+                  <TableCell>{formatCharge(row.service_charge)}</TableCell>
+                  <TableCell>{formatCharge(row.dealer_commission)}</TableCell>
+                  <TableCell>{row.user_name}</TableCell>
+                  <TableCell>{formatCharge(row.customer_commission)}</TableCell>
+                  <TableCell>
+                    <button
+                      type="button"
+                      disabled={statusMutation.isPending}
+                      onClick={() =>
+                        statusMutation.mutate({ id: row.id, is_active: !row.is_active })
+                      }
+                      className={cn(
+                        "inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                        row.is_active
+                          ? "bg-[#dcfce7] text-[#15803d]"
+                          : "bg-[#fee2e2] text-[#dc2626]",
+                      )}
+                    >
+                      {row.is_active ? "Active" : "Inactive"}
+                    </button>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="inline-flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        aria-label="Edit commission setup"
+                        className="inline-flex size-8 items-center justify-center rounded-md bg-[#dbeafe] text-[#2563eb] hover:bg-[#bfdbfe]"
+                        onClick={() => onEdit(row)}
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Delete commission setup"
+                        className="inline-flex size-8 items-center justify-center rounded-md bg-[#fee2e2] text-[#dc2626] hover:bg-[#fecaca]"
+                        onClick={() => setDeleteId(row.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ))
             )}
           </TableBody>
         </Table>
       </div>
-    </div>
-  );
-}
 
-function DealerSetupRow({
-  dealer,
-  open,
-  onToggle,
-  onChanged,
-  onError,
-}: {
-  dealer: {
-    id: number;
-    name: string;
-    phone: string;
-    commission_amount: string;
-    user_count: number;
-  };
-  open: boolean;
-  onToggle: () => void;
-  onChanged: () => void;
-  onError: (err: unknown) => void;
-}) {
-  const detailQuery = useQuery({
-    queryKey: ["admin", "commission-setup", dealer.id],
-    queryFn: () => apiClient.adminCommissionSetupDealer(dealer.id),
-    enabled: open,
-  });
-  const [commission, setCommission] = useState(dealer.commission_amount);
-  const [serviceCharges, setServiceCharges] =
-    useState<Record<string, ServiceChargeValue>>(emptyServiceChargeValues);
-  const [userCharges, setUserCharges] = useState<Record<number, Record<string, ServiceChargeValue>>>(
-    {},
-  );
-  const [userCashbacks, setUserCashbacks] = useState<Record<number, string>>({});
-  const [bulkCharges, setBulkCharges] =
-    useState<Record<string, ServiceChargeValue>>(emptyServiceChargeValues);
-  const [bulkCashback, setBulkCashback] = useState("");
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">
+          Showing {from} to {to} of {count} entries.
+        </p>
+        <div className="flex flex-wrap items-center gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+          >
+            Previous
+          </Button>
+          {pages.map((pageNumber) => (
+            <Button
+              key={pageNumber}
+              type="button"
+              size="sm"
+              variant={pageNumber === page ? "default" : "outline"}
+              className={cn(
+                pageNumber === page && "bg-[#2563eb] text-white hover:bg-[#1d4ed8]",
+              )}
+              onClick={() => setPage(pageNumber)}
+            >
+              {pageNumber}
+            </Button>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={page >= pageCount}
+            onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
 
-  useEffect(() => {
-    if (!detailQuery.data) return;
-    setCommission(detailQuery.data.commission_amount);
-    setServiceCharges(valuesFromCharges(detailQuery.data.service_charges));
-    const nextCharges: Record<number, Record<string, ServiceChargeValue>> = {};
-    const nextCashbacks: Record<number, string> = {};
-    for (const user of detailQuery.data.users) {
-      nextCharges[user.id] = valuesFromCharges(user.charges);
-      nextCashbacks[user.id] = user.cashback ?? "0.00";
-    }
-    setUserCharges(nextCharges);
-    setUserCashbacks(nextCashbacks);
-  }, [detailQuery.data]);
-
-  const saveDealer = useMutation({
-    mutationFn: () =>
-      apiClient.adminSaveCommissionSetupDealer(dealer.id, {
-        commission_amount: commission,
-        service_charges: payloadFromChargeValues(serviceCharges),
-      }),
-    onSuccess: () => {
-      toast.success("Dealer commission and service charges saved");
-      onChanged();
-    },
-    onError,
-  });
-
-  const saveUser = useMutation({
-    mutationFn: ({
-      userId,
-      charges,
-      cashback,
-    }: {
-      userId: number;
-      charges: Record<string, ServiceChargeValue>;
-      cashback: string;
-    }) =>
-      apiClient.adminSaveCommissionSetupCashback(dealer.id, {
-        user_id: userId,
-        cashback,
-        charges: Object.fromEntries(
-          payloadFromChargeValues(charges).map((row) => [
-            row.txn_type,
-            { amount: row.amount, charge_type: row.charge_type },
-          ]),
-        ),
-      }),
-    onSuccess: () => toast.success("User charges and cashback saved"),
-    onError,
-  });
-
-  const saveAllCharges = useMutation({
-    mutationFn: () => {
-      const filledCharges = payloadFromChargeValues(bulkCharges, { onlyFilled: true });
-      return apiClient.adminSaveCommissionSetupCashback(dealer.id, {
-        apply_to_all: true,
-        ...(bulkCashback.trim() ? { cashback: bulkCashback } : {}),
-        ...(filledCharges.length
-          ? {
-              charges: Object.fromEntries(
-                filledCharges.map((row) => [
-                  row.txn_type,
-                  { amount: row.amount, charge_type: row.charge_type },
-                ]),
-              ),
-            }
-          : {}),
-      });
-    },
-    onSuccess: (res) => {
-      const nextCharges: Record<number, Record<string, ServiceChargeValue>> = {};
-      const nextCashbacks: Record<number, string> = {};
-      for (const user of res.users) {
-        nextCharges[user.id] = valuesFromCharges(user.charges);
-        nextCashbacks[user.id] = user.cashback ?? "0.00";
-      }
-      setUserCharges((current) => ({ ...current, ...nextCharges }));
-      setUserCashbacks((current) => ({ ...current, ...nextCashbacks }));
-      toast.success("Charges and cashback applied to all users");
-    },
-    onError,
-  });
-
-  const users = detailQuery.data?.users ?? [];
-  const hasBulkCharges = SERVICE_CHARGE_OPTIONS.some(
-    (service) => (bulkCharges[service.id]?.amount ?? "").trim(),
-  );
-  const hasBulkCashback = bulkCashback.trim() !== "";
-
-  return (
-    <>
-      <TableRow className={cn("cursor-pointer", open && "bg-muted/40")} onClick={onToggle}>
-        <TableCell>
-          {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-        </TableCell>
-        <TableCell className="font-medium">{dealer.name}</TableCell>
-        <TableCell className="tabular">{dealer.phone}</TableCell>
-        <TableCell className="text-right tabular">{formatNPR(dealer.commission_amount)}</TableCell>
-        <TableCell className="text-right tabular">{dealer.user_count}</TableCell>
-      </TableRow>
-      {open ? (
-        <TableRow>
-          <TableCell colSpan={5} className="bg-muted/20">
-            <div className="space-y-4 py-2" onClick={(e) => e.stopPropagation()}>
-              <div className="rounded-lg border border-border bg-background p-3">
-                <p className="text-sm font-medium">Dealer commission & service charges</p>
-                <p className="text-xs text-muted-foreground">
-                  These amounts are added when a referred user uses that service and are credited to
-                  this dealer. Default commission is used when a service box is left blank. When this
-                  dealer themselves uses a service, half is cashback and half is system charge.
-                </p>
-                <div className="mt-3 flex flex-wrap items-end gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor={`commission-${dealer.id}`}>Dealer commission (Rs, default)</Label>
-                    <Input
-                      id={`commission-${dealer.id}`}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="w-40"
-                      value={commission}
-                      onChange={(e) => setCommission(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="mt-4">
-                  <ServiceAmountGrid
-                    idPrefix={`dealer-${dealer.id}`}
-                    values={serviceCharges}
-                    onChange={(txnType, value) =>
-                      setServiceCharges((current) => ({ ...current, [txnType]: value }))
-                    }
-                  />
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="mt-4 gap-1.5"
-                  disabled={saveDealer.isPending}
-                  onClick={() => saveDealer.mutate()}
-                >
-                  <Save className="size-3.5" />
-                  {saveDealer.isPending ? "Saving…" : "Save dealer charges"}
-                </Button>
-              </div>
-
-              <div className="rounded-lg border border-border bg-background p-3">
-                <p className="text-sm font-medium">Referred users</p>
-                <p className="text-xs text-muted-foreground">
-                  Each service charge is collected by the system. Cashback is a separate amount held
-                  in the debit and returned to the user after success. The dealer charge above is
-                  added on top and paid to this dealer.
-                </p>
-
-                <div className="mt-4 rounded-md border border-border/70 p-3">
-                  <p className="text-xs font-medium text-muted-foreground">Charges for all users</p>
-                  <div className="mt-3 space-y-1.5">
-                    <Label htmlFor={`bulk-cashback-${dealer.id}`}>Cashback charge (Rs)</Label>
-                    <Input
-                      id={`bulk-cashback-${dealer.id}`}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="w-40"
-                      placeholder="Rs"
-                      value={bulkCashback}
-                      onChange={(e) => setBulkCashback(e.target.value)}
-                    />
-                  </div>
-                  <div className="mt-3">
-                    <ServiceAmountGrid
-                      idPrefix={`bulk-charges-${dealer.id}`}
-                      values={bulkCharges}
-                      onChange={(txnType, value) =>
-                        setBulkCharges((current) => ({ ...current, [txnType]: value }))
-                      }
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="mt-3"
-                    disabled={saveAllCharges.isPending || (!hasBulkCharges && !hasBulkCashback)}
-                    onClick={() => saveAllCharges.mutate()}
-                  >
-                    Apply to all users
-                  </Button>
-                </div>
-
-                {detailQuery.isLoading ? (
-                  <p className="mt-3 text-sm text-muted-foreground">Loading users…</p>
-                ) : users.length === 0 ? (
-                  <p className="mt-3 text-sm text-muted-foreground">No users under this dealer.</p>
-                ) : (
-                  <ul className="mt-4 space-y-3">
-                    <li className="text-sm font-semibold">{dealer.name}</li>
-                    {users.map((user) => {
-                      const charges = userCharges[user.id] ?? valuesFromCharges(user.charges);
-                      const cashback = userCashbacks[user.id] ?? user.cashback ?? "0.00";
-                      return (
-                        <li
-                          key={user.id}
-                          className="rounded-md border border-border/70 bg-muted/20 p-3 pl-4"
-                        >
-                          <div className="flex flex-wrap items-center gap-3">
-                            <span className="text-muted-foreground">→</span>
-                            <span className="min-w-40 text-sm">
-                              {user.name}{" "}
-                              <span className="text-muted-foreground">· {user.phone}</span>
-                            </span>
-                          </div>
-                          <div className="mt-3 space-y-1.5">
-                            <Label htmlFor={`cashback-${dealer.id}-${user.id}`}>
-                              Cashback charge (Rs)
-                            </Label>
-                            <Input
-                              id={`cashback-${dealer.id}-${user.id}`}
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className="w-40"
-                              placeholder="Rs"
-                              value={cashback}
-                              onChange={(e) =>
-                                setUserCashbacks((current) => ({
-                                  ...current,
-                                  [user.id]: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                          <div className="mt-3">
-                            <ServiceAmountGrid
-                              idPrefix={`user-${dealer.id}-${user.id}`}
-                              values={charges}
-                              onChange={(txnType, value) =>
-                                setUserCharges((current) => ({
-                                  ...current,
-                                  [user.id]: { ...(current[user.id] ?? charges), [txnType]: value },
-                                }))
-                              }
-                            />
-                          </div>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="mt-3"
-                            disabled={saveUser.isPending}
-                            onClick={() =>
-                              saveUser.mutate({
-                                userId: user.id,
-                                charges,
-                                cashback,
-                              })
-                            }
-                          >
-                            Save
-                          </Button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </TableCell>
-        </TableRow>
-      ) : null}
-    </>
+      <AlertDialog open={deleteId != null} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this commission setup?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the service charge and customer cashback for this customer and service.
+              Dealer commission for the service is kept if other customers still use it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-danger text-white hover:bg-danger/90"
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteId != null && deleteMutation.mutate(deleteId)}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </section>
   );
 }

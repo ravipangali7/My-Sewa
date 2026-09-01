@@ -219,6 +219,35 @@ export interface ServiceChargeConfig {
   updated_at?: string | null;
 }
 
+export interface CommissionSetupAmount {
+  amount: string;
+  charge_type: ChargeType;
+}
+
+export interface CommissionSetupRule {
+  id: number;
+  dealer_id: number | null;
+  dealer_name: string;
+  dealer_phone: string;
+  user_id: number;
+  user_name: string;
+  user_phone: string;
+  txn_type: string;
+  service_label: string;
+  service_charge: CommissionSetupAmount;
+  dealer_commission: CommissionSetupAmount;
+  customer_commission: CommissionSetupAmount;
+  is_active: boolean;
+  updated_at?: string | null;
+}
+
+export interface CommissionSetupRulesResponse {
+  items: CommissionSetupRule[];
+  count: number;
+  page: number;
+  page_size: number;
+}
+
 export interface CommissionSetupDealer {
   id: number;
   name: string;

@@ -3201,6 +3201,64 @@ class DealerCommissionAndHierarchyTests(TestCase):
         resp = self.client.get(reverse('admin_commission_setup_dealers'))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_admin_commission_setup_rule_saves_customer_cashback(self):
+        from .models import ServiceCommissionRule, UserServiceCharge
+        from .services.txn_charges import TXN_TOPUP, quote_charges
+
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.put(
+            reverse('admin_commission_setup_rules'),
+            {
+                'dealer_id': self.dealer.pk,
+                'user_id': self.customer.pk,
+                'txn_type': TXN_TOPUP,
+                'service_charge': {'amount': '2', 'charge_type': 'percent'},
+                'dealer_commission': {'amount': '1', 'charge_type': 'percent'},
+                'customer_commission': {'amount': '0.5', 'charge_type': 'percent'},
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        item = resp.json()['item']
+        self.assertEqual(item['dealer_id'], self.dealer.pk)
+        self.assertEqual(item['user_id'], self.customer.pk)
+        self.assertEqual(item['txn_type'], TXN_TOPUP)
+        self.assertEqual(item['service_charge']['charge_type'], 'percent')
+        self.assertEqual(item['customer_commission']['charge_type'], 'percent')
+        self.assertTrue(item['is_active'])
+
+        charge = UserServiceCharge.objects.get(user=self.customer, txn_type=TXN_TOPUP)
+        self.assertEqual(charge.charge_type, 'percent')
+        self.assertEqual(charge.charge_percent, Decimal('2.0000'))
+        self.assertEqual(charge.cashback_type, 'percent')
+        self.assertEqual(charge.cashback_percent, Decimal('0.5000'))
+        rule = ServiceCommissionRule.objects.get(dealer=self.dealer, txn_type=TXN_TOPUP)
+        self.assertEqual(rule.charge_type, 'percent')
+        self.assertEqual(rule.charge_percent, Decimal('1.0000'))
+
+        quote = quote_charges(Decimal('100.00'), TXN_TOPUP, self.customer)
+        self.assertEqual(quote['system_charge'], Decimal('2.00'))
+        self.assertEqual(quote['dealer_commission'], Decimal('1.00'))
+        self.assertEqual(quote['cashback'], Decimal('0.50'))
+
+        resp = self.client.get(reverse('admin_commission_setup_rules'), {'q': 'Cust'})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertGreaterEqual(resp.json()['count'], 1)
+
+        resp = self.client.patch(
+            reverse('admin_commission_setup_rule_detail', args=[charge.pk]),
+            {'is_active': False},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        inactive_quote = quote_charges(Decimal('100.00'), TXN_TOPUP, self.customer)
+        self.assertEqual(inactive_quote['system_charge'], Decimal('0.00'))
+        self.assertEqual(inactive_quote['cashback'], Decimal('0.00'))
+
+        resp = self.client.delete(reverse('admin_commission_setup_rule_detail', args=[charge.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertFalse(UserServiceCharge.objects.filter(pk=charge.pk).exists())
+
     def test_hierarchical_commission_and_historical_snapshot(self):
         from .models import DealerCommission, ServiceCommissionRule, TopupTransaction, UserServiceCharge
         from .services.txn_status import apply_outbound_status_change

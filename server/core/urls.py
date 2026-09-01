@@ -371,6 +371,16 @@ urlpatterns = [
         admin_views.admin_commission_setup_dealer_cashback,
         name='admin_commission_setup_dealer_cashback',
     ),
+    path(
+        'api/admin/commission-setup/rules/',
+        admin_views.admin_commission_setup_rules,
+        name='admin_commission_setup_rules',
+    ),
+    path(
+        'api/admin/commission-setup/rules/<int:rule_id>/',
+        admin_views.admin_commission_setup_rule_detail,
+        name='admin_commission_setup_rule_detail',
+    ),
     path('api/admin/settings/export/', admin_views.admin_export_data, name='admin_export_data'),
     path('api/admin/export/', admin_views.admin_export_data, name='admin_export_data_alt'),
     path('api/admin/settings/test-email/', admin_views.admin_test_smtp_email, name='admin_test_smtp_email'),

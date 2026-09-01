@@ -3940,6 +3940,92 @@ def _user_service_charge_map(user_ids) -> dict:
     return by_user
 
 
+def _typed_amount_payload(charge_type, flat, percent) -> dict:
+    from ..services.txn_charges import CHARGE_PERCENT, money
+
+    ctype = _charge_type_value(charge_type)
+    if ctype == CHARGE_PERCENT:
+        amount = str(percent or '0.0000')
+    else:
+        amount = str(money(flat))
+    return {'amount': amount, 'charge_type': ctype}
+
+
+def _parse_required_typed_field(raw, field_name: str):
+    from ..services.txn_charges import money
+
+    if not isinstance(raw, dict):
+        return None, None, f'{field_name} must include amount and charge_type.'
+    amount, ctype = _charge_amount_and_type(raw)
+    if amount is None or amount == '':
+        return None, None, f'{field_name} amount is required.'
+    value = money(amount)
+    if value < 0:
+        return None, None, f'{field_name} cannot be negative.'
+    return value, ctype, None
+
+
+def _dealer_rule_map(dealer_ids) -> dict:
+    from ..models import ServiceCommissionRule
+
+    ids = [i for i in dealer_ids if i]
+    if not ids:
+        return {}
+    return {
+        (row.dealer_id, row.txn_type): row
+        for row in ServiceCommissionRule.objects.filter(dealer_id__in=ids)
+    }
+
+
+def _commission_setup_rule_item(row, dealer_rule=None, dealer_default=None) -> dict:
+    from ..services.txn_charges import CHARGE_FLAT, TXN_TYPE_LABELS, money, _related_or_none
+
+    user = row.user
+    dealer = getattr(user, 'assigned_dealer', None)
+    if dealer_rule is not None:
+        dealer_commission = _typed_amount_payload(
+            getattr(dealer_rule, 'charge_type', None),
+            dealer_rule.dealer_rate,
+            getattr(dealer_rule, 'charge_percent', 0),
+        )
+    elif dealer_default is not None:
+        dealer_commission = {'amount': str(money(dealer_default)), 'charge_type': CHARGE_FLAT}
+    else:
+        dealer_commission = {'amount': '0.00', 'charge_type': CHARGE_FLAT}
+
+    customer_commission = _typed_amount_payload(
+        getattr(row, 'cashback_type', None),
+        getattr(row, 'cashback_flat', 0),
+        getattr(row, 'cashback_percent', 0),
+    )
+    if money(customer_commission['amount']) <= 0:
+        fee = _related_or_none(user, 'fee_config')
+        fallback = money(getattr(fee, 'cashback_flat', 0) or 0) if fee is not None else money(0)
+        if fallback > 0:
+            customer_commission = {'amount': str(fallback), 'charge_type': CHARGE_FLAT}
+
+    return {
+        'id': row.pk,
+        'dealer_id': dealer.pk if dealer is not None else None,
+        'dealer_name': _dealer_display_name(dealer) if dealer is not None else '',
+        'dealer_phone': dealer.phone if dealer is not None else '',
+        'user_id': user.pk,
+        'user_name': _dealer_display_name(user),
+        'user_phone': user.phone,
+        'txn_type': row.txn_type,
+        'service_label': TXN_TYPE_LABELS.get(row.txn_type, row.txn_type),
+        'service_charge': _typed_amount_payload(
+            getattr(row, 'charge_type', None),
+            row.charge_flat,
+            getattr(row, 'charge_percent', 0),
+        ),
+        'dealer_commission': dealer_commission,
+        'customer_commission': customer_commission,
+        'is_active': bool(getattr(row, 'is_active', True)),
+        'updated_at': row.updated_at.isoformat() if getattr(row, 'updated_at', None) else None,
+    }
+
+
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_user_fees(request, user_id):
@@ -4347,6 +4433,247 @@ def admin_commission_setup_dealer_cashback(request, dealer_id):
             },
         })
     return Response({'message': 'User setup updated', 'users': users_out})
+
+
+def _apply_typed_charge_defaults(amount, ctype) -> dict:
+    from ..services.txn_charges import CHARGE_PERCENT
+
+    if ctype == CHARGE_PERCENT:
+        return {
+            'charge_type': CHARGE_PERCENT,
+            'charge_flat': Decimal('0.00'),
+            'charge_percent': amount,
+        }
+    return {
+        'charge_type': ctype,
+        'charge_flat': amount,
+        'charge_percent': Decimal('0.0000'),
+    }
+
+
+def _apply_typed_cashback_defaults(amount, ctype) -> dict:
+    from ..services.txn_charges import CHARGE_PERCENT
+
+    if ctype == CHARGE_PERCENT:
+        return {
+            'cashback_type': CHARGE_PERCENT,
+            'cashback_flat': Decimal('0.00'),
+            'cashback_percent': amount,
+        }
+    return {
+        'cashback_type': ctype,
+        'cashback_flat': amount,
+        'cashback_percent': Decimal('0.0000'),
+    }
+
+
+def _serialize_setup_rows(rows):
+    from ..models import DealerCommissionConfig
+    from ..services.txn_charges import money
+
+    dealer_ids = []
+    for row in rows:
+        dealer = getattr(row.user, 'assigned_dealer', None)
+        if dealer is not None:
+            dealer_ids.append(dealer.pk)
+    rules = _dealer_rule_map(dealer_ids)
+    defaults = {
+        config.user_id: money(config.commission_rate)
+        for config in DealerCommissionConfig.objects.filter(user_id__in=dealer_ids)
+    }
+    items = []
+    for row in rows:
+        dealer = getattr(row.user, 'assigned_dealer', None)
+        dealer_id = dealer.pk if dealer is not None else None
+        items.append(_commission_setup_rule_item(
+            row,
+            dealer_rule=rules.get((dealer_id, row.txn_type)),
+            dealer_default=defaults.get(dealer_id),
+        ))
+    return items
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_commission_setup_rules(request):
+    """List or save Commission Setup rows (dealer + service + customer cashback)."""
+    from ..models import ServiceCommissionRule, UserServiceCharge
+    from ..services.hierarchy import ROLE_DEALER
+    from ..services.txn_charges import CHARGE_PERCENT, SERVICE_CHARGE_TXN_TYPES, TXN_TYPE_LABELS
+
+    if request.method == 'PUT':
+        payload = request.data if isinstance(request.data, dict) else {}
+        try:
+            dealer_id = int(payload.get('dealer_id'))
+            user_id = int(payload.get('user_id'))
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'Validation failed', 'message': 'Select a dealer and a customer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        txn_type = str(payload.get('txn_type') or payload.get('service') or '').strip()
+        if txn_type not in SERVICE_CHARGE_TXN_TYPES:
+            return Response(
+                {'error': 'Validation failed', 'message': 'Select a valid service.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            dealer = User.objects.get(pk=dealer_id, role=ROLE_DEALER)
+        except User.DoesNotExist:
+            return Response({'error': 'Dealer not found'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            customer = User.objects.get(pk=user_id, assigned_dealer=dealer)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Customer not found under this dealer'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        service_amount, service_type, service_err = _parse_required_typed_field(
+            payload.get('service_charge'), 'Service charge',
+        )
+        dealer_amount, dealer_type, dealer_err = _parse_required_typed_field(
+            payload.get('dealer_commission'), 'Dealer commission',
+        )
+        customer_amount, customer_type, customer_err = _parse_required_typed_field(
+            payload.get('customer_commission'), 'Customer commission',
+        )
+        error = service_err or dealer_err or customer_err
+        if error:
+            return Response(
+                {'error': 'Validation failed', 'message': error},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        is_active = payload.get('is_active')
+        if is_active is None:
+            is_active = True
+        existing_id = payload.get('id')
+
+        with transaction.atomic():
+            charge_defaults = _apply_typed_charge_defaults(service_amount, service_type)
+            cashback_defaults = _apply_typed_cashback_defaults(customer_amount, customer_type)
+            row, _ = UserServiceCharge.objects.update_or_create(
+                user=customer,
+                txn_type=txn_type,
+                defaults={
+                    **charge_defaults,
+                    **cashback_defaults,
+                    'is_active': bool(is_active),
+                },
+            )
+            try:
+                previous_id = int(existing_id) if existing_id is not None else None
+            except (TypeError, ValueError):
+                previous_id = None
+            if previous_id and previous_id != row.pk:
+                UserServiceCharge.objects.filter(
+                    pk=previous_id, user__assigned_dealer=dealer,
+                ).delete()
+            if dealer_type == CHARGE_PERCENT:
+                ServiceCommissionRule.objects.update_or_create(
+                    dealer=dealer,
+                    txn_type=txn_type,
+                    defaults={
+                        'charge_type': CHARGE_PERCENT,
+                        'dealer_rate': Decimal('0.00'),
+                        'charge_percent': dealer_amount,
+                    },
+                )
+            else:
+                ServiceCommissionRule.objects.update_or_create(
+                    dealer=dealer,
+                    txn_type=txn_type,
+                    defaults={
+                        'charge_type': dealer_type,
+                        'dealer_rate': dealer_amount,
+                        'charge_percent': Decimal('0.0000'),
+                    },
+                )
+
+        row = UserServiceCharge.objects.select_related(
+            'user', 'user__assigned_dealer', 'user__fee_config',
+        ).get(pk=row.pk)
+        return Response({
+            'message': 'Commission setup saved',
+            'item': _serialize_setup_rows([row])[0],
+        })
+
+    q = (request.query_params.get('q') or '').strip()
+    try:
+        page = max(int(request.query_params.get('page') or 1), 1)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.query_params.get('page_size') or 5)
+    except (TypeError, ValueError):
+        page_size = 5
+    page_size = min(max(page_size, 1), 50)
+
+    qs = (
+        UserServiceCharge.objects.select_related(
+            'user', 'user__assigned_dealer', 'user__fee_config',
+        )
+        .filter(user__assigned_dealer__isnull=False)
+        .order_by('-updated_at', 'id')
+    )
+    if q:
+        label_types = [
+            txn_type
+            for txn_type, label in TXN_TYPE_LABELS.items()
+            if q.lower() in label.lower() or q.lower() in txn_type.lower()
+        ]
+        qs = qs.filter(
+            Q(user__phone__icontains=q)
+            | Q(user__first_name__icontains=q)
+            | Q(user__last_name__icontains=q)
+            | Q(user__assigned_dealer__phone__icontains=q)
+            | Q(user__assigned_dealer__first_name__icontains=q)
+            | Q(user__assigned_dealer__last_name__icontains=q)
+            | Q(txn_type__icontains=q)
+            | Q(txn_type__in=label_types)
+        )
+    count = qs.count()
+    offset = (page - 1) * page_size
+    rows = list(qs[offset:offset + page_size])
+    return Response({
+        'items': _serialize_setup_rows(rows),
+        'count': count,
+        'page': page,
+        'page_size': page_size,
+    })
+
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_commission_setup_rule_detail(request, rule_id):
+    """Activate/deactivate or delete a Commission Setup row."""
+    from ..models import UserServiceCharge
+
+    try:
+        row = UserServiceCharge.objects.select_related(
+            'user', 'user__assigned_dealer', 'user__fee_config',
+        ).get(pk=rule_id, user__assigned_dealer__isnull=False)
+    except UserServiceCharge.DoesNotExist:
+        return Response({'error': 'Commission setup not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        row.delete()
+        return Response({'message': 'Commission setup deleted'})
+
+    payload = request.data if isinstance(request.data, dict) else {}
+    if 'is_active' not in payload:
+        return Response(
+            {'error': 'Validation failed', 'message': 'Provide is_active.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    row.is_active = bool(payload.get('is_active'))
+    row.save(update_fields=['is_active', 'updated_at'])
+    row.refresh_from_db()
+    return Response({
+        'message': 'Commission setup updated',
+        'item': _serialize_setup_rows([row])[0],
+    })
 
 
 @api_view(['POST'])

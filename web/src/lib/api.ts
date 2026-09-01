@@ -1673,6 +1673,39 @@ export const apiClient = {
       `/api/admin/commission-setup/dealers/${dealerId}/cashback/`,
       { method: "PUT", body: payload },
     ),
+  adminCommissionSetupRules: (filters?: { q?: string; page?: number; page_size?: number }) => {
+    const params = new URLSearchParams();
+    if (filters?.q?.trim()) params.set("q", filters.q.trim());
+    if (filters?.page) params.set("page", String(filters.page));
+    if (filters?.page_size) params.set("page_size", String(filters.page_size));
+    const query = params.toString();
+    return api<import("./types").CommissionSetupRulesResponse>(
+      `/api/admin/commission-setup/rules/${query ? `?${query}` : ""}`,
+    );
+  },
+  adminSaveCommissionSetupRule: (payload: {
+    id?: number;
+    dealer_id: number;
+    user_id: number;
+    txn_type: string;
+    service_charge: import("./types").CommissionSetupAmount;
+    dealer_commission: import("./types").CommissionSetupAmount;
+    customer_commission: import("./types").CommissionSetupAmount;
+    is_active?: boolean;
+  }) =>
+    api<{ message: string; item: import("./types").CommissionSetupRule }>(
+      "/api/admin/commission-setup/rules/",
+      { method: "PUT", body: payload },
+    ),
+  adminUpdateCommissionSetupRule: (ruleId: number, payload: { is_active: boolean }) =>
+    api<{ message: string; item: import("./types").CommissionSetupRule }>(
+      `/api/admin/commission-setup/rules/${ruleId}/`,
+      { method: "PATCH", body: payload },
+    ),
+  adminDeleteCommissionSetupRule: (ruleId: number) =>
+    api<{ message: string }>(`/api/admin/commission-setup/rules/${ruleId}/`, {
+      method: "DELETE",
+    }),
   adminUpdateSettings: (payload: FormData | Record<string, unknown>) =>
     api<{ message: string; data: import("./types").AppSettings }>("/api/admin/settings/", {
       method: "PATCH",

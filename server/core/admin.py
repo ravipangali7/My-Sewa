@@ -788,7 +788,10 @@ class ServiceCommissionRuleAdmin(admin.ModelAdmin):
 
 @admin.register(UserServiceCharge)
 class UserServiceChargeAdmin(admin.ModelAdmin):
-    list_display = ('user', 'txn_type', 'charge_type', 'charge_flat', 'charge_percent', 'updated_at')
+    list_display = (
+        'user', 'txn_type', 'charge_type', 'charge_flat', 'charge_percent',
+        'cashback_type', 'cashback_flat', 'cashback_percent', 'is_active', 'updated_at',
+    )
     list_filter = ('txn_type',)
     search_fields = ('user__phone', 'user__first_name', 'user__last_name')
     autocomplete_fields = ('user',)

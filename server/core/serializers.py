@@ -1731,6 +1731,7 @@ class UserServiceChargeSerializer(serializers.ModelSerializer):
         model = UserServiceCharge
         fields = (
             'id', 'user', 'txn_type', 'charge_type', 'charge_flat', 'charge_percent',
+            'cashback_type', 'cashback_flat', 'cashback_percent', 'is_active',
             'updated_at',
         )
         read_only_fields = ('id', 'updated_at')

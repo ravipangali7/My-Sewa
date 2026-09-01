@@ -221,7 +221,7 @@ def _user_service_charge_amount(user, txn_type: str, principal: Decimal) -> Deci
         row = UserServiceCharge.objects.filter(
             user_id=getattr(user, 'pk', None), txn_type=txn_type,
         ).first()
-        if row is not None:
+        if row is not None and getattr(row, 'is_active', True):
             return _typed_charge(
                 principal,
                 getattr(row, 'charge_type', None),
@@ -321,6 +321,38 @@ def _user_cashback_flat(user) -> Decimal:
     except Exception:
         logger.exception('Could not load user cashback for %s', getattr(user, 'pk', None))
     return _ZERO
+
+
+def _user_cashback_amount(user, txn_type: str, principal: Decimal) -> Decimal:
+    """
+    Customer commission from Commission Setup, applied as cashback.
+
+    Per-service customer commission (when active and > 0) wins; otherwise the
+    user's default cashback_flat is used.
+    """
+    if user is None:
+        return _ZERO
+    if txn_type:
+        try:
+            from ..models import UserServiceCharge
+            row = UserServiceCharge.objects.filter(
+                user_id=getattr(user, 'pk', None), txn_type=txn_type,
+            ).first()
+            if row is not None and getattr(row, 'is_active', True):
+                per_service = _typed_charge(
+                    principal,
+                    getattr(row, 'cashback_type', None),
+                    getattr(row, 'cashback_flat', 0),
+                    getattr(row, 'cashback_percent', 0),
+                )
+                if per_service > 0:
+                    return per_service
+        except Exception:
+            logger.exception(
+                'Could not load customer cashback for %s / %s',
+                getattr(user, 'pk', None), txn_type,
+            )
+    return _user_cashback_flat(user)
 
 
 def _resolve_network_fee(amount: Decimal, txn_type: str, dealer, service_network_fee: Decimal) -> Decimal:
@@ -427,7 +459,7 @@ def quote_charges(
         dealer_commission = _ZERO
         if dealer is not None:
             dealer_commission = _resolve_network_fee(principal, txn_type, dealer, _ZERO)
-        user_cashback = _user_cashback_flat(user)
+        user_cashback = _user_cashback_amount(user, txn_type, principal)
 
     total_charges = money(system + dealer_commission + himalpay)
     if direction == 'debit':
