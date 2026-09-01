@@ -940,6 +940,10 @@ export interface AmountSummary {
   monthly_amount: number;
   total_credit?: number;
   total_debit?: number;
+  /** Super Admin income (System Charge and recovered payouts). */
+  system_income?: number;
+  /** Money paid out (dealer commission, cashback, customer commission, loads). */
+  system_payout?: number;
 }
 
 export interface BankOption {
@@ -1396,6 +1400,11 @@ export interface AdminSystemTransaction {
   id: string;
   record_id: number;
   kind: ActivityKind;
+  /** Human-readable type, e.g. System Charge, Dealer commission, Transfer. */
+  type_label?: string;
+  adjustment_kind?: string;
+  /** income = system money in; payout = paid out; movement = user wallet transfer. */
+  flow?: "income" | "payout" | "movement";
   amount: string;
   credit: boolean;
   status: DepositStatus | TxnStatus;

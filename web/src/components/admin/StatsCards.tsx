@@ -180,6 +180,8 @@ const DEFAULT_LABELS: Record<keyof AmountSummary, string> = {
   total_amount: "Total amount",
   today_amount: "Today's amount",
   monthly_amount: "Monthly amount",
+  system_income: "System income",
+  system_payout: "Paid out",
 };
 
 const DEFAULT_ICONS: Partial<Record<keyof AmountSummary, LucideIcon>> = {
@@ -189,6 +191,8 @@ const DEFAULT_ICONS: Partial<Record<keyof AmountSummary, LucideIcon>> = {
   total_amount: Coins,
   today_amount: CalendarDays,
   monthly_amount: CalendarDays,
+  system_income: ArrowDownLeft,
+  system_payout: ArrowUpRight,
 };
 
 const DEFAULT_TONES: Partial<Record<keyof AmountSummary, StatCardTone>> = {
@@ -198,6 +202,8 @@ const DEFAULT_TONES: Partial<Record<keyof AmountSummary, StatCardTone>> = {
   total_amount: "default",
   today_amount: "info",
   monthly_amount: "warning",
+  system_income: "credit",
+  system_payout: "debit",
 };
 
 /** Build StatCardItem[] from an AmountSummary payload */

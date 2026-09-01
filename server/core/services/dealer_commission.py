@@ -1,11 +1,10 @@
 """
 Dealer commission ledger + wallet credit.
 
-Gross dealer commission is the quoted dealer charge for the transaction
-(configured flat Rs amount, 0 when the User has no assigned Dealer).
-TDS is deducted from dealer gross; net is credited to the Dealer wallet.
-Records are not rewritten: reversing a source txn marks the row reversed
-and reverses the wallet credit.
+Gross dealer commission is the quoted Commission Setup share for the
+transaction (0 when the User has no assigned Dealer). That full amount is
+credited to the Dealer wallet. Records are not rewritten: reversing a source
+txn marks the row reversed and reverses the wallet credit.
 """
 from __future__ import annotations
 
@@ -355,14 +354,15 @@ def record_dealer_commission(txn) -> Optional[object]:
     if dealer is None or getattr(dealer, 'role', None) != ROLE_DEALER:
         return None
 
-    rates = get_hierarchy_rates(dealer, None, txn_type)
     gross = money(quote.get('dealer_commission', 0))
     if gross <= 0:
         return None
+    # Commission Setup quotes the amount that should reach the dealer.
+    # Do not silently withhold TDS from that configured share.
     figures = _figures_from_quoted_gross(
         quote.get('amount') or _txn_amount(txn),
         gross,
-        rates['tds_rate'],
+        _ZERO,
         gross,
     )
 

@@ -2450,17 +2450,15 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertEqual(row.dealer_id, self.dealer.pk)
         self.assertEqual(row.source_user_id, self.customer.pk)
         self.assertEqual(row.gross_commission, Decimal('10.00'))
-        self.assertEqual(row.tds_rate, Decimal('15.0000'))
-        self.assertEqual(row.tds_amount, Decimal('1.50'))
-        self.assertEqual(row.net_commission, Decimal('8.50'))
+        self.assertEqual(row.tds_rate, Decimal('0.0000'))
+        self.assertEqual(row.tds_amount, Decimal('0.00'))
+        self.assertEqual(row.net_commission, Decimal('10.00'))
         self.assertEqual(row.commission_rate, Decimal('10.00'))
         dealer_adj = WalletAdjustment.objects.get(
             user=self.dealer, kind=WalletAdjustment.KIND_DEALER_COMMISSION, source_txn_id=txn.pk,
         )
-        self.assertEqual(dealer_adj.amount, Decimal('8.50'))
-        self.assertIn('TDS Charge', dealer_adj.reason)
-        self.assertIn('Gross Rs 10.00', dealer_adj.reason)
-        self.assertIn('Net Rs 8.50', dealer_adj.reason)
+        self.assertEqual(dealer_adj.amount, Decimal('10.00'))
+        self.assertNotIn('TDS Charge', dealer_adj.reason)
         self.assertIn(self.customer.phone, dealer_adj.reason)
 
         self.client.force_authenticate(user=self.dealer)
@@ -2471,9 +2469,9 @@ class DealerCommissionAndHierarchyTests(TestCase):
             if a.get('kind') == 'dealer_commission' and a.get('source_txn_id') == txn.pk
         )
         self.assertEqual(adj_payload['gross_commission'], '10.00')
-        self.assertEqual(adj_payload['tds_amount'], '1.50')
-        self.assertEqual(adj_payload['net_commission'], '8.50')
-        self.assertEqual(adj_payload['display_amount'], '8.50')
+        self.assertEqual(adj_payload['tds_amount'], '0.00')
+        self.assertEqual(adj_payload['net_commission'], '10.00')
+        self.assertEqual(adj_payload['display_amount'], '10.00')
 
     def test_customer_dealer_mapping_via_admin(self):
         other = User.objects.create_user(
@@ -3059,6 +3057,32 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertNotIn('dealer_commission', kinds)
         self.assertNotIn('system_charge', kinds)
 
+        self.client.force_authenticate(user=self.staff)
+        admin_hist = self.client.get(reverse('admin_transaction_history'))
+        self.assertEqual(admin_hist.status_code, status.HTTP_200_OK, admin_hist.content[:500])
+        admin_items = admin_hist.json().get('items') or []
+        system_row = next(
+            r for r in admin_items
+            if r.get('adjustment_kind') == 'system_charge' and r.get('record_id') == system_adj.pk
+        )
+        self.assertEqual(system_row['flow'], 'income')
+        self.assertEqual(system_row['type_label'], 'System Charge')
+        self.assertEqual(system_row['amount'], '50.00')
+        self.assertTrue(system_row['credit'])
+        dealer_row = next(
+            r for r in admin_items
+            if r.get('adjustment_kind') == 'dealer_commission' and r.get('record_id') == dealer_adj.pk
+        )
+        self.assertEqual(dealer_row['flow'], 'payout')
+        self.assertEqual(dealer_row['type_label'], 'Dealer commission')
+        self.assertEqual(dealer_row['amount'], '100.00')
+        cashback_admin = next(
+            r for r in admin_items
+            if r.get('adjustment_kind') == 'cashback' and r.get('record_id') == cashback_row.pk
+        )
+        self.assertEqual(cashback_admin['flow'], 'payout')
+        self.assertEqual(cashback_admin['amount'], '50.00')
+
     def test_fund_transfer_total_includes_commission_cashback_not_provider_fee(self):
         """Transfer 100 + service charge 200. HimalPay leftover is not stacked."""
         from .models import (
@@ -3386,8 +3410,8 @@ class DealerCommissionAndHierarchyTests(TestCase):
         self.assertIsNone(row.sub_agent_id)
         self.assertEqual(row.source_user_id, self.customer.pk)
         self.assertEqual(row.gross_commission, Decimal('10.00'))
-        self.assertEqual(row.tds_amount, Decimal('1.50'))
-        self.assertEqual(row.net_commission, Decimal('8.50'))
+        self.assertEqual(row.tds_amount, Decimal('0.00'))
+        self.assertEqual(row.net_commission, Decimal('10.00'))
         self.assertEqual(row.sub_agent_commission, Decimal('0.00'))
 
         config = self.dealer.dealer_commission_config

@@ -1566,21 +1566,104 @@ def _apply_mixed_status(qs, status_filter, *, kind):
     return qs.none()
 
 
-def _ledger_row(*, kind, obj, amount, credit, status, reference, detail):
+def _ledger_row(
+    *,
+    kind,
+    obj,
+    amount,
+    credit,
+    status,
+    reference,
+    detail,
+    flow='movement',
+    type_label='',
+    adjustment_kind='',
+    user=None,
+    balance_before=None,
+    balance_after=None,
+    row_id=None,
+):
+    owner = user if user is not None else getattr(obj, 'user', None)
+    before = balance_before if balance_before is not None else getattr(obj, 'balance_before', None)
+    after = balance_after if balance_after is not None else getattr(obj, 'balance_after', None)
     return {
-        'id': f'{kind}-{obj.id}',
+        'id': row_id or f'{kind}-{obj.id}',
         'record_id': obj.id,
         'kind': kind,
+        'type_label': type_label or _LEDGER_TYPE_LABELS.get(kind, kind.replace('_', ' ').title()),
+        'adjustment_kind': adjustment_kind or '',
+        'flow': flow,
         'amount': _money_str(amount) or '0.00',
         'credit': credit,
         'status': status,
         'reference': (reference or '').strip(),
         'detail': (detail or '').strip(),
-        'balance_before': _money_str(getattr(obj, 'balance_before', None)),
-        'balance_after': _money_str(getattr(obj, 'balance_after', None)),
+        'balance_before': _money_str(before),
+        'balance_after': _money_str(after),
         'created_at': _iso_dt(obj.created_at),
-        **_user_ledger_fields(obj.user),
+        **_user_ledger_fields(owner),
     }
+
+
+def _principal_charge_detail(obj, extra_parts=None):
+    """Explain Amount + service charge + cashback so admin history is not a single opaque total."""
+    from ..services.txn_charges import money
+
+    parts = [p for p in (extra_parts or []) if p]
+    principal = money(getattr(obj, 'amount', 0))
+    total = money(getattr(obj, 'total_debited', None) or 0)
+    if total <= 0:
+        total = principal
+    charge = money(getattr(obj, 'charge', None) or 0)
+    if charge <= 0 and total > principal:
+        charge = money(total - principal)
+    cashback = money(getattr(obj, 'cashback', 0))
+    parts.append(f'Amount Rs {principal:.2f}')
+    if charge > 0:
+        parts.append(f'Service charge Rs {charge:.2f}')
+    if cashback > 0:
+        parts.append(f'Cashback Rs {cashback:.2f}')
+    return ' · '.join(parts)
+
+
+def _adjustment_flow(adj) -> str:
+    kind = getattr(adj, 'kind', None) or WalletAdjustment.KIND_MANUAL
+    credited = adj.adjustment_type == 'credit'
+    if kind == WalletAdjustment.KIND_SYSTEM_CHARGE:
+        return 'income' if credited else 'payout'
+    if kind in (WalletAdjustment.KIND_CASHBACK, WalletAdjustment.KIND_DEALER_COMMISSION):
+        return 'payout' if credited else 'income'
+    if kind == WalletAdjustment.KIND_MANUAL:
+        return 'payout' if credited else 'income'
+    return 'movement'
+
+
+def _adjustment_type_label(adj) -> str:
+    kind = getattr(adj, 'kind', None) or WalletAdjustment.KIND_MANUAL
+    if kind == WalletAdjustment.KIND_SYSTEM_CHARGE:
+        return 'System Charge'
+    if kind == WalletAdjustment.KIND_DEALER_COMMISSION:
+        return 'Dealer commission'
+    if kind == WalletAdjustment.KIND_CASHBACK:
+        return 'Cashback'
+    if adj.adjustment_type == 'credit':
+        return 'Manual load'
+    return 'Manual debit'
+
+
+_LEDGER_TYPE_LABELS = {
+    'deposit': 'Deposit',
+    'remittance': 'Remittance',
+    'topup': 'Top-up',
+    'transfer': 'Transfer',
+    'internet': 'Internet',
+    'data_pack': 'Data pack',
+    'water': 'Water',
+    'electricity': 'Electricity',
+    'community_electricity': 'Community electricity',
+    'wallet_adjustment': 'Wallet adjustment',
+    'wallet_transfer': 'Wallet transfer',
+}
 
 
 @api_view(['GET'])
@@ -1624,6 +1707,7 @@ def admin_transaction_history(request):
             status=d.status,
             reference=d.transaction_id or f'#{d.id}',
             detail=d.note or d.bank_name or '',
+            flow='movement',
         )))
 
     if type_key in (None, 'remittance'):
@@ -1642,7 +1726,10 @@ def admin_transaction_history(request):
             credit=True,
             status=r.status,
             reference=r.ref_no or r.merchant_txn_id or r.reference_id or f'#{r.id}',
-            detail=' · '.join(p for p in (r.sender_name, r.receiver_name) if p) or r.ref_no or '',
+            detail=_principal_charge_detail(
+                r, [' · '.join(p for p in (r.sender_name, r.receiver_name) if p) or r.ref_no or ''],
+            ),
+            flow='movement',
         )))
 
     if type_key in (None, 'topup'):
@@ -1659,7 +1746,10 @@ def admin_transaction_history(request):
             credit=False,
             status=t.status,
             reference=t.merchant_txn_id or t.reference_id or t.service_hub_txn_id or f'#{t.id}',
-            detail=t.mobile_number or t.get_product_id_display(),
+            detail=_principal_charge_detail(
+                t, [t.mobile_number or t.get_product_id_display()],
+            ),
+            flow='movement',
         )))
 
     if type_key in (None, 'transfer'):
@@ -1678,9 +1768,12 @@ def admin_transaction_history(request):
             credit=False,
             status=b.status,
             reference=b.merchant_txn_id or b.reference_id or b.provider_txn_id or f'#{b.id}',
-            detail=' · '.join(
-                p for p in (b.destination_acc_name, b.destination_bank_name or b.destination_bank) if p
-            ),
+            detail=_principal_charge_detail(b, [
+                ' · '.join(
+                    p for p in (b.destination_acc_name, b.destination_bank_name or b.destination_bank) if p
+                ),
+            ]),
+            flow='movement',
         )))
 
     if type_key in (None, 'internet'):
@@ -1699,7 +1792,10 @@ def admin_transaction_history(request):
             credit=False,
             status=bill.status,
             reference=bill.merchant_txn_id or bill.reference_id or bill.service_hub_txn_id or f'#{bill.id}',
-            detail=' · '.join(p for p in (bill.isp_name, bill.customer_id) if p),
+            detail=_principal_charge_detail(
+                bill, [' · '.join(p for p in (bill.isp_name, bill.customer_id) if p)],
+            ),
+            flow='movement',
         )))
 
     if type_key in (None, 'data_pack'):
@@ -1717,7 +1813,10 @@ def admin_transaction_history(request):
             credit=False,
             status=dp.status,
             reference=dp.merchant_txn_id or dp.reference_id or dp.service_hub_txn_id or f'#{dp.id}',
-            detail=' · '.join(p for p in (dp.operator, dp.mobile_number) if p),
+            detail=_principal_charge_detail(
+                dp, [' · '.join(p for p in (dp.operator, dp.mobile_number) if p)],
+            ),
+            flow='movement',
         )))
 
     if type_key in (None, 'water'):
@@ -1736,7 +1835,10 @@ def admin_transaction_history(request):
             credit=False,
             status=bill.status,
             reference=bill.merchant_txn_id or bill.reference_id or bill.service_hub_txn_id or f'#{bill.id}',
-            detail=' · '.join(p for p in (bill.connection_no, bill.customer_code) if p),
+            detail=_principal_charge_detail(
+                bill, [' · '.join(p for p in (bill.connection_no, bill.customer_code) if p)],
+            ),
+            flow='movement',
         )))
 
     if type_key in (None, 'electricity'):
@@ -1755,7 +1857,10 @@ def admin_transaction_history(request):
             credit=False,
             status=bill.status,
             reference=bill.merchant_txn_id or bill.reference_id or bill.service_hub_txn_id or f'#{bill.id}',
-            detail=' · '.join(p for p in (bill.sc_no, bill.consumer_id) if p),
+            detail=_principal_charge_detail(
+                bill, [' · '.join(p for p in (bill.sc_no, bill.consumer_id) if p)],
+            ),
+            flow='movement',
         )))
 
     if type_key in (None, 'community_electricity'):
@@ -1777,7 +1882,10 @@ def admin_transaction_history(request):
                 credit=False,
                 status=bill.status,
                 reference=bill.merchant_txn_id or bill.reference_id or bill.service_hub_txn_id or f'#{bill.id}',
-                detail=' · '.join(p for p in (bill.platform_name, bill.customer_ref) if p),
+                detail=_principal_charge_detail(
+                    bill, [' · '.join(p for p in (bill.platform_name, bill.customer_ref) if p)],
+                ),
+                flow='movement',
             ),
         ))
 
@@ -1794,6 +1902,9 @@ def admin_transaction_history(request):
                 status='success',
                 reference=a.reference or f'#{a.id}',
                 detail=a.reason or a.reference or '',
+                flow=_adjustment_flow(a),
+                type_label=_adjustment_type_label(a),
+                adjustment_kind=getattr(a, 'kind', '') or WalletAdjustment.KIND_MANUAL,
             ),
         ))
 
@@ -1836,38 +1947,44 @@ def admin_transaction_history(request):
                 wt_qs = WalletTransfer.objects.none()
 
         def _wallet_transfer_rows(obj):
-            detail = (
-                f'{obj.sender.phone} → {obj.recipient.phone}'
-                + (f' · {obj.remarks}' if (obj.remarks or '').strip() else '')
+            extra = [
+                f'{obj.sender.phone} → {obj.recipient.phone}',
+            ]
+            remarks = (obj.remarks or '').strip()
+            if remarks:
+                extra.append(remarks)
+            sender_total = getattr(obj, 'total_debited', None)
+            sender_amount = sender_total if sender_total else obj.amount
+            sender_row = _ledger_row(
+                kind='wallet_transfer',
+                obj=obj,
+                amount=sender_amount,
+                credit=False,
+                status=obj.status or 'success',
+                reference=obj.reference,
+                detail=_principal_charge_detail(obj, extra),
+                flow='movement',
+                type_label='Wallet send',
+                user=obj.sender,
+                balance_before=obj.sender_balance_before,
+                balance_after=obj.sender_balance_after,
+                row_id=f'wallet_transfer-{obj.id}-out',
             )
-            sender_row = {
-                'id': f'wallet_transfer-{obj.id}-out',
-                'record_id': obj.id,
-                'kind': 'wallet_transfer',
-                'amount': _money_str(obj.amount) or '0.00',
-                'credit': False,
-                'status': obj.status or 'success',
-                'reference': (obj.reference or '').strip(),
-                'detail': detail,
-                'balance_before': _money_str(obj.sender_balance_before),
-                'balance_after': _money_str(obj.sender_balance_after),
-                'created_at': _iso_dt(obj.created_at),
-                **_user_ledger_fields(obj.sender),
-            }
-            recipient_row = {
-                'id': f'wallet_transfer-{obj.id}-in',
-                'record_id': obj.id,
-                'kind': 'wallet_transfer',
-                'amount': _money_str(obj.amount) or '0.00',
-                'credit': True,
-                'status': obj.status or 'success',
-                'reference': (obj.reference or '').strip(),
-                'detail': detail,
-                'balance_before': _money_str(obj.recipient_balance_before),
-                'balance_after': _money_str(obj.recipient_balance_after),
-                'created_at': _iso_dt(obj.created_at),
-                **_user_ledger_fields(obj.recipient),
-            }
+            recipient_row = _ledger_row(
+                kind='wallet_transfer',
+                obj=obj,
+                amount=obj.amount,
+                credit=True,
+                status=obj.status or 'success',
+                reference=obj.reference,
+                detail=' · '.join(p for p in extra if p),
+                flow='movement',
+                type_label='Wallet receive',
+                user=obj.recipient,
+                balance_before=obj.recipient_balance_before,
+                balance_after=obj.recipient_balance_after,
+                row_id=f'wallet_transfer-{obj.id}-in',
+            )
             return [sender_row, recipient_row]
 
         sources.append((
@@ -1906,7 +2023,8 @@ def admin_transaction_history(request):
         return _csv_response(
             'admin-transaction-history.csv',
             [
-                'id', 'created_at', 'kind', 'phone', 'first_name', 'last_name',
+                'id', 'created_at', 'kind', 'type_label', 'flow', 'adjustment_kind',
+                'phone', 'first_name', 'last_name',
                 'amount', 'credit', 'balance_before', 'balance_after',
                 'status', 'reference', 'detail',
             ],
@@ -1915,6 +2033,9 @@ def admin_transaction_history(request):
                     r['id'],
                     r['created_at'] or '',
                     r['kind'],
+                    r.get('type_label') or '',
+                    r.get('flow') or '',
+                    r.get('adjustment_kind') or '',
                     r['phone'],
                     r['first_name'],
                     r['last_name'],
@@ -1941,6 +2062,8 @@ def admin_transaction_history(request):
     total_debit = Decimal('0')
     today_amount = Decimal('0')
     monthly_amount = Decimal('0')
+    system_income = Decimal('0')
+    system_payout = Decimal('0')
     for r in rows:
         amt = Decimal(r['amount'] or '0')
         total_volume += amt
@@ -1949,6 +2072,10 @@ def admin_transaction_history(request):
             total_credit += amt
         elif settled and not r['credit']:
             total_debit += amt
+        if settled and r.get('flow') == 'income':
+            system_income += amt
+        elif settled and r.get('flow') == 'payout':
+            system_payout += amt
         created = r['created_at']
         if settled and created:
             try:
@@ -1976,6 +2103,8 @@ def admin_transaction_history(request):
             'monthly_amount': _money(monthly_amount),
             'total_credit': _money(total_credit),
             'total_debit': _money(total_debit),
+            'system_income': _money(system_income),
+            'system_payout': _money(system_payout),
         },
     })
 

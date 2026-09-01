@@ -61,7 +61,7 @@ const TYPE_TABS: { value: TypeTab; label: string }[] = [
   { value: "water", label: "Water" },
   { value: "electricity", label: "Electricity" },
   { value: "community_electricity", label: "Community electricity" },
-  { value: "wallet_adjustment", label: "Manual loads / adjustments" },
+  { value: "wallet_adjustment", label: "Wallet adjustments" },
   { value: "wallet_transfer", label: "Wallet transfers" },
 ];
 
@@ -75,13 +75,30 @@ const TYPE_LABELS: Record<ActivityKind, string> = {
   water: "Water",
   electricity: "Electricity",
   community_electricity: "Community electricity",
-  wallet_adjustment: "Manual load / adjust",
+  wallet_adjustment: "Wallet adjustment",
   wallet_transfer: "Wallet transfer",
 };
 
 function displayUser(row: AdminSystemTransaction) {
   const name = [row.first_name, row.last_name].filter(Boolean).join(" ").trim();
   return name || row.phone;
+}
+
+function rowTypeLabel(row: AdminSystemTransaction) {
+  return row.type_label || TYPE_LABELS[row.kind] || row.kind;
+}
+
+function amountAppearance(row: AdminSystemTransaction) {
+  if (row.flow === "income") {
+    return { sign: "+", className: "text-success" as const };
+  }
+  if (row.flow === "payout") {
+    return { sign: "−", className: "text-destructive" as const };
+  }
+  return {
+    sign: row.credit ? "+" : "−",
+    className: row.credit ? ("text-success" as const) : ("text-destructive" as const),
+  };
 }
 
 function TransactionHistoryPage() {
@@ -119,7 +136,7 @@ function TransactionHistoryPage() {
   return (
     <AdminShell
       title="Transaction History"
-      description="Every wallet movement across the system, with before and after balances recorded at the time of each transaction."
+      description="Every wallet movement across the system. Green + is system income (System Charge). Red − is money paid out (dealer commission, cashback, customer commission, loads)."
     >
       {txQuery.isLoading && (
         <p className="mb-4 text-sm text-muted-foreground">Loading transactions…</p>
@@ -135,15 +152,26 @@ function TransactionHistoryPage() {
       <div className="space-y-4">
         <StatsCards
           items={amountSummaryCards(txQuery.data?.summary, {
-            keys: ["total_volume", "total_credit", "total_debit", "today_amount"],
+            keys: [
+              "total_volume",
+              "system_income",
+              "system_payout",
+              "total_credit",
+              "total_debit",
+              "today_amount",
+            ],
             labels: {
               total_volume: "All transactions",
-              total_credit: "Successful credits",
-              total_debit: "Successful debits",
+              system_income: "System income",
+              system_payout: "Paid out",
+              total_credit: "Wallet credits",
+              total_debit: "Wallet debits",
               today_amount: "Today",
             },
             hints: {
               total_volume: "Volume in the current filters",
+              system_income: "System Charge and recovered payouts",
+              system_payout: "Dealer commission, cashback, and loads",
               total_credit: "Approved deposits, remittances and loads",
               total_debit: "Successful payments and transfers",
               today_amount: "Successful movements today",
@@ -254,17 +282,17 @@ function TransactionHistoryPage() {
                       </Link>
                       <div className="text-xs text-muted-foreground">{item.phone}</div>
                     </TableCell>
-                    <TableCell className="text-sm">{TYPE_LABELS[item.kind]}</TableCell>
-                    <TableCell className="max-w-56 truncate text-sm text-muted-foreground">
+                    <TableCell className="text-sm">{rowTypeLabel(item)}</TableCell>
+                    <TableCell className="max-w-80 text-sm text-muted-foreground">
                       {item.detail || "—"}
                     </TableCell>
                     <TableCell
                       className={cn(
                         "tabular text-right text-sm font-semibold",
-                        item.credit ? "text-success" : "text-foreground",
+                        amountAppearance(item).className,
                       )}
                     >
-                      {item.credit ? "+" : "−"}
+                      {amountAppearance(item).sign}
                       {formatNPR(item.amount)}
                     </TableCell>
                     <TableCell className="tabular text-right text-sm text-muted-foreground">
@@ -297,7 +325,7 @@ function TransactionHistoryPage() {
                     <div className="min-w-0">
                       <p className="text-xs text-muted-foreground">
                         S.N. {serialNumber(LIST_PAGE, LIST_PAGE_SIZE, index)} ·{" "}
-                        {TYPE_LABELS[item.kind]}
+                        {rowTypeLabel(item)}
                       </p>
                       <Link
                         to="/admin/users/$userId"
@@ -314,10 +342,10 @@ function TransactionHistoryPage() {
                     <p
                       className={cn(
                         "tabular shrink-0 text-base font-semibold",
-                        item.credit && "text-success",
+                        amountAppearance(item).className,
                       )}
                     >
-                      {item.credit ? "+" : "−"}
+                      {amountAppearance(item).sign}
                       {formatNPR(item.amount)}
                     </p>
                   </div>
