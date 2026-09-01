@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.os.Bundle
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebStorage
@@ -20,6 +21,12 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private var cameraPermissionResult: MethodChannel.Result? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        NotificationChannels.ensureAll(this)
+        requestNotificationPermission()
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -78,6 +85,20 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) return
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            NOTIF_REQ,
+        )
     }
 
     override fun onRequestPermissionsResult(
@@ -219,5 +240,6 @@ class MainActivity : FlutterActivity() {
         private const val UPDATE_CHANNEL = "com.mysewa.app/app_update"
         private const val MARKER_NAME = "install_session_v1"
         private const val CAMERA_REQ = 48101
+        private const val NOTIF_REQ = 48102
     }
 }

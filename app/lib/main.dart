@@ -1,7 +1,10 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'config/app_config.dart';
+import 'firebase_options.dart';
 import 'screens/webview_screen.dart';
 import 'services/fcm_log.dart';
 import 'services/push_messaging.dart';
@@ -14,6 +17,18 @@ Future<void> main() async {
     DeviceOrientation.portraitDown,
   ]);
   FcmLog.banner('COLD START');
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (_) {
+    try {
+      await Firebase.initializeApp();
+    } catch (e) {
+      FcmLog.fail('Firebase.initializeApp in main', e);
+    }
+  }
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   // Fetch FCM token before the WebView loads so it can be POSTed as soon
   // as a logged-in session is visible in localStorage.
   await PushMessaging.instance.init();

@@ -255,34 +255,24 @@ def build_fcm_http_v1_payload(
     body: str,
     data: Optional[dict] = None,
 ) -> dict[str, Any]:
-    """HTTP v1 message that alerts in every app state with sound."""
+    """
+    HTTP v1 message that is delivered in every Android app state.
+
+    Android is data-only + HIGH priority so the app process always receives
+    the message (Play Services will not swallow it as a tray-only alert).
+    The native receiver then posts a sounding heads-up notification.
+    iOS still uses an APNs alert so the system banner plays sound when
+    the app is backgrounded.
+    """
     extra = _message_data(title, body, data)
-    android_notification: dict[str, Any] = {
-        'title': title,
-        'body': body,
-        'sound': 'default',
-        'channel_id': FCM_ANDROID_CHANNEL_ID,
-        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-        'notification_priority': 'PRIORITY_HIGH',
-        'default_sound': True,
-        'default_vibrate_timings': True,
-        'visibility': 'PUBLIC',
-    }
-    tag = extra.get('message_id') or extra.get('event')
-    if tag:
-        android_notification['tag'] = str(tag)[:120]
     return {
         'message': {
             'token': token,
-            'notification': {
-                'title': title,
-                'body': body,
-            },
             'data': extra,
             'android': {
                 'priority': 'HIGH',
                 'ttl': '86400s',
-                'notification': android_notification,
+                'direct_boot_ok': True,
             },
             'apns': {
                 'headers': {
@@ -313,15 +303,10 @@ def build_fcm_legacy_payload(
     extra = _message_data(title, body, data)
     return {
         'to': token,
-        'notification': {
-            'title': title,
-            'body': body,
-            'sound': 'default',
-            'android_channel_id': FCM_ANDROID_CHANNEL_ID,
-        },
         'data': extra,
         'priority': 'high',
         'time_to_live': 86400,
+        'content_available': True,
     }
 
 

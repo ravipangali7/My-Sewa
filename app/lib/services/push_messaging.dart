@@ -23,8 +23,8 @@ final FlutterLocalNotificationsPlugin _localNotifications =
 bool _localNotificationsReady = false;
 
 /// Background isolate handler required by firebase_messaging.
-/// Data-only messages are displayed here; notification+data messages are
-/// shown by the OS when the app is backgrounded or killed.
+/// Always draw a sounding local notification. Native Android also posts one
+/// with the same id/tag so the two collapse instead of duplicating.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
@@ -42,18 +42,14 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
   try {
     await _ensureLocalNotifications(registerTapHandler: false);
-    // When FCM includes a notification payload, Android/iOS already display
-    // it in the system tray. Showing another local alert would duplicate.
-    if (message.notification == null) {
-      await showPushNotification(message);
-    }
+    await showPushNotification(message);
   } catch (e) {
     FcmLog.fail('background notification display', e);
   }
 }
 
 Future<void> _ensureLocalNotifications({bool registerTapHandler = true}) async {
-  const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const android = AndroidInitializationSettings('@drawable/ic_stat_notify');
   const ios = DarwinInitializationSettings(
     requestAlertPermission: false,
     requestBadgePermission: false,
@@ -157,7 +153,8 @@ Future<void> showPushNotification(RemoteMessage message) async {
         category: AndroidNotificationCategory.message,
         visibility: NotificationVisibility.public,
         ticker: 'MySewa',
-        icon: '@mipmap/ic_launcher',
+        icon: '@drawable/ic_stat_notify',
+        tag: 'mysewa',
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
@@ -299,12 +296,7 @@ class PushMessaging {
           'title': message.notification?.title ?? message.data['title'] ?? '',
           'event': message.data['event'] ?? '',
         });
-        // Android does not auto-display FCM alerts while the app is open.
-        // Show a heads-up local notification with sound (Messenger-style).
-        // iOS uses setForegroundNotificationPresentationOptions instead.
-        if (Platform.isAndroid) {
-          unawaited(showPushNotification(message));
-        }
+        unawaited(showPushNotification(message));
         if (!_foregroundController.isClosed) {
           _foregroundController.add(message);
         }

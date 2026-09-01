@@ -3731,7 +3731,7 @@ class SupportChatHierarchyTests(TestCase):
 
 class FcmPayloadTests(SimpleTestCase):
     def test_http_v1_payload_has_sound_and_high_priority(self):
-        from .services.push import FCM_ANDROID_CHANNEL_ID, build_fcm_http_v1_payload
+        from .services.push import build_fcm_http_v1_payload
 
         payload = build_fcm_http_v1_payload(
             'token-abc',
@@ -3740,24 +3740,22 @@ class FcmPayloadTests(SimpleTestCase):
             {'event': 'support_chat', 'message_id': '42', 'thread_id': '9'},
         )
         message = payload['message']
-        self.assertEqual(message['notification']['title'], 'MySewa Support')
-        self.assertEqual(message['notification']['body'], 'Your deposit was approved')
+        self.assertNotIn('notification', message)
+        self.assertNotIn('notification', message['android'])
         self.assertEqual(message['android']['priority'], 'HIGH')
-        self.assertEqual(message['android']['notification']['sound'], 'default')
-        self.assertTrue(message['android']['notification']['default_sound'])
-        self.assertEqual(message['android']['notification']['channel_id'], FCM_ANDROID_CHANNEL_ID)
-        self.assertEqual(message['android']['notification']['notification_priority'], 'PRIORITY_HIGH')
         self.assertEqual(message['data']['title'], 'MySewa Support')
         self.assertEqual(message['data']['body'], 'Your deposit was approved')
         self.assertEqual(message['data']['event'], 'support_chat')
         aps = message['apns']['payload']['aps']
+        self.assertEqual(aps['alert']['title'], 'MySewa Support')
+        self.assertEqual(aps['alert']['body'], 'Your deposit was approved')
         self.assertEqual(aps['sound'], 'default')
         self.assertNotIn('content-available', aps)
         self.assertEqual(message['apns']['headers']['apns-push-type'], 'alert')
         self.assertEqual(message['apns']['headers']['apns-priority'], '10')
 
     def test_legacy_payload_uses_same_sounding_channel(self):
-        from .services.push import FCM_ANDROID_CHANNEL_ID, build_fcm_legacy_payload
+        from .services.push import build_fcm_legacy_payload
 
         payload = build_fcm_legacy_payload(
             'token-abc',
@@ -3766,10 +3764,10 @@ class FcmPayloadTests(SimpleTestCase):
             {'event': 'support_chat'},
         )
         self.assertEqual(payload['priority'], 'high')
-        self.assertEqual(payload['notification']['sound'], 'default')
-        self.assertEqual(payload['notification']['android_channel_id'], FCM_ANDROID_CHANNEL_ID)
+        self.assertNotIn('notification', payload)
         self.assertEqual(payload['data']['event'], 'support_chat')
         self.assertEqual(payload['data']['title'], 'MySewa Support')
+        self.assertEqual(payload['data']['body'], 'New chat message')
 
 
 class SupportChatPushNotifyTests(SimpleTestCase):
