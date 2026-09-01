@@ -2358,7 +2358,7 @@ def notify_kyc_rejected(submission) -> None:
 def notify_support_chat_message(msg, thread, sender) -> None:
     """Deliver a Firebase notification for a new Support Chat message."""
     from .hierarchy import admin_actors_qs, is_admin_actor
-    from .support_chat import other_participant
+    from .support_chat import message_preview_text, other_participant
 
     site_name = _site_name()
     sender_name = (
@@ -2367,21 +2367,26 @@ def notify_support_chat_message(msg, thread, sender) -> None:
         or getattr(sender, 'phone', None)
         or site_name
     )
+    kind = getattr(msg, 'kind', 'text') or 'text'
+    filename = getattr(msg, 'attachment_name', None) or ''
     preview = (
-        getattr(msg, 'body', None)
-        or getattr(thread, 'last_message_preview', None)
+        getattr(thread, 'last_message_preview', None)
+        or message_preview_text(kind, getattr(msg, 'body', None) or '', filename)
+        or getattr(msg, 'body', None)
         or 'New message'
     )
     preview = str(preview).strip()[:180] or 'New message'
-    title = f'{site_name}: {sender_name}'
+    sender_is_admin = is_admin_actor(sender)
+    title = f'{site_name} Support' if sender_is_admin else f'{site_name}: {sender_name}'
     extra = {
         'thread_id': getattr(thread, 'pk', ''),
         'message_id': getattr(msg, 'pk', ''),
-        'kind': getattr(msg, 'kind', 'text') or 'text',
+        'kind': kind,
+        'sound': 'default',
     }
 
     recipients = []
-    if is_admin_actor(sender):
+    if sender_is_admin:
         other = other_participant(thread, sender)
         if other is not None and getattr(other, 'pk', None) != getattr(sender, 'pk', None):
             recipients.append(other)
@@ -2394,4 +2399,16 @@ def notify_support_chat_message(msg, thread, sender) -> None:
         if pk is None or pk in seen or pk == getattr(sender, 'pk', None):
             continue
         seen.add(pk)
-        _push(user, title, preview, event='support_chat', extra=extra)
+        try:
+            sent = _push(user, title, preview, event='support_chat', extra=extra)
+            logger.info(
+                'Support chat push user=%s sent=%s title=%s',
+                getattr(user, 'phone', pk),
+                sent,
+                title,
+            )
+        except Exception:
+            logger.exception(
+                'Support chat push failed user=%s',
+                getattr(user, 'phone', pk),
+            )

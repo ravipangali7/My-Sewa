@@ -1,5 +1,7 @@
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -3674,6 +3676,170 @@ class SupportChatHierarchyTests(TestCase):
         self.client.get(reverse('support_chat_messages', args=[thread_id]))
         unread = self.client.get(reverse('support_chat_unread'))
         self.assertEqual(unread.json().get('count'), 0)
+
+    def _start_and_id(self, actor, target_id):
+        resp = self._start_thread(actor, target_id)
+        return resp.json()['id']
+
+    @patch('core.services.notifications.send_push_to_user', return_value=1)
+    def test_admin_message_pushes_user_and_dealer(self, mock_push):
+        user_thread = self._start_and_id(self.staff, self.customer.pk)
+        dealer_thread = self._start_and_id(self.staff, self.dealer.pk)
+
+        self.client.force_authenticate(user=self.staff)
+        resp = self.client.post(
+            reverse('support_chat_messages', args=[user_thread]),
+            {'body': 'Hello user from admin'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        resp = self.client.post(
+            reverse('support_chat_messages', args=[dealer_thread]),
+            {'body': 'Hello dealer from admin'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+
+        recipients = [call.args[0] for call in mock_push.call_args_list]
+        self.assertIn(self.customer, recipients)
+        self.assertIn(self.dealer, recipients)
+        self.assertNotIn(self.staff, recipients)
+        for call in mock_push.call_args_list:
+            title, body, data = call.args[1], call.args[2], call.args[3]
+            self.assertIn('Support', title)
+            self.assertTrue(body)
+            self.assertEqual(data.get('event'), 'support_chat')
+            self.assertEqual(data.get('sound'), 'default')
+            self.assertTrue(data.get('thread_id'))
+            self.assertTrue(data.get('message_id'))
+
+    @patch('core.services.notifications.send_push_to_user', return_value=1)
+    def test_user_message_pushes_admins(self, mock_push):
+        thread_id = self._start_and_id(self.customer, self.staff.pk)
+        self.client.force_authenticate(user=self.customer)
+        resp = self.client.post(
+            reverse('support_chat_messages', args=[thread_id]),
+            {'body': 'Need help with a deposit'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        recipients = {call.args[0].pk for call in mock_push.call_args_list}
+        self.assertIn(self.staff.pk, recipients)
+        self.assertIn(self.staff_two.pk, recipients)
+        self.assertNotIn(self.customer.pk, recipients)
+
+
+class FcmPayloadTests(SimpleTestCase):
+    def test_http_v1_payload_has_sound_and_high_priority(self):
+        from .services.push import FCM_ANDROID_CHANNEL_ID, build_fcm_http_v1_payload
+
+        payload = build_fcm_http_v1_payload(
+            'token-abc',
+            'MySewa Support',
+            'Your deposit was approved',
+            {'event': 'support_chat', 'message_id': '42', 'thread_id': '9'},
+        )
+        message = payload['message']
+        self.assertEqual(message['notification']['title'], 'MySewa Support')
+        self.assertEqual(message['notification']['body'], 'Your deposit was approved')
+        self.assertEqual(message['android']['priority'], 'HIGH')
+        self.assertEqual(message['android']['notification']['sound'], 'default')
+        self.assertTrue(message['android']['notification']['default_sound'])
+        self.assertEqual(message['android']['notification']['channel_id'], FCM_ANDROID_CHANNEL_ID)
+        self.assertEqual(message['android']['notification']['notification_priority'], 'PRIORITY_HIGH')
+        self.assertEqual(message['data']['title'], 'MySewa Support')
+        self.assertEqual(message['data']['body'], 'Your deposit was approved')
+        self.assertEqual(message['data']['event'], 'support_chat')
+        aps = message['apns']['payload']['aps']
+        self.assertEqual(aps['sound'], 'default')
+        self.assertNotIn('content-available', aps)
+        self.assertEqual(message['apns']['headers']['apns-push-type'], 'alert')
+        self.assertEqual(message['apns']['headers']['apns-priority'], '10')
+
+    def test_legacy_payload_uses_same_sounding_channel(self):
+        from .services.push import FCM_ANDROID_CHANNEL_ID, build_fcm_legacy_payload
+
+        payload = build_fcm_legacy_payload(
+            'token-abc',
+            'MySewa Support',
+            'New chat message',
+            {'event': 'support_chat'},
+        )
+        self.assertEqual(payload['priority'], 'high')
+        self.assertEqual(payload['notification']['sound'], 'default')
+        self.assertEqual(payload['notification']['android_channel_id'], FCM_ANDROID_CHANNEL_ID)
+        self.assertEqual(payload['data']['event'], 'support_chat')
+        self.assertEqual(payload['data']['title'], 'MySewa Support')
+
+
+class SupportChatPushNotifyTests(SimpleTestCase):
+    def _admin(self):
+        return SimpleNamespace(
+            pk=1,
+            first_name='Super',
+            last_name='Admin',
+            phone='9800000001',
+            is_superuser=True,
+            is_staff=True,
+            role='customer',
+        )
+
+    def _member(self, pk, role='customer'):
+        return SimpleNamespace(
+            pk=pk,
+            first_name='Member',
+            last_name=role.title(),
+            phone=f'980000000{pk}',
+            is_superuser=False,
+            is_staff=False,
+            role=role,
+        )
+
+    def _thread(self, admin, other):
+        low, high = (admin, other) if admin.pk < other.pk else (other, admin)
+        return SimpleNamespace(
+            pk=10,
+            user_low=low,
+            user_high=high,
+            user_low_id=low.pk,
+            user_high_id=high.pk,
+            last_message_preview='Wallet help please',
+        )
+
+    @patch('core.services.notifications._site_name', return_value='MySewa')
+    @patch('core.services.notifications.send_push_to_user', return_value=1)
+    def test_admin_message_notifies_user(self, mock_push, _site):
+        from .services.notifications import notify_support_chat_message
+
+        admin = self._admin()
+        user = self._member(2, 'customer')
+        thread = self._thread(admin, user)
+        msg = SimpleNamespace(pk=99, body='We credited your wallet', kind='text', attachment_name='')
+        notify_support_chat_message(msg, thread, admin)
+        mock_push.assert_called_once()
+        recipient, title, body, data = mock_push.call_args.args
+        self.assertEqual(recipient.pk, user.pk)
+        self.assertEqual(title, 'MySewa Support')
+        self.assertEqual(body, 'Wallet help please')
+        self.assertEqual(data['event'], 'support_chat')
+        self.assertEqual(data['sound'], 'default')
+        self.assertEqual(data['thread_id'], '10')
+        self.assertEqual(data['message_id'], '99')
+
+    @patch('core.services.notifications._site_name', return_value='MySewa')
+    @patch('core.services.notifications.send_push_to_user', return_value=1)
+    def test_admin_message_notifies_dealer(self, mock_push, _site):
+        from .services.notifications import notify_support_chat_message
+
+        admin = self._admin()
+        dealer = self._member(3, 'dealer')
+        thread = self._thread(admin, dealer)
+        msg = SimpleNamespace(pk=100, body='Payout approved', kind='text', attachment_name='')
+        notify_support_chat_message(msg, thread, admin)
+        mock_push.assert_called_once()
+        self.assertEqual(mock_push.call_args.args[0].pk, dealer.pk)
+        self.assertEqual(mock_push.call_args.args[1], 'MySewa Support')
+        self.assertEqual(mock_push.call_args.args[3]['event'], 'support_chat')
 
 
 class UserProvisioningAndPayoutTests(TestCase):

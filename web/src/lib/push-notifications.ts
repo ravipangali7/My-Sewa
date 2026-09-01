@@ -187,7 +187,8 @@ function handleNativeTokenEvent(ev: Event) {
 }
 
 function handleForegroundPush(ev: Event) {
-  const detail = (ev as CustomEvent<{ title?: string; body?: string }>).detail;
+  const detail = (ev as CustomEvent<{ title?: string; body?: string; data?: Record<string, string> }>)
+    .detail;
   const title = (detail?.title || "").trim();
   const body = (detail?.body || "").trim();
   notifyLiveRefresh();
@@ -201,6 +202,24 @@ function handleForegroundPush(ev: Event) {
   toast.info(title || body);
 }
 
+function supportChatPathForLocation(): string {
+  if (typeof window === "undefined") return "/app/support-chat";
+  return window.location.pathname.startsWith("/admin")
+    ? "/admin/support-chat"
+    : "/app/support-chat";
+}
+
+function handleOpenedPush(ev: Event) {
+  const detail = (ev as CustomEvent<{ data?: Record<string, string> }>).detail;
+  const data = detail?.data || {};
+  notifyLiveRefresh();
+  if ((data.event || "") !== "support_chat") return;
+  const target = supportChatPathForLocation();
+  if (typeof window === "undefined") return;
+  if (window.location.pathname.startsWith(target)) return;
+  window.location.assign(target);
+}
+
 /**
  * Start listening for the native FCM token as soon as the SPA boots —
  * before login — so the first app-open event is not missed.
@@ -210,6 +229,7 @@ export function listenForNativePushToken(): void {
   listenerAttached = true;
   window.addEventListener("mysewa-fcm-token", handleNativeTokenEvent);
   window.addEventListener("mysewa-push-received", handleForegroundPush);
+  window.addEventListener("mysewa-push-opened", handleOpenedPush);
   window.addEventListener("mysewa-app-resume", () => {
     requestNativePushToken();
     const pending = readPendingToken();

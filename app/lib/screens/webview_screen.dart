@@ -60,6 +60,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   DateTime? _lastResumeBridgeSyncAt;
   StreamSubscription<String>? _fcmTokenSub;
   StreamSubscription<dynamic>? _fcmForegroundSub;
+  StreamSubscription<Map<String, String>>? _fcmOpenedSub;
   Timer? _fcmPollTimer;
   bool _fcmSyncBusy = false;
   String? _apiBaseHint;
@@ -296,6 +297,9 @@ class _WebViewScreenState extends State<WebViewScreen>
     _fcmForegroundSub = PushMessaging.instance.onForegroundMessage.listen((message) {
       unawaited(_deliverForegroundPushToWeb(message));
     });
+    _fcmOpenedSub = PushMessaging.instance.onOpenedMessage.listen((data) {
+      unawaited(_deliverOpenedPushToWeb(data));
+    });
     if (PushMessaging.instance.token != null) {
       unawaited(_syncDeviceToken(reason: 'token-already-fetched'));
     }
@@ -396,6 +400,10 @@ class _WebViewScreenState extends State<WebViewScreen>
           // First thing after the SPA is ready: send the FCM token to React
           // and persist it to the API if the user is already logged in.
           await _deliverFcmTokenToWeb();
+          final opened = PushMessaging.instance.takePendingOpenedData();
+          if (opened != null) {
+            unawaited(_deliverOpenedPushToWeb(opened));
+          }
           _startFcmPoller('page-finished');
           if (mounted) {
             final padding = MediaQuery.paddingOf(context);
@@ -961,6 +969,24 @@ class _WebViewScreenState extends State<WebViewScreen>
     } catch (_) {}
   }
 
+  Future<void> _deliverOpenedPushToWeb(Map<String, String> data) async {
+    if (data.isEmpty) return;
+    try {
+      final dataJson = jsonEncode(data);
+      await _safeControllerCall((c) async {
+        await c.runJavaScript('''
+(function() {
+  try {
+    window.dispatchEvent(new CustomEvent('mysewa-push-opened', {
+      detail: { data: $dataJson }
+    }));
+  } catch (e) {}
+})();
+''');
+      });
+    } catch (_) {}
+  }
+
   String _sanitizeFilename(String name) {
     final cleaned = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
     if (cleaned.isEmpty) return 'MySewa_file.pdf';
@@ -1466,6 +1492,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     _connectivitySub?.cancel();
     _fcmTokenSub?.cancel();
     _fcmForegroundSub?.cancel();
+    _fcmOpenedSub?.cancel();
     _fcmPollTimer?.cancel();
     super.dispose();
   }

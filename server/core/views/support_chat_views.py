@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from urllib.parse import quote
+import logging
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
@@ -41,6 +42,7 @@ from ..services.support_chat import (
 from ..services.support_chat_attachments import AttachmentError, validate_uploaded_file
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 MAX_MESSAGE_LEN = 4000
 CONTACTS_LIMIT = 50
@@ -293,7 +295,11 @@ def support_chat_messages(request, thread_id):
             from ..services.notifications import notify_support_chat_message
             notify_support_chat_message(msg, thread, request.user)
         except Exception:
-            pass
+            logger.exception(
+                'Support chat Firebase notification failed thread=%s msg=%s',
+                getattr(thread, 'pk', None),
+                getattr(msg, 'pk', None),
+            )
         return Response(
             _serialize_message(msg, request, _peer_read_at(thread, request.user)),
             status=status.HTTP_201_CREATED,

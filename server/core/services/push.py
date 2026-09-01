@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 FCM_LEGACY_URL = 'https://fcm.googleapis.com/fcm/send'
 FCM_HTTP_V1_URL = 'https://fcm.googleapis.com/v1/projects/{project_id}/messages:send'
 FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging'
+FCM_ANDROID_CHANNEL_ID = 'mysewa_messages'
 STUB_PREFIXES = ('flutter-stub', 'web:', 'stub:')
 MAX_RESULT_SAMPLES = 25
 
@@ -240,6 +241,90 @@ def _stringify_data(data: Optional[dict]) -> dict[str, str]:
     return out
 
 
+def _message_data(title: str, body: str, data: Optional[dict] = None) -> dict[str, str]:
+    extra = _stringify_data(data)
+    extra.setdefault('title', title)
+    extra.setdefault('body', body)
+    extra.setdefault('click_action', 'FLUTTER_NOTIFICATION_CLICK')
+    return extra
+
+
+def build_fcm_http_v1_payload(
+    token: str,
+    title: str,
+    body: str,
+    data: Optional[dict] = None,
+) -> dict[str, Any]:
+    """HTTP v1 message that alerts in every app state with sound."""
+    extra = _message_data(title, body, data)
+    android_notification: dict[str, Any] = {
+        'title': title,
+        'body': body,
+        'sound': 'default',
+        'channel_id': FCM_ANDROID_CHANNEL_ID,
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        'notification_priority': 'PRIORITY_HIGH',
+        'default_sound': True,
+        'default_vibrate_timings': True,
+        'visibility': 'PUBLIC',
+    }
+    tag = extra.get('message_id') or extra.get('event')
+    if tag:
+        android_notification['tag'] = str(tag)[:120]
+    return {
+        'message': {
+            'token': token,
+            'notification': {
+                'title': title,
+                'body': body,
+            },
+            'data': extra,
+            'android': {
+                'priority': 'HIGH',
+                'ttl': '86400s',
+                'notification': android_notification,
+            },
+            'apns': {
+                'headers': {
+                    'apns-priority': '10',
+                    'apns-push-type': 'alert',
+                },
+                'payload': {
+                    'aps': {
+                        'alert': {
+                            'title': title,
+                            'body': body,
+                        },
+                        'sound': 'default',
+                        'badge': 1,
+                    },
+                },
+            },
+        },
+    }
+
+
+def build_fcm_legacy_payload(
+    token: str,
+    title: str,
+    body: str,
+    data: Optional[dict] = None,
+) -> dict[str, Any]:
+    extra = _message_data(title, body, data)
+    return {
+        'to': token,
+        'notification': {
+            'title': title,
+            'body': body,
+            'sound': 'default',
+            'android_channel_id': FCM_ANDROID_CHANNEL_ID,
+        },
+        'data': extra,
+        'priority': 'high',
+        'time_to_live': 86400,
+    }
+
+
 def _parse_json_body(raw: str) -> Any:
     if not raw:
         return None
@@ -302,40 +387,7 @@ def _send_fcm_http_v1(
 ) -> dict[str, Any]:
     """Send one HTTP v1 message. Returns a delivery dict with the Firebase body."""
     access_token, project_id = _access_token_and_project()
-    payload = {
-        'message': {
-            'token': token,
-            'notification': {
-                'title': title,
-                'body': body,
-            },
-            'data': _stringify_data(data),
-            'android': {
-                'priority': 'HIGH',
-                'notification': {
-                    'sound': 'default',
-                    'channel_id': 'mysewa_alerts',
-                    'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-                    'notification_priority': 'PRIORITY_MAX',
-                    'default_sound': True,
-                    'default_vibrate_timings': True,
-                },
-            },
-            'apns': {
-                'headers': {
-                    'apns-priority': '10',
-                    'apns-push-type': 'alert',
-                },
-                'payload': {
-                    'aps': {
-                        'sound': 'default',
-                        'badge': 1,
-                        'content-available': 1,
-                    },
-                },
-            },
-        },
-    }
+    payload = build_fcm_http_v1_payload(token, title, body, data)
     req = urllib.request.Request(
         FCM_HTTP_V1_URL.format(project_id=project_id),
         data=json.dumps(payload).encode('utf-8'),
@@ -387,19 +439,7 @@ def _send_fcm_legacy(
             error_message='FCM_SERVER_KEY is not set.',
         )
 
-    payload: dict[str, Any] = {
-        'to': token,
-        'notification': {
-            'title': title,
-            'body': body,
-            'sound': 'default',
-            'android_channel_id': 'mysewa_alerts',
-        },
-        'priority': 'high',
-    }
-    extra = _stringify_data(data)
-    if extra:
-        payload['data'] = extra
+    payload: dict[str, Any] = build_fcm_legacy_payload(token, title, body, data)
 
     req = urllib.request.Request(
         FCM_LEGACY_URL,
@@ -648,8 +688,7 @@ def send_push_to_tokens(
             ]
             return _finalize_send_result(result)
 
-    extra = dict(data or {})
-    extra.setdefault('click_action', 'FLUTTER_NOTIFICATION_CLICK')
+    extra = _message_data(title, body, data)
     result['firebase_called'] = True
 
     def _one(token: str) -> dict[str, Any]:

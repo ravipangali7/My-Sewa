@@ -17,7 +17,6 @@ import {
   Zap,
   CirclePlus,
   User,
-  MessageCircle,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { DealerMenuButton } from "@/components/layout/PortalShell";
@@ -37,6 +36,7 @@ import { liveQueryOptions, settingsQueryOptions } from "@/lib/refresh";
 import { isAccountPending, canFundTransfer, canWalletAdjust, isWalletBlocked, isWalletFrozen } from "@/lib/account-status";
 import { AccountPendingBanner } from "@/components/AccountPendingBanner";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { MessengerChatIcon } from "@/components/support-chat/MessengerChatIcon";
 import { SupportChatUnreadBadge, useSupportChatUnread } from "@/hooks/use-support-chat-unread";
 import { toast } from "sonner";
 
@@ -260,12 +260,20 @@ function WalletHome() {
                     : t("nav.supportChat")
                 }
                 className={cn(
-                  "relative flex size-10 items-center justify-center rounded-full text-white",
+                  "relative flex size-10 items-center justify-center overflow-visible",
                   dealerHome ? "mt-0" : "mt-1",
                 )}
               >
-                <MessageCircle className="size-[22px]" strokeWidth={1.75} />
-                <SupportChatUnreadBadge variant="icon" />
+                <MessengerChatIcon
+                  className={cn(
+                    "drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]",
+                    dealerHome ? "size-[30px]" : "size-[34px]",
+                  )}
+                />
+                <SupportChatUnreadBadge
+                  variant="icon"
+                  className="top-0 right-0 ring-2 ring-white"
+                />
               </Link>
               <Link
                 to="/app/notifications"
