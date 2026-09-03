@@ -310,6 +310,13 @@ class _WebViewScreenState extends State<WebViewScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
 
+    // After the system installer returns, re-check so an already-current build
+    // leaves the update screen instead of looping forever.
+    if (_updating) {
+      unawaited(_recheckUpdateAfterResume());
+      return;
+    }
+
     if (!_isOnline) {
       unawaited(_recoverIfReachable());
       return;
@@ -328,6 +335,22 @@ class _WebViewScreenState extends State<WebViewScreen>
         _startFcmPoller('app-resume');
       }));
     }
+  }
+
+  Future<void> _recheckUpdateAfterResume() async {
+    final stillNeeded = await AppUpdateService.checkForUpdate();
+    if (!mounted) return;
+    if (stillNeeded == null) {
+      setState(() {
+        _updating = false;
+        _updateInfo = null;
+        _showSplash = true;
+      });
+      await _initWebView();
+      _watchConnectivity();
+      return;
+    }
+    setState(() => _updateInfo = stillNeeded);
   }
 
   Future<void> _bootstrap() async {

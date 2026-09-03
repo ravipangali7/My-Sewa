@@ -34,8 +34,9 @@ android {
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
 
-        versionCode = 2
-        versionName = "2.0.0"
+        // Keep in sync with pubspec.yaml (and AppConstant.appVersion / Settings.app_version).
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
     }
 
     signingConfigs {

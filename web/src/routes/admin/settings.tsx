@@ -2156,13 +2156,17 @@ function SettingsPage() {
                     autoComplete="off"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Use the same value as{" "}
+                    Must equal the APK&apos;s Android{" "}
+                    <code className="rounded bg-muted px-1 py-0.5">versionName</code>{" "}
+                    and Flutter{" "}
                     <code className="rounded bg-muted px-1 py-0.5">AppConstant.appVersion</code>{" "}
-                    in the Flutter APK you upload (prefer full{" "}
-                    <code className="rounded bg-muted px-1 py-0.5">major.minor.patch</code>
-                    ). The app updates only when this value is newer — not when it merely differs
-                    (so <code className="rounded bg-muted px-1 py-0.5">3</code> equals{" "}
-                    <code className="rounded bg-muted px-1 py-0.5">3.0.0</code>).
+                    (full <code className="rounded bg-muted px-1 py-0.5">major.minor.patch</code>
+                    ). The app updates only when this value is newer —{" "}
+                    <code className="rounded bg-muted px-1 py-0.5">3</code>,{" "}
+                    <code className="rounded bg-muted px-1 py-0.5">3.0</code>, and{" "}
+                    <code className="rounded bg-muted px-1 py-0.5">3.0.0</code> are equal.
+                    Also bump the APK <code className="rounded bg-muted px-1 py-0.5">versionCode</code>{" "}
+                    or Android may refuse to replace the installed app.
                   </p>
                 </div>
                 <div className="space-y-2">

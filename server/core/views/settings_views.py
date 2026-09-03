@@ -43,6 +43,12 @@ def get_settings(request):
         settings_obj = Settings.load()
         data = SettingsSerializer(settings_obj, context={'request': request}).data
         data['config'] = public_config(settings_obj.get_config())
-        return Response(data, status=status.HTTP_200_OK)
+        response = Response(data, status=status.HTTP_200_OK)
     except (OperationalError, ProgrammingError):
-        return Response(_fallback_settings_payload(), status=status.HTTP_200_OK)
+        response = Response(_fallback_settings_payload(), status=status.HTTP_200_OK)
+
+    # Prevent phones / proxies from replaying a stale app_version forever.
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response['Pragma'] = 'no-cache'
+    response['Expires'] = '0'
+    return response

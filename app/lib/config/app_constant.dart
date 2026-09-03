@@ -2,8 +2,8 @@
 class AppConstant {
   AppConstant._();
 
-  /// Installed app semver. Bump when shipping an APK, and set Settings.app_version
-  /// to the same (or older) value. Prefer full `major.minor.patch` (e.g. 3.0.0).
-  /// Auto-update runs only when the remote version is strictly newer.
+  /// Must match `version:` in pubspec.yaml (the part before `+`) and the APK
+  /// versionName. Set admin Settings.app_version to this same value when uploading.
+  /// Auto-update runs only when the remote Settings version is strictly newer.
   static const String appVersion = '3.0.0';
 }

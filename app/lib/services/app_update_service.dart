@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../config/app_config.dart';
@@ -12,15 +13,22 @@ class AppUpdateInfo {
   const AppUpdateInfo({
     required this.remoteVersion,
     required this.apkUrl,
+    required this.localVersion,
   });
 
   final String remoteVersion;
   final String apkUrl;
-
-  String get localVersion => AppUpdateService.displayVersion(AppConstant.appVersion);
+  final String localVersion;
 }
 
-/// Compares [AppConstant.appVersion] with DB Settings and installs APKs.
+/// Compares the installed app version with Settings and installs APKs.
+///
+/// Local version is the semantic max of:
+/// - Android [PackageInfo.version] (versionName from the installed APK)
+/// - [AppConstant.appVersion] (compile-time constant that must match the build)
+///
+/// That prevents perpetual loops when versionName and AppConstant drift
+/// (the production APK historically shipped versionName 2.0.0 with AppConstant 3.0.0).
 class AppUpdateService {
   AppUpdateService._();
 
@@ -28,15 +36,24 @@ class AppUpdateService {
   static const _checkTimeout = Duration(seconds: 8);
 
   /// Returns update info when auto-update is on, remote is newer, and an APK URL exists.
-  ///
-  /// Versions are compared as semver tuples so `3`, `3.0`, and `3.0.0` are equal.
-  /// Only a *newer* remote version triggers an update (not merely a different string).
   static Future<AppUpdateInfo?> checkForUpdate() async {
     if (!Platform.isAndroid) return null;
 
     try {
+      final uri = Uri.parse(AppConfig.settingsApiUrl).replace(
+        queryParameters: <String, String>{
+          // Bust intermediary / device HTTP caches of a stale app_version.
+          '_ts': DateTime.now().millisecondsSinceEpoch.toString(),
+        },
+      );
       final response = await http
-          .get(Uri.parse(AppConfig.settingsApiUrl))
+          .get(
+            uri,
+            headers: const <String, String>{
+              'Cache-Control': 'no-cache, no-store',
+              'Pragma': 'no-cache',
+            },
+          )
           .timeout(_checkTimeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return null;
@@ -49,21 +66,34 @@ class AppUpdateService {
       final enabled = data['auto_update_enabled'] == true;
       if (!enabled) return null;
 
-      final remoteVersion = _normalizeVersion('${data['app_version'] ?? ''}');
+      final remoteRaw = '${data['app_version'] ?? ''}'.trim();
       final apkUrl = '${data['apk_url'] ?? ''}'.trim();
-      if (remoteVersion.isEmpty || apkUrl.isEmpty) return null;
+      if (remoteRaw.isEmpty || apkUrl.isEmpty) return null;
 
-      final localVersion = _normalizeVersion(AppConstant.appVersion);
+      final localRaw = await resolveLocalVersion();
       // Equal or older remote must never re-prompt (fixes loops like 3.0.0 -> 3).
-      if (!_isRemoteNewer(remoteVersion, localVersion)) return null;
+      if (!isRemoteNewer(remoteRaw, localRaw)) return null;
 
       return AppUpdateInfo(
-        remoteVersion: displayVersion(remoteVersion),
+        remoteVersion: displayVersion(remoteRaw),
+        localVersion: displayVersion(localRaw),
         apkUrl: apkUrl,
       );
     } catch (_) {
       return null;
     }
+  }
+
+  /// Installed version used for update decisions.
+  static Future<String> resolveLocalVersion() async {
+    var packageVersion = '';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      packageVersion = info.version;
+    } catch (_) {
+      packageVersion = '';
+    }
+    return higherVersion(packageVersion, AppConstant.appVersion);
   }
 
   static Future<File> downloadApk(
@@ -73,6 +103,8 @@ class AppUpdateService {
     final client = http.Client();
     try {
       final request = http.Request('GET', Uri.parse(info.apkUrl));
+      request.headers['Cache-Control'] = 'no-cache, no-store';
+      request.headers['Pragma'] = 'no-cache';
       final response = await client.send(request);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw StateError('Could not download the update (HTTP ${response.statusCode}).');
@@ -124,7 +156,7 @@ class AppUpdateService {
   }
 
   /// Strip junk; keep the dotted numeric core (before `-` / `+`).
-  static String _normalizeVersion(String value) {
+  static String normalizeVersion(String value) {
     var version = value.trim();
     if (version.toLowerCase().startsWith('v') && version.length > 1) {
       version = version.substring(1).trim();
@@ -137,12 +169,11 @@ class AppUpdateService {
 
   /// Pad to major.minor.patch for display / logging.
   static String displayVersion(String value) {
-    final parts = _versionParts(value);
-    return parts.join('.');
+    return versionParts(value).join('.');
   }
 
-  static List<int> _versionParts(String value, {int width = 3}) {
-    final core = _normalizeVersion(value);
+  static List<int> versionParts(String value, {int width = 3}) {
+    final core = normalizeVersion(value);
     if (core.isEmpty) {
       return List<int>.filled(width, 0);
     }
@@ -158,15 +189,24 @@ class AppUpdateService {
     return parts;
   }
 
-  /// True when [remote] is strictly newer than [local] as semver.
-  static bool _isRemoteNewer(String remote, String local) {
-    final remoteParts = _versionParts(remote);
-    final localParts = _versionParts(local);
-    for (var i = 0; i < remoteParts.length; i++) {
-      if (remoteParts[i] != localParts[i]) {
-        return remoteParts[i] > localParts[i];
-      }
+  static int compareVersions(String a, String b) {
+    final pa = versionParts(a);
+    final pb = versionParts(b);
+    for (var i = 0; i < pa.length; i++) {
+      if (pa[i] != pb[i]) return pa[i].compareTo(pb[i]);
     }
-    return false;
+    return 0;
+  }
+
+  /// True when [remote] is strictly newer than [local] as semver.
+  static bool isRemoteNewer(String remote, String local) {
+    return compareVersions(remote, local) > 0;
+  }
+
+  /// Semantic max of two version strings.
+  static String higherVersion(String a, String b) {
+    if (normalizeVersion(a).isEmpty) return normalizeVersion(b).isEmpty ? '' : b;
+    if (normalizeVersion(b).isEmpty) return a;
+    return compareVersions(a, b) >= 0 ? a : b;
   }
 }
