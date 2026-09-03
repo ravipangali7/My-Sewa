@@ -19,6 +19,15 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// Low-RAM machines: skip lintVital* on plugins (connectivity_plus etc. OOMs Metaspace).
+subprojects {
+    tasks.configureEach {
+        if (name.startsWith("lintVital")) {
+            enabled = false
+        }
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

@@ -1,5 +1,6 @@
-# Low-memory release build for machines with ~8 GB RAM.
-# Stops old Gradle daemons, builds, then re-applies signing lineage.
+# Low-memory production APK build.
+# 1) flutter build apk (Gradle alone — no apksigner peak)
+# 2) resign with debug→release lineage after Gradle exits
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File app/tool/build_release_apk.ps1
@@ -10,28 +11,26 @@ Set-Location $appDir
 
 Write-Host "Stopping old Gradle daemons to free RAM..."
 Push-Location (Join-Path $appDir "android")
-try {
-    .\gradlew.bat --stop 2>$null
-} catch {
-    # ignore
-}
+try { .\gradlew.bat --stop 2>$null } catch {}
 Pop-Location
 
-# Hint Kotlin/Gradle child processes to stay small even if IDE overrides props.
-$env:GRADLE_OPTS = "-Xmx1024m -Dorg.gradle.daemon=true"
-$env:JAVA_TOOL_OPTIONS = ""
-
-Write-Host "Building release APK (low memory settings)..."
+Write-Host "Building release APK..."
 flutter build apk --release
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "Ensuring lineage resign on Flutter output..."
-Set-Location (Join-Path $appDir "android")
+Write-Host "Stopping Gradle again before lineage resign..."
+Push-Location (Join-Path $appDir "android")
+try { .\gradlew.bat --stop 2>$null } catch {}
+Start-Sleep -Seconds 2
+
+Write-Host "Applying debug→release signing lineage..."
 .\gradlew.bat :app:resignReleaseWithLineage --no-daemon
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Pop-Location
 
 $apk = Join-Path $appDir "build\app\outputs\flutter-apk\app-release.apk"
+$item = Get-Item $apk
 Write-Host ""
 Write-Host "Release APK ready:"
-Write-Host "  $apk"
-Write-Host "Upload this file in Admin → App update with the matching version (e.g. 4.0.0)."
+Write-Host ("  {0} ({1:N1} MB)" -f $item.FullName, ($item.Length / 1MB))
+Write-Host "Upload in Admin → App update with the matching version from pubspec.yaml."

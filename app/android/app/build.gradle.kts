@@ -90,6 +90,10 @@ android {
             isDebuggable = false
             isMinifyEnabled = false
             isShrinkResources = false
+            ndk {
+                // Do not embed full DWARF in the APK (keeps size ~50MB, not ~500MB).
+                debugSymbolLevel = "NONE"
+            }
         }
         debug {
             applicationIdSuffix = ""
@@ -97,6 +101,20 @@ android {
             // Keep debug installs on the same applicationId for development,
             // but they cannot be updated by release APKs without the v3 lineage.
         }
+    }
+
+    // Strip debug symbols normally. keepDebugSymbols was making the APK ~500MB.
+    // Corrupted libflutter.so strip failures come from OOM-interrupted builds —
+    // always `flutter clean` (or delete build/) after a daemon crash.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 }
 
@@ -208,11 +226,5 @@ tasks.register("resignReleaseWithLineage") {
             signedTmp.delete()
             logger.lifecycle("Resigned: ${apk.absolutePath}")
         }
-    }
-}
-
-afterEvaluate {
-    tasks.matching { it.name == "assembleRelease" }.configureEach {
-        finalizedBy("resignReleaseWithLineage")
     }
 }
