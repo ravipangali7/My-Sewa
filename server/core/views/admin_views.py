@@ -3311,7 +3311,11 @@ def admin_settings(request):
             )
 
     if 'app_version' in request.data and request.data.get('app_version') is not None:
-        settings_obj.app_version = str(request.data.get('app_version') or '').strip()[:32]
+        from ..services.app_version import normalize_app_version
+
+        settings_obj.app_version = normalize_app_version(
+            str(request.data.get('app_version') or ''),
+        )[:32]
 
     if 'apk' in request.FILES:
         uploaded_apk = request.FILES['apk']

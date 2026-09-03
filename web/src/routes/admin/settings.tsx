@@ -2135,14 +2135,14 @@ function SettingsPage() {
           <TabsContent value="mobile">
             <SettingsPanel
               title="Android auto update"
-              description="When enabled, the Flutter app compares its local version with this APK version. If they differ, it downloads the APK and installs it automatically."
+              description="When enabled, the Flutter app updates only when this APK version is newer than the installed app (semver). Equal versions such as 3 and 3.0.0 never re-prompt."
               onSave={saveMobileApp}
               saving={saving}
             >
               <div className="space-y-5">
                 <ToggleRow
                   label="Enable auto update"
-                  description="Turn this on after uploading a new APK and setting the matching version. Turn it off to leave installed apps as they are."
+                  description="Turn this on after uploading a new APK and setting its version. Turn it off to leave installed apps as they are."
                   checked={autoUpdateEnabled}
                   onCheckedChange={setAutoUpdateEnabled}
                 />
@@ -2152,13 +2152,17 @@ function SettingsPage() {
                     id="app_version"
                     value={appVersion}
                     onChange={(e) => setAppVersion(e.target.value)}
-                    placeholder="e.g. 2.0.1"
+                    placeholder="e.g. 3.0.1"
                     autoComplete="off"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Must match <code className="rounded bg-muted px-1 py-0.5">AppConstant.appVersion</code>{" "}
-                    in the Flutter build you upload. Installed apps whose version does not match
-                    this value will download and install the APK.
+                    Use the same value as{" "}
+                    <code className="rounded bg-muted px-1 py-0.5">AppConstant.appVersion</code>{" "}
+                    in the Flutter APK you upload (prefer full{" "}
+                    <code className="rounded bg-muted px-1 py-0.5">major.minor.patch</code>
+                    ). The app updates only when this value is newer — not when it merely differs
+                    (so <code className="rounded bg-muted px-1 py-0.5">3</code> equals{" "}
+                    <code className="rounded bg-muted px-1 py-0.5">3.0.0</code>).
                   </p>
                 </div>
                 <div className="space-y-2">

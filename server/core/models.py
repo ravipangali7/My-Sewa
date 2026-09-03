@@ -1076,13 +1076,13 @@ class Settings(models.Model):
     )
     auto_update_enabled = models.BooleanField(
         default=False,
-        help_text="When enabled, the Android app downloads and installs the APK if versions differ",
+        help_text="When enabled, the Android app downloads and installs the APK if the remote version is newer",
     )
     app_version = models.CharField(
         max_length=32,
         blank=True,
         default='',
-        help_text="Latest Android app version string compared with Flutter AppConstant.appVersion",
+        help_text="Latest Android app semver (e.g. 3.0.1). Compared with Flutter AppConstant.appVersion; equal forms like 3 and 3.0.0 do not re-prompt",
     )
     apk = models.FileField(
         upload_to='settings/apk/',
@@ -1104,6 +1104,9 @@ class Settings(models.Model):
         # Ensure only one instance exists
         self.pk = 1
         self.config = merge_app_config(self.config)
+        from .services.app_version import normalize_app_version
+
+        self.app_version = normalize_app_version(self.app_version)[:32]
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

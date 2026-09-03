@@ -1468,6 +1468,14 @@ class SettingsSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ('id', 'created_at', 'updated_at', 'apk_url')
 
+    def to_representation(self, instance):
+        from .services.app_version import normalize_app_version
+
+        data = super().to_representation(instance)
+        # Always expose padded semver so clients treat "3" and "3.0.0" as equal.
+        data['app_version'] = normalize_app_version(data.get('app_version'))
+        return data
+
     def _absolute_media_url(self, file_field):
         if not file_field:
             return None
