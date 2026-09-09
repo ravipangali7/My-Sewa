@@ -43,6 +43,7 @@ from .himalpay_checkout import (
     PAYMENT_STATUS_UNKNOWN,
     append_query,
     default_frontend_return_url,
+    default_merchant_return_url,
     is_checkout_configured,
     order_id_from_payload,
     paisa_from_status_payload,
@@ -141,8 +142,9 @@ def customer_details_for(user) -> Dict[str, str]:
 
 
 def build_return_url(purchase_order_identifier: str) -> str:
+    """return_url sent to HimalPay. Defaults to the backend verify-then-redirect view."""
     client = HimalPayCheckoutAPI()
-    base = (client.configured_return_url or '').strip() or default_frontend_return_url()
+    base = (client.configured_return_url or '').strip() or default_merchant_return_url()
     return append_query(base, order=purchase_order_identifier)
 
 
@@ -352,10 +354,15 @@ def settle_from_checkout_status(deposit: Deposit, payload: Dict[str, Any]) -> Tu
 
     # started / unknown / empty: keep pending, do not credit.
     deposit.provider_payload = sanitize_provider_payload(payload)
+    update_fields = ['provider_payload', 'status', 'verification_status', 'updated_at']
     if payment_status == PAYMENT_STATUS_STARTED:
         deposit.status = STATUS_PROCESSING
+    elif payment_status == PAYMENT_STATUS_UNKNOWN:
+        payment = payload.get('payment') if isinstance(payload.get('payment'), dict) else {}
+        deposit.failure_reason = str(payment.get('message') or 'payment status unknown')[:500]
+        update_fields.append('failure_reason')
     deposit.verification_status = VERIFY_UNVERIFIED
-    deposit.save(update_fields=['provider_payload', 'status', 'verification_status', 'updated_at'])
+    deposit.save(update_fields=update_fields)
     return PENDING_PAYMENT, deposit
 
 

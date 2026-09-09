@@ -114,6 +114,24 @@ def default_frontend_return_url() -> str:
     return '/app/checkout-return'
 
 
+def default_merchant_return_url() -> str:
+    """
+    HimalPay return_url should hit our backend first so checkout-status
+    runs even if the customer is not logged into the SPA.
+
+    BACKEND_URL may include /database (admin). Use BACKEND_ORIGIN for the API.
+    """
+    origin = (getattr(settings, 'BACKEND_ORIGIN', '') or '').rstrip('/')
+    if origin:
+        return f'{origin}/api/deposit/checkout/return/'
+    backend = (getattr(settings, 'BACKEND_URL', '') or '').rstrip('/')
+    if backend.endswith('/database'):
+        backend = backend[: -len('/database')]
+    if backend:
+        return f'{backend}/api/deposit/checkout/return/'
+    return '/api/deposit/checkout/return/'
+
+
 class HimalPayCheckoutAPI:
     """Server-side N-Cash Merchant Checkout client."""
 

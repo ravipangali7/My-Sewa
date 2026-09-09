@@ -18,7 +18,8 @@ Outgoing (debit):
   wallet = amount + service_charge + himalpay
 
 Incoming (credit):
-  wallet = amount − service_charge − himalpay
+  wallet = amount − service_charge − himalpay + provider cashback
+  (provider cashback is 0 when leftover HimalPay config is used)
 """
 from __future__ import annotations
 
@@ -440,7 +441,13 @@ def quote_charges(
         )
         # Keep leftover HimalPay config so live provider fees are not added on
         # top of Commission cashback (e.g. Rs 50 vs a provider Rs 5).
-        himalpay = configured_himalpay
+        # Debit/fund-transfer keeps that behavior. Inbound credit still uses
+        # the live provider fee when leftover HimalPay is 0, so we do not
+        # credit the gross amount when HimalPay deducted a charge.
+        if direction == 'credit' and configured_himalpay <= 0:
+            himalpay = provider
+        else:
+            himalpay = configured_himalpay
         provider_cashback = _ZERO
     else:
         himalpay = provider
@@ -467,7 +474,10 @@ def quote_charges(
         if wallet_amount < 0:
             wallet_amount = _ZERO
     else:
-        wallet_amount = money(principal - total_charges)
+        # HimalPay inbound net is amount − charge + cashback when the provider
+        # fee is used. Config leftover HimalPay zeros provider_cashback so we
+        # do not stack both.
+        wallet_amount = money(principal - total_charges + provider_cashback)
         if wallet_amount < 0:
             wallet_amount = _ZERO
 

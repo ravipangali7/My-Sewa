@@ -1661,8 +1661,10 @@ function SettingsPage() {
                       }
                     />
                     <p className="text-xs text-muted-foreground">
-                      Defaults to FRONTEND_URL/app/checkout-return. Himal Pay Checkout does not
-                      document a webhook or HMAC — verification is always checkout-status.
+                      Defaults to BACKEND_ORIGIN/api/deposit/checkout/return/ so Himal Pay
+                      redirects to our server first. We then call checkout-status and send
+                      the user to /app/checkout-return. Checkout docs do not document a
+                      webhook or HMAC — verification is always checkout-status.
                     </p>
                   </div>
                 </div>

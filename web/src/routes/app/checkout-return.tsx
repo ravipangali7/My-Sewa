@@ -51,6 +51,25 @@ function CheckoutReturnPage() {
         ...(order ? { purchase_order_identifier: order, order } : {}),
       }),
     retry: false,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const status = data?.data?.status;
+      const outcome = data?.outcome;
+      if (
+        status === "approved" ||
+        status === "failed" ||
+        status === "cancelled" ||
+        status === "expired" ||
+        status === "refunded" ||
+        status === "rejected"
+      ) {
+        return false;
+      }
+      if (outcome === "pending_payment" || status === "pending" || status === "processing") {
+        return 4000;
+      }
+      return false;
+    },
   });
 
   useEffect(() => {

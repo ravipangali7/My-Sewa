@@ -81,6 +81,8 @@ def _initiate_payload(order_id, process_id=PROCESS_ID):
     HIMALPAY_CHECKOUT_BASE_URL='https://api.himalpay.com.np/api/v1',
     HIMALPAY_BYPASS_API=False,
     FRONTEND_URL='https://mysewa.example.com',
+    BACKEND_ORIGIN='https://api.example.com',
+    BACKEND_URL='https://api.example.com/database/',
 )
 class HimalPayCheckoutDepositTests(TestCase):
     def setUp(self):
@@ -122,6 +124,7 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.assertEqual(kwargs['amount_rupees'], Decimal('1000.00'))
         self.assertEqual(kwargs['product_name'], 'MySewa Wallet Deposit')
         self.assertIn('order=', kwargs['return_url'])
+        self.assertIn('/api/deposit/checkout/return/', kwargs['return_url'])
         self.assertEqual(deposit.status, Deposit.STATUS_PROCESSING)
         self.assertEqual(deposit.amount, Decimal('1000.00'))
         self.assertEqual(deposit.provider, Deposit.PROVIDER_HIMALPAY_CHECKOUT)
@@ -326,6 +329,90 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.assertFalse(hasattr(HimalPayCheckoutAPI, 'payin'))
         self.assertTrue(hasattr(HimalPayCheckoutAPI, 'initiate_checkout'))
         self.assertTrue(hasattr(HimalPayCheckoutAPI, 'checkout_status'))
+
+    def test_initiate_requires_authentication(self):
+        guest = APIClient()
+        resp = guest.post(
+            reverse('deposit_checkout_initiate'),
+            {'amount': '1000'},
+            format='json',
+        )
+        self.assertIn(resp.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal('50.00'))
+        self.assertFalse(Deposit.objects.filter(user=self.user, provider='himalpay_checkout').exists())
+
+    def test_initiate_rejects_invalid_amount(self):
+        for amount in ('0', '-10', 'abc', '9.99'):
+            resp = self.client.post(
+                reverse('deposit_checkout_initiate'),
+                {'amount': amount},
+                format='json',
+            )
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, amount)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal('50.00'))
+
+    def test_initiate_provider_failure_does_not_credit(self):
+        with patch.object(
+            HimalPayCheckoutAPI,
+            'initiate_checkout',
+            side_effect=HimalPayError('Checkout unavailable', status_code=502),
+        ):
+            resp = self.client.post(
+                reverse('deposit_checkout_initiate'),
+                {'amount': '1000'},
+                format='json',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal('50.00'))
+        failed = Deposit.objects.filter(user=self.user, provider='himalpay_checkout').first()
+        self.assertIsNotNone(failed)
+        self.assertEqual(failed.status, 'failed')
+        self.assertNotEqual(failed.status, 'approved')
+
+    def test_unknown_payment_status_does_not_credit(self):
+        deposit = self._pending_deposit()
+        payload = _status_payload(payment_status='unknown', amount_paisa=100000)
+        with patch.object(HimalPayCheckoutAPI, 'checkout_status', return_value=payload):
+            outcome, deposit = verify_deposit(deposit)
+        self.assertEqual(outcome, PENDING_PAYMENT)
+        deposit.refresh_from_db()
+        self.wallet.refresh_from_db()
+        self.assertNotEqual(deposit.status, 'approved')
+        self.assertEqual(self.wallet.balance, Decimal('50.00'))
+
+    def test_initiate_payload_uses_documented_fields(self):
+        with patch.object(
+            HimalPayCheckoutAPI,
+            'initiate_checkout',
+            return_value=_initiate_payload('x'),
+        ) as mocked:
+            create_checkout_deposit(self.user, Decimal('250.00'))
+        kwargs = mocked.call_args.kwargs
+        self.assertEqual(set(kwargs.keys()), {
+            'amount_rupees', 'purchase_order_identifier', 'return_url',
+            'product_name', 'customer_details',
+        })
+        self.assertIn('name', kwargs['customer_details'])
+        self.assertIn('phone', kwargs['customer_details'])
+
+    def test_return_endpoint_verifies_then_redirects(self):
+        deposit = self._pending_deposit()
+        payload = _status_payload(amount_paisa=100000, order_id=ORDER_ID)
+        guest = APIClient()
+        with patch.object(HimalPayCheckoutAPI, 'checkout_status', return_value=payload):
+            resp = guest.get(
+                reverse('deposit_checkout_return'),
+                {'order': ORDER_ID},
+            )
+        self.assertEqual(resp.status_code, status.HTTP_302_FOUND)
+        deposit.refresh_from_db()
+        self.wallet.refresh_from_db()
+        self.assertEqual(deposit.status, 'approved')
+        self.assertEqual(self.wallet.balance, Decimal('1050.00'))
+        self.assertIn('/app/checkout-return', resp.url)
 
 
 class HimalPayCheckoutRefundTests(TestCase):
