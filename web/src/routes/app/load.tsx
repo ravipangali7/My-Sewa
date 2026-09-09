@@ -97,42 +97,6 @@ export const Route = createFileRoute("/app/load")({
   component: LoadWallet,
 });
 
-function formatHimalPayPayload(body: unknown): string {
-  if (body == null) return "";
-  if (typeof body === "string") return body.trim();
-  if (typeof body !== "object") return String(body);
-  const rec = body as Record<string, unknown>;
-  const payload =
-    rec.HimalPay ?? rec.himapayResponse ?? rec.himalpay_response ?? (rec.error || rec.message ? rec : null);
-  if (payload == null) return "";
-  if (typeof payload === "string") return payload.trim();
-  try {
-    return JSON.stringify(payload, null, 2);
-  } catch {
-    return String(payload);
-  }
-}
-
-function CheckoutInstructions({ t }: { t: TranslateFn }) {
-  const steps = [
-    t("load.checkoutStep1"),
-    t("load.checkoutStep2"),
-    t("load.checkoutStep3"),
-    t("load.checkoutStep4"),
-    t("load.checkoutStep5"),
-  ];
-  return (
-    <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
-      <p className="mb-2 text-[13px] font-semibold">{t("load.checkoutInstructionsTitle")}</p>
-      <ol className="list-decimal space-y-1.5 pl-5 text-[13px] leading-snug text-muted-foreground">
-        {steps.map((step) => (
-          <li key={step}>{step}</li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
 function todayIsoDate() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -182,7 +146,6 @@ function LoadWallet() {
     } | null;
   } | null>(null);
   const [checkoutQrSrc, setCheckoutQrSrc] = useState("");
-  const [himalpayNetworkText, setHimalpayNetworkText] = useState("");
 
   const destQuery = useQuery({
     queryKey: ["deposit-destinations"],
@@ -311,7 +274,7 @@ function LoadWallet() {
       if (accountPending) throw new Error(t("account.pending"));
       if (walletFrozen) throw new Error(t("account.walletFrozen"));
       if (!depositsEnabled) throw new Error(t("load.disabledError"));
-      const amt = Number(checkoutAmount);
+      const amt = Number(checkoutAmount) || Math.max(minDeposit, 10);
       if (!Number.isFinite(amt) || amt <= 0) throw new Error(t("load.validAmount"));
       if (amt < minDeposit) throw new Error(t("load.minError", { min: minDeposit }));
       if (maxDeposit > 0 && amt > maxDeposit)
@@ -320,7 +283,6 @@ function LoadWallet() {
       return apiClient.checkoutInitiate({ amount: amt });
     },
     onSuccess: (res) => {
-      setHimalpayNetworkText(formatHimalPayPayload(res));
       const paymentUrl = res.payment_url;
       const depositId = Number(res.data?.id || 0);
       if (!paymentUrl || !depositId) {
@@ -335,12 +297,9 @@ function LoadWallet() {
         amount: String(res.data?.amount || checkoutAmount),
         details: res.data?.checkout_details || null,
       });
-      toast.success(t("load.checkoutQrReady"));
       queryClient.invalidateQueries({ queryKey: ["deposits"] });
     },
     onError: (err) => {
-      const body = err instanceof ApiError ? err.body : null;
-      setHimalpayNetworkText(formatHimalPayPayload(body));
       toast.error(
         err instanceof ApiError || err instanceof Error
           ? err.message
@@ -498,50 +457,7 @@ function LoadWallet() {
                   <h2 className="text-[15px] font-semibold">{t("load.checkoutTitle")}</h2>
                   <p className="mt-1 text-[13px] text-muted-foreground">{t("load.checkoutHelp")}</p>
                 </div>
-                <CheckoutInstructions t={t} />
-                {himalpayNetworkText ? (
-                  <div className="rounded-xl border border-border bg-muted/30 px-3 py-3">
-                    <p className="mb-2 text-[13px] font-semibold">HimalPay:</p>
-                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed text-foreground">
-                      {himalpayNetworkText}
-                    </pre>
-                  </div>
-                ) : null}
-                {!checkoutSession ? (
-                  <form
-                    className="space-y-4"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      checkoutMutation.mutate();
-                    }}
-                  >
-                    <div className="space-y-1.5">
-                      <Label htmlFor="checkout_amount">{t("load.depositedAmount")}</Label>
-                      <Input
-                        id="checkout_amount"
-                        inputMode="decimal"
-                        placeholder={t("common.amountPlaceholder")}
-                        value={checkoutAmount}
-                        onChange={(e) => setCheckoutAmount(e.target.value)}
-                        className="tabular h-12 rounded-xl text-[22px] font-semibold"
-                        autoFocus
-                        required
-                      />
-                      <p className="text-[12px] text-muted-foreground">
-                        {t("common.minMax", { min: minDeposit, max: maxDeposit })}
-                      </p>
-                    </div>
-                    <Button
-                      type="submit"
-                      className="h-12 w-full rounded-xl"
-                      disabled={checkoutMutation.isPending}
-                    >
-                      {checkoutMutation.isPending
-                        ? t("load.checkoutRedirecting")
-                        : t("load.checkoutShowQr")}
-                    </Button>
-                  </form>
-                ) : (
+                {checkoutSession ? (
                   <div className="space-y-4">
                     <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-white px-3 py-5 sm:px-6">
                       {checkoutQrSrc ? (
@@ -618,31 +534,38 @@ function LoadWallet() {
                       <p className="text-center text-[13px] font-medium text-success">
                         {t("load.checkoutSuccess")}
                       </p>
-                    ) : (
-                      <p className="text-center text-[12px] text-muted-foreground">
-                        {t("load.checkoutVerifyNote")}
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex aspect-square w-full max-w-[min(92vw,24rem)] mx-auto items-center justify-center rounded-2xl border border-border bg-white text-sm text-muted-foreground">
+                      {checkoutMutation.isPending
+                        ? t("load.checkoutQrBuilding")
+                        : t("load.checkoutFailed")}
+                    </div>
+                    {checkoutMutation.isError ? (
+                      <p className="text-center text-[13px] text-destructive">
+                        {checkoutMutation.error instanceof ApiError ||
+                        checkoutMutation.error instanceof Error
+                          ? checkoutMutation.error.message
+                          : t("load.checkoutFailed")}
                       </p>
-                    )}
+                    ) : null}
                     <Button
                       type="button"
                       className="h-12 w-full rounded-xl"
+                      disabled={checkoutMutation.isPending}
                       onClick={() => {
-                        window.location.href = checkoutSession.paymentUrl;
+                        checkoutAutoStarted.current = false;
+                        if (!checkoutAmount) {
+                          setCheckoutAmount(String(Math.max(minDeposit, 10)));
+                        }
+                        checkoutMutation.mutate();
                       }}
                     >
-                      {t("load.checkoutOpenPay")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-11 w-full rounded-xl"
-                      onClick={() => {
-                        checkoutAutoStarted.current = true;
-                        setCheckoutSession(null);
-                        setCheckoutQrSrc("");
-                      }}
-                    >
-                      {t("load.checkoutNewAmount")}
+                      {checkoutMutation.isPending
+                        ? t("load.checkoutQrBuilding")
+                        : t("load.checkoutShowQr")}
                     </Button>
                   </div>
                 )}

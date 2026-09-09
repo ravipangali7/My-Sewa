@@ -827,14 +827,14 @@ export const messages = {
     "load.pageTitle": "Load Wallet",
     "load.checkoutTitle": "Himal Pay Deposit",
     "load.checkoutHelp":
-      "Deposit to your MySewa wallet with the existing Himal Pay / N-Cash Payin. Scan the QR from Himal Pay, your bank, or another supported banking app. Your wallet is credited only after Himal Pay confirms the payment.",
+      "Scan this Himal Pay QR from another bank, eSewa, or Himal Pay app to load your wallet.",
     "load.checkoutPay": "Pay with N-Cash",
     "load.checkoutShowQr": "Show Himal Pay QR",
     "load.checkoutQrReady": "Himal Pay QR is ready. Scan to pay.",
     "load.checkoutQrHelp":
-      "Enter the amount, then scan the Himal Pay QR from Himal Pay / N-Cash, a bank app, or another supported banking app.",
+      "Scan this Himal Pay QR from another bank or eSewa app to load your wallet.",
     "load.checkoutQrScan":
-      "Scan this Himal Pay QR with Himal Pay / N-Cash, your bank, or another supported banking app.",
+      "Scan this QR with another phone’s banking or eSewa app. Your wallet is credited after Himal Pay confirms the payment.",
     "load.checkoutQrAlt": "Himal Pay deposit QR",
     "load.checkoutQrBuilding": "Preparing QR…",
     "load.checkoutOpenPay": "Open Himal Pay",
@@ -2104,14 +2104,14 @@ export const messages = {
     "load.pageTitle": "वालेट लोड",
     "load.checkoutTitle": "Himal Pay जम्मा",
     "load.checkoutHelp":
-      "अहिलेकै Himal Pay / N-Cash Payin बाट MySewa वालेटमा रकम जम्मा गर्नुहोस्। Himal Pay, बैंक, वा अन्य समर्थित बैंकिङ एपबाट QR स्क्यान गर्नुहोस्। Himal Pay ले भुक्तानी पुष्टि गरेपछि मात्र वालेटमा रकम थपिन्छ।",
+      "यो Himal Pay QR अर्को बैंक, ईसेवा, वा Himal Pay एपबाट स्क्यान गरेर वालेट लोड गर्नुहोस्।",
     "load.checkoutPay": "N-Cash बाट तिर्नुहोस्",
     "load.checkoutShowQr": "Himal Pay QR देखाउनुहोस्",
     "load.checkoutQrReady": "Himal Pay QR तयार छ। स्क्यान गरेर तिर्नुहोस्।",
     "load.checkoutQrHelp":
-      "रकम लेख्नुहोस्, त्यसपछि Himal Pay / N-Cash, बैंक एप, वा अन्य समर्थित बैंकिङ एपबाट Himal Pay QR स्क्यान गर्नुहोस्।",
+      "यो Himal Pay QR अर्को बैंक वा ईसेवा एपबाट स्क्यान गरेर वालेट लोड गर्नुहोस्।",
     "load.checkoutQrScan":
-      "यो Himal Pay QR Himal Pay / N-Cash, बैंक, वा अन्य समर्थित बैंकिङ एपबाट स्क्यान गर्नुहोस्।",
+      "यो QR अर्को फोनको बैंकिङ वा ईसेवा एपबाट स्क्यान गर्नुहोस्। Himal Pay ले भुक्तानी पुष्टि गरेपछि वालेटमा रकम थपिन्छ।",
     "load.checkoutQrAlt": "Himal Pay जम्मा QR",
     "load.checkoutQrBuilding": "QR तयार हुँदै…",
     "load.checkoutOpenPay": "Himal Pay खोल्नुहोस्",
