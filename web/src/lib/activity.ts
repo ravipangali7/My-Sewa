@@ -99,7 +99,9 @@ export function buildActivity(
       subtitle:
         d.status === "rejected" && d.rejection_reason
           ? t("activity.rejected", { reason: d.rejection_reason })
-          : (d.note ?? t("activity.walletLoad")),
+          : d.provider === "himalpay_checkout"
+            ? t("load.checkoutProvider")
+            : (d.note ?? t("activity.walletLoad")),
       amount: d.amount,
       credit: true,
       status: d.status,
@@ -393,13 +395,17 @@ export function buildActivityStatement(
     const reference = `#${d.id}`;
     const details: StatementRow[] = [];
     pushDetail(details, t("history.referenceCode"), reference, { mono: true });
-    pushDetail(details, t("common.txnId"), d.transaction_id?.trim() || "—", { mono: true });
+    pushDetail(details, t("common.txnId"), d.process_id?.trim() || d.transaction_id?.trim() || "—", { mono: true });
     pushDetail(details, t("history.dateTime"), formatDateTime(d.created_at));
     if (d.deposit_date) {
       pushDetail(details, t("load.depositDate"), formatDate(d.deposit_date));
     }
     pushDetail(details, t("history.channel"), t("history.channelOnline"));
-    pushDetail(details, t("history.serviceName"), t("notif.typeDeposit"));
+    pushDetail(
+      details,
+      t("history.serviceName"),
+      d.provider === "himalpay_checkout" ? t("load.checkoutProvider") : t("notif.typeDeposit"),
+    );
     pushDetail(details, t("common.status"), translateStatus(d.status, t));
     pushDetail(details, t("common.amountNpr"), formatNPR(d.amount));
     pushDetail(details, t("load.paymentMethod"), d.bank_name?.trim() || "—");

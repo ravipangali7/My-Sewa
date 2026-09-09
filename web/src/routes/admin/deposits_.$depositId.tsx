@@ -101,7 +101,24 @@ function DepositDetailPage() {
   });
 
   const d = depositQuery.data;
-  const actionPending = approveMutation.isPending || rejectMutation.isPending;
+  const isCheckout = d?.provider === "himalpay_checkout";
+  const canManualApprove =
+    d?.status === "pending" && (!isCheckout || d.verification_status === "mismatch");
+  const canReject = d?.status === "pending" || d?.status === "processing";
+
+  const verifyMutation = useMutation({
+    mutationFn: () => apiClient.adminVerifyCheckoutDeposit(id),
+    onSuccess: (res) => {
+      toast.success(res.message || "Checkout status refreshed");
+      invalidateDepositQueries();
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Verify failed");
+    },
+  });
+
+  const actionPending =
+    approveMutation.isPending || rejectMutation.isPending || verifyMutation.isPending;
   const accountName = d ? depositDisplayName(d) : "";
 
   const submitReject = () => {
@@ -115,31 +132,42 @@ function DepositDetailPage() {
 
   return (
     <AdminShell
-      title={d ? `Manual Deposit #${d.id}` : "Manual Deposit"}
+      title={d ? `Deposit #${d.id}` : "Deposit"}
       description={
         d
-          ? "Wallet load request"
+          ? isCheckout
+            ? "Himal Pay Checkout wallet deposit"
+            : "Manual wallet load request"
           : depositQuery.isLoading
             ? "Loading…"
             : "Not found"
       }
       actions={
-        d?.status === "pending" ? (
+        d && (canManualApprove || canReject || isCheckout) ? (
           <div className="flex shrink-0 items-center gap-2 [&>*]:shrink-0">
-            <Button size="sm" disabled={actionPending} onClick={() => approveMutation.mutate()}>
-              Approve
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={actionPending}
-              onClick={() => {
-                setRejectionReason("");
-                setRejectOpen(true);
-              }}
-            >
-              Reject
-            </Button>
+            {isCheckout ? (
+              <Button size="sm" variant="outline" disabled={actionPending} onClick={() => verifyMutation.mutate()}>
+                Verify with Himal Pay
+              </Button>
+            ) : null}
+            {canManualApprove ? (
+              <Button size="sm" disabled={actionPending} onClick={() => approveMutation.mutate()}>
+                Approve
+              </Button>
+            ) : null}
+            {canReject ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={actionPending}
+                onClick={() => {
+                  setRejectionReason("");
+                  setRejectOpen(true);
+                }}
+              >
+                Reject
+              </Button>
+            ) : null}
           </div>
         ) : undefined
       }
@@ -213,9 +241,28 @@ function DepositDetailPage() {
                   Transaction
                 </h3>
                 <dl>
-                  <StatementRow label="Type">Manual wallet load</StatementRow>
+                  <StatementRow label="Type">
+                    {d.provider === "himalpay_checkout"
+                      ? "Himal Pay Checkout"
+                      : "Manual wallet load"}
+                  </StatementRow>
+                  <StatementRow label="Provider">
+                    {d.provider === "himalpay_checkout" ? "Himal Pay" : "Manual"}
+                  </StatementRow>
+                  <StatementRow label="Internal order ID">
+                    {d.purchase_order_identifier?.trim() || "—"}
+                  </StatementRow>
+                  <StatementRow label="Provider process ID">
+                    {d.process_id?.trim() || "—"}
+                  </StatementRow>
                   <StatementRow label="Transaction ID">
                     {d.transaction_id?.trim() || "—"}
+                  </StatementRow>
+                  <StatementRow label="Verification">
+                    {d.verification_status || "—"}
+                  </StatementRow>
+                  <StatementRow label="Verified amount">
+                    {d.verified_amount != null ? formatNPR(d.verified_amount) : "—"}
                   </StatementRow>
                   <StatementRow label="Deposit date">
                     {d.deposit_date ? formatDate(d.deposit_date) : "—"}
@@ -223,7 +270,13 @@ function DepositDetailPage() {
                   <StatementRow label="Payment method">{d.bank_name?.trim() || "—"}</StatementRow>
                   <StatementRow label="Status">{d.status_display}</StatementRow>
                   <StatementRow label="Submitted">{formatDateTime(d.created_at)}</StatementRow>
+                  <StatementRow label="Completed">
+                    {d.completed_at ? formatDateTime(d.completed_at) : "—"}
+                  </StatementRow>
                   <StatementRow label="Updated">{formatDateTime(d.updated_at)}</StatementRow>
+                  {d.failure_reason ? (
+                    <StatementRow label="Failure reason">{d.failure_reason}</StatementRow>
+                  ) : null}
                   <StatementRow label="Before Wallet Balance">
                     {d.balance_before != null ? formatNPR(d.balance_before) : "—"}
                   </StatementRow>

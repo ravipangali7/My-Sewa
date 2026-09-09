@@ -163,6 +163,9 @@ const DEFAULT_CONFIG: AppConfig = {
     himalpay_portal_phone: "",
     himalpay_portal_email: "",
     himalpay_portal_password: "",
+    himalpay_checkout_api_key: "",
+    himalpay_checkout_base_url: "https://api.himalpay.com.np/api/v1",
+    himalpay_checkout_return_url: "",
   },
   smtp: {
     enabled: true,
@@ -563,6 +566,12 @@ function SettingsPage() {
         DEFAULT_CONFIG.integrations!.himalpay_base_url,
       himalpay_portal_phone: config.integrations?.himalpay_portal_phone ?? "",
       himalpay_portal_email: config.integrations?.himalpay_portal_email ?? "",
+      himalpay_checkout_api_key: config.integrations?.himalpay_checkout_api_key ?? "",
+      himalpay_checkout_base_url:
+        config.integrations?.himalpay_checkout_base_url ||
+        DEFAULT_CONFIG.integrations!.himalpay_checkout_base_url ||
+        "",
+      himalpay_checkout_return_url: config.integrations?.himalpay_checkout_return_url ?? "",
       ...(portalPassword && portalPassword !== "••••••••"
         ? { himalpay_portal_password: portalPassword }
         : {}),
@@ -1574,6 +1583,87 @@ function SettingsPage() {
                         ? "Testing…"
                         : "Test HimalPay connection"}
                     </Button>
+                  </div>
+                </div>
+              </SettingsPanel>
+
+              <SettingsPanel
+                title="HimalPay Checkout (wallet deposit)"
+                description="N-Cash Merchant Checkout API for loading user wallets. Uses X-Checkout-API-Key — not the reseller X-API-Key. Generate the key in the N-Cash merchant portal under API Keys → Web Checkout. Wallet credit happens only after server-side POST /checkout/checkout-status."
+                onSave={saveHimalpay}
+                saving={saving}
+              >
+                <div className="grid gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="himalpay_checkout_api_key">Checkout API key</Label>
+                    <PasswordInput
+                      id="himalpay_checkout_api_key"
+                      revealLabel="Checkout API key"
+                      autoComplete="off"
+                      placeholder="mck_xxxxxxxxxxxxxxxx"
+                      value={config.integrations?.himalpay_checkout_api_key ?? ""}
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          integrations: {
+                            ...c.integrations!,
+                            himalpay_checkout_api_key: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Server-side only. Never shipped to the app or browser.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="himalpay_checkout_base_url">Checkout API base URL</Label>
+                    <Input
+                      id="himalpay_checkout_base_url"
+                      type="url"
+                      placeholder="https://api.himalpay.com.np/api/v1"
+                      value={
+                        config.integrations?.himalpay_checkout_base_url ||
+                        DEFAULT_CONFIG.integrations!.himalpay_checkout_base_url ||
+                        ""
+                      }
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          integrations: {
+                            ...c.integrations!,
+                            himalpay_checkout_base_url: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      LIVE default: https://api.himalpay.com.np/api/v1. UAT docs list
+                      https://uatapi.himalpay.com.np/api/v1. Confirm with Himal Pay if LIVE
+                      checkout paths differ.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="himalpay_checkout_return_url">Return URL (optional)</Label>
+                    <Input
+                      id="himalpay_checkout_return_url"
+                      type="url"
+                      placeholder="https://your-app.example/app/checkout-return"
+                      value={config.integrations?.himalpay_checkout_return_url ?? ""}
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          integrations: {
+                            ...c.integrations!,
+                            himalpay_checkout_return_url: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Defaults to FRONTEND_URL/app/checkout-return. Himal Pay Checkout does not
+                      document a webhook or HMAC — verification is always checkout-status.
+                    </p>
                   </div>
                 </div>
               </SettingsPanel>

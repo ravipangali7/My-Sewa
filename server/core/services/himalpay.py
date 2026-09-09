@@ -182,10 +182,16 @@ def assess_inbound_bank_qr_capability(services: Optional[List] = None) -> Dict[s
             f'services, so MySewa will not call them. '
             f'{INBOUND_BANK_QR_UNSUPPORTED_REASON}'
         )
+    checkout_configured = False
+    try:
+        from .himalpay_checkout import is_checkout_configured
+        checkout_configured = is_checkout_configured()
+    except Exception:
+        checkout_configured = False
     return {
         'supported': False,
         'reason': reason,
-        'checkout_api_configured': False,
+        'checkout_api_configured': checkout_configured,
         'hinted_service_names': hinted,
     }
 

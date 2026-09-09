@@ -41,10 +41,14 @@ export const RADII = {
 /** Status → semantic token name, shared by both portals */
 export const STATUS_TONE = {
   pending: "warning",
+  processing: "warning",
   approved: "success",
   success: "success",
   rejected: "danger",
   failed: "danger",
+  expired: "danger",
+  cancelled: "danger",
+  refunded: "danger",
   not_submitted: "warning",
 } as const;
 

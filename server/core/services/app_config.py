@@ -376,15 +376,26 @@ def get_himalpay_credentials() -> Dict[str, str]:
     }
 
 
+def checkout_enabled_for_public() -> bool:
+    """True when a Checkout API key is configured (never expose the key)."""
+    from .himalpay_checkout import is_checkout_configured
+    try:
+        return is_checkout_configured()
+    except Exception:
+        return False
+
+
 def public_config(config: Optional[Dict] = None) -> Dict[str, Any]:
     """Config safe to expose on the public settings endpoint."""
     cfg = config or get_app_config()
     notifications = dict(cfg.get('notifications') or {})
     # Hide admin-only contact details from anonymous clients
     notifications.pop('admin_alert_email', None)
+    payment = dict(cfg.get('payment') or {})
+    payment['himalpay_checkout_enabled'] = checkout_enabled_for_public()
     return {
         'site': cfg.get('site') or {},
-        'payment': cfg.get('payment') or {},
+        'payment': payment,
         'transactions': cfg.get('transactions') or {},
         'notifications': {
             'email_on_deposit': bool(notifications.get('email_on_deposit')),

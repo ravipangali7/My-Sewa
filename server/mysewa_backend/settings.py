@@ -282,6 +282,12 @@ HIMALPAY_BASE_URL = os.environ.get(
 HIMALPAY_API_KEY = os.environ.get('HIMALPAY_API_KEY', '').strip()
 HIMALPAY_BYPASS_API = os.environ.get('HIMALPAY_BYPASS_API', 'false').lower() in ('1', 'true', 'yes')
 HIMALPAY_TIMEOUT = int(os.environ.get('HIMALPAY_TIMEOUT', '60'))
+# N-Cash Merchant Checkout (wallet deposit). Distinct from reseller X-API-Key.
+# UAT docs: https://uat.himalpay.com.np/docs/checkout
+# Production host is not listed on the UAT page; default matches reseller LIVE.
+HIMALPAY_CHECKOUT_API_KEY = os.environ.get('HIMALPAY_CHECKOUT_API_KEY', '').strip()
+HIMALPAY_CHECKOUT_BASE_URL = os.environ.get('HIMALPAY_CHECKOUT_BASE_URL', '').strip()
+HIMALPAY_CHECKOUT_RETURN_URL = os.environ.get('HIMALPAY_CHECKOUT_RETURN_URL', '').strip()
 # Key loading priority (in order):
 # 1. service hub api/Private key.txt (workspace root) - PRIMARY LOCATION for updated keys
 # 2. SERVICE_HUB_PRIVATE_KEY_PATH (if set and file exists)

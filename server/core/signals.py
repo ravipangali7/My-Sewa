@@ -26,6 +26,8 @@ def handle_deposit_approval(sender, instance, **kwargs):
             old_instance = Deposit.objects.get(pk=instance.pk)
             # If status changed from non-approved to approved
             if old_instance.status != 'approved' and instance.status == 'approved':
+                if getattr(old_instance, 'balance_after', None) is not None:
+                    return
                 with transaction.atomic():
                     wallet = Wallet.objects.select_for_update().get(user=instance.user)
                     from .services.wallet_guard import WalletFrozenError, WALLET_FROZEN_MESSAGE

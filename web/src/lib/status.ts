@@ -2,10 +2,14 @@ import type { MessageKey, TranslateFn } from "./i18n";
 
 const STATUS_LABEL: Record<string, MessageKey> = {
   pending: "status.pending",
+  processing: "status.processing",
   approved: "status.approved",
   rejected: "status.rejected",
   success: "status.success",
   failed: "status.failed",
+  expired: "status.expired",
+  cancelled: "status.cancelled",
+  refunded: "status.refunded",
   not_submitted: "status.notSubmitted",
 };
 

@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 
-export type ListStatus = "all" | "pending" | "success" | "failed" | "approved" | "rejected";
+export type ListStatus =
+  | "all"
+  | "pending"
+  | "success"
+  | "failed"
+  | "approved"
+  | "rejected"
+  | "expired"
+  | "cancelled"
+  | "processing";
 
 export type ListFilters = {
   q: string;
@@ -26,6 +35,9 @@ export const DEPOSIT_STATUS_OPTIONS: StatusOption[] = [
   { value: "pending", label: "Pending" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
+  { value: "failed", label: "Failed" },
+  { value: "expired", label: "Expired" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 function normalizeFilters(next: Partial<ListFilters>): ListFilters {

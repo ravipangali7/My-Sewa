@@ -997,6 +997,11 @@ def default_app_config():
             'himalpay_portal_phone': '',
             'himalpay_portal_email': '',
             'himalpay_portal_password': '',
+            # N-Cash Merchant Checkout (wallet deposit / payin). Distinct from
+            # reseller X-API-Key. Generate under merchant portal → Web Checkout.
+            'himalpay_checkout_api_key': '',
+            'himalpay_checkout_base_url': 'https://api.himalpay.com.np/api/v1',
+            'himalpay_checkout_return_url': '',
         },
         'smtp': {
             'enabled': True,
@@ -1233,16 +1238,83 @@ class DealerPayoutAccount(models.Model):
 
 
 class Deposit(models.Model):
-    """User deposit requests"""
+    """User deposit requests (manual proof + Himal Pay Checkout payin)."""
+    STATUS_PENDING = 'pending'
+    STATUS_PROCESSING = 'processing'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_FAILED = 'failed'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_EXPIRED = 'expired'
+    STATUS_REFUNDED = 'refunded'
     STATUS_CHOICES = [
-        ('pending', 'Pending'),
-        ('approved', 'Approved'),
-        ('rejected', 'Rejected'),
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_CANCELLED, 'Cancelled'),
+        (STATUS_EXPIRED, 'Expired'),
+        (STATUS_REFUNDED, 'Refunded'),
+    ]
+
+    PROVIDER_MANUAL = 'manual'
+    PROVIDER_HIMALPAY_CHECKOUT = 'himalpay_checkout'
+    PROVIDER_CHOICES = [
+        (PROVIDER_MANUAL, 'Manual'),
+        (PROVIDER_HIMALPAY_CHECKOUT, 'Himal Pay Checkout'),
+    ]
+
+    VERIFY_UNVERIFIED = 'unverified'
+    VERIFY_VERIFIED = 'verified'
+    VERIFY_MISMATCH = 'mismatch'
+    VERIFY_FAILED = 'failed'
+    VERIFICATION_CHOICES = [
+        (VERIFY_UNVERIFIED, 'Unverified'),
+        (VERIFY_VERIFIED, 'Verified'),
+        (VERIFY_MISMATCH, 'Amount / order mismatch'),
+        (VERIFY_FAILED, 'Verification failed'),
     ]
 
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='deposits')
     amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
+    currency = models.CharField(max_length=10, blank=True, default='NPR')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    provider = models.CharField(
+        max_length=32,
+        choices=PROVIDER_CHOICES,
+        default=PROVIDER_MANUAL,
+        db_index=True,
+        help_text='manual = screenshot proof; himalpay_checkout = N-Cash Merchant Checkout',
+    )
+    purchase_order_identifier = models.CharField(
+        max_length=120,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text='Globally unique Checkout purchase_order_identifier',
+    )
+    process_id = models.CharField(
+        max_length=64,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text='Himal Pay Checkout process_id',
+    )
+    payment_url = models.TextField(blank=True, default='')
+    expires_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    verification_status = models.CharField(
+        max_length=20,
+        choices=VERIFICATION_CHOICES,
+        default=VERIFY_UNVERIFIED,
+        db_index=True,
+    )
+    verified_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+    )
+    provider_payload = models.JSONField(default=dict, blank=True)
+    failure_reason = models.TextField(blank=True, default='')
     payout_account = models.ForeignKey(
         'DealerPayoutAccount',
         on_delete=models.SET_NULL,

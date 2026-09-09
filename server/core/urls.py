@@ -160,6 +160,26 @@ urlpatterns = [
     path('api/deposit/create/', deposit_views.create_deposit, name='create_deposit'),
     path('api/deposit/list/', deposit_views.list_deposits, name='list_deposits'),
     path('api/deposit/destinations/', payout_views.deposit_destinations, name='deposit_destinations'),
+    path(
+        'api/deposit/checkout/initiate/',
+        deposit_views.checkout_initiate,
+        name='deposit_checkout_initiate',
+    ),
+    path(
+        'api/deposit/checkout/verify/',
+        deposit_views.checkout_verify,
+        name='deposit_checkout_verify',
+    ),
+    path(
+        'api/deposit/checkout/return/',
+        deposit_views.checkout_return,
+        name='deposit_checkout_return',
+    ),
+    path(
+        'api/deposit/checkout/webhook/',
+        deposit_views.checkout_webhook,
+        name='deposit_checkout_webhook',
+    ),
     path('api/deposit/<int:deposit_id>/', deposit_views.get_deposit, name='get_deposit'),
 
     # KYC endpoints (multi-document identity verification)
@@ -304,6 +324,11 @@ urlpatterns = [
     path('api/admin/deposits/<int:deposit_id>/', admin_views.admin_get_deposit, name='admin_get_deposit'),
     path('api/admin/deposits/<int:deposit_id>/approve/', admin_views.admin_approve_deposit, name='admin_approve_deposit'),
     path('api/admin/deposits/<int:deposit_id>/reject/', admin_views.admin_reject_deposit, name='admin_reject_deposit'),
+    path(
+        'api/admin/deposits/<int:deposit_id>/verify-checkout/',
+        admin_views.admin_verify_checkout_deposit,
+        name='admin_verify_checkout_deposit',
+    ),
     path('api/admin/payout-accounts/', payout_views.admin_payout_accounts, name='admin_payout_accounts'),
     path(
         'api/admin/payout-accounts/<int:account_id>/',

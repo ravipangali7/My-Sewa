@@ -137,38 +137,83 @@ function DepositsPage() {
     rejectMutation.mutate({ id: rejectTarget.id, rejection_reason: reason });
   };
 
-  const actionPending = approveMutation.isPending || rejectMutation.isPending;
+  const verifyMutation = useMutation({
+    mutationFn: (id: number) => apiClient.adminVerifyCheckoutDeposit(id),
+    onSuccess: (res) => {
+      toast.success(res.message || "Checkout status refreshed");
+      invalidateDepositQueries();
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not verify checkout deposit");
+    },
+  });
+
+  const actionPending =
+    approveMutation.isPending || rejectMutation.isPending || verifyMutation.isPending;
 
   const openDeposit = (id: number) => {
     navigate({ to: "/admin/deposits/$depositId", params: { depositId: String(id) } });
   };
 
-  const depositActions = (d: Deposit) =>
-    d.status === "pending" ? (
-      <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          disabled={actionPending}
-          onClick={(e) => {
-            e.stopPropagation();
-            approveMutation.mutate(d.id);
-          }}
-        >
-          Approve
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={actionPending}
-          onClick={(e) => {
-            e.stopPropagation();
-            openRejectDialog(d);
-          }}
-        >
-          Reject
-        </Button>
-      </div>
-    ) : (
+  const depositActions = (d: Deposit) => {
+    const isCheckout = d.provider === "himalpay_checkout";
+    const canManualApprove =
+      d.status === "pending" && (!isCheckout || d.verification_status === "mismatch");
+    const canReject = d.status === "pending" || d.status === "processing";
+    if (canManualApprove || canReject || isCheckout) {
+      return (
+        <div className="flex flex-wrap gap-2">
+          {isCheckout ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={actionPending}
+              onClick={(e) => {
+                e.stopPropagation();
+                verifyMutation.mutate(d.id);
+              }}
+            >
+              Verify
+            </Button>
+          ) : null}
+          {canManualApprove ? (
+            <Button
+              size="sm"
+              disabled={actionPending}
+              onClick={(e) => {
+                e.stopPropagation();
+                approveMutation.mutate(d.id);
+              }}
+            >
+              Approve
+            </Button>
+          ) : null}
+          {canReject ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={actionPending}
+              onClick={(e) => {
+                e.stopPropagation();
+                openRejectDialog(d);
+              }}
+            >
+              Reject
+            </Button>
+          ) : (
+            <Link
+              to="/admin/deposits/$depositId"
+              params={{ depositId: String(d.id) }}
+              className="text-sm text-brand hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View details
+            </Link>
+          )}
+        </div>
+      );
+    }
+    return (
       <Link
         to="/admin/deposits/$depositId"
         params={{ depositId: String(d.id) }}
@@ -178,6 +223,7 @@ function DepositsPage() {
         View details
       </Link>
     );
+  };
 
   const proofThumb = (d: Deposit) =>
     d.screenshot_proof ? (
@@ -264,7 +310,8 @@ function DepositsPage() {
                 <TableHead className="w-10 pr-0">S.N.</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>User phone</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Provider</TableHead>
                 <TableHead>Txn ID</TableHead>
                 <TableHead>Screenshot proof</TableHead>
                 <TableHead>Remarks</TableHead>
@@ -288,8 +335,11 @@ function DepositsPage() {
                   <TableCell className="tabular text-right text-sm font-semibold">
                     {formatNPR(d.amount)}
                   </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {d.provider === "himalpay_checkout" ? "Himal Pay" : "Manual"}
+                  </TableCell>
                   <TableCell className="max-w-36 truncate text-sm text-muted-foreground">
-                    {d.transaction_id || "—"}
+                    {d.process_id || d.transaction_id || "—"}
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>{proofThumb(d)}</TableCell>
                   <TableCell className="max-w-55 text-sm text-muted-foreground">

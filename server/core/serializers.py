@@ -1270,7 +1270,10 @@ class DepositSerializer(serializers.ModelSerializer):
         model = Deposit
         fields = (
             'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
-            'amount', 'status', 'status_display',
+            'amount', 'currency', 'status', 'status_display',
+            'provider', 'purchase_order_identifier', 'process_id',
+            'payment_url', 'expires_at', 'completed_at',
+            'verification_status', 'verified_amount', 'failure_reason',
             'transaction_id', 'deposit_date', 'bank_name',
             'payout_account', 'payout_account_id',
             'screenshot_proof', 'note', 'rejection_reason',
@@ -1278,6 +1281,10 @@ class DepositSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             'id', 'user', 'status', 'rejection_reason',
+            'provider', 'purchase_order_identifier', 'process_id',
+            'payment_url', 'expires_at', 'completed_at',
+            'verification_status', 'verified_amount', 'failure_reason',
+            'currency',
             'balance_before', 'balance_after', 'created_at', 'updated_at',
         )
 
@@ -1518,6 +1525,8 @@ class SettingsSerializer(serializers.ModelSerializer):
             else:
                 integrations['himalpay_portal_password'] = ''
                 integrations['himalpay_portal_password_set'] = False
+            checkout_key = str(integrations.get('himalpay_checkout_api_key') or '').strip()
+            integrations['himalpay_checkout_api_key_set'] = bool(checkout_key)
             config['integrations'] = integrations
         except Exception:
             pass

@@ -2116,8 +2116,16 @@ def admin_list_deposits(request):
     q = (request.query_params.get('q') or '').strip()
     start, end = _parse_date_range(request)
     status_filter = request.query_params.get('status')
-    if status_filter in ('pending', 'approved', 'rejected'):
+    if status_filter in (
+        'pending', 'processing', 'approved', 'rejected',
+        'failed', 'cancelled', 'expired', 'refunded',
+    ):
         qs = qs.filter(status=status_filter)
+    elif status_filter == 'success':
+        qs = qs.filter(status='approved')
+    provider_filter = (request.query_params.get('provider') or '').strip()
+    if provider_filter in ('manual', 'himalpay_checkout'):
+        qs = qs.filter(provider=provider_filter)
     if q:
         qs = qs.filter(
             Q(user__phone__icontains=q)
@@ -2125,6 +2133,9 @@ def admin_list_deposits(request):
             | Q(bank_name__icontains=q)
             | Q(note__icontains=q)
             | Q(rejection_reason__icontains=q)
+            | Q(purchase_order_identifier__icontains=q)
+            | Q(process_id__icontains=q)
+            | Q(failure_reason__icontains=q)
             | _maybe_id_query(q, 'id')
         )
     qs = _apply_created_range(qs, start, end)
@@ -2133,28 +2144,39 @@ def admin_list_deposits(request):
         return _csv_response(
             'admin-deposits.csv',
             [
-                'id', 'phone', 'amount', 'transaction_id', 'deposit_date', 'bank_name',
-                'status', 'note', 'rejection_reason', 'created_at', 'updated_at',
+                'id', 'phone', 'amount', 'currency', 'provider',
+                'purchase_order_identifier', 'process_id',
+                'transaction_id', 'deposit_date', 'bank_name',
+                'status', 'verification_status', 'verified_amount',
+                'failure_reason', 'note', 'rejection_reason',
+                'created_at', 'completed_at', 'updated_at',
             ],
             [
                 [
-                    d.id, d.user.phone, d.amount, d.transaction_id or '',
+                    d.id, d.user.phone, d.amount, d.currency or '', d.provider or '',
+                    d.purchase_order_identifier or '', d.process_id or '',
+                    d.transaction_id or '',
                     d.deposit_date.isoformat() if d.deposit_date else '',
-                    d.bank_name or '', d.status, d.note or '', d.rejection_reason or '',
+                    d.bank_name or '', d.status, d.verification_status or '',
+                    d.verified_amount or '', d.failure_reason or '',
+                    d.note or '', d.rejection_reason or '',
                     d.created_at.isoformat() if d.created_at else '',
+                    d.completed_at.isoformat() if d.completed_at else '',
                     d.updated_at.isoformat() if d.updated_at else '',
                 ]
                 for d in qs
             ],
         )
 
+    pending_statuses = ('pending', 'processing')
+    failed_statuses = ('rejected', 'failed', 'cancelled', 'expired', 'refunded')
     return Response({
         'items': DepositSerializer(qs, many=True, context={'request': request}).data,
         'stats': {
             'total': qs.count(),
             'success': qs.filter(status='approved').count(),
-            'pending': qs.filter(status='pending').count(),
-            'failed': qs.filter(status='rejected').count(),
+            'pending': qs.filter(status__in=pending_statuses).count(),
+            'failed': qs.filter(status__in=failed_statuses).count(),
         },
         'summary': _amount_summary(qs, success_status='approved', direction='credit'),
     })
@@ -2178,7 +2200,20 @@ def admin_approve_deposit(request, deposit_id):
     except Deposit.DoesNotExist:
         return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if deposit.status != 'pending':
+    is_checkout = getattr(deposit, 'provider', 'manual') == Deposit.PROVIDER_HIMALPAY_CHECKOUT
+    is_mismatch = getattr(deposit, 'verification_status', '') == Deposit.VERIFY_MISMATCH
+    if is_checkout and not is_mismatch:
+        return Response(
+            {
+                'error': (
+                    'Himal Pay Checkout deposits are credited only after '
+                    'server-side checkout-status verification.'
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    allowed = ('pending', 'failed') if is_checkout and is_mismatch else ('pending',)
+    if deposit.status not in allowed:
         return Response(
             {'error': f'Deposit is already {deposit.status}'},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2212,7 +2247,7 @@ def admin_reject_deposit(request, deposit_id):
     except Deposit.DoesNotExist:
         return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if deposit.status != 'pending':
+    if deposit.status not in ('pending', 'processing'):
         return Response(
             {'error': f'Deposit is already {deposit.status}'},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2230,6 +2265,35 @@ def admin_reject_deposit(request, deposit_id):
     deposit.save()
     return Response({
         'message': 'Deposit rejected',
+        'data': DepositSerializer(deposit, context={'request': request}).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_verify_checkout_deposit(request, deposit_id):
+    """Re-run Himal Pay checkout-status verification for a checkout deposit."""
+    try:
+        deposit = Deposit.objects.select_related('user').get(pk=deposit_id)
+    except Deposit.DoesNotExist:
+        return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
+    if deposit.provider != Deposit.PROVIDER_HIMALPAY_CHECKOUT:
+        return Response(
+            {'error': 'Not a Himal Pay Checkout deposit'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    from ..services.checkout_deposit import verify_deposit
+    from ..services.himalpay import HimalPayError
+    try:
+        outcome, deposit = verify_deposit(deposit)
+    except HimalPayError as exc:
+        return Response(
+            {'error': str(exc.message or exc), 'message': str(exc.message or exc)},
+            status=exc.status_code or status.HTTP_400_BAD_REQUEST,
+        )
+    return Response({
+        'message': 'Checkout status refreshed',
+        'outcome': outcome,
         'data': DepositSerializer(deposit, context={'request': request}).data,
     })
 
@@ -3402,6 +3466,7 @@ def admin_settings(request):
                                 (current.get(section) or {}).get('himalpay_portal_password') or ''
                             )
                         merged_integ.pop('himalpay_portal_password_set', None)
+                        merged_integ.pop('himalpay_checkout_api_key_set', None)
                         current[section] = merged_integ
                     else:
                         current[section] = {**(current.get(section) or {}), **values}

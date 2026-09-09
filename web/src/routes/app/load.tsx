@@ -79,13 +79,13 @@ function destinationBucket(
 export const Route = createFileRoute("/app/load")({
   head: () => ({
     meta: [
-      { title: "Manual Wallet Load — MySewa" },
+      { title: "Load Wallet — MySewa" },
       {
         name: "description",
         content:
-          "Fund your MySewa business wallet: transfer to the deposit account, then submit transaction details with payment screenshot.",
+          "Load your MySewa wallet with Himal Pay / N-Cash Checkout or submit a manual deposit with payment proof.",
       },
-      { property: "og:title", content: "Manual Wallet Load — MySewa" },
+      { property: "og:title", content: "Load Wallet — MySewa" },
       {
         property: "og:description",
         content: "Submit a manual wallet load request with proof and track approval status.",
@@ -127,6 +127,7 @@ function LoadWallet() {
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [destSource, setDestSource] = useState<DestSource>("platform");
+  const [checkoutAmount, setCheckoutAmount] = useState("");
 
   const destQuery = useQuery({
     queryKey: ["deposit-destinations"],
@@ -157,6 +158,7 @@ function LoadWallet() {
   const requireScreenshot = security?.require_deposit_screenshot !== false;
   const minDeposit = payment?.min_deposit ?? 100;
   const maxDeposit = payment?.max_deposit ?? 100000;
+  const checkoutEnabled = payment?.himalpay_checkout_enabled === true;
   const instructions = payment?.deposit_instructions?.trim() || "";
   const canChooseDealer =
     destQuery.data?.can_use_dealer ??
@@ -244,9 +246,39 @@ function LoadWallet() {
     },
   });
 
+  const checkoutMutation = useMutation({
+    mutationFn: async () => {
+      if (accountPending) throw new Error(t("account.pending"));
+      if (walletFrozen) throw new Error(t("account.walletFrozen"));
+      if (!depositsEnabled) throw new Error(t("load.disabledError"));
+      const amt = Number(checkoutAmount);
+      if (!Number.isFinite(amt) || amt <= 0) throw new Error(t("load.validAmount"));
+      if (amt < minDeposit) throw new Error(t("load.minError", { min: minDeposit }));
+      if (maxDeposit > 0 && amt > maxDeposit)
+        throw new Error(t("load.maxError", { max: maxDeposit }));
+      if (amt < 10) throw new Error(t("load.checkoutMinError"));
+      return apiClient.checkoutInitiate({ amount: amt });
+    },
+    onSuccess: (res) => {
+      toast.success(t("load.checkoutRedirecting"));
+      queryClient.invalidateQueries({ queryKey: ["deposits"] });
+      const url = res.payment_url;
+      if (url) {
+        window.location.href = url;
+      }
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : t("load.checkoutFailed"),
+      );
+    },
+  });
+
   return (
     <UserShell
-      title={t("load.title")}
+      title={t("load.pageTitle")}
       back="/app"
       headerTrailing={
         <Button
@@ -280,6 +312,44 @@ function LoadWallet() {
 
         {depositsEnabled ? (
           <>
+            {checkoutEnabled ? (
+              <section className="inset-group min-w-0 max-w-full p-4 lg:col-span-2">
+                <h2 className="mb-1 text-[15px] font-semibold">{t("load.checkoutTitle")}</h2>
+                <p className="mb-3 text-[13px] text-muted-foreground">{t("load.checkoutHelp")}</p>
+                <form
+                  className="space-y-4"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    checkoutMutation.mutate();
+                  }}
+                >
+                  <div className="space-y-1.5">
+                    <Label htmlFor="checkout_amount">{t("load.depositedAmount")}</Label>
+                    <Input
+                      id="checkout_amount"
+                      inputMode="decimal"
+                      placeholder={t("common.amountPlaceholder")}
+                      value={checkoutAmount}
+                      onChange={(e) => setCheckoutAmount(e.target.value)}
+                      className="tabular h-12 rounded-xl text-[22px] font-semibold"
+                      required
+                    />
+                    <p className="text-[12px] text-muted-foreground">
+                      {t("common.minMax", { min: minDeposit, max: maxDeposit })}
+                    </p>
+                  </div>
+                  <Button
+                    type="submit"
+                    className="h-12 w-full rounded-xl"
+                    disabled={checkoutMutation.isPending}
+                  >
+                    {checkoutMutation.isPending
+                      ? t("load.checkoutRedirecting")
+                      : t("load.checkoutPay")}
+                  </Button>
+                </form>
+              </section>
+            ) : null}
             {canChooseDealer ? (
               <div className="lg:col-span-2">
                 <Tabs
@@ -561,16 +631,25 @@ function LoadWallet() {
                         </span>
                       </p>
                       <p className="truncate text-[13px] text-muted-foreground">
-                        {d.transaction_id
-                          ? `${t("common.txnId")}: ${d.transaction_id}`
-                          : t("common.noNote")}
-                        {d.deposit_date ? ` · ${formatDate(d.deposit_date)}` : ""}
+                        {d.provider === "himalpay_checkout"
+                          ? t("load.checkoutProvider")
+                          : d.transaction_id
+                            ? `${t("common.txnId")}: ${d.transaction_id}`
+                            : t("common.noNote")}
+                        {d.purchase_order_identifier
+                          ? ` · ${d.purchase_order_identifier}`
+                          : d.deposit_date
+                            ? ` · ${formatDate(d.deposit_date)}`
+                            : ""}
                         {" · "}
                         {formatDateTime(d.created_at)}
                       </p>
-                      {d.status === "rejected" && d.rejection_reason ? (
+                      {(d.status === "rejected" || d.status === "failed") &&
+                      (d.rejection_reason || d.failure_reason) ? (
                         <p className="mt-0.5 break-words text-[13px] text-destructive">
-                          {t("common.reason", { reason: d.rejection_reason })}
+                          {t("common.reason", {
+                            reason: d.rejection_reason || d.failure_reason || "",
+                          })}
                         </p>
                       ) : null}
                     </div>

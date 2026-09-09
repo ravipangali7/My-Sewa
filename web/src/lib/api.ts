@@ -702,6 +702,33 @@ export const apiClient = {
       `/api/deposit/list/${buildAdminListQuery(filters)}`,
     ),
 
+  checkoutInitiate: (body: { amount: number | string }) =>
+    api<{
+      message: string;
+      payment_url: string;
+      data: import("./types").Deposit;
+    }>("/api/deposit/checkout/initiate/", {
+      method: "POST",
+      body,
+    }),
+
+  checkoutVerify: (body: {
+    id?: number;
+    deposit_id?: number;
+    purchase_order_identifier?: string;
+    order?: string;
+    process_id?: string;
+  }) =>
+    api<{
+      message: string;
+      outcome: string;
+      already_processed?: boolean;
+      data: import("./types").Deposit;
+    }>("/api/deposit/checkout/verify/", {
+      method: "POST",
+      body,
+    }),
+
   calculateCharge: (
     wallet_service_name: "NTC" | "NCELL" | "BANK_TRANSFER" | string,
     amount: number,
@@ -1279,6 +1306,11 @@ export const apiClient = {
     api<{ message: string; data: import("./types").Deposit }>(
       `/api/admin/deposits/${id}/reject/`,
       { method: "POST", body },
+    ),
+  adminVerifyCheckoutDeposit: (id: number) =>
+    api<{ message: string; outcome: string; data: import("./types").Deposit }>(
+      `/api/admin/deposits/${id}/verify-checkout/`,
+      { method: "POST" },
     ),
   adminPayoutAccounts: (filters?: AdminListFilters) =>
     api<{

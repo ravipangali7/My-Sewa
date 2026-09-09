@@ -40,6 +40,7 @@ import { Route as AdminUsersRouteImport } from './routes/admin/users'
 import { Route as AdminWalletsRouteImport } from './routes/admin/wallets'
 import { Route as AdminWaterRouteImport } from './routes/admin/water'
 import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as AppCheckoutReturnRouteImport } from './routes/app/checkout-return'
 import { Route as AppCommunityElectricityRouteImport } from './routes/app/community-electricity'
 import { Route as AppDataTopupRouteImport } from './routes/app/data-topup'
 import { Route as AppElectricityRouteImport } from './routes/app/electricity'
@@ -243,6 +244,11 @@ const AdminWaterRoute = AdminWaterRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/app/',
   path: '/app/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppCheckoutReturnRoute = AppCheckoutReturnRouteImport.update({
+  id: '/app/checkout-return',
+  path: '/app/checkout-return',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppCommunityElectricityRoute = AppCommunityElectricityRouteImport.update({
@@ -521,6 +527,7 @@ export interface FileRoutesByFullPath {
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
+  '/app/checkout-return': typeof AppCheckoutReturnRoute
   '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
   '/app/electricity': typeof AppElectricityRoute
@@ -602,6 +609,7 @@ export interface FileRoutesByTo {
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
+  '/app/checkout-return': typeof AppCheckoutReturnRoute
   '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
   '/app/electricity': typeof AppElectricityRoute
@@ -684,6 +692,7 @@ export interface FileRoutesById {
   '/admin/users': typeof AdminUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
+  '/app/checkout-return': typeof AppCheckoutReturnRoute
   '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
   '/app/electricity': typeof AppElectricityRoute
@@ -767,6 +776,7 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/wallets'
     | '/admin/water'
+    | '/app/checkout-return'
     | '/app/community-electricity'
     | '/app/data-topup'
     | '/app/electricity'
@@ -848,6 +858,7 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/wallets'
     | '/admin/water'
+    | '/app/checkout-return'
     | '/app/community-electricity'
     | '/app/data-topup'
     | '/app/electricity'
@@ -929,6 +940,7 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/wallets'
     | '/admin/water'
+    | '/app/checkout-return'
     | '/app/community-electricity'
     | '/app/data-topup'
     | '/app/electricity'
@@ -1011,6 +1023,7 @@ export interface RootRouteChildren {
   AdminUsersRoute: typeof AdminUsersRoute
   AdminWalletsRoute: typeof AdminWalletsRoute
   AdminWaterRoute: typeof AdminWaterRoute
+  AppCheckoutReturnRoute: typeof AppCheckoutReturnRoute
   AppCommunityElectricityRoute: typeof AppCommunityElectricityRoute
   AppDataTopupRoute: typeof AppDataTopupRoute
   AppElectricityRoute: typeof AppElectricityRoute
@@ -1280,6 +1293,13 @@ declare module '@tanstack/react-router' {
       path: '/app'
       fullPath: '/app/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/checkout-return': {
+      id: '/app/checkout-return'
+      path: '/app/checkout-return'
+      fullPath: '/app/checkout-return'
+      preLoaderRoute: typeof AppCheckoutReturnRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/community-electricity': {
@@ -1651,6 +1671,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminUsersRoute: AdminUsersRoute,
   AdminWalletsRoute: AdminWalletsRoute,
   AdminWaterRoute: AdminWaterRoute,
+  AppCheckoutReturnRoute: AppCheckoutReturnRoute,
   AppCommunityElectricityRoute: AppCommunityElectricityRoute,
   AppDataTopupRoute: AppDataTopupRoute,
   AppElectricityRoute: AppElectricityRoute,

@@ -1,4 +1,14 @@
-export type DepositStatus = "pending" | "approved" | "rejected";
+export type DepositStatus =
+  | "pending"
+  | "processing"
+  | "approved"
+  | "rejected"
+  | "failed"
+  | "cancelled"
+  | "expired"
+  | "refunded";
+export type DepositProvider = "manual" | "himalpay_checkout";
+export type DepositVerificationStatus = "unverified" | "verified" | "mismatch" | "failed";
 /** Denormalized KYC status on the user (mirrors latest submission). */
 export type KycStatus = "not_submitted" | "pending" | "approved" | "rejected";
 export type KycSubmissionStatus = "pending" | "approved" | "rejected";
@@ -201,6 +211,8 @@ export interface PaymentConfig {
   min_deposit: number;
   max_deposit: number;
   deposit_instructions: string;
+  /** True when a Himal Pay Checkout API key is configured server-side. */
+  himalpay_checkout_enabled?: boolean;
 }
 
 export type ChargeType = "flat" | "percent";
@@ -337,6 +349,10 @@ export interface IntegrationsConfig {
   himalpay_portal_phone?: string;
   himalpay_portal_email?: string;
   himalpay_portal_password?: string;
+  himalpay_checkout_api_key?: string;
+  himalpay_checkout_api_key_set?: boolean;
+  himalpay_checkout_base_url?: string;
+  himalpay_checkout_return_url?: string;
 }
 
 export interface SmtpConfig {
@@ -466,8 +482,18 @@ export interface Deposit {
   first_name: string;
   last_name: string;
   amount: string;
+  currency?: string;
   status: DepositStatus;
   status_display: string;
+  provider?: DepositProvider;
+  purchase_order_identifier?: string | null;
+  process_id?: string | null;
+  payment_url?: string;
+  expires_at?: string | null;
+  completed_at?: string | null;
+  verification_status?: DepositVerificationStatus;
+  verified_amount?: string | null;
+  failure_reason?: string | null;
   transaction_id: string;
   deposit_date: string | null;
   bank_name: string;
