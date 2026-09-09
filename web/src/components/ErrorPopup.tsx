@@ -80,7 +80,7 @@ export function ErrorPopup({
               {errorValue ? <DetailBlock label="Error" value={errorValue} /> : null}
               {messageValue ? <DetailBlock label="Message" value={messageValue} /> : null}
               {himapayValue ? (
-                <DetailBlock label="HimaPay Response" value={himapayValue} mono />
+                <DetailBlock label="HimalPay" value={himapayValue} mono />
               ) : null}
             </div>
           ) : (

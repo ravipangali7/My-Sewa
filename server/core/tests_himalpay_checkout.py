@@ -272,6 +272,9 @@ class HimalPayCheckoutDepositTests(TestCase):
         data = body.get('data') or {}
         self.assertEqual(data.get('status'), 'processing')
         self.assertEqual(Decimal(data.get('amount')), Decimal('1000.00'))
+        self.assertIn('HimalPay', body)
+        self.assertEqual(body.get('HimalPay'), body.get('himapayResponse'))
+        self.assertTrue((body.get('HimalPay') or {}).get('payload') or body.get('HimalPay'))
         details = data.get('checkout_details') or {}
         self.assertEqual(details.get('provider'), 'Himal Pay')
         self.assertEqual(details.get('product_name'), 'MySewa Wallet Deposit')
@@ -373,14 +376,28 @@ class HimalPayCheckoutDepositTests(TestCase):
         with patch.object(
             HimalPayCheckoutAPI,
             'initiate_checkout',
-            side_effect=HimalPayError('Checkout unavailable', status_code=502),
+            side_effect=HimalPayError(
+                'invalid checkout api key',
+                status_code=401,
+                error_code=1001,
+                error_type='Auth.InvalidAuthToken',
+                response_data={
+                    'error': 'invalid checkout api key',
+                    'error_code': 1001,
+                    'error_type': 'Auth.InvalidAuthToken',
+                },
+            ),
         ):
             resp = self.client.post(
                 reverse('deposit_checkout_initiate'),
                 {'amount': '1000'},
                 format='json',
             )
-        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        body = resp.json()
+        self.assertEqual(body.get('HimalPay'), body.get('himapayResponse'))
+        self.assertEqual((body.get('HimalPay') or {}).get('error'), 'invalid checkout api key')
+        self.assertEqual((body.get('HimalPay') or {}).get('error_code'), 1001)
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal('50.00'))
         failed = Deposit.objects.filter(user=self.user, provider='himalpay_checkout').first()

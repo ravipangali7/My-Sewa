@@ -342,12 +342,12 @@ HIMAPAY_RESPONSE_KEY = 'himapayResponse'
 
 def with_himapay_response(payload: Optional[Dict] = None, himalpay_data: Any = None) -> Dict:
     """
-    Attach the raw HimalPay API payload under ``himapayResponse``.
-
-    Also sets legacy ``himalpay_response`` for older clients.
+    Attach the raw HimalPay API payload so clients and DevTools Network
+    can inspect it as ``HimalPay`` / ``himapayResponse``.
     """
     out: Dict[str, Any] = dict(payload or {})
     if himalpay_data is not None:
+        out['HimalPay'] = himalpay_data
         out[HIMAPAY_RESPONSE_KEY] = himalpay_data
         out['himalpay_response'] = himalpay_data
     return out

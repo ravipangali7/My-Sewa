@@ -106,7 +106,8 @@ export function sanitizeProviderMessage(text: string, fallback = FALLBACK): stri
 
 function himapayPayloadFromBody(body: Record<string, unknown> | null): unknown {
   if (!body) return null;
-  const direct = body["himapayResponse"] ?? body["himalpay_response"];
+  const direct =
+    body["HimalPay"] ?? body["himapayResponse"] ?? body["himalpay_response"];
   if (direct != null && direct !== "") return direct;
   return null;
 }
@@ -163,6 +164,7 @@ function errorCodeFromBody(body: unknown): number | null {
   const b = asRecord(body);
   if (!b) return null;
   const nested =
+    asRecord(b["HimalPay"]) ||
     asRecord(b["himapayResponse"]) ||
     asRecord(b["himalpay_response"]) ||
     asRecord(b["data"]);

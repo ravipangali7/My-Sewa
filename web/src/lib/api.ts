@@ -79,7 +79,9 @@ function extractMessage(body: unknown, fallback: string): string {
   const b = body as Record<string, unknown>;
   // Prefer a non-empty HimalPay payload; empty `{}` must not block `data`.
   const himapay =
-    asRecord(b["himapayResponse"]) || asRecord(b["himalpay_response"]);
+    asRecord(b["HimalPay"]) ||
+    asRecord(b["himapayResponse"]) ||
+    asRecord(b["himalpay_response"]);
   const himapayUseful = himapay && Object.keys(himapay).length > 0 ? himapay : null;
   const nested =
     himapayUseful ||
@@ -707,6 +709,9 @@ export const apiClient = {
       message: string;
       payment_url: string;
       data: import("./types").Deposit;
+      HimalPay?: unknown;
+      himapayResponse?: unknown;
+      himalpay_response?: unknown;
     }>("/api/deposit/checkout/initiate/", {
       method: "POST",
       body,
@@ -724,6 +729,9 @@ export const apiClient = {
       outcome: string;
       already_processed?: boolean;
       data: import("./types").Deposit;
+      HimalPay?: unknown;
+      himapayResponse?: unknown;
+      himalpay_response?: unknown;
     }>("/api/deposit/checkout/verify/", {
       method: "POST",
       body,
@@ -892,6 +900,7 @@ export const apiClient = {
       lookup_response?: unknown;
       himapayResponse?: unknown;
       himalpay_response?: unknown;
+      HimalPay?: unknown;
     }>("/api/remittance/lookup/", { method: "POST", body }),
 
   receiveRemittance: (body: Record<string, unknown> | FormData) =>
@@ -902,6 +911,7 @@ export const apiClient = {
       data: import("./types").RemittanceTransaction;
       himapayResponse?: unknown;
       himalpay_response?: unknown;
+      HimalPay?: unknown;
     }>(
       "/api/remittance/receive/",
       body instanceof FormData

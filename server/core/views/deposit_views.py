@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from ..models import Deposit
 from ..serializers import DepositSerializer, DepositCreateSerializer
 from ..services.app_config import require_feature_enabled, require_account_approved, require_wallet_not_frozen
+from ..services.himalpay import HimalPayError, with_himapay_response
 from ..services.checkout_deposit import (
     ALREADY_PROCESSED,
     AMOUNT_MISMATCH,
@@ -21,9 +22,9 @@ from ..services.checkout_deposit import (
     extract_documented_identifiers,
     frontend_result_url,
     lookup_checkout_deposit,
+    sanitize_provider_payload,
     verify_deposit,
 )
-from ..services.himalpay import HimalPayError
 from ..services.notifications import notify_deposit_submitted
 
 _DEPOSIT_PENDING = ('pending', 'processing')
@@ -41,13 +42,34 @@ _DEPOSIT_ALIASES = {
 }
 
 
+def _himalpay_network_payload(exc: HimalPayError):
+    """Sanitized HimalPay body (or local error) for the Network tab."""
+    data = sanitize_provider_payload(getattr(exc, 'response_data', None))
+    if data:
+        return data
+    payload = {}
+    provider_message = str(getattr(exc, 'provider_message', '') or '').strip()
+    if provider_message:
+        payload['error'] = provider_message
+    if getattr(exc, 'error_code', None) is not None:
+        payload['error_code'] = exc.error_code
+    if getattr(exc, 'error_type', None):
+        payload['error_type'] = exc.error_type
+    return payload or {'error': str(exc.message or exc)}
+
+
 def _deposit_error(exc: HimalPayError):
     return Response(
-        {
-            'error': str(exc.message or exc),
-            'message': str(exc.message or exc),
-            'code': 'himalpay_checkout_error',
-        },
+        with_himapay_response(
+            {
+                'error': str(exc.message or exc),
+                'message': str(exc.message or exc),
+                'code': 'himalpay_checkout_error',
+                'error_code': getattr(exc, 'error_code', None),
+                'error_type': getattr(exc, 'error_type', None),
+            },
+            _himalpay_network_payload(exc),
+        ),
         status=exc.status_code or status.HTTP_400_BAD_REQUEST,
     )
 
@@ -154,11 +176,17 @@ def checkout_initiate(request):
     except HimalPayError as exc:
         return _deposit_error(exc)
 
-    return Response({
-        'message': 'Checkout session created',
-        'payment_url': payment_url,
-        'data': DepositSerializer(deposit, context={'request': request}).data,
-    }, status=status.HTTP_201_CREATED)
+    return Response(
+        with_himapay_response(
+            {
+                'message': 'Checkout session created',
+                'payment_url': payment_url,
+                'data': DepositSerializer(deposit, context={'request': request}).data,
+            },
+            sanitize_provider_payload(deposit.provider_payload),
+        ),
+        status=status.HTTP_201_CREATED,
+    )
 
 
 def _verify_response(request, deposit, outcome):
@@ -174,12 +202,18 @@ def _verify_response(request, deposit, outcome):
     http_status = status.HTTP_200_OK
     if outcome in (AMOUNT_MISMATCH, ORDER_MISMATCH):
         http_status = status.HTTP_409_CONFLICT
-    return Response({
-        'message': messages.get(outcome, 'Checkout status updated'),
-        'outcome': outcome,
-        'already_processed': already,
-        'data': DepositSerializer(deposit, context={'request': request}).data,
-    }, status=http_status)
+    return Response(
+        with_himapay_response(
+            {
+                'message': messages.get(outcome, 'Checkout status updated'),
+                'outcome': outcome,
+                'already_processed': already,
+                'data': DepositSerializer(deposit, context={'request': request}).data,
+            },
+            sanitize_provider_payload(deposit.provider_payload),
+        ),
+        status=http_status,
+    )
 
 
 @api_view(['POST'])
@@ -280,9 +314,15 @@ def checkout_webhook(request):
     except HimalPayError as exc:
         return _deposit_error(exc)
     already = outcome == ALREADY_PROCESSED
-    return Response({
-        'ok': True,
-        'outcome': outcome,
-        'already_processed': already,
-        'status': deposit.status,
-    }, status=status.HTTP_200_OK)
+    return Response(
+        with_himapay_response(
+            {
+                'ok': True,
+                'outcome': outcome,
+                'already_processed': already,
+                'status': deposit.status,
+            },
+            sanitize_provider_payload(deposit.provider_payload),
+        ),
+        status=status.HTTP_200_OK,
+    )
