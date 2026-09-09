@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
@@ -330,6 +330,34 @@ function LoadWallet() {
     },
   });
 
+  const checkoutAutoStarted = useRef(false);
+
+  useEffect(() => {
+    if (!payingCheckout) {
+      checkoutAutoStarted.current = false;
+      return;
+    }
+    if (!checkoutAmount) {
+      setCheckoutAmount(String(Math.max(minDeposit, 10)));
+    }
+  }, [payingCheckout, minDeposit, checkoutAmount]);
+
+  useEffect(() => {
+    if (!payingCheckout || !checkoutEnabled || checkoutSession) return;
+    if (checkoutMutation.isPending || checkoutAutoStarted.current) return;
+    const amt = Number(checkoutAmount);
+    if (!Number.isFinite(amt) || amt < 10 || amt < minDeposit) return;
+    checkoutAutoStarted.current = true;
+    checkoutMutation.mutate();
+  }, [
+    payingCheckout,
+    checkoutEnabled,
+    checkoutAmount,
+    checkoutSession,
+    checkoutMutation.isPending,
+    minDeposit,
+  ]);
+
   useEffect(() => {
     if (!checkoutSession?.paymentUrl) {
       setCheckoutQrSrc("");
@@ -585,6 +613,7 @@ function LoadWallet() {
                       variant="outline"
                       className="h-11 w-full rounded-xl"
                       onClick={() => {
+                        checkoutAutoStarted.current = true;
                         setCheckoutSession(null);
                         setCheckoutQrSrc("");
                       }}

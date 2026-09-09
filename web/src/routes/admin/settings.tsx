@@ -1589,7 +1589,7 @@ function SettingsPage() {
 
               <SettingsPanel
                 title="HimalPay Checkout (wallet deposit)"
-                description="N-Cash Merchant Checkout API for loading user wallets. Uses X-Checkout-API-Key — not the reseller X-API-Key. Generate the key in the N-Cash merchant portal under API Keys → Web Checkout. Wallet credit happens only after server-side POST /checkout/checkout-status."
+                description="N-Cash Merchant Checkout for loading user wallets. Uses header X-Checkout-API-Key from the merchant portal (API Keys → Web Checkout). This is separate from the reseller X-API-Key used for bills, top-up, and bank transfer — do not paste or replace that reseller key here. Wallet credit happens only after server-side POST /checkout/checkout-status."
                 onSave={saveHimalpay}
                 saving={saving}
               >
@@ -1613,7 +1613,8 @@ function SettingsPage() {
                       }
                     />
                     <p className="text-xs text-muted-foreground">
-                      Server-side only. Never shipped to the app or browser.
+                      Server-side only. If this is empty, Deposit cannot generate a Himal Pay QR.
+                      Do not paste the reseller API key; HimalPay rejects it on checkout-initiate.
                     </p>
                   </div>
                   <div className="space-y-1.5">

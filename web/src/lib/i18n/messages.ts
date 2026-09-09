@@ -867,7 +867,7 @@ export const messages = {
     "load.checkoutChannel": "Payment channel",
     "load.checkoutPayee": "Payee",
     "load.checkoutNotConfigured":
-      "Himal Pay Checkout is not configured yet. Ask an administrator to add the Checkout API key in Settings.",
+      "Himal Pay Checkout needs the Web Checkout API key from the N-Cash merchant portal (API Keys → Web Checkout). The reseller API key used for bills, top-up, and bank transfer cannot generate this QR. Add the Checkout key in Admin → Settings — do not replace the existing reseller key.",
     "load.checkoutBackWallet": "Back to wallet",
     "load.checkoutBackLoad": "Load wallet again",
     "load.searchTitle": "Search deposits",
@@ -2144,7 +2144,7 @@ export const messages = {
     "load.checkoutChannel": "भुक्तानी च्यानल",
     "load.checkoutPayee": "भुक्तानी प्राप्तकर्ता",
     "load.checkoutNotConfigured":
-      "Himal Pay Checkout अहिले कन्फिगर छैन। प्रशासकलाई Settings मा Checkout API key राख्न भन्नुहोस्।",
+      "Himal Pay Checkout का लागि N-Cash मर्चेन्ट पोर्टलको Web Checkout API key चाहिन्छ (API Keys → Web Checkout)। बिल, टपअप र बैंक ट्रान्सफरमा प्रयोग हुने reseller API key ले यो QR बनाउन सक्दैन। Admin → Settings मा Checkout key राख्नुहोस् — हालको reseller key नफेर्नुहोस्।",
     "load.checkoutBackWallet": "वालेटमा फर्कनुहोस्",
     "load.checkoutBackLoad": "फेरि वालेट लोड गर्नुहोस्",
     "load.searchTitle": "जम्मा खोज्नुहोस्",

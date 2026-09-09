@@ -146,8 +146,9 @@ class HimalPayCheckoutAPI:
     def _headers(self) -> Dict[str, str]:
         if not self.api_key and not self.bypass_api:
             raise HimalPayError(
-                'Himal Pay Checkout is not configured. Add a Checkout API Key '
-                'under Admin → Settings → HimalPay checkout.',
+                'Himal Pay Checkout is not configured. Add the Web Checkout API key '
+                'from the N-Cash merchant portal under Admin → Settings. '
+                'Do not replace the existing HimalPay reseller key.',
                 status_code=503,
             )
         return {

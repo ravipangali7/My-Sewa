@@ -189,6 +189,28 @@ def _get_or_create_wallet(user) -> Wallet:
         return Wallet.objects.create(user=user, balance=Decimal('0.00'))
 
 
+def _reusable_checkout_deposit(user, amount) -> Optional[Deposit]:
+    """Return an unexpired pending Checkout session for this user and amount."""
+    now = timezone.now()
+    qs = (
+        Deposit.objects.filter(
+            user=user,
+            provider=PROVIDER_HIMALPAY_CHECKOUT,
+            status__in=[STATUS_PENDING, STATUS_PROCESSING],
+            amount=amount,
+        )
+        .exclude(payment_url='')
+        .order_by('-created_at')
+    )
+    for deposit in qs[:8]:
+        if not (deposit.payment_url or '').strip():
+            continue
+        if deposit.expires_at and deposit.expires_at <= now:
+            continue
+        return deposit
+    return None
+
+
 def create_checkout_deposit(user, amount) -> Tuple[Deposit, str]:
     """
     Create a pending checkout deposit and initialize Himal Pay Checkout.
@@ -199,7 +221,9 @@ def create_checkout_deposit(user, amount) -> Tuple[Deposit, str]:
 
     if not is_checkout_configured():
         raise HimalPayError(
-            'Himal Pay Checkout is not configured. Add a Checkout API Key in Admin settings.',
+            'Himal Pay Checkout is not configured. Add the Web Checkout API key '
+            'from the N-Cash merchant portal (API Keys → Web Checkout) under '
+            'Admin → Settings. Do not replace the existing HimalPay reseller key.',
             status_code=503,
         )
 
@@ -216,6 +240,10 @@ def create_checkout_deposit(user, amount) -> Tuple[Deposit, str]:
     )
     if err:
         raise HimalPayError(err, status_code=400)
+
+    existing = _reusable_checkout_deposit(user, amount)
+    if existing:
+        return existing, existing.payment_url
 
     order_id = new_purchase_order_identifier()
     return_url = build_return_url(order_id)

@@ -279,6 +279,17 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal('50.00'))
 
+    def test_initiate_reuses_unexpired_pending_session(self):
+        first = self._pending_deposit()
+        first.payment_url = 'https://pay.example/?process_id=abc'
+        first.amount = Decimal('1000.00')
+        first.save(update_fields=['payment_url', 'amount'])
+        with patch.object(HimalPayCheckoutAPI, 'initiate_checkout') as mocked:
+            deposit, payment_url = create_checkout_deposit(self.user, Decimal('1000.00'))
+        mocked.assert_not_called()
+        self.assertEqual(deposit.id, first.id)
+        self.assertEqual(payment_url, first.payment_url)
+
     def test_below_checkout_minimum_rejected(self):
         with self.assertRaises(HimalPayError):
             create_checkout_deposit(self.user, Decimal('9.99'))
