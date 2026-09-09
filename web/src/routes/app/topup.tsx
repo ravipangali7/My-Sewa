@@ -241,7 +241,7 @@ function TopUp() {
   };
 
   const submitMutation = useMutation({
-    mutationFn: async (transaction_pin: string) => {
+    mutationFn: async (auth: { transaction_pin?: string; use_biometric?: boolean }) => {
       if (accountPending) throw new Error(t("account.pending"));
       if (walletLocked) throw new Error(walletLockMessage);
       if (!topupsEnabled) throw new Error(t("topup.disabledError"));
@@ -267,7 +267,7 @@ function TopUp() {
         // Rupees with 2 decimals; server converts to paisa (×100) for HimalPay.
         amount: Number(amt.toFixed(2)),
         product_id: productId,
-        transaction_pin,
+        ...auth,
       };
       if (productId === 1) return apiClient.topupNtc({ ...body, product_id: 1 });
       return apiClient.topupNcell({ ...body, product_id: 2 });
@@ -592,7 +592,11 @@ function TopUp() {
         error={pinError}
         onConfirm={(pin) => {
           setPinError(null);
-          submitMutation.mutate(pin);
+          submitMutation.mutate({ transaction_pin: pin });
+        }}
+        onBiometricConfirm={() => {
+          setPinError(null);
+          submitMutation.mutate({ use_biometric: true });
         }}
       />
     </UserShell>

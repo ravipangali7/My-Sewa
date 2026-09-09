@@ -294,7 +294,7 @@ function CommunityElectricityPayment() {
   });
 
   const payMutation = useMutation({
-    mutationFn: async (transaction_pin: string) => {
+    mutationFn: async (auth: { transaction_pin?: string; use_biometric?: boolean }) => {
       if (!selectedProvider || !inquiry) {
         throw new Error(t("communityElectricity.inquiryRequired"));
       }
@@ -314,7 +314,7 @@ function CommunityElectricityPayment() {
       const body: Parameters<typeof apiClient.communityElectricityPay>[0] = {
         ...inquiryBody,
         amount: Number(payAmount.toFixed(2)),
-        transaction_pin,
+        ...auth,
       };
       if (inquiry.session_id != null && String(inquiry.session_id).trim()) {
         body.session_id = String(inquiry.session_id);
@@ -930,7 +930,11 @@ function CommunityElectricityPayment() {
         error={pinError}
         onConfirm={(pin) => {
           setPinError(null);
-          payMutation.mutate(pin);
+          payMutation.mutate({ transaction_pin: pin });
+        }}
+        onBiometricConfirm={() => {
+          setPinError(null);
+          payMutation.mutate({ use_biometric: true });
         }}
       />
     </UserShell>

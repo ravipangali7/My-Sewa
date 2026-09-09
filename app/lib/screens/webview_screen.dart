@@ -18,6 +18,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../config/app_config.dart';
 import '../config/app_constant.dart';
 import '../services/app_update_service.dart';
+import '../services/biometric_service.dart';
 import '../services/device_token_api.dart';
 import '../services/fcm_log.dart';
 import '../services/push_messaging.dart';
@@ -63,6 +64,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   StreamSubscription<Map<String, String>>? _fcmOpenedSub;
   Timer? _fcmPollTimer;
   bool _fcmSyncBusy = false;
+  bool _biometricBusy = false;
   String? _apiBaseHint;
   String? _lastPostedFcm;
   String? _lastPostedAuth;
@@ -138,8 +140,25 @@ class _WebViewScreenState extends State<WebViewScreen>
       } catch (e) {}
       return false;
     };
+    window.MySewaNative.requestBiometric = function(payload) {
+      try {
+        if (window.MySewaBridge && window.MySewaBridge.postMessage) {
+          var msg = payload;
+          if (typeof payload === 'string') {
+            try { msg = JSON.parse(payload); } catch (e) { msg = { action: payload }; }
+          }
+          msg = msg || {};
+          msg.type = 'biometric';
+          window.MySewaBridge.postMessage(JSON.stringify(msg));
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    };
     window.MySewaNative.hasBridge = true;
     window.MySewaNative.hasPushBridge = true;
+    window.MySewaNative.hasBiometricBridge = true;
+    window.MySewaNative.isFlutterWebView = true;
   } catch (e) {}
 })();
 ''';
@@ -331,6 +350,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       unawaited(_safeControllerCall((c) async {
         await c.runJavaScript(_dispatchAppResumeJs);
         await c.runJavaScript(_installNativeBridgeJs);
+        await _deliverBiometricCapability();
         await _deliverFcmTokenToWeb();
         _startFcmPoller('app-resume');
       }));
@@ -420,6 +440,7 @@ class _WebViewScreenState extends State<WebViewScreen>
           await controller.runJavaScript(_unlockWebViewScrollJs);
           await controller.runJavaScript(_bustWebCachesJs);
           await controller.runJavaScript(_installNativeBridgeJs);
+          await _deliverBiometricCapability();
           // First thing after the SPA is ready: send the FCM token to React
           // and persist it to the API if the user is already logged in.
           await _deliverFcmTokenToWeb();
@@ -683,6 +704,11 @@ class _WebViewScreenState extends State<WebViewScreen>
         return;
       }
 
+      if (type == 'biometric' || type == 'biometric_request') {
+        await _handleBiometricBridgeMessage(decoded);
+        return;
+      }
+
       if (type == 'auth_ready' || type == 'session_ready' || type == 'login') {
         final apiBase =
             decoded['apiBase']?.toString() ?? decoded['api_base']?.toString();
@@ -770,6 +796,108 @@ class _WebViewScreenState extends State<WebViewScreen>
     } finally {
       _isHandlingDownload = false;
     }
+  }
+
+  Future<void> _handleBiometricBridgeMessage(Map decoded) async {
+    final requestId = decoded['requestId']?.toString() ??
+        decoded['request_id']?.toString() ??
+        '';
+    final action = (decoded['action']?.toString() ?? 'availability').trim();
+    final reason = decoded['reason']?.toString() ??
+        decoded['prompt']?.toString() ??
+        '';
+    final userId = decoded['userId']?.toString() ??
+        decoded['user_id']?.toString();
+
+    if (_biometricBusy && action != 'availability' && action != 'check') {
+      await _dispatchBiometricResult(
+        requestId: requestId,
+        result: BiometricResult(
+          success: false,
+          action: action,
+          authenticated: false,
+          reason: 'busy',
+          message: 'Biometric authentication is already in progress.',
+        ),
+      );
+      return;
+    }
+
+    _biometricBusy = action != 'availability' && action != 'check';
+    try {
+      final webAuth = await _readWebAuth();
+      final result = await BiometricService.handle(
+        action: action,
+        authToken: webAuth.authToken,
+        apiBaseHint: webAuth.apiBase.isNotEmpty ? webAuth.apiBase : _apiBaseHint,
+        userId: userId,
+        reason: reason,
+      );
+      if (result.success &&
+          result.action == 'login' &&
+          result.authenticated &&
+          result.token.isNotEmpty) {
+        await _injectSessionToken(result.token);
+      }
+      await _dispatchBiometricResult(requestId: requestId, result: result);
+      await _deliverBiometricCapability();
+    } finally {
+      _biometricBusy = false;
+    }
+  }
+
+  Future<void> _injectSessionToken(String token) async {
+    final tokenJson = jsonEncode(token);
+    await _safeControllerCall((c) async {
+      await c.runJavaScript('''
+(function() {
+  try { window.localStorage.setItem('mysewa_token', $tokenJson); } catch (e) {}
+  try { window.sessionStorage.setItem('mysewa_token', $tokenJson); } catch (e2) {}
+})();
+''');
+    });
+  }
+
+  Future<void> _deliverBiometricCapability() async {
+    final cap = await BiometricService.availability();
+    final detail = jsonEncode(cap.toJson());
+    await _safeControllerCall((c) async {
+      await c.runJavaScript('''
+(function() {
+  try {
+    window.MySewaNative = window.MySewaNative || {};
+    window.MySewaNative.isFlutterWebView = true;
+    window.MySewaNative.hasBiometricBridge = true;
+    window.MySewaNative.biometricAvailable = ${cap.biometricAvailable ? 'true' : 'false'};
+    window.MySewaNative.loginBiometricEnrolled = ${cap.loginEnrolled ? 'true' : 'false'};
+    window.MySewaNative.pinBiometricEnrolled = ${cap.pinEnrolled ? 'true' : 'false'};
+    window.dispatchEvent(new CustomEvent('mysewa-biometric-capability', {
+      detail: $detail
+    }));
+  } catch (e) {}
+})();
+''');
+    });
+  }
+
+  Future<void> _dispatchBiometricResult({
+    required String requestId,
+    required BiometricResult result,
+  }) async {
+    final payload = Map<String, dynamic>.from(result.toJson());
+    if (requestId.isNotEmpty) payload['requestId'] = requestId;
+    final detail = jsonEncode(payload);
+    await _safeControllerCall((c) async {
+      await c.runJavaScript('''
+(function() {
+  try {
+    window.dispatchEvent(new CustomEvent('mysewa-biometric', {
+      detail: $detail
+    }));
+  } catch (e) {}
+})();
+''');
+    });
   }
 
   String _jsStringResult(dynamic raw) {

@@ -25,6 +25,7 @@ from .models import (
     ServiceChargeConfig,
     TransactionCharge,
     DeviceToken,
+    BiometricDevice,
     KYCSubmission,
     KYCDocument,
     KYCAuditLog,
@@ -93,6 +94,7 @@ class CustomUserAdmin(admin.ModelAdmin):
     readonly_fields = (
         'date_joined', 'last_login', 'kyc_status', 'citizenship_number',
         'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
+        'login_biometric_enabled', 'transaction_pin_biometric_enabled',
     )
     fields = (
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
@@ -101,6 +103,7 @@ class CustomUserAdmin(admin.ModelAdmin):
         'is_api_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
         'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
         'is_active', 'is_staff',
+        'login_biometric_enabled', 'transaction_pin_biometric_enabled',
         'date_joined', 'last_login',
     )
 
@@ -524,6 +527,17 @@ class DeviceTokenAdmin(admin.ModelAdmin):
         if len(t) <= 24:
             return t
         return f'{t[:12]}…{t[-8:]}'
+
+
+@admin.register(BiometricDevice)
+class BiometricDeviceAdmin(admin.ModelAdmin):
+    list_display = (
+        'user', 'device_id', 'login_enabled', 'pin_enabled', 'last_used_at', 'updated_at',
+    )
+    list_filter = ('login_enabled', 'pin_enabled', 'updated_at')
+    search_fields = ('user__phone', 'device_id')
+    readonly_fields = ('device_id', 'secret_hash', 'created_at', 'updated_at', 'last_used_at')
+    ordering = ('-updated_at',)
 
 
 class KYCDocumentInline(admin.TabularInline):

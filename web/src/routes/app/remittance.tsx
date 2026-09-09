@@ -267,7 +267,7 @@ function ReceiveRemittance() {
   });
 
   const receiveMutation = useMutation({
-    mutationFn: async (transaction_pin: string) => {
+    mutationFn: async (auth: { transaction_pin?: string; use_biometric?: boolean }) => {
       if (!lookup) throw new Error(t("remittance.lookupFirst"));
       if (accountPending) throw new Error(t("account.pending"));
       if (!remittancesEnabled) throw new Error(t("remittance.disabledError"));
@@ -316,7 +316,7 @@ function ReceiveRemittance() {
         ...kyc,
         beneficiary_id_number:
           kyc.beneficiary_id_number || kyc.beneficiary_citizenship_number,
-        transaction_pin,
+        ...auth,
       };
 
       const fd = new FormData();
@@ -857,7 +857,11 @@ function ReceiveRemittance() {
         error={pinError}
         onConfirm={(pin) => {
           setPinError(null);
-          receiveMutation.mutate(pin);
+          receiveMutation.mutate({ transaction_pin: pin });
+        }}
+        onBiometricConfirm={() => {
+          setPinError(null);
+          receiveMutation.mutate({ use_biometric: true });
         }}
       />
 

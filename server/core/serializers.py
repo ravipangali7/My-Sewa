@@ -1614,10 +1614,10 @@ class TopupCreateSerializer(serializers.Serializer):
     mobile_number = serializers.CharField(max_length=50, required=True)
     amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
     product_id = serializers.IntegerField(required=True)
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    transaction_pin = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     def validate_transaction_pin(self, value):
-        return validate_transaction_pin_value(value)
+        return validate_optional_transaction_pin(value)
 
     def validate_mobile_number(self, value):
         if not value or value.strip() == '':
@@ -1832,10 +1832,10 @@ class BankTransferCreateSerializer(serializers.Serializer):
     transaction_remarks_2 = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
     transaction_remarks_3 = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
     merchant_txn_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    transaction_pin = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     def validate_transaction_pin(self, value):
-        return validate_transaction_pin_value(value)
+        return validate_optional_transaction_pin(value)
 
     def validate_amount(self, value):
         if value <= 0:
@@ -2001,12 +2001,12 @@ class RemittanceReceiveSerializer(serializers.Serializer):
     payment_type = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
     send_agent = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
     txn_date = serializers.CharField(max_length=80, required=False, allow_blank=True, default='')
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    transaction_pin = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     beneficiary_gender = serializers.CharField(max_length=20, required=True)
 
     def validate_transaction_pin(self, value):
-        return validate_transaction_pin_value(value)
+        return validate_optional_transaction_pin(value)
     beneficiary_nationality = serializers.CharField(max_length=50, required=False, default='Nepali')
     beneficiary_state = serializers.CharField(max_length=100, required=True)
     beneficiary_district = serializers.CharField(max_length=100, required=True)
@@ -2138,10 +2138,10 @@ class InternetBillPaySerializer(serializers.Serializer):
     package_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
     pay_data = serializers.JSONField()
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    transaction_pin = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     def validate_transaction_pin(self, value):
-        return validate_transaction_pin_value(value)
+        return validate_optional_transaction_pin(value)
 
     def validate_amount(self, value):
         if value <= 0:
@@ -2211,10 +2211,10 @@ class WaterBillPaySerializer(serializers.Serializer):
     payment_type = serializers.CharField(max_length=50, required=False, allow_blank=True, default='Bill Payment')
     customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
     pay_data = serializers.JSONField(required=False)
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    transaction_pin = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     def validate_transaction_pin(self, value):
-        return validate_transaction_pin_value(value)
+        return validate_optional_transaction_pin(value)
 
     def validate_amount(self, value):
         if value <= 0:
@@ -2284,10 +2284,10 @@ class ElectricityBillPaySerializer(serializers.Serializer):
     session_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
     customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
     pay_data = serializers.JSONField(required=False)
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    transaction_pin = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     def validate_transaction_pin(self, value):
-        return validate_transaction_pin_value(value)
+        return validate_optional_transaction_pin(value)
 
     def validate_amount(self, value):
         if value <= 0:
@@ -2415,10 +2415,10 @@ class CommunityElectricityPaySerializer(serializers.Serializer):
     month = serializers.IntegerField(required=False, allow_null=True)
     customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
     pay_data = serializers.JSONField(required=False)
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    transaction_pin = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     def validate_transaction_pin(self, value):
-        return validate_transaction_pin_value(value)
+        return validate_optional_transaction_pin(value)
 
     def validate_platform_id(self, value):
         cleaned = (value or '').strip().lower()
@@ -2494,10 +2494,10 @@ class DataPackPaySerializer(serializers.Serializer):
     package_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     package_id = serializers.CharField(max_length=50, required=False, allow_blank=True)
     product_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    transaction_pin = serializers.CharField(required=True, write_only=True, min_length=4, max_length=4)
+    transaction_pin = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     def validate_transaction_pin(self, value):
-        return validate_transaction_pin_value(value)
+        return validate_optional_transaction_pin(value)
 
     def validate_mobile_number(self, value):
         digits = ''.join(ch for ch in (value or '').strip() if ch.isdigit())

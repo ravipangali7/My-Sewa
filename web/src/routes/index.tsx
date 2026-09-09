@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AuthSessionLoader } from "@/components/AuthSessionLoader";
+import { BiometricFingerprintButton } from "@/components/BiometricFingerprintButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,12 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth, type LoginOtpChallenge } from "@/lib/auth";
 import { homePathForUser } from "@/lib/auth-destination";
 import { ApiError } from "@/lib/api";
+import {
+  biometricErrorMessage,
+  getBiometricCapability,
+  isFlutterWebView,
+  requestBiometric,
+} from "@/lib/biometric";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { useOtpCountdown } from "@/hooks/use-otp-countdown";
 import { useT } from "@/lib/i18n";
@@ -48,7 +55,7 @@ function isPhoneLoginChallenge(challenge: LoginOtpChallenge) {
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { beginLogin, verifyLoginOtp, resendLoginOtp, token, user, isLoading } =
+  const { beginLogin, verifyLoginOtp, resendLoginOtp, token, user, isLoading, hydrateSessionFromStorage } =
     useAuth();
   const { logoUrl } = useSiteBranding();
   const t = useT();
@@ -60,6 +67,9 @@ function LoginPage() {
   const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [resending, setResending] = useState(false);
+  const [biometricReady, setBiometricReady] = useState(false);
+  const [biometricEnrolled, setBiometricEnrolled] = useState(false);
+  const [biometricBusy, setBiometricBusy] = useState(false);
 
   const { expired: otpExpired, formatted: otpCountdown } = useOtpCountdown(otpExpiresAt);
   const { secondsLeft: resendWaitSeconds } = useOtpCountdown(resendAvailableAt);
@@ -82,6 +92,18 @@ function LoginPage() {
       navigate({ to: homePathForUser(user) });
     }
   }, [token, isLoading, user, navigate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getBiometricCapability().then((cap) => {
+      if (cancelled) return;
+      setBiometricReady(Boolean(isFlutterWebView() && cap.biometricAvailable));
+      setBiometricEnrolled(Boolean(cap.loginEnrolled));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Stored token: show loader until profile resolves and redirect, never flash login form.
   if (token && (isLoading || user)) {
@@ -332,15 +354,55 @@ function LoginPage() {
           )}
 
           {!challenge && (
-            <p className="mt-6 text-center text-[13px] text-muted-foreground">
-              {t("auth.newTo")}{" "}
-              <Link
-                to="/register"
-                className="font-semibold text-foreground underline-offset-2 hover:underline"
-              >
-                {t("auth.createAccount")}
-              </Link>
-            </p>
+            <>
+              <p className="mt-6 text-center text-[13px] text-muted-foreground">
+                {t("auth.newTo")}{" "}
+                <Link
+                  to="/register"
+                  className="font-semibold text-foreground underline-offset-2 hover:underline"
+                >
+                  {t("auth.createAccount")}
+                </Link>
+              </p>
+              {biometricReady ? (
+                <div className="mt-8 flex flex-col items-center gap-2.5">
+                  <BiometricFingerprintButton
+                    label={t("biometric.loginAria")}
+                    loading={biometricBusy}
+                    disabled={submitting}
+                    onClick={async () => {
+                      if (biometricBusy || submitting) return;
+                      if (!biometricEnrolled) {
+                        toast.message(t("biometric.loginNotEnabled"));
+                        return;
+                      }
+                      setBiometricBusy(true);
+                      try {
+                        const result = await requestBiometric({ action: "login" });
+                        if (result.reason === "cancelled") return;
+                        if (!result.success || !result.authenticated) {
+                          const msg = biometricErrorMessage(result, t("biometric.loginFailed"));
+                          if (msg) toast.error(msg);
+                          return;
+                        }
+                        const profile = await hydrateSessionFromStorage();
+                        toast.success(t("auth.loginSuccess"));
+                        navigate({ to: homePathForUser(profile) });
+                      } catch (err) {
+                        const msg =
+                          err instanceof ApiError ? err.message : t("biometric.loginFailed");
+                        toast.error(msg);
+                      } finally {
+                        setBiometricBusy(false);
+                      }
+                    }}
+                  />
+                  <p className="text-[12px] font-medium text-muted-foreground">
+                    {biometricEnrolled ? t("biometric.loginHint") : t("biometric.loginSetupHint")}
+                  </p>
+                </div>
+              ) : null}
+            </>
           )}
         </div>
       </section>

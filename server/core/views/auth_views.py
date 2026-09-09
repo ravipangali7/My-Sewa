@@ -733,6 +733,10 @@ def profile(request):
                 'kyc_verified': False,
                 'profile_locked': False,
                 'has_transaction_pin': bool(getattr(user, 'transaction_pin', None)),
+                'login_biometric_enabled': bool(getattr(user, 'login_biometric_enabled', False)),
+                'transaction_pin_biometric_enabled': bool(
+                    getattr(user, 'transaction_pin_biometric_enabled', False)
+                ),
                 'date_joined': None,
                 'last_login': None,
             }, status=status.HTTP_200_OK)
@@ -828,6 +832,8 @@ def change_password(request):
 
     user.set_password(serializer.validated_data['new_password'])
     user.save()
+    from ..services.biometric import disable_login_biometrics
+    disable_login_biometrics(user, request=request, reason='password_changed')
     # Keep existing session token valid after password change
     Token.objects.filter(user=user).delete()
     token = Token.objects.create(user=user)
@@ -1275,6 +1281,8 @@ def reset_password(request):
     user.set_password(serializer.validated_data['new_password'])
     user.save()
     cache.delete(f'password_reset_otp:{phone}')
+    from ..services.biometric import disable_login_biometrics
+    disable_login_biometrics(user, request=request, reason='password_reset')
     # Invalidate existing sessions
     Token.objects.filter(user=user).delete()
 
@@ -1653,3 +1661,192 @@ def device_token(request):
         deleted,
     )
     return Response({'message': 'Device token unregistered'}, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def biometric_enable(request):
+    """Enroll this device for login or transaction-PIN biometric after native auth."""
+    from ..services import biometric as biometric_svc
+
+    purpose = (request.data.get('purpose') or '').strip()
+    failed = biometric_svc.enroll_or_update_device(
+        request.user,
+        device_id=request.data.get('device_id'),
+        secret=request.data.get('secret'),
+        purpose=purpose,
+        request=request,
+    )
+    if failed:
+        return failed
+
+    request.user.refresh_from_db(
+        fields=['login_biometric_enabled', 'transaction_pin_biometric_enabled']
+    )
+    return Response({
+        'success': True,
+        'action': f'enable_{purpose}',
+        'authenticated': True,
+        'login_biometric_enabled': bool(request.user.login_biometric_enabled),
+        'transaction_pin_biometric_enabled': bool(
+            request.user.transaction_pin_biometric_enabled
+        ),
+        'message': (
+            'Biometric login enabled successfully.'
+            if purpose == biometric_svc.PURPOSE_LOGIN
+            else 'Transaction PIN biometric enabled successfully.'
+        ),
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def biometric_disable(request):
+    """Disable login or transaction-PIN biometric for this user/device."""
+    from ..services import biometric as biometric_svc
+
+    purpose = (request.data.get('purpose') or '').strip()
+    failed = biometric_svc.disable_purpose(
+        request.user,
+        purpose=purpose,
+        device_id=request.data.get('device_id'),
+        request=request,
+    )
+    if failed:
+        return failed
+    request.user.refresh_from_db(
+        fields=['login_biometric_enabled', 'transaction_pin_biometric_enabled']
+    )
+    return Response({
+        'success': True,
+        'action': f'disable_{purpose}',
+        'authenticated': False,
+        'login_biometric_enabled': bool(request.user.login_biometric_enabled),
+        'transaction_pin_biometric_enabled': bool(
+            request.user.transaction_pin_biometric_enabled
+        ),
+        'message': (
+            'Biometric login disabled.'
+            if purpose == biometric_svc.PURPOSE_LOGIN
+            else 'Transaction PIN biometric disabled.'
+        ),
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def biometric_assertion(request):
+    """Mint a 60s single-use transaction assertion after native biometric success."""
+    from django.utils import timezone
+
+    from ..services import biometric as biometric_svc
+
+    purpose = (request.data.get('purpose') or biometric_svc.PURPOSE_TRANSACTION_PIN).strip()
+    if purpose != biometric_svc.PURPOSE_TRANSACTION_PIN:
+        return Response({
+            'success': False,
+            'authenticated': False,
+            'reason': 'invalid_purpose',
+            'message': 'This biometric action is not supported.',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    device = biometric_svc.authenticate_device(
+        request.data.get('device_id'), request.data.get('secret')
+    )
+    if device is None or device.user_id != request.user.pk:
+        return Response({
+            'success': False,
+            'authenticated': False,
+            'reason': 'authentication_failed',
+            'message': 'This device is not enrolled for biometric confirmation.',
+        }, status=status.HTTP_401_UNAUTHORIZED)
+    if not device.pin_enabled or not request.user.transaction_pin_biometric_enabled:
+        return Response({
+            'success': False,
+            'authenticated': False,
+            'reason': 'not_enabled',
+            'message': 'Transaction PIN biometric is not enabled.',
+        }, status=status.HTTP_400_BAD_REQUEST)
+    if not (request.user.transaction_pin or '').strip():
+        return Response({
+            'success': False,
+            'authenticated': False,
+            'reason': 'pin_not_set',
+            'code': 'pin_not_set',
+            'message': 'Set a transaction PIN before using biometric confirmation.',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    assertion = biometric_svc.issue_transaction_assertion(request.user, device=device)
+    return Response({
+        'success': True,
+        'action': 'transaction_pin',
+        'authenticated': True,
+        'expires_at': timezone.localtime(assertion.expires_at).isoformat(),
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def biometric_login(request):
+    """Issue a session token after native biometric verification on an enrolled device."""
+    from django.utils import timezone
+
+    from ..models import SecurityAuditLog
+    from ..services import biometric as biometric_svc
+    from ..services.app_config import get_app_config
+    from ..services.security import log_security_event
+
+    device = biometric_svc.authenticate_device(
+        request.data.get('device_id'), request.data.get('secret')
+    )
+    generic = {
+        'success': False,
+        'action': 'login',
+        'authenticated': False,
+        'reason': 'authentication_failed',
+        'message': 'Biometric login is not available for this device.',
+    }
+    if device is None:
+        return Response(generic, status=status.HTTP_401_UNAUTHORIZED)
+
+    user = device.user
+    if not user.is_active:
+        return _account_deactivated_response()
+    if not device.login_enabled or not user.login_biometric_enabled:
+        return Response({
+            **generic,
+            'reason': 'not_enabled',
+            'message': 'Biometric login is not enabled. Sign in and enable it from Profile.',
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    security = get_app_config().get('security') or {}
+    if security.get('maintenance_mode') and not (user.is_staff or user.is_superuser):
+        return Response({
+            'error': 'maintenance_mode',
+            'success': False,
+            'action': 'login',
+            'authenticated': False,
+            'reason': 'maintenance_mode',
+            'message': security.get('maintenance_message')
+                or 'MySewa is under maintenance. Please try again later.',
+            'code': 'maintenance_mode',
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    device.last_used_at = timezone.now()
+    device.save(update_fields=['last_used_at'])
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_BIOMETRIC_LOGIN,
+        request=request,
+        details={'device_id': str(device.device_id)},
+    )
+    response = _issue_login_token_response(request, user, otp_verified=False)
+    payload = dict(response.data or {})
+    payload.update({
+        'success': True,
+        'action': 'login',
+        'authenticated': True,
+    })
+    response.data = payload
+    return response
+

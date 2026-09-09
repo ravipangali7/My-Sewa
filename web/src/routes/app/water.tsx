@@ -257,7 +257,7 @@ function WaterBillPayment() {
   });
 
   const payMutation = useMutation({
-    mutationFn: async (transaction_pin: string) => {
+    mutationFn: async (auth: { transaction_pin?: string; use_biometric?: boolean }) => {
       if (!selectedCounter || !inquiry) throw new Error(t("water.inquiryRequired"));
       if (accountPending) throw new Error(t("account.pending"));
       if (walletBlocked) throw new Error(walletLockMessage);
@@ -276,7 +276,7 @@ function WaterBillPayment() {
         customer_code: customerCode.trim(),
         counter: selectedCounter.value,
         amount: Number(payAmount.toFixed(2)),
-        transaction_pin,
+        ...auth,
       };
       if (inquiry.session_id != null && String(inquiry.session_id).trim()) {
         body.session_id = String(inquiry.session_id);
@@ -732,7 +732,11 @@ function WaterBillPayment() {
         error={pinError}
         onConfirm={(pin) => {
           setPinError(null);
-          payMutation.mutate(pin);
+          payMutation.mutate({ transaction_pin: pin });
+        }}
+        onBiometricConfirm={() => {
+          setPinError(null);
+          payMutation.mutate({ use_biometric: true });
         }}
       />
     </UserShell>

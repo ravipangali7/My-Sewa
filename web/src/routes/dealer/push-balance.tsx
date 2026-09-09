@@ -106,7 +106,7 @@ function PushBalancePage() {
   const walletLockMessage = t(walletTxnLockMessageKey(walletQuery.data ?? wallet, user));
 
   const mutation = useMutation({
-    mutationFn: (transaction_pin: string) => {
+    mutationFn: (auth: { transaction_pin?: string; use_biometric?: boolean }) => {
       if (!selected) throw new Error(t("pushBalance.pickUser"));
       if (accountPending) throw new Error(t("account.pending"));
       if (walletLocked) throw new Error(walletLockMessage);
@@ -127,7 +127,7 @@ function PushBalancePage() {
         user_id: selected.id,
         amount: Number(amt.toFixed(2)),
         remarks: "Push Balance",
-        transaction_pin,
+        ...auth,
       });
     },
     onSuccess: (res) => {
@@ -287,7 +287,8 @@ function PushBalancePage() {
           error={pinError}
           title={t("pushBalance.pinTitle")}
           description={t("pushBalance.pinBody")}
-          onConfirm={(pin) => mutation.mutate(pin)}
+          onConfirm={(pin) => mutation.mutate({ transaction_pin: pin })}
+          onBiometricConfirm={() => mutation.mutate({ use_biometric: true })}
         />
       </div>
     </PortalShell>

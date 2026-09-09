@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminApiUsersRouteImport } from './routes/admin/api-users'
 import { Route as AdminCommissionChargeRouteImport } from './routes/admin/commission-charge'
 import { Route as AdminCommissionHistoryRouteImport } from './routes/admin/commission-history'
 import { Route as AdminCommunityElectricityRouteImport } from './routes/admin/community-electricity'
@@ -37,7 +38,6 @@ import { Route as AdminTopupsRouteImport } from './routes/admin/topups'
 import { Route as AdminTransactionHistoryRouteImport } from './routes/admin/transaction-history'
 import { Route as AdminTransfersRouteImport } from './routes/admin/transfers'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
-import { Route as AdminApiUsersRouteImport } from './routes/admin/api-users'
 import { Route as AdminWalletsRouteImport } from './routes/admin/wallets'
 import { Route as AdminWaterRouteImport } from './routes/admin/water'
 import { Route as AppIndexRouteImport } from './routes/app/index'
@@ -69,6 +69,7 @@ import { Route as DealerPushBalanceRouteImport } from './routes/dealer/push-bala
 import { Route as DealerReportsRouteImport } from './routes/dealer/reports'
 import { Route as DealerSubAgentsRouteImport } from './routes/dealer/sub-agents'
 import { Route as DealerTransactionsRouteImport } from './routes/dealer/transactions'
+import { Route as AdminApiUsersUserIdRouteImport } from './routes/admin/api-users_.$userId'
 import { Route as AdminCommunityElectricityCommunityElectricityIdRouteImport } from './routes/admin/community-electricity_.$communityElectricityId'
 import { Route as AdminDataTopupsDataTopupIdRouteImport } from './routes/admin/data-topups_.$dataTopupId'
 import { Route as AdminDepositsDepositIdRouteImport } from './routes/admin/deposits_.$depositId'
@@ -76,12 +77,12 @@ import { Route as AdminInternetInternetIdRouteImport } from './routes/admin/inte
 import { Route as AdminKycKycIdRouteImport } from './routes/admin/kyc_.$kycId'
 import { Route as AdminTopupsTopupIdRouteImport } from './routes/admin/topups_.$topupId'
 import { Route as AdminUsersUserIdRouteImport } from './routes/admin/users_.$userId'
-import { Route as AdminApiUsersUserIdRouteImport } from './routes/admin/api-users_.$userId'
 import { Route as AdminUsersNewRouteImport } from './routes/admin/users_.new'
 import { Route as AdminWalletsWalletIdRouteImport } from './routes/admin/wallets_.$walletId'
 import { Route as AdminWaterWaterIdRouteImport } from './routes/admin/water_.$waterId'
 import { Route as AppHistoryActivityIdRouteImport } from './routes/app/history_.$activityId'
 import { Route as AppNotificationsNotificationIdRouteImport } from './routes/app/notifications_.$notificationId'
+import { Route as AppProfileBiometricRouteImport } from './routes/app/profile_.biometric'
 import { Route as AppProfileEditRouteImport } from './routes/app/profile_.edit'
 import { Route as AppProfileEmailRouteImport } from './routes/app/profile_.email'
 import { Route as AppProfileKycRouteImport } from './routes/app/profile_.kyc'
@@ -111,6 +112,11 @@ const RegisterRoute = RegisterRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminApiUsersRoute = AdminApiUsersRouteImport.update({
+  id: '/admin/api-users',
+  path: '/admin/api-users',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminCommissionChargeRoute = AdminCommissionChargeRouteImport.update({
@@ -232,11 +238,6 @@ const AdminTransfersRoute = AdminTransfersRouteImport.update({
 const AdminUsersRoute = AdminUsersRouteImport.update({
   id: '/admin/users',
   path: '/admin/users',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminApiUsersRoute = AdminApiUsersRouteImport.update({
-  id: '/admin/api-users',
-  path: '/admin/api-users',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminWalletsRoute = AdminWalletsRouteImport.update({
@@ -394,6 +395,11 @@ const DealerTransactionsRoute = DealerTransactionsRouteImport.update({
   path: '/dealer/transactions',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminApiUsersUserIdRoute = AdminApiUsersUserIdRouteImport.update({
+  id: '/admin/api-users_/$userId',
+  path: '/admin/api-users/$userId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminCommunityElectricityCommunityElectricityIdRoute =
   AdminCommunityElectricityCommunityElectricityIdRouteImport.update({
     id: '/admin/community-electricity_/$communityElectricityId',
@@ -431,11 +437,6 @@ const AdminUsersUserIdRoute = AdminUsersUserIdRouteImport.update({
   path: '/admin/users/$userId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminApiUsersUserIdRoute = AdminApiUsersUserIdRouteImport.update({
-  id: '/admin/api-users_/$userId',
-  path: '/admin/api-users/$userId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AdminUsersNewRoute = AdminUsersNewRouteImport.update({
   id: '/admin/users_/new',
   path: '/admin/users/new',
@@ -462,6 +463,11 @@ const AppNotificationsNotificationIdRoute =
     path: '/app/notifications/$notificationId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AppProfileBiometricRoute = AppProfileBiometricRouteImport.update({
+  id: '/app/profile_/biometric',
+  path: '/app/profile/biometric',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppProfileEditRoute = AppProfileEditRouteImport.update({
   id: '/app/profile_/edit',
   path: '/app/profile/edit',
@@ -519,6 +525,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/commission-charge': typeof AdminCommissionChargeRoute
   '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
@@ -543,7 +550,6 @@ export interface FileRoutesByFullPath {
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
-  '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
   '/app/checkout-return': typeof AppCheckoutReturnRoute
@@ -576,6 +582,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
   '/dealer/': typeof DealerIndexRoute
+  '/admin/api-users/$userId': typeof AdminApiUsersUserIdRoute
   '/admin/community-electricity/$communityElectricityId': typeof AdminCommunityElectricityCommunityElectricityIdRoute
   '/admin/data-topups/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
   '/admin/deposits/$depositId': typeof AdminDepositsDepositIdRoute
@@ -583,12 +590,12 @@ export interface FileRoutesByFullPath {
   '/admin/kyc/$kycId': typeof AdminKycKycIdRoute
   '/admin/topups/$topupId': typeof AdminTopupsTopupIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
-  '/admin/api-users/$userId': typeof AdminApiUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/wallets/$walletId': typeof AdminWalletsWalletIdRoute
   '/admin/water/$waterId': typeof AdminWaterWaterIdRoute
   '/app/history/$activityId': typeof AppHistoryActivityIdRoute
   '/app/notifications/$notificationId': typeof AppNotificationsNotificationIdRoute
+  '/app/profile/biometric': typeof AppProfileBiometricRoute
   '/app/profile/edit': typeof AppProfileEditRoute
   '/app/profile/email': typeof AppProfileEmailRoute
   '/app/profile/kyc': typeof AppProfileKycRoute
@@ -604,6 +611,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/commission-charge': typeof AdminCommissionChargeRoute
   '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
@@ -628,7 +636,6 @@ export interface FileRoutesByTo {
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
-  '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
   '/app/checkout-return': typeof AppCheckoutReturnRoute
@@ -661,6 +668,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/app': typeof AppIndexRoute
   '/dealer': typeof DealerIndexRoute
+  '/admin/api-users/$userId': typeof AdminApiUsersUserIdRoute
   '/admin/community-electricity/$communityElectricityId': typeof AdminCommunityElectricityCommunityElectricityIdRoute
   '/admin/data-topups/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
   '/admin/deposits/$depositId': typeof AdminDepositsDepositIdRoute
@@ -668,12 +676,12 @@ export interface FileRoutesByTo {
   '/admin/kyc/$kycId': typeof AdminKycKycIdRoute
   '/admin/topups/$topupId': typeof AdminTopupsTopupIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
-  '/admin/api-users/$userId': typeof AdminApiUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/wallets/$walletId': typeof AdminWalletsWalletIdRoute
   '/admin/water/$waterId': typeof AdminWaterWaterIdRoute
   '/app/history/$activityId': typeof AppHistoryActivityIdRoute
   '/app/notifications/$notificationId': typeof AppNotificationsNotificationIdRoute
+  '/app/profile/biometric': typeof AppProfileBiometricRoute
   '/app/profile/edit': typeof AppProfileEditRoute
   '/app/profile/email': typeof AppProfileEmailRoute
   '/app/profile/kyc': typeof AppProfileKycRoute
@@ -690,6 +698,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/commission-charge': typeof AdminCommissionChargeRoute
   '/admin/commission-history': typeof AdminCommissionHistoryRoute
   '/admin/community-electricity': typeof AdminCommunityElectricityRoute
@@ -714,7 +723,6 @@ export interface FileRoutesById {
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
-  '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
   '/app/checkout-return': typeof AppCheckoutReturnRoute
@@ -747,6 +755,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/app/': typeof AppIndexRoute
   '/dealer/': typeof DealerIndexRoute
+  '/admin/api-users_/$userId': typeof AdminApiUsersUserIdRoute
   '/admin/community-electricity_/$communityElectricityId': typeof AdminCommunityElectricityCommunityElectricityIdRoute
   '/admin/data-topups_/$dataTopupId': typeof AdminDataTopupsDataTopupIdRoute
   '/admin/deposits_/$depositId': typeof AdminDepositsDepositIdRoute
@@ -754,12 +763,12 @@ export interface FileRoutesById {
   '/admin/kyc_/$kycId': typeof AdminKycKycIdRoute
   '/admin/topups_/$topupId': typeof AdminTopupsTopupIdRoute
   '/admin/users_/$userId': typeof AdminUsersUserIdRoute
-  '/admin/api-users_/$userId': typeof AdminApiUsersUserIdRoute
   '/admin/users_/new': typeof AdminUsersNewRoute
   '/admin/wallets_/$walletId': typeof AdminWalletsWalletIdRoute
   '/admin/water_/$waterId': typeof AdminWaterWaterIdRoute
   '/app/history_/$activityId': typeof AppHistoryActivityIdRoute
   '/app/notifications_/$notificationId': typeof AppNotificationsNotificationIdRoute
+  '/app/profile_/biometric': typeof AppProfileBiometricRoute
   '/app/profile_/edit': typeof AppProfileEditRoute
   '/app/profile_/email': typeof AppProfileEmailRoute
   '/app/profile_/kyc': typeof AppProfileKycRoute
@@ -777,6 +786,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/api-users'
     | '/admin/commission-charge'
     | '/admin/commission-history'
     | '/admin/community-electricity'
@@ -801,7 +811,6 @@ export interface FileRouteTypes {
     | '/admin/transaction-history'
     | '/admin/transfers'
     | '/admin/users'
-    | '/admin/api-users'
     | '/admin/wallets'
     | '/admin/water'
     | '/app/checkout-return'
@@ -834,6 +843,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/app/'
     | '/dealer/'
+    | '/admin/api-users/$userId'
     | '/admin/community-electricity/$communityElectricityId'
     | '/admin/data-topups/$dataTopupId'
     | '/admin/deposits/$depositId'
@@ -841,12 +851,12 @@ export interface FileRouteTypes {
     | '/admin/kyc/$kycId'
     | '/admin/topups/$topupId'
     | '/admin/users/$userId'
-    | '/admin/api-users/$userId'
     | '/admin/users/new'
     | '/admin/wallets/$walletId'
     | '/admin/water/$waterId'
     | '/app/history/$activityId'
     | '/app/notifications/$notificationId'
+    | '/app/profile/biometric'
     | '/app/profile/edit'
     | '/app/profile/email'
     | '/app/profile/kyc'
@@ -862,6 +872,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/api-users'
     | '/admin/commission-charge'
     | '/admin/commission-history'
     | '/admin/community-electricity'
@@ -886,7 +897,6 @@ export interface FileRouteTypes {
     | '/admin/transaction-history'
     | '/admin/transfers'
     | '/admin/users'
-    | '/admin/api-users'
     | '/admin/wallets'
     | '/admin/water'
     | '/app/checkout-return'
@@ -919,6 +929,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/app'
     | '/dealer'
+    | '/admin/api-users/$userId'
     | '/admin/community-electricity/$communityElectricityId'
     | '/admin/data-topups/$dataTopupId'
     | '/admin/deposits/$depositId'
@@ -926,12 +937,12 @@ export interface FileRouteTypes {
     | '/admin/kyc/$kycId'
     | '/admin/topups/$topupId'
     | '/admin/users/$userId'
-    | '/admin/api-users/$userId'
     | '/admin/users/new'
     | '/admin/wallets/$walletId'
     | '/admin/water/$waterId'
     | '/app/history/$activityId'
     | '/app/notifications/$notificationId'
+    | '/app/profile/biometric'
     | '/app/profile/edit'
     | '/app/profile/email'
     | '/app/profile/kyc'
@@ -947,6 +958,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/admin/api-users'
     | '/admin/commission-charge'
     | '/admin/commission-history'
     | '/admin/community-electricity'
@@ -971,7 +983,6 @@ export interface FileRouteTypes {
     | '/admin/transaction-history'
     | '/admin/transfers'
     | '/admin/users'
-    | '/admin/api-users'
     | '/admin/wallets'
     | '/admin/water'
     | '/app/checkout-return'
@@ -1004,6 +1015,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/app/'
     | '/dealer/'
+    | '/admin/api-users_/$userId'
     | '/admin/community-electricity_/$communityElectricityId'
     | '/admin/data-topups_/$dataTopupId'
     | '/admin/deposits_/$depositId'
@@ -1011,12 +1023,12 @@ export interface FileRouteTypes {
     | '/admin/kyc_/$kycId'
     | '/admin/topups_/$topupId'
     | '/admin/users_/$userId'
-    | '/admin/api-users_/$userId'
     | '/admin/users_/new'
     | '/admin/wallets_/$walletId'
     | '/admin/water_/$waterId'
     | '/app/history_/$activityId'
     | '/app/notifications_/$notificationId'
+    | '/app/profile_/biometric'
     | '/app/profile_/edit'
     | '/app/profile_/email'
     | '/app/profile_/kyc'
@@ -1033,6 +1045,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   RegisterRoute: typeof RegisterRoute
+  AdminApiUsersRoute: typeof AdminApiUsersRoute
   AdminCommissionChargeRoute: typeof AdminCommissionChargeRoute
   AdminCommissionHistoryRoute: typeof AdminCommissionHistoryRoute
   AdminCommunityElectricityRoute: typeof AdminCommunityElectricityRoute
@@ -1057,7 +1070,6 @@ export interface RootRouteChildren {
   AdminTransactionHistoryRoute: typeof AdminTransactionHistoryRoute
   AdminTransfersRoute: typeof AdminTransfersRoute
   AdminUsersRoute: typeof AdminUsersRoute
-  AdminApiUsersRoute: typeof AdminApiUsersRoute
   AdminWalletsRoute: typeof AdminWalletsRoute
   AdminWaterRoute: typeof AdminWaterRoute
   AppCheckoutReturnRoute: typeof AppCheckoutReturnRoute
@@ -1090,6 +1102,7 @@ export interface RootRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   AppIndexRoute: typeof AppIndexRoute
   DealerIndexRoute: typeof DealerIndexRoute
+  AdminApiUsersUserIdRoute: typeof AdminApiUsersUserIdRoute
   AdminCommunityElectricityCommunityElectricityIdRoute: typeof AdminCommunityElectricityCommunityElectricityIdRoute
   AdminDataTopupsDataTopupIdRoute: typeof AdminDataTopupsDataTopupIdRoute
   AdminDepositsDepositIdRoute: typeof AdminDepositsDepositIdRoute
@@ -1097,12 +1110,12 @@ export interface RootRouteChildren {
   AdminKycKycIdRoute: typeof AdminKycKycIdRoute
   AdminTopupsTopupIdRoute: typeof AdminTopupsTopupIdRoute
   AdminUsersUserIdRoute: typeof AdminUsersUserIdRoute
-  AdminApiUsersUserIdRoute: typeof AdminApiUsersUserIdRoute
   AdminUsersNewRoute: typeof AdminUsersNewRoute
   AdminWalletsWalletIdRoute: typeof AdminWalletsWalletIdRoute
   AdminWaterWaterIdRoute: typeof AdminWaterWaterIdRoute
   AppHistoryActivityIdRoute: typeof AppHistoryActivityIdRoute
   AppNotificationsNotificationIdRoute: typeof AppNotificationsNotificationIdRoute
+  AppProfileBiometricRoute: typeof AppProfileBiometricRoute
   AppProfileEditRoute: typeof AppProfileEditRoute
   AppProfileEmailRoute: typeof AppProfileEmailRoute
   AppProfileKycRoute: typeof AppProfileKycRoute
@@ -1143,6 +1156,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/api-users': {
+      id: '/admin/api-users'
+      path: '/admin/api-users'
+      fullPath: '/admin/api-users'
+      preLoaderRoute: typeof AdminApiUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/commission-charge': {
@@ -1311,13 +1331,6 @@ declare module '@tanstack/react-router' {
       path: '/admin/users'
       fullPath: '/admin/users'
       preLoaderRoute: typeof AdminUsersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin/api-users': {
-      id: '/admin/api-users'
-      path: '/admin/api-users'
-      fullPath: '/admin/api-users'
-      preLoaderRoute: typeof AdminApiUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/wallets': {
@@ -1537,6 +1550,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DealerTransactionsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/api-users_/$userId': {
+      id: '/admin/api-users_/$userId'
+      path: '/admin/api-users/$userId'
+      fullPath: '/admin/api-users/$userId'
+      preLoaderRoute: typeof AdminApiUsersUserIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/community-electricity_/$communityElectricityId': {
       id: '/admin/community-electricity_/$communityElectricityId'
       path: '/admin/community-electricity/$communityElectricityId'
@@ -1586,13 +1606,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsersUserIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/api-users_/$userId': {
-      id: '/admin/api-users_/$userId'
-      path: '/admin/api-users/$userId'
-      fullPath: '/admin/api-users/$userId'
-      preLoaderRoute: typeof AdminApiUsersUserIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/admin/users_/new': {
       id: '/admin/users_/new'
       path: '/admin/users/new'
@@ -1626,6 +1639,13 @@ declare module '@tanstack/react-router' {
       path: '/app/notifications/$notificationId'
       fullPath: '/app/notifications/$notificationId'
       preLoaderRoute: typeof AppNotificationsNotificationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/profile_/biometric': {
+      id: '/app/profile_/biometric'
+      path: '/app/profile/biometric'
+      fullPath: '/app/profile/biometric'
+      preLoaderRoute: typeof AppProfileBiometricRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/profile_/edit': {
@@ -1705,6 +1725,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   RegisterRoute: RegisterRoute,
+  AdminApiUsersRoute: AdminApiUsersRoute,
   AdminCommissionChargeRoute: AdminCommissionChargeRoute,
   AdminCommissionHistoryRoute: AdminCommissionHistoryRoute,
   AdminCommunityElectricityRoute: AdminCommunityElectricityRoute,
@@ -1729,7 +1750,6 @@ const rootRouteChildren: RootRouteChildren = {
   AdminTransactionHistoryRoute: AdminTransactionHistoryRoute,
   AdminTransfersRoute: AdminTransfersRoute,
   AdminUsersRoute: AdminUsersRoute,
-  AdminApiUsersRoute: AdminApiUsersRoute,
   AdminWalletsRoute: AdminWalletsRoute,
   AdminWaterRoute: AdminWaterRoute,
   AppCheckoutReturnRoute: AppCheckoutReturnRoute,
@@ -1762,6 +1782,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   AppIndexRoute: AppIndexRoute,
   DealerIndexRoute: DealerIndexRoute,
+  AdminApiUsersUserIdRoute: AdminApiUsersUserIdRoute,
   AdminCommunityElectricityCommunityElectricityIdRoute:
     AdminCommunityElectricityCommunityElectricityIdRoute,
   AdminDataTopupsDataTopupIdRoute: AdminDataTopupsDataTopupIdRoute,
@@ -1770,12 +1791,12 @@ const rootRouteChildren: RootRouteChildren = {
   AdminKycKycIdRoute: AdminKycKycIdRoute,
   AdminTopupsTopupIdRoute: AdminTopupsTopupIdRoute,
   AdminUsersUserIdRoute: AdminUsersUserIdRoute,
-  AdminApiUsersUserIdRoute: AdminApiUsersUserIdRoute,
   AdminUsersNewRoute: AdminUsersNewRoute,
   AdminWalletsWalletIdRoute: AdminWalletsWalletIdRoute,
   AdminWaterWaterIdRoute: AdminWaterWaterIdRoute,
   AppHistoryActivityIdRoute: AppHistoryActivityIdRoute,
   AppNotificationsNotificationIdRoute: AppNotificationsNotificationIdRoute,
+  AppProfileBiometricRoute: AppProfileBiometricRoute,
   AppProfileEditRoute: AppProfileEditRoute,
   AppProfileEmailRoute: AppProfileEmailRoute,
   AppProfileKycRoute: AppProfileKycRoute,

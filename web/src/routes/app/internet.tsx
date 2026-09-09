@@ -180,7 +180,7 @@ function InternetBillPayment() {
   });
 
   const payMutation = useMutation({
-    mutationFn: async (transaction_pin: string) => {
+    mutationFn: async (auth: { transaction_pin?: string; use_biometric?: boolean }) => {
       if (!selectedIsp || !inquiry || !selectedPackage) {
         throw new Error(t("internet.selectPackageError"));
       }
@@ -202,7 +202,7 @@ function InternetBillPayment() {
         package_name: selectedPackage.name,
         customer_name: inquiry.customer_name || selectedPackage.customer_name || "",
         pay_data: selectedPackage.pay_data,
-        transaction_pin,
+        ...auth,
       });
     },
     onSuccess: (res) => {
@@ -705,7 +705,11 @@ function InternetBillPayment() {
         error={pinError}
         onConfirm={(pin) => {
           setPinError(null);
-          payMutation.mutate(pin);
+          payMutation.mutate({ transaction_pin: pin });
+        }}
+        onBiometricConfirm={() => {
+          setPinError(null);
+          payMutation.mutate({ use_biometric: true });
         }}
       />
     </UserShell>

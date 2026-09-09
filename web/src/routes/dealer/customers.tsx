@@ -83,11 +83,18 @@ function DealerCustomersPage() {
       id,
       amount,
       transaction_pin,
+      use_biometric,
     }: {
       id: number;
       amount: string;
-      transaction_pin: string;
-    }) => apiClient.dealerLoadUserWallet(id, { amount, transaction_pin }),
+      transaction_pin?: string;
+      use_biometric?: boolean;
+    }) =>
+      apiClient.dealerLoadUserWallet(id, {
+        amount,
+        ...(transaction_pin ? { transaction_pin } : {}),
+        ...(use_biometric ? { use_biometric: true } : {}),
+      }),
     onSuccess: () => {
       toast.success("Wallet loaded from your MySewa wallet");
       setLoadTarget(null);
@@ -313,6 +320,14 @@ function DealerCustomersPage() {
             id: loadTarget.id,
             amount: loadAmount,
             transaction_pin: pin,
+          });
+        }}
+        onBiometricConfirm={() => {
+          if (!loadTarget) return;
+          loadMutation.mutate({
+            id: loadTarget.id,
+            amount: loadAmount,
+            use_biometric: true,
           });
         }}
       />

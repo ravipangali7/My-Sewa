@@ -11,6 +11,7 @@ import {
   LogOut,
   Mail,
   Phone,
+  Fingerprint,
   ShieldCheck,
   Trash2,
   UserRound,
@@ -427,6 +428,12 @@ function Profile() {
                     : t("profile.pinSubtitle")
                 }
               />
+              <SettingsRow
+                to="/app/profile/biometric"
+                icon={Fingerprint}
+                title={t("biometric.title")}
+                subtitle={t("biometric.profileSubtitle")}
+              />
               {user.is_api_user ? (
                 <SettingsRow
                   to="/app/developer"
@@ -546,6 +553,7 @@ function SettingsRow({
     | "/app/profile/kyc"
     | "/app/profile/password"
     | "/app/profile/pin"
+    | "/app/profile/biometric"
     | "/app/support-chat"
     | "/app/developer";
   icon: typeof UserRound;

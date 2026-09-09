@@ -206,7 +206,7 @@ function DataTopUp() {
   });
 
   const payMutation = useMutation({
-    mutationFn: async (transaction_pin: string) => {
+    mutationFn: async (auth: { transaction_pin?: string; use_biometric?: boolean }) => {
       if (!selectedPackage) throw new Error(t("dataTopup.selectPackage"));
       if (accountPending) throw new Error(t("account.pending"));
       if (walletBlocked) throw new Error(walletLockMessage);
@@ -226,7 +226,7 @@ function DataTopUp() {
         package_name: selectedPackage.name,
         package_id: selectedPackage.package_id,
         product_code: selectedPackage.product_code,
-        transaction_pin,
+        ...auth,
       });
     },
     onSuccess: (res) => {
@@ -778,7 +778,11 @@ function DataTopUp() {
         error={pinError}
         onConfirm={(pin) => {
           setPinError(null);
-          payMutation.mutate(pin);
+          payMutation.mutate({ transaction_pin: pin });
+        }}
+        onBiometricConfirm={() => {
+          setPinError(null);
+          payMutation.mutate({ use_biometric: true });
         }}
       />
     </UserShell>

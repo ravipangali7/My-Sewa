@@ -15,7 +15,7 @@ import { toastApiError, toastApiMessage } from "@/lib/api-errors";
 import { apiClient, ApiError } from "@/lib/api";
 import { parseBankQr, phonesMatch } from "@/lib/bank-qr";
 import { mergeBankLists, matchBank, normalizeBankCode } from "@/lib/nepali-banks";
-import type { BankOption, BankTransferTransaction } from "@/lib/types";
+import type { BankOption, BankTransferTransaction, WalletTransfer } from "@/lib/types";
 import { formatNPR, formatDateTime, sortByLatestFirst } from "@/lib/format";
 import { userFacingChargeExtra } from "@/lib/user-charge";
 import { UserChargePreview } from "@/components/UserChargePreview";
@@ -431,7 +431,19 @@ function Transfer() {
   };
 
   const submitMutation = useMutation({
-    mutationFn: (transaction_pin: string) => {
+    mutationFn: async (auth: {
+      transaction_pin?: string;
+      use_biometric?: boolean;
+    }): Promise<{
+      message: string;
+      pending_message?: string;
+      merchant_transaction_id?: string;
+      data: BankTransferTransaction | WalletTransfer;
+    }> => {
+      const pinAuth = {
+        ...(auth.use_biometric ? { use_biometric: true as const } : {}),
+        ...(auth.transaction_pin ? { transaction_pin: auth.transaction_pin } : {}),
+      };
       if (accountPending) throw new Error(t("account.pending"));
       if (walletLocked) throw new Error(walletLockMessage);
       if (method === "wallet") {
@@ -453,7 +465,7 @@ function Transfer() {
           recipient_phone: walletRecipient.phone,
           amount: Number(amt.toFixed(2)),
           remarks: remarks || t("transfer.defaultRemarks"),
-          transaction_pin,
+          ...pinAuth,
         });
       }
       if (!transfersEnabled) throw new Error(t("transfer.disabledError"));
@@ -479,7 +491,7 @@ function Transfer() {
         destination_acc_name: accName,
         is_destination_mobile: isMobile,
         transaction_remarks: remarks || t("transfer.defaultRemarks"),
-        transaction_pin,
+        ...pinAuth,
       });
     },
     onSuccess: (res) => {
@@ -1455,7 +1467,11 @@ function Transfer() {
         error={pinError}
         onConfirm={(pin) => {
           setPinError(null);
-          submitMutation.mutate(pin);
+          submitMutation.mutate({ transaction_pin: pin });
+        }}
+        onBiometricConfirm={() => {
+          setPinError(null);
+          submitMutation.mutate({ use_biometric: true });
         }}
       />
     </UserShell>

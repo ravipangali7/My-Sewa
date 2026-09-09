@@ -775,7 +775,8 @@ export const apiClient = {
     mobile_number: string;
     amount: number;
     product_id: 1;
-    transaction_pin: string;
+    transaction_pin?: string;
+    use_biometric?: boolean;
   }) =>
     api<{
       message: string;
@@ -790,7 +791,8 @@ export const apiClient = {
     mobile_number: string;
     amount: number;
     product_id: 2;
-    transaction_pin: string;
+    transaction_pin?: string;
+    use_biometric?: boolean;
   }) =>
     api<{
       message: string;
@@ -894,7 +896,8 @@ export const apiClient = {
     recipient_phone: string;
     amount: number | string;
     remarks?: string;
-    transaction_pin: string;
+    transaction_pin?: string;
+    use_biometric?: boolean;
   }) =>
     api<{ message: string; data: import("./types").WalletTransfer }>(
       "/api/wallet-transfer/create/",
@@ -963,7 +966,8 @@ export const apiClient = {
     package_name?: string;
     customer_name?: string;
     pay_data: Record<string, unknown>;
-    transaction_pin: string;
+    transaction_pin?: string;
+    use_biometric?: boolean;
   }) =>
     api<{
       message: string;
@@ -1009,7 +1013,8 @@ export const apiClient = {
     payment_type?: string;
     customer_name?: string;
     pay_data?: Record<string, unknown>;
-    transaction_pin: string;
+    transaction_pin?: string;
+    use_biometric?: boolean;
   }) =>
     api<{
       message: string;
@@ -1055,7 +1060,8 @@ export const apiClient = {
     session_id?: string;
     customer_name?: string;
     pay_data?: Record<string, unknown>;
-    transaction_pin: string;
+    transaction_pin?: string;
+    use_biometric?: boolean;
   }) =>
     api<{
       message: string;
@@ -1128,7 +1134,8 @@ export const apiClient = {
     month?: number | null;
     customer_name?: string;
     pay_data?: Record<string, unknown>;
-    transaction_pin: string;
+    transaction_pin?: string;
+    use_biometric?: boolean;
   }) =>
     api<{
       message: string;
@@ -1169,7 +1176,8 @@ export const apiClient = {
     package_name?: string;
     package_id?: string;
     product_code?: string;
-    transaction_pin: string;
+    transaction_pin?: string;
+    use_biometric?: boolean;
   }) =>
     api<{
       message: string;
@@ -1637,7 +1645,12 @@ export const apiClient = {
     }),
   dealerLoadUserWallet: (
     id: number,
-    body: { amount: string | number; transaction_pin: string; remarks?: string },
+    body: {
+      amount: string | number;
+      transaction_pin?: string;
+      use_biometric?: boolean;
+      remarks?: string;
+    },
   ) =>
     api<{ message: string; data: import("./types").WalletTransfer }>(
       `/api/dealer/users/${id}/load-wallet/`,
@@ -1651,7 +1664,8 @@ export const apiClient = {
     user_id: number;
     amount: number | string;
     remarks?: string;
-    transaction_pin: string;
+    transaction_pin?: string;
+    use_biometric?: boolean;
   }) =>
     api<{
       message: string;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { KeyRound } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +16,13 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp";
+import { BiometricFingerprintButton } from "@/components/BiometricFingerprintButton";
+import { useAuth } from "@/lib/auth";
+import {
+  biometricErrorMessage,
+  getBiometricCapability,
+  requestBiometric,
+} from "@/lib/biometric";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +34,8 @@ type TransactionPinDialogProps = {
   /** When false, show a prompt to set PIN instead of the OTP entry. */
   hasPin: boolean;
   onConfirm: (pin: string) => void;
+  /** Called after native biometric succeeded and a server assertion was minted. */
+  onBiometricConfirm?: () => void;
   confirming?: boolean;
   title?: string;
   description?: string;
@@ -38,6 +48,7 @@ export function TransactionPinDialog({
   onOpenChange,
   hasPin,
   onConfirm,
+  onBiometricConfirm,
   confirming = false,
   title,
   description,
@@ -45,7 +56,12 @@ export function TransactionPinDialog({
   setPinHref = "/app/profile/pin",
 }: TransactionPinDialogProps) {
   const t = useT();
+  const { user } = useAuth();
   const [pin, setPin] = useState("");
+  const [biometricReady, setBiometricReady] = useState(false);
+  const [biometricBusy, setBiometricBusy] = useState(false);
+
+  const biometricEnabled = Boolean(user?.transaction_pin_biometric_enabled && onBiometricConfirm);
 
   useEffect(() => {
     if (open) {
@@ -53,10 +69,47 @@ export function TransactionPinDialog({
     }
   }, [open]);
 
-  const canSubmit = hasPin && pin.length === PIN_LENGTH && !confirming;
+  useEffect(() => {
+    if (!open || !biometricEnabled) {
+      setBiometricReady(false);
+      return;
+    }
+    let cancelled = false;
+    void getBiometricCapability().then((cap) => {
+      if (cancelled) return;
+      setBiometricReady(Boolean(cap.biometricAvailable && cap.pinEnrolled));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, biometricEnabled]);
+
+  const busy = confirming || biometricBusy;
+  const canSubmit = hasPin && pin.length === PIN_LENGTH && !busy;
+
+  const handleBiometric = async () => {
+    if (!onBiometricConfirm || busy) return;
+    setBiometricBusy(true);
+    try {
+      const result = await requestBiometric({
+        action: "transaction_pin",
+        reason: t("biometric.transactionPrompt"),
+        ...(user?.id != null ? { userId: user.id } : {}),
+      });
+      if (result.reason === "cancelled") return;
+      if (!result.success || !result.authenticated) {
+        const msg = biometricErrorMessage(result, t("biometric.transactionFailed"));
+        if (msg) toast.error(msg);
+        return;
+      }
+      onBiometricConfirm();
+    } finally {
+      setBiometricBusy(false);
+    }
+  };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
       <DialogContent className="max-w-[min(100%,24rem)] gap-5 sm:rounded-2xl">
         <DialogHeader className="space-y-2 text-center sm:text-center">
           <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-[#E8F0FE] text-[#1D4ED8]">
@@ -73,12 +126,28 @@ export function TransactionPinDialog({
 
         {hasPin ? (
           <div className="flex flex-col items-center gap-3">
+            {biometricReady ? (
+              <>
+                <BiometricFingerprintButton
+                  label={t("biometric.confirmAria")}
+                  loading={biometricBusy}
+                  disabled={busy}
+                  onClick={() => void handleBiometric()}
+                />
+                <p className="text-center text-xs font-medium text-[#1A73E8]">
+                  {t("biometric.confirmCta")}
+                </p>
+                <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                  {t("biometric.orUsePin")}
+                </p>
+              </>
+            ) : null}
             <InputOTP
               maxLength={PIN_LENGTH}
               value={pin}
               onChange={(value) => setPin(value.replace(/\D/g, "").slice(0, PIN_LENGTH))}
-              disabled={confirming}
-              autoFocus
+              disabled={busy}
+              autoFocus={!biometricReady}
               inputMode="numeric"
               pattern="[0-9]*"
               containerClassName="justify-center"
@@ -141,7 +210,7 @@ export function TransactionPinDialog({
             type="button"
             variant="ghost"
             className="w-full"
-            disabled={confirming}
+            disabled={busy}
             onClick={() => onOpenChange(false)}
           >
             {t("common.cancel")}

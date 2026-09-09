@@ -147,6 +147,9 @@ export interface UserProfile {
   super_admin_rate?: string | null;
   /** Whether a transaction PIN is set (never the raw PIN). */
   has_transaction_pin?: boolean;
+  /** Preference only — no biometric templates are stored on the server. */
+  login_biometric_enabled?: boolean;
+  transaction_pin_biometric_enabled?: boolean;
   date_joined: string;
   last_login: string | null;
 }

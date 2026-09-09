@@ -70,6 +70,10 @@ urlpatterns = [
     ),
     path('api/auth/has-transaction-pin/', auth_views.has_transaction_pin, name='has_transaction_pin'),
     path('api/auth/verify-transaction-pin/', auth_views.verify_transaction_pin, name='verify_transaction_pin'),
+    path('api/auth/biometric/enable/', auth_views.biometric_enable, name='biometric_enable'),
+    path('api/auth/biometric/disable/', auth_views.biometric_disable, name='biometric_disable'),
+    path('api/auth/biometric/assertion/', auth_views.biometric_assertion, name='biometric_assertion'),
+    path('api/auth/biometric-login/', auth_views.biometric_login, name='biometric_login'),
     path('api/auth/device-token/', auth_views.device_token, name='device_token'),
     path('api/notifications/fcm-token/', auth_views.device_token, name='fcm_token'),
     path(

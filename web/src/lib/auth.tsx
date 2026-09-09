@@ -61,6 +61,8 @@ type AuthContextValue = {
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   setSessionToken: (token: string) => void;
+  /** Hydrate auth after Flutter injects mysewa_token into localStorage. */
+  hydrateSessionFromStorage: () => Promise<UserProfile>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -244,6 +246,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTokenState(next);
   }, []);
 
+  const hydrateSessionFromStorage = useCallback(async () => {
+    const sessionToken = getToken();
+    if (!sessionToken) {
+      throw new ApiError("Biometric login did not restore a session.", 401);
+    }
+    return establishSession(sessionToken);
+  }, [establishSession]);
+
   const user = profileQuery.data ?? null;
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -260,6 +270,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       refreshProfile,
       setSessionToken,
+      hydrateSessionFromStorage,
     }),
     [
       token,
@@ -274,6 +285,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       refreshProfile,
       setSessionToken,
+      hydrateSessionFromStorage,
     ],
   );
 

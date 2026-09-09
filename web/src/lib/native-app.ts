@@ -87,6 +87,12 @@ declare global {
       hasPushBridge?: boolean;
       /** Ask Flutter to request CAMERA so WebView QR scanning can start. */
       requestCamera?: () => boolean;
+      requestBiometric?: (payload: string | Record<string, unknown>) => boolean;
+      hasBiometricBridge?: boolean;
+      isFlutterWebView?: boolean;
+      biometricAvailable?: boolean;
+      loginBiometricEnrolled?: boolean;
+      pinBiometricEnrolled?: boolean;
     };
     MySewaBridge?: {
       postMessage: (message: string) => void;
