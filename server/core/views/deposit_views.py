@@ -18,13 +18,15 @@ from ..services.checkout_deposit import (
     ORDER_MISMATCH,
     PENDING_PAYMENT,
     SETTLED,
-    create_checkout_deposit,
+    checkout_session_public_dict,
+    create_checkout_session,
     extract_documented_identifiers,
     frontend_result_url,
-    lookup_checkout_deposit,
+    resolve_checkout_intent,
     sanitize_provider_payload,
-    verify_deposit,
+    verify_checkout_intent,
 )
+from ..services.himalpay_checkout import append_query, default_frontend_return_url
 from ..services.notifications import notify_deposit_submitted
 
 _DEPOSIT_PENDING = ('pending', 'processing')
@@ -72,6 +74,14 @@ def _deposit_error(exc: HimalPayError):
         ),
         status=exc.status_code or status.HTTP_400_BAD_REQUEST,
     )
+
+
+def _public_checkout_data(request, session, deposit):
+    if deposit is not None:
+        return DepositSerializer(deposit, context={'request': request}).data
+    if session is not None:
+        return checkout_session_public_dict(session)
+    return None
 
 
 @api_view(['POST'])
@@ -157,7 +167,7 @@ def get_deposit(request, deposit_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def checkout_initiate(request):
-    """Create a pending Himal Pay Checkout deposit and return payment_url."""
+    """Create a Himal Pay Checkout QR session. Does not create a wallet transaction."""
     blocked = require_feature_enabled('deposits')
     if blocked:
         return blocked
@@ -172,24 +182,24 @@ def checkout_initiate(request):
 
     amount = request.data.get('amount')
     try:
-        deposit, payment_url = create_checkout_deposit(request.user, amount)
+        session, payment_url = create_checkout_session(request.user, amount)
     except HimalPayError as exc:
         return _deposit_error(exc)
 
     return Response(
         with_himapay_response(
             {
-                'message': 'Checkout session created',
+                'message': 'Checkout QR ready',
                 'payment_url': payment_url,
-                'data': DepositSerializer(deposit, context={'request': request}).data,
+                'data': checkout_session_public_dict(session),
             },
-            sanitize_provider_payload(deposit.provider_payload),
+            sanitize_provider_payload(session.provider_payload),
         ),
         status=status.HTTP_201_CREATED,
     )
 
 
-def _verify_response(request, deposit, outcome):
+def _verify_response(request, outcome, session, deposit):
     messages = {
         SETTLED: 'Deposit verified and wallet credited',
         ALREADY_PROCESSED: 'Deposit already processed',
@@ -202,15 +212,17 @@ def _verify_response(request, deposit, outcome):
     http_status = status.HTTP_200_OK
     if outcome in (AMOUNT_MISMATCH, ORDER_MISMATCH):
         http_status = status.HTTP_409_CONFLICT
+    payload_source = deposit if deposit is not None else session
+    provider_payload = getattr(payload_source, 'provider_payload', None) if payload_source else None
     return Response(
         with_himapay_response(
             {
                 'message': messages.get(outcome, 'Checkout status updated'),
                 'outcome': outcome,
                 'already_processed': already,
-                'data': DepositSerializer(deposit, context={'request': request}).data,
+                'data': _public_checkout_data(request, session, deposit),
             },
-            sanitize_provider_payload(deposit.provider_payload),
+            sanitize_provider_payload(provider_payload),
         ),
         status=http_status,
     )
@@ -223,24 +235,26 @@ def checkout_verify(request):
     Server-side verification via checkout-status.
 
     Ignores any client-supplied payment status or amount.
+    Creates a wallet Deposit only after Himal Pay reports payment completed.
     """
-    deposit = lookup_checkout_deposit(
-        process_id=str(request.data.get('process_id') or ''),
-        purchase_order_identifier=str(
-            request.data.get('purchase_order_identifier')
-            or request.data.get('order')
-            or ''
-        ),
-        deposit_id=request.data.get('id') or request.data.get('deposit_id'),
-        user=request.user,
-    )
-    if deposit is None:
-        return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
     try:
-        outcome, deposit = verify_deposit(deposit)
+        outcome, session, deposit = verify_checkout_intent(
+            process_id=str(request.data.get('process_id') or ''),
+            purchase_order_identifier=str(
+                request.data.get('purchase_order_identifier')
+                or request.data.get('order')
+                or ''
+            ),
+            session_id=request.data.get('session_id'),
+            deposit_id=request.data.get('deposit_id'),
+            generic_id=request.data.get('id'),
+            user=request.user,
+        )
+    except LookupError:
+        return Response({'error': 'Checkout session not found'}, status=status.HTTP_404_NOT_FOUND)
     except HimalPayError as exc:
         return _deposit_error(exc)
-    return _verify_response(request, deposit, outcome)
+    return _verify_response(request, outcome, session, deposit)
 
 
 @api_view(['GET', 'POST'])
@@ -248,7 +262,7 @@ def checkout_verify(request):
 @authentication_classes([])
 def checkout_return(request):
     """
-    Customer return_url. Identifies the deposit from our own `order` query
+    Customer return_url. Identifies the session from our own `order` query
     param (purchase_order_identifier we placed on return_url), then verifies
     via checkout-status. Never trusts redirect status/amount as payment proof.
     """
@@ -264,23 +278,31 @@ def checkout_return(request):
         or identifiers.get('process_id')
         or ''
     )
-    deposit = lookup_checkout_deposit(
+    session, deposit = resolve_checkout_intent(
         process_id=process_id,
         purchase_order_identifier=order,
     )
-    if deposit is None:
-        target = frontend_result_url(Deposit(purchase_order_identifier=order or '', pk=0))
-        # pk=0 would be wrong; send order only
-        from ..services.himalpay_checkout import append_query, default_frontend_return_url
+    if session is None and deposit is None:
         target = append_query(default_frontend_return_url(), order=order, error='not_found')
         return HttpResponseRedirect(target)
 
     try:
-        verify_deposit(deposit)
-        deposit.refresh_from_db()
+        if session is not None:
+            _, session, deposit = verify_checkout_intent(
+                process_id=process_id or (session.process_id or ''),
+                purchase_order_identifier=order or session.purchase_order_identifier,
+                session_id=session.pk,
+            )
+        else:
+            _, session, deposit = verify_checkout_intent(
+                process_id=process_id,
+                purchase_order_identifier=order,
+                deposit_id=deposit.pk,
+            )
     except HimalPayError:
         pass
-    return HttpResponseRedirect(frontend_result_url(deposit))
+    record = session or deposit
+    return HttpResponseRedirect(frontend_result_url(record, deposit))
 
 
 @api_view(['POST'])
@@ -303,26 +325,29 @@ def checkout_webhook(request):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
-    deposit = lookup_checkout_deposit(
-        process_id=identifiers.get('process_id', ''),
-        purchase_order_identifier=identifiers.get('purchase_order_identifier', ''),
-    )
-    if deposit is None:
-        return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
     try:
-        outcome, deposit = verify_deposit(deposit)
+        outcome, session, deposit = verify_checkout_intent(
+            process_id=identifiers.get('process_id', ''),
+            purchase_order_identifier=identifiers.get('purchase_order_identifier', ''),
+        )
+    except LookupError:
+        return Response({'error': 'Checkout session not found'}, status=status.HTTP_404_NOT_FOUND)
     except HimalPayError as exc:
         return _deposit_error(exc)
     already = outcome == ALREADY_PROCESSED
+    status_value = deposit.status if deposit is not None else (session.status if session else '')
+    payload_source = deposit if deposit is not None else session
     return Response(
         with_himapay_response(
             {
                 'ok': True,
                 'outcome': outcome,
                 'already_processed': already,
-                'status': deposit.status,
+                'status': status_value,
             },
-            sanitize_provider_payload(deposit.provider_payload),
+            sanitize_provider_payload(
+                getattr(payload_source, 'provider_payload', None) if payload_source else None
+            ),
         ),
         status=status.HTTP_200_OK,
     )

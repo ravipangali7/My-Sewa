@@ -42,7 +42,9 @@ export const RADII = {
 export const STATUS_TONE = {
   pending: "warning",
   processing: "warning",
+  awaiting_payment: "warning",
   approved: "success",
+  settled: "success",
   success: "success",
   rejected: "danger",
   failed: "danger",

@@ -708,7 +708,7 @@ export const apiClient = {
     api<{
       message: string;
       payment_url: string;
-      data: import("./types").Deposit;
+      data: import("./types").CheckoutSession;
       HimalPay?: unknown;
       himapayResponse?: unknown;
       himalpay_response?: unknown;
@@ -719,6 +719,7 @@ export const apiClient = {
 
   checkoutVerify: (body: {
     id?: number;
+    session_id?: number;
     deposit_id?: number;
     purchase_order_identifier?: string;
     order?: string;
@@ -728,7 +729,7 @@ export const apiClient = {
       message: string;
       outcome: string;
       already_processed?: boolean;
-      data: import("./types").Deposit;
+      data: import("./types").CheckoutSession | import("./types").Deposit;
       HimalPay?: unknown;
       himapayResponse?: unknown;
       himalpay_response?: unknown;

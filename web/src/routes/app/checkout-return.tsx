@@ -12,6 +12,7 @@ import { useI18n } from "@/lib/i18n";
 type CheckoutReturnSearch = {
   order?: string;
   deposit?: string;
+  session?: string;
   error?: string;
 };
 
@@ -19,6 +20,7 @@ export const Route = createFileRoute("/app/checkout-return")({
   validateSearch: (search: Record<string, unknown>): CheckoutReturnSearch => ({
     order: typeof search.order === "string" ? search.order : undefined,
     deposit: typeof search.deposit === "string" ? search.deposit : undefined,
+    session: typeof search.session === "string" ? search.session : undefined,
     error: typeof search.error === "string" ? search.error : undefined,
   }),
   head: () => ({
@@ -41,13 +43,15 @@ function CheckoutReturnPage() {
   const search = Route.useSearch();
   const order = search.order?.trim() || "";
   const depositId = Number(search.deposit || 0);
+  const sessionId = Number(search.session || 0);
 
   const verifyQuery = useQuery({
-    queryKey: ["checkout-verify", order, depositId],
-    enabled: Boolean(token) && (Boolean(order) || depositId > 0),
+    queryKey: ["checkout-verify", order, depositId, sessionId],
+    enabled: Boolean(token) && (Boolean(order) || depositId > 0 || sessionId > 0),
     queryFn: () =>
       apiClient.checkoutVerify({
-        ...(depositId > 0 ? { id: depositId } : {}),
+        ...(sessionId > 0 ? { session_id: sessionId, id: sessionId } : {}),
+        ...(depositId > 0 ? { deposit_id: depositId } : {}),
         ...(order ? { purchase_order_identifier: order, order } : {}),
       }),
     retry: false,
@@ -57,6 +61,7 @@ function CheckoutReturnPage() {
       const outcome = data?.outcome;
       if (
         status === "approved" ||
+        status === "settled" ||
         status === "failed" ||
         status === "cancelled" ||
         status === "expired" ||
@@ -65,7 +70,12 @@ function CheckoutReturnPage() {
       ) {
         return false;
       }
-      if (outcome === "pending_payment" || status === "pending" || status === "processing") {
+      if (
+        outcome === "pending_payment" ||
+        status === "pending" ||
+        status === "processing" ||
+        status === "awaiting_payment"
+      ) {
         return 4000;
       }
       return false;
@@ -73,19 +83,33 @@ function CheckoutReturnPage() {
   });
 
   useEffect(() => {
-    if (!verifyQuery.isSuccess) return;
+    const status = verifyQuery.data?.data?.status;
+    const outcome = verifyQuery.data?.outcome;
+    if (
+      status !== "approved" &&
+      status !== "settled" &&
+      outcome !== "settled" &&
+      outcome !== "already_processed"
+    ) {
+      return;
+    }
     void queryClient.invalidateQueries({ queryKey: ["wallet"] });
     void queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });
     void queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
     void queryClient.invalidateQueries({ queryKey: ["deposits"] });
-  }, [verifyQuery.isSuccess, queryClient]);
+  }, [
+    verifyQuery.data?.data?.status,
+    verifyQuery.data?.outcome,
+    queryClient,
+  ]);
 
   const deposit = verifyQuery.data?.data;
   const outcome = verifyQuery.data?.outcome;
-  const approved = deposit?.status === "approved";
+  const approved = deposit?.status === "approved" || deposit?.status === "settled";
   const pending =
     deposit?.status === "pending" ||
     deposit?.status === "processing" ||
+    deposit?.status === "awaiting_payment" ||
     outcome === "pending_payment";
 
   const title = useMemo(() => {

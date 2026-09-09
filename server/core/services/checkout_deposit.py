@@ -2,17 +2,18 @@
 Himal Pay Checkout wallet deposit (payin) settlement.
 
 Flow (from official Checkout docs):
-  1. Backend creates a pending Deposit and calls checkout-initiate.
-  2. User is redirected to payment_url (N-Cash payment page).
-  3. User returns to return_url.
-  4. Backend calls checkout-status and credits the wallet only when
+  1. Backend calls checkout-initiate and stores a CheckoutSession (QR only).
+     No Deposit / wallet transaction is created at this step.
+  2. User scans the live Himal Pay QR from another bank app or eSewa.
+  3. Backend polls checkout-status (or return/webhook).
+  4. Wallet Deposit is created and credited only when
      payment.status == "completed" AND amount / order id match.
 
 Wallet credit reuses Deposit.status='approved' so the existing deposit
 signal + credit_wallet_for_txn ledger path is unchanged.
 
-Idempotency: select_for_update on the deposit row. A second completed
-status check returns already_processed without a second credit.
+Idempotency: select_for_update on the session (then deposit) row.
+A second completed status check returns already_processed without a second credit.
 
 The Checkout docs do not define a webhook body or signature. Optional
 POST /api/deposit/checkout/webhook/ only extracts documented identifiers
@@ -26,10 +27,11 @@ import uuid
 from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
-from ..models import Deposit, Wallet
+from ..models import CheckoutSession, Deposit, Wallet
 from .himalpay import HimalPayAPI, HimalPayError
 from .himalpay_checkout import (
     CHECKOUT_MIN_PAISA,
@@ -69,6 +71,12 @@ STATUS_CANCELLED = 'cancelled'
 STATUS_EXPIRED = 'expired'
 STATUS_REFUNDED = 'refunded'
 
+SESSION_AWAITING = CheckoutSession.STATUS_AWAITING
+SESSION_SETTLED = CheckoutSession.STATUS_SETTLED
+SESSION_FAILED = CheckoutSession.STATUS_FAILED
+SESSION_CANCELLED = CheckoutSession.STATUS_CANCELLED
+SESSION_EXPIRED = CheckoutSession.STATUS_EXPIRED
+
 VERIFY_UNVERIFIED = 'unverified'
 VERIFY_VERIFIED = 'verified'
 VERIFY_MISMATCH = 'mismatch'
@@ -86,6 +94,12 @@ _TERMINAL_FAILURE = {
     PAYMENT_STATUS_FAILED: STATUS_FAILED,
     PAYMENT_STATUS_CANCELLED: STATUS_CANCELLED,
     PAYMENT_STATUS_EXPIRED: STATUS_EXPIRED,
+}
+
+_SESSION_TERMINAL = {
+    PAYMENT_STATUS_FAILED: SESSION_FAILED,
+    PAYMENT_STATUS_CANCELLED: SESSION_CANCELLED,
+    PAYMENT_STATUS_EXPIRED: SESSION_EXPIRED,
 }
 
 _SECRET_KEY_HINTS = (
@@ -122,9 +136,11 @@ def new_purchase_order_identifier() -> str:
     return f'MS-CHK-{uuid.uuid4().hex}'
 
 
-def public_checkout_details(deposit: Deposit) -> Dict[str, str]:
+def public_checkout_details(record) -> Dict[str, str]:
     """Safe Himal Pay fields for the Deposit tab (no secrets or raw payload)."""
-    payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
+    payload = getattr(record, 'provider_payload', None)
+    if not isinstance(payload, dict):
+        payload = {}
     initialization = (
         payload.get('initialization') if isinstance(payload.get('initialization'), dict) else {}
     )
@@ -152,7 +168,29 @@ def public_checkout_details(deposit: Deposit) -> Dict[str, str]:
         'merchant_phone': str(
             merchant.get('mobile_no') or merchant.get('phone') or ''
         ).strip(),
-        'currency': str(getattr(deposit, 'currency', None) or 'NPR'),
+        'currency': str(getattr(record, 'currency', None) or 'NPR'),
+    }
+
+
+def checkout_session_public_dict(session: CheckoutSession) -> Dict[str, Any]:
+    """API shape for an unpaid Checkout QR session (not a wallet transaction)."""
+    expires = session.expires_at
+    return {
+        'id': session.pk,
+        'session_id': session.pk,
+        'deposit_id': session.deposit_id,
+        'amount': str(session.amount),
+        'currency': session.currency or 'NPR',
+        'status': session.status,
+        'status_display': session.get_status_display(),
+        'provider': PROVIDER_HIMALPAY_CHECKOUT,
+        'purchase_order_identifier': session.purchase_order_identifier,
+        'process_id': session.process_id,
+        'payment_url': session.payment_url,
+        'expires_at': expires.isoformat() if expires else None,
+        'checkout_details': public_checkout_details(session),
+        'transaction_id': session.process_id or '',
+        'failure_reason': session.failure_reason or '',
     }
 
 
@@ -189,33 +227,42 @@ def _get_or_create_wallet(user) -> Wallet:
         return Wallet.objects.create(user=user, balance=Decimal('0.00'))
 
 
-def _reusable_checkout_deposit(user, amount) -> Optional[Deposit]:
-    """Return an unexpired pending Checkout session for this user and amount."""
+def _parse_expires_at(expires_at):
+    if not expires_at:
+        return None
+    if hasattr(expires_at, 'isoformat') and not isinstance(expires_at, str):
+        return expires_at
+    return parse_datetime(str(expires_at))
+
+
+def _reusable_checkout_session(user, amount) -> Optional[CheckoutSession]:
+    """Return an unexpired unpaid Checkout QR session for this user and amount."""
     now = timezone.now()
     qs = (
-        Deposit.objects.filter(
+        CheckoutSession.objects.filter(
             user=user,
-            provider=PROVIDER_HIMALPAY_CHECKOUT,
-            status__in=[STATUS_PENDING, STATUS_PROCESSING],
             amount=amount,
+            status=SESSION_AWAITING,
+            deposit__isnull=True,
         )
         .exclude(payment_url='')
         .order_by('-created_at')
     )
-    for deposit in qs[:8]:
-        if not (deposit.payment_url or '').strip():
+    for session in qs[:8]:
+        if not (session.payment_url or '').strip():
             continue
-        if deposit.expires_at and deposit.expires_at <= now:
+        if session.expires_at and session.expires_at <= now:
             continue
-        return deposit
+        return session
     return None
 
 
-def create_checkout_deposit(user, amount) -> Tuple[Deposit, str]:
+def create_checkout_session(user, amount) -> Tuple[CheckoutSession, str]:
     """
-    Create a pending checkout deposit and initialize Himal Pay Checkout.
+    Call Himal Pay checkout-initiate and store a QR session.
 
-    Returns (deposit, payment_url).
+    Does not create a Deposit or credit the wallet.
+    Returns (session, payment_url).
     """
     from .app_config import get_app_config, validate_amount_bounds
 
@@ -241,63 +288,48 @@ def create_checkout_deposit(user, amount) -> Tuple[Deposit, str]:
     if err:
         raise HimalPayError(err, status_code=400)
 
-    existing = _reusable_checkout_deposit(user, amount)
+    existing = _reusable_checkout_session(user, amount)
     if existing:
         return existing, existing.payment_url
 
     order_id = new_purchase_order_identifier()
     return_url = build_return_url(order_id)
-
-    deposit = Deposit.objects.create(
-        user=user,
-        amount=amount,
-        status=STATUS_PENDING,
-        provider=PROVIDER_HIMALPAY_CHECKOUT,
-        purchase_order_identifier=order_id,
-        bank_name='Himal Pay',
-        note='Himal Pay Checkout wallet deposit',
-        verification_status=VERIFY_UNVERIFIED,
-        currency='NPR',
-    )
-
     client = HimalPayCheckoutAPI()
-    try:
-        raw = client.initiate_checkout(
-            amount_rupees=amount,
-            purchase_order_identifier=order_id,
-            return_url=return_url,
-            product_name=PRODUCT_NAME,
-            customer_details=customer_details_for(user),
-        )
-    except HimalPayError as exc:
-        deposit.status = STATUS_FAILED
-        deposit.verification_status = VERIFY_FAILED
-        deposit.failure_reason = str(exc.message or exc)[:500]
-        deposit.provider_payload = sanitize_provider_payload(getattr(exc, 'response_data', None))
-        deposit.save(update_fields=[
-            'status', 'verification_status', 'failure_reason', 'provider_payload', 'updated_at',
-        ])
-        raise
+    raw = client.initiate_checkout(
+        amount_rupees=amount,
+        purchase_order_identifier=order_id,
+        return_url=return_url,
+        product_name=PRODUCT_NAME,
+        customer_details=customer_details_for(user),
+    )
 
     payload = raw.get('payload') if isinstance(raw.get('payload'), dict) else {}
     process_id = str(payload.get('process_id') or '').strip()
     payment_url = str(payload.get('payment_url') or '').strip()
-    expires_at = payload.get('expires_at') or None
+    if not process_id or not payment_url:
+        raise HimalPayError(
+            'Himal Pay Checkout did not return a payment QR.',
+            status_code=502,
+            response_data=sanitize_provider_payload(raw),
+        )
 
-    deposit.process_id = process_id or None
-    deposit.payment_url = payment_url
-    deposit.transaction_id = process_id
-    deposit.provider_payload = sanitize_provider_payload(raw)
-    deposit.status = STATUS_PROCESSING
-    if expires_at:
-        from django.utils.dateparse import parse_datetime
-        parsed = parse_datetime(str(expires_at)) if not hasattr(expires_at, 'isoformat') else expires_at
-        deposit.expires_at = parsed
-    deposit.save(update_fields=[
-        'process_id', 'payment_url', 'transaction_id', 'provider_payload',
-        'status', 'expires_at', 'updated_at',
-    ])
-    return deposit, payment_url
+    session = CheckoutSession.objects.create(
+        user=user,
+        amount=amount,
+        currency='NPR',
+        status=SESSION_AWAITING,
+        purchase_order_identifier=order_id,
+        process_id=process_id,
+        payment_url=payment_url,
+        expires_at=_parse_expires_at(payload.get('expires_at')),
+        provider_payload=sanitize_provider_payload(raw),
+    )
+    return session, payment_url
+
+
+def create_checkout_deposit(user, amount) -> Tuple[CheckoutSession, str]:
+    """Backward-compatible alias: initiate a QR session, not a Deposit row."""
+    return create_checkout_session(user, amount)
 
 
 def _apply_failure(deposit: Deposit, status_value: str, reason: str, payload: Dict) -> Deposit:
@@ -448,6 +480,166 @@ def verify_deposit(deposit: Deposit) -> Tuple[str, Deposit]:
         raise HimalPayError(exc.message or WALLET_FROZEN_MESSAGE, status_code=403) from exc
 
 
+def _materialize_deposit(session: CheckoutSession) -> Deposit:
+    """Create the wallet Deposit row for a verified Checkout payment."""
+    if session.deposit_id:
+        return session.deposit
+    try:
+        deposit = Deposit.objects.create(
+            user=session.user,
+            amount=session.amount,
+            status=STATUS_PROCESSING,
+            provider=PROVIDER_HIMALPAY_CHECKOUT,
+            purchase_order_identifier=session.purchase_order_identifier,
+            process_id=session.process_id or None,
+            payment_url=session.payment_url,
+            expires_at=session.expires_at,
+            bank_name='Himal Pay',
+            note='Himal Pay Checkout wallet deposit',
+            verification_status=VERIFY_UNVERIFIED,
+            currency=session.currency or 'NPR',
+            transaction_id=session.process_id or '',
+            provider_payload=session.provider_payload or {},
+        )
+    except IntegrityError:
+        deposit = (
+            Deposit.objects.filter(process_id=session.process_id).first()
+            or Deposit.objects.filter(
+                purchase_order_identifier=session.purchase_order_identifier,
+            ).first()
+        )
+        if deposit is None:
+            raise
+    session.deposit = deposit
+    session.save(update_fields=['deposit', 'updated_at'])
+    return deposit
+
+
+def _sync_session_from_deposit(session: CheckoutSession, deposit: Deposit) -> None:
+    if deposit.status == STATUS_APPROVED:
+        session.status = SESSION_SETTLED
+    elif deposit.status == STATUS_CANCELLED:
+        session.status = SESSION_CANCELLED
+    elif deposit.status == STATUS_EXPIRED:
+        session.status = SESSION_EXPIRED
+    elif deposit.status in (STATUS_FAILED, STATUS_REJECTED, STATUS_REFUNDED):
+        session.status = SESSION_FAILED
+    session.deposit = deposit
+    session.provider_payload = deposit.provider_payload or session.provider_payload
+    session.failure_reason = (deposit.failure_reason or '')[:500]
+    session.save(update_fields=[
+        'status', 'deposit', 'provider_payload', 'failure_reason', 'updated_at',
+    ])
+
+
+def verify_checkout_session(
+    session: CheckoutSession,
+) -> Tuple[str, CheckoutSession, Optional[Deposit]]:
+    """
+    Call checkout-status for a QR session.
+
+    Creates a Deposit and credits the wallet only after payment is completed
+    and amount/order match. Failed or still-pending payments leave no Deposit.
+    """
+    process_id = (session.process_id or '').strip()
+    if not process_id:
+        raise HimalPayError('Checkout session has no process_id', status_code=400)
+
+    if session.deposit_id:
+        outcome, deposit = verify_deposit(session.deposit)
+        _sync_session_from_deposit(session, deposit)
+        session.refresh_from_db()
+        return outcome, session, deposit
+
+    client = HimalPayCheckoutAPI()
+    payload = client.checkout_status(process_id)
+
+    try:
+        with transaction.atomic():
+            locked = (
+                CheckoutSession.objects.select_for_update()
+                .select_related('user', 'deposit')
+                .get(pk=session.pk)
+            )
+            if locked.deposit_id:
+                dep = Deposit.objects.select_for_update().select_related('user').get(
+                    pk=locked.deposit_id,
+                )
+                outcome, dep = settle_from_checkout_status(dep, payload)
+                _sync_session_from_deposit(locked, dep)
+                return outcome, locked, dep
+
+            payment_status = payment_status_from_payload(payload)
+            expected_order = (locked.purchase_order_identifier or '').strip()
+            reported_order = order_id_from_payload(payload)
+            locked.provider_payload = sanitize_provider_payload(payload)
+
+            if reported_order and expected_order and reported_order != expected_order:
+                locked.failure_reason = 'purchase_order_identifier mismatch'
+                locked.save(update_fields=['provider_payload', 'failure_reason', 'updated_at'])
+                return ORDER_MISMATCH, locked, None
+
+            if payment_status == PAYMENT_STATUS_COMPLETED:
+                expected_paisa = HimalPayAPI.to_paisa(locked.amount)
+                reported_paisa = paisa_from_status_payload(payload)
+                if reported_paisa is None or reported_paisa != expected_paisa:
+                    locked.status = SESSION_FAILED
+                    locked.failure_reason = (
+                        f'Amount mismatch: expected {expected_paisa} paisa, '
+                        f'provider reported {reported_paisa}'
+                    )[:500]
+                    locked.save(update_fields=[
+                        'status', 'provider_payload', 'failure_reason', 'updated_at',
+                    ])
+                    return AMOUNT_MISMATCH, locked, None
+
+                deposit = _materialize_deposit(locked)
+                dep = Deposit.objects.select_for_update().select_related('user').get(pk=deposit.pk)
+                outcome, dep = settle_from_checkout_status(dep, payload)
+                _sync_session_from_deposit(locked, dep)
+                return outcome, locked, dep
+
+            if payment_status in _SESSION_TERMINAL:
+                payment = payload.get('payment') if isinstance(payload.get('payment'), dict) else {}
+                locked.status = _SESSION_TERMINAL[payment_status]
+                locked.failure_reason = str(payment.get('message') or payment_status)[:500]
+                locked.save(update_fields=[
+                    'status', 'provider_payload', 'failure_reason', 'updated_at',
+                ])
+                return FAILED_PAYMENT, locked, None
+
+            locked.failure_reason = ''
+            locked.save(update_fields=['provider_payload', 'failure_reason', 'updated_at'])
+            return PENDING_PAYMENT, locked, None
+    except WalletFrozenError as exc:
+        raise HimalPayError(exc.message or WALLET_FROZEN_MESSAGE, status_code=403) from exc
+
+
+def lookup_checkout_session(
+    *,
+    process_id: str = '',
+    purchase_order_identifier: str = '',
+    session_id: Optional[int] = None,
+    user=None,
+) -> Optional[CheckoutSession]:
+    qs = CheckoutSession.objects.select_related('user', 'deposit')
+    if user is not None:
+        qs = qs.filter(user=user)
+    if session_id:
+        found = qs.filter(pk=session_id).first()
+        if found:
+            return found
+    process_id = (process_id or '').strip()
+    purchase_order_identifier = (purchase_order_identifier or '').strip()
+    if process_id:
+        found = qs.filter(process_id=process_id).first()
+        if found:
+            return found
+    if purchase_order_identifier:
+        return qs.filter(purchase_order_identifier=purchase_order_identifier).first()
+    return None
+
+
 def lookup_checkout_deposit(
     *,
     process_id: str = '',
@@ -469,6 +661,76 @@ def lookup_checkout_deposit(
     if purchase_order_identifier:
         return qs.filter(purchase_order_identifier=purchase_order_identifier).first()
     return None
+
+
+def _coerce_pk(value) -> Optional[int]:
+    try:
+        if value in (None, '', 0, '0'):
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_checkout_intent(
+    *,
+    process_id: str = '',
+    purchase_order_identifier: str = '',
+    session_id=None,
+    deposit_id=None,
+    generic_id=None,
+    user=None,
+) -> Tuple[Optional[CheckoutSession], Optional[Deposit]]:
+    """Find the QR session first, then a legacy Checkout Deposit row."""
+    sid = _coerce_pk(session_id)
+    did = _coerce_pk(deposit_id)
+    gid = _coerce_pk(generic_id)
+
+    session = lookup_checkout_session(
+        process_id=process_id,
+        purchase_order_identifier=purchase_order_identifier,
+        session_id=sid,
+        user=user,
+    )
+    if session is None and gid and sid is None:
+        session = lookup_checkout_session(session_id=gid, user=user)
+
+    if session is not None:
+        return session, session.deposit
+
+    deposit = lookup_checkout_deposit(
+        process_id=process_id,
+        purchase_order_identifier=purchase_order_identifier,
+        deposit_id=did if did is not None else gid,
+        user=user,
+    )
+    return None, deposit
+
+
+def verify_checkout_intent(
+    *,
+    process_id: str = '',
+    purchase_order_identifier: str = '',
+    session_id=None,
+    deposit_id=None,
+    generic_id=None,
+    user=None,
+) -> Tuple[str, Optional[CheckoutSession], Optional[Deposit]]:
+    session, deposit = resolve_checkout_intent(
+        process_id=process_id,
+        purchase_order_identifier=purchase_order_identifier,
+        session_id=session_id,
+        deposit_id=deposit_id,
+        generic_id=generic_id,
+        user=user,
+    )
+    if session is not None:
+        outcome, session, deposit = verify_checkout_session(session)
+        return outcome, session, deposit
+    if deposit is not None:
+        outcome, deposit = verify_deposit(deposit)
+        return outcome, None, deposit
+    raise LookupError('Checkout session not found')
 
 
 def extract_documented_identifiers(body: Any) -> Dict[str, str]:
@@ -496,7 +758,14 @@ def extract_documented_identifiers(body: Any) -> Dict[str, str]:
     return found
 
 
-def frontend_result_url(deposit: Deposit) -> str:
+def frontend_result_url(record, deposit: Optional[Deposit] = None) -> str:
     base = default_frontend_return_url()
-    order = deposit.purchase_order_identifier or ''
-    return append_query(base, order=order, deposit=str(deposit.pk))
+    order = getattr(record, 'purchase_order_identifier', None) or ''
+    params = {'order': order}
+    session_id = getattr(record, 'pk', None)
+    if isinstance(record, CheckoutSession) and session_id:
+        params['session'] = str(session_id)
+    deposit = deposit or (record if isinstance(record, Deposit) else getattr(record, 'deposit', None))
+    if deposit is not None and getattr(deposit, 'pk', None):
+        params['deposit'] = str(deposit.pk)
+    return append_query(base, **params)

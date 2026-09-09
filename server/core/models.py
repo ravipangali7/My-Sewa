@@ -1366,6 +1366,59 @@ class Deposit(models.Model):
         ordering = ['-created_at']
 
 
+class CheckoutSession(models.Model):
+    """Himal Pay Checkout QR session. Not a wallet transaction until payment settles."""
+
+    STATUS_AWAITING = 'awaiting_payment'
+    STATUS_SETTLED = 'settled'
+    STATUS_FAILED = 'failed'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_EXPIRED = 'expired'
+    STATUS_CHOICES = [
+        (STATUS_AWAITING, 'Awaiting payment'),
+        (STATUS_SETTLED, 'Settled'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_CANCELLED, 'Cancelled'),
+        (STATUS_EXPIRED, 'Expired'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='checkout_sessions',
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)])
+    currency = models.CharField(max_length=10, blank=True, default='NPR')
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_AWAITING, db_index=True,
+    )
+    purchase_order_identifier = models.CharField(max_length=120, unique=True)
+    process_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    payment_url = models.TextField(blank=True, default='')
+    expires_at = models.DateTimeField(null=True, blank=True)
+    provider_payload = models.JSONField(default=dict, blank=True)
+    failure_reason = models.TextField(blank=True, default='')
+    deposit = models.OneToOneField(
+        Deposit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='checkout_session',
+        help_text='Created only after Himal Pay confirms payment.status=completed',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.phone} - Rs. {self.amount} - {self.status}"
+
+    class Meta:
+        verbose_name = "Checkout session"
+        verbose_name_plural = "Checkout sessions"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'status', 'amount']),
+        ]
+
+
 class TopupTransaction(models.Model):
     """Mobile topup transactions (NTC / NCELL via HimalPay)"""
     STATUS_CHOICES = [

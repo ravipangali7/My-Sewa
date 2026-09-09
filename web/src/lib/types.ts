@@ -7,6 +7,12 @@ export type DepositStatus =
   | "cancelled"
   | "expired"
   | "refunded";
+export type CheckoutSessionStatus =
+  | "awaiting_payment"
+  | "settled"
+  | "failed"
+  | "cancelled"
+  | "expired";
 export type DepositProvider = "manual" | "himalpay_checkout";
 export type DepositVerificationStatus = "unverified" | "verified" | "mismatch" | "failed";
 /** Denormalized KYC status on the user (mirrors latest submission). */
@@ -521,6 +527,24 @@ export interface Deposit {
   balance_after: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CheckoutSession {
+  id: number;
+  session_id?: number;
+  deposit_id?: number | null;
+  amount: string;
+  currency?: string;
+  status: CheckoutSessionStatus | DepositStatus;
+  status_display?: string;
+  provider?: DepositProvider;
+  purchase_order_identifier?: string | null;
+  process_id?: string | null;
+  payment_url?: string;
+  checkout_details?: Deposit["checkout_details"];
+  expires_at?: string | null;
+  transaction_id?: string;
+  failure_reason?: string | null;
 }
 
 export interface TopupTransaction {

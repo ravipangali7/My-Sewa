@@ -132,7 +132,7 @@ function LoadWallet() {
   const [checkoutAmount, setCheckoutAmount] = useState("");
   const [checkoutSession, setCheckoutSession] = useState<{
     paymentUrl: string;
-    depositId: number;
+    sessionId: number;
     orderId: string;
     processId: string;
     amount: string;
@@ -284,20 +284,19 @@ function LoadWallet() {
     },
     onSuccess: (res) => {
       const paymentUrl = res.payment_url;
-      const depositId = Number(res.data?.id || 0);
-      if (!paymentUrl || !depositId) {
+      const sessionId = Number(res.data?.session_id || res.data?.id || 0);
+      if (!paymentUrl || !sessionId) {
         toast.error(t("load.checkoutFailed"));
         return;
       }
       setCheckoutSession({
         paymentUrl,
-        depositId,
+        sessionId,
         orderId: res.data?.purchase_order_identifier || "",
         processId: res.data?.process_id || res.data?.transaction_id || "",
         amount: String(res.data?.amount || checkoutAmount),
         details: res.data?.checkout_details || null,
       });
-      queryClient.invalidateQueries({ queryKey: ["deposits"] });
     },
     onError: (err) => {
       toast.error(
@@ -348,14 +347,22 @@ function LoadWallet() {
   }, [checkoutSession?.paymentUrl]);
 
   const checkoutStatusQuery = useQuery({
-    queryKey: ["checkout-verify-live", checkoutSession?.depositId],
-    enabled: Boolean(token) && payingCheckout && Boolean(checkoutSession?.depositId),
-    queryFn: () => apiClient.checkoutVerify({ id: checkoutSession!.depositId }),
+    queryKey: ["checkout-verify-live", checkoutSession?.sessionId, checkoutSession?.processId],
+    enabled: Boolean(token) && payingCheckout && Boolean(checkoutSession?.sessionId),
+    queryFn: () =>
+      apiClient.checkoutVerify({
+        id: checkoutSession!.sessionId,
+        session_id: checkoutSession!.sessionId,
+        process_id: checkoutSession!.processId || undefined,
+        purchase_order_identifier: checkoutSession!.orderId || undefined,
+      }),
     retry: false,
     refetchInterval: (query) => {
       const status = query.state.data?.data?.status;
+      const outcome = query.state.data?.outcome;
       if (
         status === "approved" ||
+        status === "settled" ||
         status === "failed" ||
         status === "cancelled" ||
         status === "expired" ||
@@ -364,17 +371,29 @@ function LoadWallet() {
       ) {
         return false;
       }
+      if (outcome === "pending_payment" || status === "awaiting_payment" || status === "pending" || status === "processing") {
+        return 4000;
+      }
       return 4000;
     },
   });
 
   useEffect(() => {
-    if (!checkoutStatusQuery.isSuccess) return;
+    const status = checkoutStatusQuery.data?.data?.status;
+    const outcome = checkoutStatusQuery.data?.outcome;
+    if (
+      status !== "approved" &&
+      status !== "settled" &&
+      outcome !== "settled" &&
+      outcome !== "already_processed"
+    ) {
+      return;
+    }
     void queryClient.invalidateQueries({ queryKey: ["wallet"] });
     void queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });
     void queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
     void queryClient.invalidateQueries({ queryKey: ["deposits"] });
-  }, [checkoutStatusQuery.data?.data?.status, checkoutStatusQuery.isSuccess, queryClient]);
+  }, [checkoutStatusQuery.data?.data?.status, checkoutStatusQuery.data?.outcome, queryClient]);
 
   const liveCheckout = checkoutStatusQuery.data?.data;
   const checkoutDetails = liveCheckout?.checkout_details || checkoutSession?.details;
@@ -384,6 +403,12 @@ function LoadWallet() {
   const checkoutProcessId = liveCheckout?.process_id || checkoutSession?.processId || "";
   const checkoutMerchantName = checkoutDetails?.merchant_name?.trim() || "";
   const checkoutMerchantPhone = checkoutDetails?.merchant_phone?.trim() || "";
+  const checkoutPaid =
+    liveCheckout?.status === "approved" || liveCheckout?.status === "settled";
+  const checkoutNeedsNewQr =
+    liveCheckout?.status === "failed" ||
+    liveCheckout?.status === "cancelled" ||
+    liveCheckout?.status === "expired";
 
   return (
     <UserShell
@@ -480,7 +505,12 @@ function LoadWallet() {
                         <p className="text-[13px] font-semibold">
                           {t("load.checkoutDetailsTitle")}
                         </p>
-                        {liveCheckout ? <StatusChip status={liveCheckout.status} /> : null}
+                        {liveCheckout &&
+                        liveCheckout.status !== "awaiting_payment" &&
+                        liveCheckout.status !== "pending" &&
+                        liveCheckout.status !== "processing" ? (
+                          <StatusChip status={liveCheckout.status} />
+                        ) : null}
                       </div>
                       <dl className="min-w-0 space-y-2 text-[14px]">
                         <CopyableField
@@ -530,10 +560,26 @@ function LoadWallet() {
                         ) : null}
                       </dl>
                     </div>
-                    {checkoutStatusQuery.data?.data?.status === "approved" ? (
+                    {checkoutPaid ? (
                       <p className="text-center text-[13px] font-medium text-success">
                         {t("load.checkoutSuccess")}
                       </p>
+                    ) : null}
+                    {checkoutNeedsNewQr ? (
+                      <Button
+                        type="button"
+                        className="h-12 w-full rounded-xl"
+                        disabled={checkoutMutation.isPending}
+                        onClick={() => {
+                          setCheckoutSession(null);
+                          checkoutAutoStarted.current = false;
+                          checkoutMutation.mutate();
+                        }}
+                      >
+                        {checkoutMutation.isPending
+                          ? t("load.checkoutQrBuilding")
+                          : t("load.checkoutShowQr")}
+                      </Button>
                     ) : null}
                   </div>
                 ) : (

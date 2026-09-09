@@ -22,6 +22,8 @@ function normalizeStatus(status: string): string {
   if (raw.includes("approv") || raw.includes("credit")) return "approved";
   if (raw.includes("success") || raw.includes("complete")) return "success";
   if (raw.includes("fail")) return "failed";
+  if (raw === "awaiting_payment" || raw.includes("awaiting")) return "pending";
+  if (raw === "settled") return "approved";
   if (raw.includes("pend") || raw.includes("review") || raw.includes("process")) {
     return "pending";
   }
