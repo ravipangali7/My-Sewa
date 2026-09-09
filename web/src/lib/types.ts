@@ -489,6 +489,14 @@ export interface Deposit {
   purchase_order_identifier?: string | null;
   process_id?: string | null;
   payment_url?: string;
+  checkout_details?: {
+    provider?: string;
+    channel?: string;
+    product_name?: string;
+    merchant_name?: string;
+    merchant_phone?: string;
+    currency?: string;
+  } | null;
   expires_at?: string | null;
   completed_at?: string | null;
   verification_status?: DepositVerificationStatus;

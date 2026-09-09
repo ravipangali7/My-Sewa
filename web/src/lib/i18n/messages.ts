@@ -825,16 +825,16 @@ export const messages = {
 
     "load.title": "Manual Wallet Load",
     "load.pageTitle": "Load Wallet",
-    "load.checkoutTitle": "Pay with Himal Pay / N-Cash",
+    "load.checkoutTitle": "Himal Pay Deposit",
     "load.checkoutHelp":
-      "Enter an amount and you will be redirected to N-Cash Checkout. Your MySewa wallet is credited only after we verify the payment with Himal Pay.",
+      "Deposit to your MySewa wallet with the existing Himal Pay / N-Cash Payin. Scan the QR from Himal Pay, your bank, or another supported banking app. Your wallet is credited only after Himal Pay confirms the payment.",
     "load.checkoutPay": "Pay with N-Cash",
     "load.checkoutShowQr": "Show Himal Pay QR",
     "load.checkoutQrReady": "Himal Pay QR is ready. Scan to pay.",
     "load.checkoutQrHelp":
-      "Enter an amount to generate a Himal Pay QR. Scan it to pay through Himal Pay / N-Cash. Your MySewa wallet is credited only after we verify the payment.",
+      "Enter the amount, then scan the Himal Pay QR from Himal Pay / N-Cash, a bank app, or another supported banking app.",
     "load.checkoutQrScan":
-      "Scan this QR with Himal Pay / N-Cash, or with a bank or eSewa app that can open this payment.",
+      "Scan this Himal Pay QR with Himal Pay / N-Cash, your bank, or another supported banking app.",
     "load.checkoutQrAlt": "Himal Pay deposit QR",
     "load.checkoutQrBuilding": "Preparing QR…",
     "load.checkoutOpenPay": "Open Himal Pay",
@@ -852,6 +852,22 @@ export const messages = {
     "load.checkoutTxn": "Himal Pay process ID",
     "load.checkoutVerifyNote":
       "Wallet credit is based on Himal Pay checkout-status, not this page redirect.",
+    "load.checkoutInstructionsTitle": "How to deposit",
+    "load.checkoutStep1": "Enter the amount you want to load, then show the Himal Pay QR.",
+    "load.checkoutStep2": "Open Himal Pay, N-Cash, your bank app, or another supported banking app.",
+    "load.checkoutStep3": "Scan the Himal Pay QR on this page and confirm the exact amount.",
+    "load.checkoutStep4": "Complete the transfer. You do not need to upload a screenshot.",
+    "load.checkoutStep5":
+      "Stay on this page. MySewa credits your wallet after Himal Pay confirms the payment.",
+    "load.checkoutDetailsTitle": "Himal Pay payment details",
+    "load.checkoutProduct": "Product",
+    "load.checkoutMerchant": "Merchant name",
+    "load.checkoutMerchantPhone": "Merchant phone",
+    "load.checkoutCurrency": "Currency",
+    "load.checkoutChannel": "Payment channel",
+    "load.checkoutPayee": "Payee",
+    "load.checkoutNotConfigured":
+      "Himal Pay Checkout is not configured yet. Ask an administrator to add the Checkout API key in Settings.",
     "load.checkoutBackWallet": "Back to wallet",
     "load.checkoutBackLoad": "Load wallet again",
     "load.searchTitle": "Search deposits",
@@ -2086,16 +2102,16 @@ export const messages = {
 
     "load.title": "म्यानुअल वालेट लोड",
     "load.pageTitle": "वालेट लोड",
-    "load.checkoutTitle": "Himal Pay / N-Cash बाट तिर्नुहोस्",
+    "load.checkoutTitle": "Himal Pay जम्मा",
     "load.checkoutHelp":
-      "रकम लेख्नुहोस् र N-Cash Checkout मा जानुहोस्। Himal Pay ले भुक्तानी पुष्टि गरेपछि मात्र MySewa वालेटमा रकम थपिन्छ।",
+      "अहिलेकै Himal Pay / N-Cash Payin बाट MySewa वालेटमा रकम जम्मा गर्नुहोस्। Himal Pay, बैंक, वा अन्य समर्थित बैंकिङ एपबाट QR स्क्यान गर्नुहोस्। Himal Pay ले भुक्तानी पुष्टि गरेपछि मात्र वालेटमा रकम थपिन्छ।",
     "load.checkoutPay": "N-Cash बाट तिर्नुहोस्",
     "load.checkoutShowQr": "Himal Pay QR देखाउनुहोस्",
     "load.checkoutQrReady": "Himal Pay QR तयार छ। स्क्यान गरेर तिर्नुहोस्।",
     "load.checkoutQrHelp":
-      "रकम लेख्नुहोस् र Himal Pay QR बनाउनुहोस्। Himal Pay / N-Cash बाट स्क्यान गरेर तिर्नुहोस्। Himal Pay ले भुक्तानी पुष्टि गरेपछि मात्र MySewa वालेटमा रकम थपिन्छ।",
+      "रकम लेख्नुहोस्, त्यसपछि Himal Pay / N-Cash, बैंक एप, वा अन्य समर्थित बैंकिङ एपबाट Himal Pay QR स्क्यान गर्नुहोस्।",
     "load.checkoutQrScan":
-      "यो QR Himal Pay / N-Cash बाट स्क्यान गर्नुहोस्, वा बैंक वा ईसेवा एपबाट यो भुक्तानी खोल्नुहोस्।",
+      "यो Himal Pay QR Himal Pay / N-Cash, बैंक, वा अन्य समर्थित बैंकिङ एपबाट स्क्यान गर्नुहोस्।",
     "load.checkoutQrAlt": "Himal Pay जम्मा QR",
     "load.checkoutQrBuilding": "QR तयार हुँदै…",
     "load.checkoutOpenPay": "Himal Pay खोल्नुहोस्",
@@ -2113,6 +2129,22 @@ export const messages = {
     "load.checkoutTxn": "Himal Pay प्रोसेस आईडी",
     "load.checkoutVerifyNote":
       "वालेट क्रेडिट यो पेजको रिडिरेक्टबाट होइन, Himal Pay checkout-status बाट मात्र हुन्छ।",
+    "load.checkoutInstructionsTitle": "जम्मा गर्ने तरिका",
+    "load.checkoutStep1": "जम्मा गर्न चाहेको रकम लेख्नुहोस्, त्यसपछि Himal Pay QR देखाउनुहोस्।",
+    "load.checkoutStep2": "Himal Pay, N-Cash, बैंक एप, वा अन्य समर्थित बैंकिङ एप खोल्नुहोस्।",
+    "load.checkoutStep3": "यस पेजको Himal Pay QR स्क्यान गरी सही रकम पुष्टि गर्नुहोस्।",
+    "load.checkoutStep4": "ट्रान्सफर पूरा गर्नुहोस्। स्क्रिनसट अपलोड गर्न पर्दैन।",
+    "load.checkoutStep5":
+      "यसै पेजमा बस्नुहोस्। Himal Pay ले भुक्तानी पुष्टि गरेपछि MySewa वालेटमा रकम थपिन्छ।",
+    "load.checkoutDetailsTitle": "Himal Pay भुक्तानी विवरण",
+    "load.checkoutProduct": "उत्पादन",
+    "load.checkoutMerchant": "मर्चेन्ट नाम",
+    "load.checkoutMerchantPhone": "मर्चेन्ट फोन",
+    "load.checkoutCurrency": "मुद्रा",
+    "load.checkoutChannel": "भुक्तानी च्यानल",
+    "load.checkoutPayee": "भुक्तानी प्राप्तकर्ता",
+    "load.checkoutNotConfigured":
+      "Himal Pay Checkout अहिले कन्फिगर छैन। प्रशासकलाई Settings मा Checkout API key राख्न भन्नुहोस्।",
     "load.checkoutBackWallet": "वालेटमा फर्कनुहोस्",
     "load.checkoutBackLoad": "फेरि वालेट लोड गर्नुहोस्",
     "load.searchTitle": "जम्मा खोज्नुहोस्",

@@ -122,6 +122,40 @@ def new_purchase_order_identifier() -> str:
     return f'MS-CHK-{uuid.uuid4().hex}'
 
 
+def public_checkout_details(deposit: Deposit) -> Dict[str, str]:
+    """Safe Himal Pay fields for the Deposit tab (no secrets or raw payload)."""
+    payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
+    initialization = (
+        payload.get('initialization') if isinstance(payload.get('initialization'), dict) else {}
+    )
+    payment = payload.get('payment') if isinstance(payload.get('payment'), dict) else {}
+    inner = payload.get('payload') if isinstance(payload.get('payload'), dict) else {}
+    merchant: Dict[str, Any] = {}
+    for source in (payment, initialization, inner, payload):
+        candidate = source.get('merchant') if isinstance(source, dict) else None
+        if isinstance(candidate, dict) and (
+            candidate.get('name') or candidate.get('mobile_no') or candidate.get('phone')
+        ):
+            merchant = candidate
+            break
+    product = ''
+    for source in (initialization, inner, payload):
+        if isinstance(source, dict):
+            product = str(source.get('product_name') or '').strip()
+            if product:
+                break
+    return {
+        'provider': 'Himal Pay',
+        'channel': 'Himal Pay / N-Cash',
+        'product_name': product or PRODUCT_NAME,
+        'merchant_name': str(merchant.get('name') or '').strip(),
+        'merchant_phone': str(
+            merchant.get('mobile_no') or merchant.get('phone') or ''
+        ).strip(),
+        'currency': str(getattr(deposit, 'currency', None) or 'NPR'),
+    }
+
+
 def customer_details_for(user) -> Dict[str, str]:
     name = ' '.join(
         part for part in (

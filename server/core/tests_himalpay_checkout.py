@@ -22,6 +22,7 @@ from .services.checkout_deposit import (
     SETTLED,
     create_checkout_deposit,
     extract_documented_identifiers,
+    public_checkout_details,
     settle_from_checkout_status,
     verify_deposit,
 )
@@ -271,6 +272,10 @@ class HimalPayCheckoutDepositTests(TestCase):
         data = body.get('data') or {}
         self.assertEqual(data.get('status'), 'processing')
         self.assertEqual(Decimal(data.get('amount')), Decimal('1000.00'))
+        details = data.get('checkout_details') or {}
+        self.assertEqual(details.get('provider'), 'Himal Pay')
+        self.assertEqual(details.get('product_name'), 'MySewa Wallet Deposit')
+        self.assertEqual(details.get('currency'), 'NPR')
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal('50.00'))
 
@@ -382,6 +387,16 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.wallet.refresh_from_db()
         self.assertNotEqual(deposit.status, 'approved')
         self.assertEqual(self.wallet.balance, Decimal('50.00'))
+
+    def test_checkout_details_include_merchant_from_status(self):
+        deposit = self._pending_deposit()
+        deposit.provider_payload = _status_payload()
+        deposit.save(update_fields=['provider_payload'])
+        details = public_checkout_details(deposit)
+        self.assertEqual(details['merchant_name'], 'Sita Store')
+        self.assertEqual(details['merchant_phone'], '9800000000')
+        self.assertEqual(details['product_name'], 'MySewa Wallet Deposit')
+        self.assertEqual(details['currency'], 'NPR')
 
     def test_initiate_payload_uses_documented_fields(self):
         with patch.object(

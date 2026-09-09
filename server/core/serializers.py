@@ -1265,6 +1265,7 @@ class DepositSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     payout_account_id = serializers.IntegerField(read_only=True, allow_null=True)
     payout_account = serializers.SerializerMethodField()
+    checkout_details = serializers.SerializerMethodField()
 
     class Meta:
         model = Deposit
@@ -1275,7 +1276,7 @@ class DepositSerializer(serializers.ModelSerializer):
             'payment_url', 'expires_at', 'completed_at',
             'verification_status', 'verified_amount', 'failure_reason',
             'transaction_id', 'deposit_date', 'bank_name',
-            'payout_account', 'payout_account_id',
+            'payout_account', 'payout_account_id', 'checkout_details',
             'screenshot_proof', 'note', 'rejection_reason',
             'balance_before', 'balance_after', 'created_at', 'updated_at',
         )
@@ -1300,6 +1301,12 @@ class DepositSerializer(serializers.ModelSerializer):
             'account_number': account.account_number,
             'dealer_id': account.dealer_id,
         }
+
+    def get_checkout_details(self, obj):
+        if getattr(obj, 'provider', '') != Deposit.PROVIDER_HIMALPAY_CHECKOUT:
+            return None
+        from .services.checkout_deposit import public_checkout_details
+        return public_checkout_details(obj)
 
     def validate_amount(self, value):
         if value <= 0:
