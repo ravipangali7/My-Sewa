@@ -2622,7 +2622,10 @@ class BiometricAssertion(models.Model):
         verbose_name = 'Biometric Assertion'
         verbose_name_plural = 'Biometric Assertions'
         indexes = [
-            models.Index(fields=['user', 'purpose', 'used_at', 'expires_at']),
+            models.Index(
+                fields=['user', 'purpose', 'used_at', 'expires_at'],
+                name='core_biomet_user_id_purpose_idx',
+            ),
         ]
 
 

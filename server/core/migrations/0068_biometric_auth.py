@@ -2,6 +2,51 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
+class AddFieldIfMissing(migrations.AddField):
+    """Skip when the column already exists (parallel 0068 already applied)."""
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        model = to_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        table = model._meta.db_table
+        field = model._meta.get_field(self.name)
+        column = field.column
+        with schema_editor.connection.cursor() as cursor:
+            description = schema_editor.connection.introspection.get_table_description(
+                cursor, table
+            )
+        existing = {getattr(col, 'name', col[0]) for col in description}
+        if column in existing:
+            return
+        super().database_forwards(app_label, schema_editor, from_state, to_state)
+
+
+class CreateModelIfMissing(migrations.CreateModel):
+    """Skip when the table already exists (parallel 0068 already applied)."""
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        model = to_state.apps.get_model(app_label, self.name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        if model._meta.db_table in schema_editor.connection.introspection.table_names():
+            return
+        super().database_forwards(app_label, schema_editor, from_state, to_state)
+
+
+class AddIndexIfMissing(migrations.AddIndex):
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        model = to_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        table = model._meta.db_table
+        with schema_editor.connection.cursor() as cursor:
+            constraints = schema_editor.connection.introspection.get_constraints(cursor, table)
+        if self.index.name in constraints:
+            return
+        super().database_forwards(app_label, schema_editor, from_state, to_state)
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -9,7 +54,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        AddFieldIfMissing(
             model_name='customuser',
             name='login_biometric_enabled',
             field=models.BooleanField(
@@ -17,7 +62,7 @@ class Migration(migrations.Migration):
                 help_text='User preference: allow biometric login on enrolled devices. No biometric templates are stored.',
             ),
         ),
-        migrations.AddField(
+        AddFieldIfMissing(
             model_name='customuser',
             name='transaction_pin_biometric_enabled',
             field=models.BooleanField(
@@ -65,7 +110,7 @@ class Migration(migrations.Migration):
                 max_length=40,
             ),
         ),
-        migrations.CreateModel(
+        CreateModelIfMissing(
             name='BiometricDevice',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -88,7 +133,7 @@ class Migration(migrations.Migration):
                 'ordering': ['-updated_at'],
             },
         ),
-        migrations.CreateModel(
+        CreateModelIfMissing(
             name='BiometricAssertion',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -112,7 +157,7 @@ class Migration(migrations.Migration):
                 'verbose_name_plural': 'Biometric Assertions',
             },
         ),
-        migrations.AddIndex(
+        AddIndexIfMissing(
             model_name='biometricassertion',
             index=models.Index(
                 fields=['user', 'purpose', 'used_at', 'expires_at'],
