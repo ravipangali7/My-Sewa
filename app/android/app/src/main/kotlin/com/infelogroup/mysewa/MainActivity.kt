@@ -1,10 +1,14 @@
 package com.infelogroup.mysewa
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
 import android.os.Bundle
 import android.webkit.CookieManager
@@ -66,6 +70,25 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 "requestCameraPermission" -> requestCameraPermission(result)
                 else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            DOWNLOADS_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "saveToDownloads") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            try {
+                val filename = call.argument<String>("filename") ?: "mysewa-file"
+                val mime = call.argument<String>("mime") ?: "application/octet-stream"
+                val bytes = readChannelBytes(call.argument("bytes"))
+                    ?: throw IllegalArgumentException("File bytes are missing.")
+                result.success(saveToPublicDownloads(filename, mime, bytes))
+            } catch (error: Exception) {
+                result.error("save_failed", error.message, null)
             }
         }
 
@@ -225,9 +248,78 @@ class MainActivity : FlutterFragmentActivity() {
         return true
     }
 
+    @Suppress("UNCHECKED_CAST")
+    private fun readChannelBytes(raw: Any?): ByteArray? {
+        return when (raw) {
+            is ByteArray -> raw
+            is List<*> -> {
+                val out = ByteArray(raw.size)
+                for (i in raw.indices) {
+                    val item = raw[i] ?: return null
+                    out[i] = (item as Number).toByte()
+                }
+                out
+            }
+            else -> null
+        }
+    }
+
+    private fun saveToPublicDownloads(filename: String, mime: String, bytes: ByteArray): String {
+        val safeName = filename.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "mysewa-file" }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, safeName)
+                put(MediaStore.Downloads.MIME_TYPE, mime.ifBlank { "application/octet-stream" })
+                put(MediaStore.Downloads.IS_PENDING, 1)
+                put(
+                    MediaStore.Downloads.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + "/MySewa",
+                )
+            }
+            val uri = contentResolver.insert(
+                MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                values,
+            ) ?: throw IllegalStateException("Could not create a Downloads entry.")
+            contentResolver.openOutputStream(uri)?.use { stream ->
+                stream.write(bytes)
+                stream.flush()
+            } ?: throw IllegalStateException("Could not write the downloaded file.")
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            contentResolver.update(uri, values, null, null)
+            return "Downloads/MySewa/$safeName"
+        }
+
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "MySewa",
+        )
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw IllegalStateException("Could not create the Downloads folder.")
+        }
+        val file = uniqueFile(dir, safeName)
+        file.writeBytes(bytes)
+        MediaScannerConnection.scanFile(this, arrayOf(file.absolutePath), arrayOf(mime), null)
+        return file.absolutePath
+    }
+
+    private fun uniqueFile(dir: File, name: String): File {
+        val candidate = File(dir, name)
+        if (!candidate.exists()) return candidate
+        val dot = name.lastIndexOf('.')
+        val base = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var index = 1
+        while (File(dir, "$base ($index)$ext").exists()) {
+            index += 1
+        }
+        return File(dir, "$base ($index)$ext")
+    }
+
     companion object {
         private const val SESSION_CHANNEL = "com.mysewa.app/session_lifecycle"
         private const val UPDATE_CHANNEL = "com.mysewa.app/app_update"
+        private const val DOWNLOADS_CHANNEL = "com.mysewa.app/downloads"
         private const val MARKER_NAME = "install_session_v1"
         private const val CAMERA_REQ = 48101
     }

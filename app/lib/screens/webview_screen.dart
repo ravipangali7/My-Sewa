@@ -20,6 +20,7 @@ import '../config/app_constant.dart';
 import '../services/app_update_service.dart';
 import '../services/biometric_service.dart';
 import '../services/device_token_api.dart';
+import '../services/download_storage.dart';
 import '../services/fcm_log.dart';
 import '../services/push_messaging.dart';
 import '../services/session_lifecycle.dart';
@@ -786,8 +787,11 @@ class _WebViewScreenState extends State<WebViewScreen>
       } else {
         await _saveReceiptBytes(bytes, filename, mime);
       }
+      await _dispatchFileSaved(success: true, filename: filename);
     } catch (_) {
-      if (!isFileOp || !mounted) return;
+      if (!isFileOp) return;
+      await _dispatchFileSaved(success: false, filename: '');
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Could not save the file. Please try again.'),
@@ -1234,10 +1238,13 @@ class _WebViewScreenState extends State<WebViewScreen>
   String _extensionFromMime(String mime) {
     final value = mime.toLowerCase();
     if (value.contains('pdf')) return 'pdf';
+    if (value.contains('html')) return 'html';
+    if (value.contains('markdown') || value.contains('md')) return 'md';
     if (value.contains('png')) return 'png';
     if (value.contains('jpeg') || value.contains('jpg')) return 'jpg';
     if (value.contains('json')) return 'json';
     if (value.contains('csv')) return 'csv';
+    if (value.contains('text/plain') || value.contains('text')) return 'txt';
     return 'bin';
   }
 
@@ -1245,6 +1252,10 @@ class _WebViewScreenState extends State<WebViewScreen>
     final lowered = name.toLowerCase();
     const exts = [
       '.pdf',
+      '.html',
+      '.htm',
+      '.md',
+      '.markdown',
       '.png',
       '.jpg',
       '.jpeg',
@@ -1281,6 +1292,25 @@ class _WebViewScreenState extends State<WebViewScreen>
     return 'receipt_$normalizedStatus${txnPart}_$stamp.$ext';
   }
 
+  Future<void> _dispatchFileSaved({
+    required bool success,
+    required String filename,
+  }) async {
+    final nameJson = jsonEncode(filename);
+    final ok = success ? 'true' : 'false';
+    await _safeControllerCall((c) async {
+      await c.runJavaScript('''
+(function() {
+  try {
+    window.dispatchEvent(new CustomEvent('mysewa-file-saved', {
+      detail: { success: $ok, filename: $nameJson }
+    }));
+  } catch (e) {}
+})();
+''');
+    });
+  }
+
   Future<File> _writeReceiptFile(List<int> bytes, String filename) async {
     final root = await getApplicationDocumentsDirectory();
     final folder = Directory('${root.path}/MySewa/receipts');
@@ -1312,21 +1342,32 @@ class _WebViewScreenState extends State<WebViewScreen>
     String filename,
     String mime,
   ) async {
-    final file = await _writeReceiptFile(bytes, filename);
+    final saved = await DownloadStorage.save(
+      filename: filename,
+      mime: mime,
+      bytes: bytes,
+    );
+    final sharePath = saved.path.startsWith('content:')
+        ? (await _writeReceiptFile(bytes, filename)).path
+        : saved.path;
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Receipt downloaded: $filename'),
+        content: Text(
+          saved.public
+              ? 'Saved to Downloads: $filename'
+              : 'File saved: $filename',
+        ),
         action: SnackBarAction(
           label: 'Share',
           onPressed: () {
             unawaited(
               SharePlus.instance.share(
                 ShareParams(
-                  files: [XFile(file.path, mimeType: mime, name: filename)],
+                  files: [XFile(sharePath, mimeType: mime, name: filename)],
                   subject: filename,
-                  text: 'MySewa receipt',
+                  text: 'MySewa file',
                 ),
               ),
             );

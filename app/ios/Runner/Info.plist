@@ -78,6 +78,10 @@
 	<string>MySewa may use your location when the website requests it.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>MySewa uses Face ID to sign you in and confirm transactions.</string>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

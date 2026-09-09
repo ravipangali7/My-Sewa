@@ -31,6 +31,18 @@ import WebKit
         result(FlutterMethodNotImplemented)
       }
     }
+
+    let downloads = FlutterMethodChannel(
+      name: "com.mysewa.app/downloads",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    downloads.setMethodCallHandler { call, result in
+      guard call.method == "saveToDownloads" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      Self.saveToDownloads(call: call, result: result)
+    }
   }
 
   /// Uses an Application Support marker (removed with uninstall / data wipe).
@@ -106,6 +118,63 @@ import WebKit
       modifiedSince: epoch
     ) {
       result(nil)
+    }
+  }
+
+  private static func saveToDownloads(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard let args = call.arguments as? [String: Any] else {
+      result(
+        FlutterError(code: "save_failed", message: "Invalid download payload", details: nil)
+      )
+      return
+    }
+    let filename = (args["filename"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let safeName = (filename?.isEmpty == false ? filename! : "mysewa-file")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: ":", with: "_")
+    let flutterData = args["bytes"] as? FlutterStandardTypedData
+    guard let bytes = flutterData?.data, !bytes.isEmpty else {
+      result(
+        FlutterError(code: "save_failed", message: "File bytes are missing", details: nil)
+      )
+      return
+    }
+    let fileManager = FileManager.default
+    guard let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+      result(
+        FlutterError(code: "save_failed", message: "Documents folder unavailable", details: nil)
+      )
+      return
+    }
+    let folder = documents.appendingPathComponent("MySewa", isDirectory: true)
+    do {
+      try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+      let dest = uniqueFile(in: folder, name: safeName)
+      try bytes.write(to: dest)
+      result(dest.path)
+    } catch {
+      result(
+        FlutterError(code: "save_failed", message: error.localizedDescription, details: nil)
+      )
+    }
+  }
+
+  private static func uniqueFile(in folder: URL, name: String) -> URL {
+    let dest = folder.appendingPathComponent(name)
+    if !FileManager.default.fileExists(atPath: dest.path) {
+      return dest
+    }
+    let nsName = name as NSString
+    let ext = nsName.pathExtension
+    let base = nsName.deletingPathExtension
+    var index = 1
+    while true {
+      let nextName = ext.isEmpty ? "\(base) (\(index))" : "\(base) (\(index)).\(ext)"
+      let next = folder.appendingPathComponent(nextName)
+      if !FileManager.default.fileExists(atPath: next.path) {
+        return next
+      }
+      index += 1
     }
   }
 }

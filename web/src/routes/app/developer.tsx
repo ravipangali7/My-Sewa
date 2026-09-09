@@ -47,6 +47,7 @@ function DeveloperApiPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [showKey, setShowKey] = useState(false);
+  const [downloading, setDownloading] = useState<"markdown" | "html" | "pdf" | null>(null);
   const allowed = canUseFundTransferApi(user);
 
   const profileQuery = useQuery({
@@ -68,11 +69,15 @@ function DeveloperApiPage() {
   });
 
   const download = async (format: "markdown" | "html" | "pdf") => {
+    if (downloading) return;
+    setDownloading(format);
     try {
       await apiClient.developerDownloadDocs(format);
-      toast.success(t("developer.downloadStarted"));
+      toast.success(t("developer.downloadSaved"));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("developer.downloadFailed"));
+    } finally {
+      setDownloading(null);
     }
   };
 
@@ -178,17 +183,32 @@ function DeveloperApiPage() {
               </p>
               <p className="text-sm">{docs.authentication.header}</p>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={() => void download("pdf")}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={downloading !== null}
+                  onClick={() => void download("pdf")}
+                >
                   <Download className="size-3.5" />
-                  PDF
+                  {downloading === "pdf" ? t("common.processing") : "PDF"}
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => void download("html")}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={downloading !== null}
+                  onClick={() => void download("html")}
+                >
                   <Download className="size-3.5" />
-                  HTML
+                  {downloading === "html" ? t("common.processing") : "HTML"}
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => void download("markdown")}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={downloading !== null}
+                  onClick={() => void download("markdown")}
+                >
                   <Download className="size-3.5" />
-                  Markdown
+                  {downloading === "markdown" ? t("common.processing") : "Markdown"}
                 </Button>
               </div>
             </section>

@@ -1,4 +1,5 @@
 import { TOKEN_KEY } from "./constants";
+import { downloadBlobToDevice } from "./native-download";
 
 // Production must use same-origin (empty string) so nginx can proxy /api → Django.
 // Dev defaults to local Django. Override anytime with VITE_API_BASE_URL.
@@ -260,16 +261,8 @@ export async function apiBlob(path: string): Promise<Blob> {
   return res.blob();
 }
 
-function triggerBlobDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+async function triggerBlobDownload(blob: Blob, filename: string) {
+  await downloadBlobToDevice(blob, filename, blob.type || "application/octet-stream");
 }
 
 export function apiUpload<T = unknown>(
@@ -1286,8 +1279,17 @@ export const apiClient = {
   developerDocs: () => api<import("./types").DeveloperApiDocumentation>("/api/developer/docs/"),
   developerDownloadDocs: async (format: "markdown" | "html" | "pdf") => {
     const ext = format === "markdown" ? "md" : format;
+    const mime =
+      format === "pdf"
+        ? "application/pdf"
+        : format === "html"
+          ? "text/html"
+          : "text/markdown";
     const blob = await apiBlob(`/api/developer/docs/download/?doc_format=${format}`);
-    triggerBlobDownload(blob, `mysewa-fund-transfer-api.${ext}`);
+    await triggerBlobDownload(
+      new Blob([blob], { type: mime }),
+      `mysewa-fund-transfer-api.${ext}`,
+    );
   },
   developerTransfers: (filters?: {
     q?: string;
