@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
@@ -27,11 +27,12 @@ import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { enabledPaymentAccounts } from "@/lib/payment-accounts";
+import { toDataURL } from "@/lib/qrcode";
 import type { DepositDestinations, PaymentMethod } from "@/lib/types";
 
 const DEPOSIT_PAYMENT_METHODS: PaymentMethod[] = ["bank", "khalti", "esewa"];
 
-type DestSource = "platform" | "dealer";
+type DestSource = "platform" | "dealer" | "checkout";
 
 function paymentMethodLabel(method: PaymentMethod, t: TranslateFn): string {
   if (method === "khalti") return t("load.methodKhalti");
@@ -105,7 +106,7 @@ function todayIsoDate() {
 
 function LoadWallet() {
   const queryClient = useQueryClient();
-  const { user, wallet } = useAuth();
+  const { user, wallet, token } = useAuth();
   const { t } = useI18n();
   const { logoUrl } = useSiteBranding();
   const { download: downloadReceipt, downloading: receiptDownloading } = useReceiptDownload(
@@ -128,6 +129,12 @@ function LoadWallet() {
   const [file, setFile] = useState<File | null>(null);
   const [destSource, setDestSource] = useState<DestSource>("platform");
   const [checkoutAmount, setCheckoutAmount] = useState("");
+  const [checkoutSession, setCheckoutSession] = useState<{
+    paymentUrl: string;
+    depositId: number;
+    orderId: string;
+  } | null>(null);
+  const [checkoutQrSrc, setCheckoutQrSrc] = useState("");
 
   const destQuery = useQuery({
     queryKey: ["deposit-destinations"],
@@ -163,7 +170,15 @@ function LoadWallet() {
   const canChooseDealer =
     destQuery.data?.can_use_dealer ??
     Boolean(user?.role === "customer" && user?.assigned_dealer_id);
-  const activeSource: DestSource = canChooseDealer ? destSource : "platform";
+  const payingCheckout = destSource === "checkout" && checkoutEnabled;
+  const activeSource: DestSource = payingCheckout
+    ? "checkout"
+    : canChooseDealer && destSource === "dealer"
+      ? "dealer"
+      : "platform";
+  const loadTabCount =
+    1 + (canChooseDealer ? 1 : 0) + (checkoutEnabled ? 1 : 0);
+  const showLoadTabs = loadTabCount > 1;
   const activeDest = destinationBucket(
     destQuery.data,
     settingsQuery.data?.bank_details,
@@ -260,12 +275,19 @@ function LoadWallet() {
       return apiClient.checkoutInitiate({ amount: amt });
     },
     onSuccess: (res) => {
-      toast.success(t("load.checkoutRedirecting"));
-      queryClient.invalidateQueries({ queryKey: ["deposits"] });
-      const url = res.payment_url;
-      if (url) {
-        window.location.href = url;
+      const paymentUrl = res.payment_url;
+      const depositId = Number(res.data?.id || 0);
+      if (!paymentUrl || !depositId) {
+        toast.error(t("load.checkoutFailed"));
+        return;
       }
+      setCheckoutSession({
+        paymentUrl,
+        depositId,
+        orderId: res.data?.purchase_order_identifier || "",
+      });
+      toast.success(t("load.checkoutQrReady"));
+      queryClient.invalidateQueries({ queryKey: ["deposits"] });
     },
     onError: (err) => {
       toast.error(
@@ -275,6 +297,47 @@ function LoadWallet() {
       );
     },
   });
+
+  useEffect(() => {
+    if (!checkoutSession?.paymentUrl) {
+      setCheckoutQrSrc("");
+      return;
+    }
+    try {
+      setCheckoutQrSrc(toDataURL(checkoutSession.paymentUrl, { width: 512 }));
+    } catch {
+      setCheckoutQrSrc("");
+    }
+  }, [checkoutSession?.paymentUrl]);
+
+  const checkoutStatusQuery = useQuery({
+    queryKey: ["checkout-verify-live", checkoutSession?.depositId],
+    enabled: Boolean(token) && payingCheckout && Boolean(checkoutSession?.depositId),
+    queryFn: () => apiClient.checkoutVerify({ id: checkoutSession!.depositId }),
+    retry: false,
+    refetchInterval: (query) => {
+      const status = query.state.data?.data?.status;
+      if (
+        status === "approved" ||
+        status === "failed" ||
+        status === "cancelled" ||
+        status === "expired" ||
+        status === "refunded" ||
+        status === "rejected"
+      ) {
+        return false;
+      }
+      return 4000;
+    },
+  });
+
+  useEffect(() => {
+    if (!checkoutStatusQuery.isSuccess) return;
+    void queryClient.invalidateQueries({ queryKey: ["wallet"] });
+    void queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });
+    void queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
+    void queryClient.invalidateQueries({ queryKey: ["deposits"] });
+  }, [checkoutStatusQuery.data?.data?.status, checkoutStatusQuery.isSuccess, queryClient]);
 
   return (
     <UserShell
@@ -312,45 +375,7 @@ function LoadWallet() {
 
         {depositsEnabled ? (
           <>
-            {checkoutEnabled ? (
-              <section className="inset-group min-w-0 max-w-full p-4 lg:col-span-2">
-                <h2 className="mb-1 text-[15px] font-semibold">{t("load.checkoutTitle")}</h2>
-                <p className="mb-3 text-[13px] text-muted-foreground">{t("load.checkoutHelp")}</p>
-                <form
-                  className="space-y-4"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    checkoutMutation.mutate();
-                  }}
-                >
-                  <div className="space-y-1.5">
-                    <Label htmlFor="checkout_amount">{t("load.depositedAmount")}</Label>
-                    <Input
-                      id="checkout_amount"
-                      inputMode="decimal"
-                      placeholder={t("common.amountPlaceholder")}
-                      value={checkoutAmount}
-                      onChange={(e) => setCheckoutAmount(e.target.value)}
-                      className="tabular h-12 rounded-xl text-[22px] font-semibold"
-                      required
-                    />
-                    <p className="text-[12px] text-muted-foreground">
-                      {t("common.minMax", { min: minDeposit, max: maxDeposit })}
-                    </p>
-                  </div>
-                  <Button
-                    type="submit"
-                    className="h-12 w-full rounded-xl"
-                    disabled={checkoutMutation.isPending}
-                  >
-                    {checkoutMutation.isPending
-                      ? t("load.checkoutRedirecting")
-                      : t("load.checkoutPay")}
-                  </Button>
-                </form>
-              </section>
-            ) : null}
-            {canChooseDealer ? (
+            {showLoadTabs ? (
               <div className="lg:col-span-2">
                 <Tabs
                   value={activeSource}
@@ -360,17 +385,127 @@ function LoadWallet() {
                     setBankName("");
                   }}
                 >
-                  <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl">
+                  <TabsList
+                    className={cn(
+                      "grid h-11 w-full rounded-xl",
+                      loadTabCount === 3 ? "grid-cols-3" : "grid-cols-2",
+                    )}
+                  >
                     <TabsTrigger value="platform" className="rounded-lg">
                       {t("load.sourceSuperAdmin")}
                     </TabsTrigger>
-                    <TabsTrigger value="dealer" className="rounded-lg">
-                      {t("load.sourceDealer")}
-                    </TabsTrigger>
+                    {canChooseDealer ? (
+                      <TabsTrigger value="dealer" className="rounded-lg">
+                        {t("load.sourceDealer")}
+                      </TabsTrigger>
+                    ) : null}
+                    {checkoutEnabled ? (
+                      <TabsTrigger value="checkout" className="rounded-lg">
+                        {t("load.sourceDeposit")}
+                      </TabsTrigger>
+                    ) : null}
                   </TabsList>
                 </Tabs>
               </div>
             ) : null}
+
+            {payingCheckout ? (
+              <section className="inset-group min-w-0 max-w-full p-4 lg:col-span-2">
+                <h2 className="mb-1 text-[15px] font-semibold">{t("load.checkoutTitle")}</h2>
+                <p className="mb-3 text-[13px] text-muted-foreground">{t("load.checkoutQrHelp")}</p>
+                {!checkoutSession ? (
+                  <form
+                    className="space-y-4"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      checkoutMutation.mutate();
+                    }}
+                  >
+                    <div className="space-y-1.5">
+                      <Label htmlFor="checkout_amount">{t("load.depositedAmount")}</Label>
+                      <Input
+                        id="checkout_amount"
+                        inputMode="decimal"
+                        placeholder={t("common.amountPlaceholder")}
+                        value={checkoutAmount}
+                        onChange={(e) => setCheckoutAmount(e.target.value)}
+                        className="tabular h-12 rounded-xl text-[22px] font-semibold"
+                        required
+                      />
+                      <p className="text-[12px] text-muted-foreground">
+                        {t("common.minMax", { min: minDeposit, max: maxDeposit })}
+                      </p>
+                    </div>
+                    <Button
+                      type="submit"
+                      className="h-12 w-full rounded-xl"
+                      disabled={checkoutMutation.isPending}
+                    >
+                      {checkoutMutation.isPending
+                        ? t("load.checkoutRedirecting")
+                        : t("load.checkoutShowQr")}
+                    </Button>
+                  </form>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-white px-4 py-5">
+                      {checkoutQrSrc ? (
+                        <img
+                          src={checkoutQrSrc}
+                          alt={t("load.checkoutQrAlt")}
+                          className="size-[min(64vw,16rem)] bg-white"
+                        />
+                      ) : (
+                        <div className="flex size-[min(64vw,16rem)] items-center justify-center text-sm text-muted-foreground">
+                          {t("load.checkoutQrBuilding")}
+                        </div>
+                      )}
+                      <p className="text-center text-[13px] text-muted-foreground">
+                        {t("load.checkoutQrScan")}
+                      </p>
+                    </div>
+                    {checkoutStatusQuery.data?.data ? (
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5">
+                        <span className="text-[13px] text-muted-foreground">
+                          {formatNPR(checkoutStatusQuery.data.data.amount)}
+                        </span>
+                        <StatusChip status={checkoutStatusQuery.data.data.status} />
+                      </div>
+                    ) : null}
+                    {checkoutStatusQuery.data?.data?.status === "approved" ? (
+                      <p className="text-center text-[13px] font-medium text-success">
+                        {t("load.checkoutSuccess")}
+                      </p>
+                    ) : (
+                      <p className="text-center text-[12px] text-muted-foreground">
+                        {t("load.checkoutVerifyNote")}
+                      </p>
+                    )}
+                    <Button
+                      type="button"
+                      className="h-12 w-full rounded-xl"
+                      onClick={() => {
+                        window.location.href = checkoutSession.paymentUrl;
+                      }}
+                    >
+                      {t("load.checkoutOpenPay")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-11 w-full rounded-xl"
+                      onClick={() => {
+                        setCheckoutSession(null);
+                        setCheckoutQrSrc("");
+                      }}
+                    >
+                      {t("load.checkoutNewAmount")}
+                    </Button>
+                  </div>
+                )}
+              </section>
+            ) : (
+              <>
             <DepositAccountsPanel
               bankDetails={
                 payingDealer
@@ -583,6 +718,8 @@ function LoadWallet() {
                 </Button>
               </form>
             </section>
+              </>
+            )}
           </>
         ) : null}
 

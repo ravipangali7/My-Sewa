@@ -829,6 +829,16 @@ export const messages = {
     "load.checkoutHelp":
       "Enter an amount and you will be redirected to N-Cash Checkout. Your MySewa wallet is credited only after we verify the payment with Himal Pay.",
     "load.checkoutPay": "Pay with N-Cash",
+    "load.checkoutShowQr": "Show Himal Pay QR",
+    "load.checkoutQrReady": "Himal Pay QR is ready. Scan to pay.",
+    "load.checkoutQrHelp":
+      "Enter an amount to generate a Himal Pay QR. Scan it to pay through Himal Pay / N-Cash. Your MySewa wallet is credited only after we verify the payment.",
+    "load.checkoutQrScan":
+      "Scan this QR with Himal Pay / N-Cash, or with a bank or eSewa app that can open this payment.",
+    "load.checkoutQrAlt": "Himal Pay deposit QR",
+    "load.checkoutQrBuilding": "Preparing QR…",
+    "load.checkoutOpenPay": "Open Himal Pay",
+    "load.checkoutNewAmount": "Enter a different amount",
     "load.checkoutRedirecting": "Opening Himal Pay Checkout…",
     "load.checkoutFailed": "Could not start Himal Pay Checkout.",
     "load.checkoutMinError": "Minimum Himal Pay Checkout amount is Rs. 10.",
@@ -854,6 +864,7 @@ export const messages = {
     "load.depositAccount": "Deposit Account",
     "load.sourceSuperAdmin": "Super Admin",
     "load.sourceDealer": "Dealer",
+    "load.sourceDeposit": "Deposit",
     "load.superAdminAccount": "Super Admin payout account",
     "load.dealerAccount": "Dealer payout account",
     "load.dealerInstructions":
@@ -2079,6 +2090,16 @@ export const messages = {
     "load.checkoutHelp":
       "रकम लेख्नुहोस् र N-Cash Checkout मा जानुहोस्। Himal Pay ले भुक्तानी पुष्टि गरेपछि मात्र MySewa वालेटमा रकम थपिन्छ।",
     "load.checkoutPay": "N-Cash बाट तिर्नुहोस्",
+    "load.checkoutShowQr": "Himal Pay QR देखाउनुहोस्",
+    "load.checkoutQrReady": "Himal Pay QR तयार छ। स्क्यान गरेर तिर्नुहोस्।",
+    "load.checkoutQrHelp":
+      "रकम लेख्नुहोस् र Himal Pay QR बनाउनुहोस्। Himal Pay / N-Cash बाट स्क्यान गरेर तिर्नुहोस्। Himal Pay ले भुक्तानी पुष्टि गरेपछि मात्र MySewa वालेटमा रकम थपिन्छ।",
+    "load.checkoutQrScan":
+      "यो QR Himal Pay / N-Cash बाट स्क्यान गर्नुहोस्, वा बैंक वा ईसेवा एपबाट यो भुक्तानी खोल्नुहोस्।",
+    "load.checkoutQrAlt": "Himal Pay जम्मा QR",
+    "load.checkoutQrBuilding": "QR तयार हुँदै…",
+    "load.checkoutOpenPay": "Himal Pay खोल्नुहोस्",
+    "load.checkoutNewAmount": "अर्को रकम लेख्नुहोस्",
     "load.checkoutRedirecting": "Himal Pay Checkout खोलिँदै…",
     "load.checkoutFailed": "Himal Pay Checkout सुरु गर्न सकिएन।",
     "load.checkoutMinError": "Himal Pay Checkout को न्यूनतम रकम रु. १० हो।",
@@ -2104,6 +2125,7 @@ export const messages = {
     "load.depositAccount": "जम्मा खाता",
     "load.sourceSuperAdmin": "सुपर एडमिन",
     "load.sourceDealer": "डीलर",
+    "load.sourceDeposit": "जम्मा",
     "load.superAdminAccount": "सुपर एडमिन भुक्तानी खाता",
     "load.dealerAccount": "डीलर भुक्तानी खाता",
     "load.dealerInstructions":
