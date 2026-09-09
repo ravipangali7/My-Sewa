@@ -161,7 +161,7 @@ class Migration(migrations.Migration):
             model_name='biometricassertion',
             index=models.Index(
                 fields=['user', 'purpose', 'used_at', 'expires_at'],
-                name='core_biomet_user_id_purpose_idx',
+                name='core_bioassert_lookup_idx',
             ),
         ),
     ]
