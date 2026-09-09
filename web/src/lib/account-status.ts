@@ -33,6 +33,12 @@ export function canRemittanceTransfer(user: UserProfile | null | undefined): boo
   return user.can_remittance_transfer !== false;
 }
 
+/** Per-user Fund Transfer API access. */
+export function canUseFundTransferApi(user: UserProfile | null | undefined): boolean {
+  if (!user) return false;
+  return user.is_api_user === true;
+}
+
 /** True when HimalPay deducted but MySewa did not apply — admin must unblock. */
 export function isWalletBlocked(wallet: { transactions_blocked?: boolean } | null | undefined): boolean {
   return Boolean(wallet?.transactions_blocked);

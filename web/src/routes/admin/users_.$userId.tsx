@@ -104,6 +104,11 @@ function UserDetailPage() {
                 Edit
               </Link>
             </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link to="/admin/api-users/$userId" params={{ userId }}>
+                API
+              </Link>
+            </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
@@ -193,6 +198,11 @@ function UserDetailPage() {
               <DetailRow label="Wallet Transfer">
                 <Badge variant={u.can_wallet_adjust !== false ? "default" : "secondary"}>
                   {u.can_wallet_adjust !== false ? "Enabled" : "Disabled"}
+                </Badge>
+              </DetailRow>
+              <DetailRow label="Fund Transfer API">
+                <Badge variant={u.is_api_user ? "default" : "secondary"}>
+                  {u.is_api_user ? "Enabled" : "Disabled"}
                 </Badge>
               </DetailRow>
               {u.role === "dealer" ? (

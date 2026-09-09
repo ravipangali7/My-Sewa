@@ -20,6 +20,8 @@ from .views import (
     dealer_views,
     support_chat_views,
     payout_views,
+    api_v1_views,
+    admin_api_user_views,
 )
 
 urlpatterns = [
@@ -231,6 +233,38 @@ urlpatterns = [
         name='wallet_transfer_history',
     ),
 
+    # Versioned Fund Transfer API (API-key authentication)
+    path(
+        'api/v1/fund-transfer/',
+        api_v1_views.FundTransferView.as_view(),
+        name='api_v1_fund_transfer',
+    ),
+    path(
+        'api/developer/',
+        api_v1_views.developer_profile,
+        name='api_developer_profile',
+    ),
+    path(
+        'api/developer/regenerate-key/',
+        api_v1_views.developer_regenerate_key,
+        name='api_developer_regenerate_key',
+    ),
+    path(
+        'api/developer/docs/',
+        api_v1_views.developer_documentation,
+        name='api_developer_docs',
+    ),
+    path(
+        'api/developer/docs/download/',
+        api_v1_views.developer_documentation_download,
+        name='api_developer_docs_download',
+    ),
+    path(
+        'api/developer/transfers/',
+        api_v1_views.developer_transfer_history,
+        name='api_developer_transfers',
+    ),
+
     # Remittance endpoints (HimalPay Samsara)
     path('api/remittance/lookup/', remittance_views.lookup_remittance, name='remittance_lookup'),
     path(
@@ -312,6 +346,27 @@ urlpatterns = [
         'api/admin/users/<int:user_id>/set-transaction-pin/',
         admin_views.admin_set_user_transaction_pin,
         name='admin_set_user_transaction_pin',
+    ),
+    path('api/admin/api-users/', admin_api_user_views.admin_list_api_users, name='admin_list_api_users'),
+    path(
+        'api/admin/api-users/<int:user_id>/',
+        admin_api_user_views.admin_api_user_detail,
+        name='admin_api_user_detail',
+    ),
+    path(
+        'api/admin/api-users/<int:user_id>/regenerate-key/',
+        admin_api_user_views.admin_api_user_regenerate_key,
+        name='admin_api_user_regenerate_key',
+    ),
+    path(
+        'api/admin/api-users/<int:user_id>/reveal-key/',
+        admin_api_user_views.admin_api_user_reveal_key,
+        name='admin_api_user_reveal_key',
+    ),
+    path(
+        'api/admin/api-users/<int:user_id>/logs/',
+        admin_api_user_views.admin_api_user_logs,
+        name='admin_api_user_logs',
     ),
     path('api/admin/wallets/', admin_views.admin_list_wallets, name='admin_list_wallets'),
     path('api/admin/wallets/<int:wallet_id>/transactions/', admin_views.admin_wallet_transactions, name='admin_wallet_transactions'),

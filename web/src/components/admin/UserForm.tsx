@@ -31,6 +31,7 @@ export type UserFormValues = {
   can_fund_transfer: boolean;
   can_wallet_adjust: boolean;
   can_remittance_transfer: boolean;
+  is_api_user: boolean;
   commission_rate: string;
   tds_rate: string;
   sub_agent_commission_rate: string;
@@ -56,6 +57,7 @@ function fromUser(user?: AdminUser | null): UserFormValues {
     can_fund_transfer: user?.can_fund_transfer ?? true,
     can_wallet_adjust: user?.can_wallet_adjust ?? true,
     can_remittance_transfer: user?.can_remittance_transfer ?? true,
+    is_api_user: user?.is_api_user ?? false,
     commission_rate: user?.commission_rate ?? "0",
     tds_rate: user?.tds_rate ?? "",
     sub_agent_commission_rate: user?.sub_agent_commission_rate ?? "0",
@@ -109,6 +111,7 @@ export function UserForm({
       can_fund_transfer: values.can_fund_transfer,
       can_wallet_adjust: values.can_wallet_adjust,
       can_remittance_transfer: values.can_remittance_transfer,
+      is_api_user: values.is_api_user,
     };
     if (values.role === "dealer") {
       payload.commission_rate = values.commission_rate || "0";
@@ -389,6 +392,21 @@ export function UserForm({
             id="can_wallet_adjust"
             checked={values.can_wallet_adjust}
             onCheckedChange={(checked) => set("can_wallet_adjust", checked)}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Label htmlFor="is_api_user" className="font-normal">
+              Fund Transfer API
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Enable API access and automatically generate a unique API key the first time.
+            </p>
+          </div>
+          <Switch
+            id="is_api_user"
+            checked={values.is_api_user}
+            onCheckedChange={(checked) => set("is_api_user", checked)}
           />
         </div>
       </div>

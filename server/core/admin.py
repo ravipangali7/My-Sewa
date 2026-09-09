@@ -6,6 +6,8 @@ from .models import (
     Wallet,
     WalletAdjustment,
     WalletTransfer,
+    ApiFundTransferLog,
+    ApiIdempotencyRecord,
     Deposit,
     Settings,
     TopupTransaction,
@@ -50,6 +52,7 @@ class CustomUserAdminForm(forms.ModelForm):
             'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
             'date_of_birth', 'account_status',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
+            'is_api_user',
             'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'is_active', 'is_staff',
         )
@@ -74,11 +77,11 @@ class CustomUserAdmin(admin.ModelAdmin):
     form = CustomUserAdminForm
     list_display = (
         'phone', 'email', 'first_name', 'last_name', 'nickname',
-        'account_status', 'kyc_status', 'role', 'can_fund_transfer', 'can_wallet_adjust',
+        'account_status', 'kyc_status', 'role', 'is_api_user', 'can_fund_transfer', 'can_wallet_adjust',
         'can_remittance_transfer', 'is_active', 'date_joined',
     )
     list_filter = (
-        'account_status', 'kyc_status', 'role', 'can_fund_transfer', 'can_wallet_adjust',
+        'account_status', 'kyc_status', 'role', 'is_api_user', 'can_fund_transfer', 'can_wallet_adjust',
         'can_remittance_transfer', 'is_active', 'is_staff', 'date_joined',
     )
     search_fields = (
@@ -89,15 +92,26 @@ class CustomUserAdmin(admin.ModelAdmin):
     # (PATCH pending submission, then Approve / Reject).
     readonly_fields = (
         'date_joined', 'last_login', 'kyc_status', 'citizenship_number',
+        'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
     )
     fields = (
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
         'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
         'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
+        'is_api_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
         'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
         'is_active', 'is_staff',
         'date_joined', 'last_login',
     )
+
+    def save_model(self, request, obj, form, change):
+        previous = False
+        if change and obj.pk:
+            previous = type(obj).objects.filter(pk=obj.pk).values_list('is_api_user', flat=True).first()
+        if obj.is_api_user:
+            from .services.api_keys import sync_api_user_key
+            sync_api_user_key(obj, previous_is_api_user=bool(previous))
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(Wallet)
@@ -137,14 +151,14 @@ class WalletAdjustmentAdmin(admin.ModelAdmin):
 @admin.register(WalletTransfer)
 class WalletTransferAdmin(admin.ModelAdmin):
     list_display = (
-        'sender', 'recipient', 'amount', 'status', 'reference', 'created_at',
+        'sender', 'recipient', 'amount', 'status', 'source', 'reference', 'client_reference', 'created_at',
     )
-    list_filter = ('status', 'created_at')
+    list_filter = ('status', 'source', 'created_at')
     search_fields = (
-        'sender__phone', 'recipient__phone', 'reference', 'remarks',
+        'sender__phone', 'recipient__phone', 'reference', 'remarks', 'client_reference',
     )
     readonly_fields = (
-        'sender', 'recipient', 'amount', 'remarks', 'status', 'reference',
+        'sender', 'recipient', 'amount', 'remarks', 'status', 'source', 'client_reference', 'reference',
         'sender_balance_before', 'sender_balance_after',
         'recipient_balance_before', 'recipient_balance_after',
         'created_at',
@@ -812,6 +826,42 @@ class DealerCommissionAdmin(admin.ModelAdmin):
         'dealer', 'source_user', 'txn_type', 'txn_id', 'reference',
         'txn_amount', 'commission_rate', 'gross_commission',
         'tds_rate', 'tds_amount', 'net_commission', 'status',
+        'created_at', 'updated_at',
+    )
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(ApiFundTransferLog)
+class ApiFundTransferLogAdmin(admin.ModelAdmin):
+    list_display = (
+        'user', 'reference', 'receiver', 'amount', 'status', 'error_code',
+        'transaction_id', 'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    search_fields = (
+        'user__phone', 'reference', 'receiver', 'transaction_id', 'error_code',
+    )
+    readonly_fields = (
+        'user', 'reference', 'receiver', 'amount', 'status', 'error_code',
+        'error_message', 'wallet_transfer', 'transaction_id', 'ip_address',
+        'user_agent', 'created_at',
+    )
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(ApiIdempotencyRecord)
+class ApiIdempotencyRecordAdmin(admin.ModelAdmin):
+    list_display = ('user', 'reference', 'status', 'wallet_transfer', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('user__phone', 'reference')
+    readonly_fields = (
+        'user', 'reference', 'status', 'wallet_transfer', 'response_payload',
         'created_at', 'updated_at',
     )
     ordering = ('-created_at',)

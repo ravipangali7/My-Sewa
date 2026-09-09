@@ -4,12 +4,9 @@ Instant MySewa wallet-to-wallet transfers between registered users.
 from __future__ import annotations
 
 import logging
-import re
 from decimal import Decimal
 
-from django.contrib.auth import get_user_model
-from django.db.models import Q, Sum
-from django.utils import timezone
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -17,7 +14,6 @@ from rest_framework.response import Response
 
 from ..models import (
     WalletTransfer,
-    BankTransferTransaction,
     _ensure_wallet_transfer_table,
 )
 from ..serializers import (
@@ -27,7 +23,6 @@ from ..serializers import (
     _user_display_name,
 )
 from ..services.app_config import (
-    get_app_config,
     require_user_feature,
     require_account_approved,
     require_wallet_not_blocked,
@@ -35,34 +30,17 @@ from ..services.app_config import (
 from ..services.list_response import items_with_stats_response
 from ..services.notifications import notify_low_balance_if_needed, notify_wallet_transfer
 from ..services.pin import transaction_pin_gate
-from ..services.wallet_transfer import perform_wallet_transfer
+from ..services.wallet_transfer import (
+    check_daily_transfer_limit,
+    lookup_active_user,
+    perform_wallet_transfer,
+)
 
 logger = logging.getLogger(__name__)
-User = get_user_model()
-
-_PHONE_DIGITS_RE = re.compile(r'\D+')
-
-
-def normalize_nepal_mobile(raw: str) -> str:
-    digits = _PHONE_DIGITS_RE.sub('', raw or '')
-    if digits.startswith('977') and len(digits) >= 13:
-        digits = digits[-10:]
-    elif digits.startswith('0') and len(digits) == 11:
-        digits = digits[1:]
-    return digits
 
 
 def lookup_active_user_by_phone(raw: str):
-    phone = normalize_nepal_mobile(raw)
-    if not phone:
-        return None
-    user = User.objects.filter(phone=phone, is_active=True).first()
-    if user:
-        return user
-    stripped = (raw or '').strip()
-    if stripped and stripped != phone:
-        return User.objects.filter(phone=stripped, is_active=True).first()
-    return None
+    return lookup_active_user(raw)
 
 
 def _wallet_transfers_qs(user):
@@ -171,42 +149,9 @@ def create_wallet_transfer(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    tx_cfg = get_app_config().get('transactions') or {}
-    daily_limit = Decimal(str(tx_cfg.get('daily_transfer_limit') or 0))
-    if daily_limit > 0:
-        today = timezone.localdate()
-        bank_used = (
-            BankTransferTransaction.objects.filter(
-                user=request.user,
-                created_at__date=today,
-            )
-            .exclude(status='failed')
-            .aggregate(total=Sum('amount'))['total']
-            or Decimal('0.00')
-        )
-        wallet_used = (
-            WalletTransfer.objects.filter(
-                sender=request.user,
-                created_at__date=today,
-            )
-            .exclude(status='failed')
-            .aggregate(total=Sum('amount'))['total']
-            or Decimal('0.00')
-        )
-        used = bank_used + wallet_used
-        if used + amount > daily_limit:
-            return Response(
-                {
-                    'error': 'Daily transfer limit exceeded',
-                    'message': (
-                        f'Daily transfer limit is Rs. {daily_limit}. '
-                        f'You have already transferred Rs. {used} today.'
-                    ),
-                    'daily_limit': str(daily_limit),
-                    'used_today': str(used),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+    daily_limit_err = check_daily_transfer_limit(request.user, amount)
+    if daily_limit_err:
+        return daily_limit_err
 
     transfer, err = perform_wallet_transfer(
         sender=request.user,

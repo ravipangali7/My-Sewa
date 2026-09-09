@@ -29,6 +29,7 @@ import {
   MessageCircle,
   Landmark,
   Receipt,
+  KeyRound,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -70,6 +71,7 @@ const NAV = [
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
   { to: "/admin/statement", label: "Statement", icon: FileSearch },
   { to: "/admin/users", label: "Users", icon: Users },
+  { to: "/admin/api-users", label: "API Users", icon: KeyRound },
   { to: "/admin/support-chat", label: "Support Chat", icon: MessageCircle },
   { to: "/admin/dealers", label: "Dealers", icon: Handshake },
   { to: "/admin/hierarchy", label: "Dealer Hierarchy", icon: GitBranch },

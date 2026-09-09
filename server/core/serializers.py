@@ -191,7 +191,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
             'kyc_status', 'citizenship_number', 'kyc_verified', 'profile_locked',
             'has_transaction_pin', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
-            'wallet_frozen', 'wallet_status',
+            'wallet_frozen', 'wallet_status', 'is_api_user',
             'date_joined', 'last_login',
         )
         read_only_fields = (
@@ -200,7 +200,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'assigned_sub_agent_id',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
             'kyc_status', 'citizenship_number',
-            'kyc_verified', 'profile_locked',
+            'kyc_verified', 'profile_locked', 'is_api_user',
             'has_transaction_pin', 'date_joined', 'last_login',
         )
 
@@ -267,7 +267,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
             'kyc_status', 'citizenship_number',
             'date_joined', 'last_login',
             'wallet_id', 'wallet_balance', 'wallet_frozen', 'wallet_status',
-            'has_transaction_pin',
+            'has_transaction_pin', 'is_api_user',
             'commission_rate', 'tds_rate', 'sub_agent_commission_rate', 'super_admin_rate',
         )
         read_only_fields = (
@@ -379,6 +379,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'is_active', 'is_staff', 'is_superuser', 'account_status',
             'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
+            'is_api_user',
             'commission_rate', 'tds_rate', 'sub_agent_commission_rate', 'super_admin_rate',
             'password', 'password2',
         )
@@ -396,6 +397,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'can_fund_transfer': {'required': False},
             'can_wallet_adjust': {'required': False},
             'can_remittance_transfer': {'required': False},
+            'is_api_user': {'required': False},
         }
 
     def validate_phone(self, value):
@@ -501,6 +503,9 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         user = User.objects.create_user(phone, password=password, **validated_data)
         apply_hierarchy_defaults(user)
         user.save(update_fields=['assigned_dealer', 'parent_agent', 'assigned_sub_agent', 'role'])
+        if getattr(user, 'is_api_user', False):
+            from .services.api_keys import enable_api_access
+            enable_api_access(user, generate_if_missing=True)
         self._save_dealer_rates(user, rates)
         try:
             from .services.notifications import notify_user_provisioned
@@ -525,6 +530,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         if actor is not None and not is_admin_actor(actor):
             validated_data.pop('account_status', None)
 
+        was_api_user = bool(getattr(instance, 'is_api_user', False))
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
@@ -532,6 +538,10 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
 
         if password:
             instance.set_password(password)
+
+        if instance.is_api_user:
+            from .services.api_keys import sync_api_user_key
+            sync_api_user_key(instance, previous_is_api_user=was_api_user)
 
         instance.save()
         self._save_dealer_rates(instance, rates)

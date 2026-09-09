@@ -414,6 +414,102 @@ def _ensure_checkout_session_table():
     return True
 
 
+_api_fund_transfer_ready = False
+
+
+def _record_api_fund_transfer_migration():
+    from django.db.migrations.recorder import MigrationRecorder
+
+    recorder = MigrationRecorder(connection)
+    name = '0066_api_fund_transfer'
+    if recorder.migration_qs.filter(app='core', name=name).exists():
+        return
+    if recorder.migration_qs.filter(app='core', name='0065_checkoutsession').exists():
+        recorder.record_applied('core', name)
+
+
+def _ensure_api_fund_transfer():
+    """Add API user columns and fund-transfer API tables if migrate 0066 was skipped."""
+    global _api_fund_transfer_ready
+    if _api_fund_transfer_ready:
+        return False
+
+    try:
+        names = connection.introspection.table_names()
+        if 'core_customuser' not in names:
+            return False
+        with connection.cursor() as cursor:
+            user_cols = {
+                col.name
+                for col in connection.introspection.get_table_description(cursor, 'core_customuser')
+            }
+    except Exception:
+        return False
+
+    from django.apps import apps
+
+    user_model = apps.get_model('core', 'CustomUser')
+    needed_user = (
+        'is_api_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
+    )
+    missing_user = [name for name in needed_user if name not in user_cols]
+    if missing_user:
+        try:
+            with connection.schema_editor() as schema_editor:
+                for name in missing_user:
+                    schema_editor.add_field(user_model, user_model._meta.get_field(name))
+        except Exception:
+            pass
+
+    wt_table = 'core_wallettransfer'
+    if wt_table in names:
+        try:
+            with connection.cursor() as cursor:
+                wt_cols = {
+                    col.name
+                    for col in connection.introspection.get_table_description(cursor, wt_table)
+                }
+            wt_model = apps.get_model('core', 'WalletTransfer')
+            missing_wt = [name for name in ('source', 'client_reference') if name not in wt_cols]
+            if missing_wt:
+                with connection.schema_editor() as schema_editor:
+                    for name in missing_wt:
+                        schema_editor.add_field(wt_model, wt_model._meta.get_field(name))
+        except Exception:
+            pass
+
+    extra_tables = (
+        ('core_apiidempotencyrecord', 'ApiIdempotencyRecord'),
+        ('core_apifundtransferlog', 'ApiFundTransferLog'),
+    )
+    try:
+        names = connection.introspection.table_names()
+        with connection.schema_editor() as schema_editor:
+            for table, model_name in extra_tables:
+                if table in names:
+                    continue
+                schema_editor.create_model(apps.get_model('core', model_name))
+    except Exception:
+        pass
+
+    try:
+        names = connection.introspection.table_names()
+        with connection.cursor() as cursor:
+            user_cols = {
+                col.name
+                for col in connection.introspection.get_table_description(cursor, 'core_customuser')
+            }
+        if all(name in user_cols for name in needed_user) and all(
+            table in names for table, _ in extra_tables
+        ):
+            _record_api_fund_transfer_migration()
+            _api_fund_transfer_ready = True
+            return True
+    except Exception:
+        return False
+    return False
+
+
 _support_chat_tables_ready = False
 
 _SUPPORT_CHAT_TABLES = (
@@ -741,6 +837,33 @@ class CustomUser(AbstractUser):
         default='',
         help_text="Citizenship / national ID number from the latest KYC submission.",
     )
+    is_api_user = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="When True, this user may authenticate to the Fund Transfer API with an API key.",
+    )
+    api_key = models.CharField(
+        max_length=80,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text="Unique API credential. Empty for non-API users. Never log this value.",
+    )
+    api_key_created_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the first API key was issued for this user.",
+    )
+    api_key_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the API key was last generated or regenerated.",
+    )
+    api_last_used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this API key last authenticated successfully.",
+    )
 
     # Use phone as the authentication field
     USERNAME_FIELD = 'phone'
@@ -950,6 +1073,26 @@ class WalletTransfer(models.Model):
         max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))],
     )
     remarks = models.CharField(max_length=255, blank=True, default='')
+    SOURCE_APP = 'app'
+    SOURCE_API = 'api'
+    SOURCE_CHOICES = [
+        (SOURCE_APP, 'App'),
+        (SOURCE_API, 'API'),
+    ]
+    source = models.CharField(
+        max_length=10,
+        choices=SOURCE_CHOICES,
+        default=SOURCE_APP,
+        db_index=True,
+        help_text="Whether this transfer was created from the app or the Fund Transfer API.",
+    )
+    client_reference = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text="Client-supplied idempotency/reference for API transfers.",
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='success')
     reference = models.CharField(max_length=100, unique=True)
     sender_balance_before = models.DecimalField(max_digits=12, decimal_places=2)
@@ -2578,6 +2721,10 @@ class SecurityAuditLog(models.Model):
     ACTION_TDS_CHANGED = 'tds_changed'
     ACTION_WALLET_FROZEN = 'wallet_frozen'
     ACTION_WALLET_UNFROZEN = 'wallet_unfrozen'
+    ACTION_API_ACCESS_ENABLED = 'api_access_enabled'
+    ACTION_API_ACCESS_DISABLED = 'api_access_disabled'
+    ACTION_API_KEY_REGENERATED = 'api_key_regenerated'
+    ACTION_API_KEY_VIEWED = 'api_key_viewed'
     ACTION_CHOICES = [
         (ACTION_TRANSACTION_PIN_SET, 'Transaction PIN Set'),
         (ACTION_TRANSACTION_PIN_CHANGED, 'Transaction PIN Changed'),
@@ -2600,6 +2747,10 @@ class SecurityAuditLog(models.Model):
         (ACTION_TDS_CHANGED, 'TDS Changed'),
         (ACTION_WALLET_FROZEN, 'Wallet Frozen'),
         (ACTION_WALLET_UNFROZEN, 'Wallet Unfrozen'),
+        (ACTION_API_ACCESS_ENABLED, 'API Access Enabled'),
+        (ACTION_API_ACCESS_DISABLED, 'API Access Disabled'),
+        (ACTION_API_KEY_REGENERATED, 'API Key Regenerated'),
+        (ACTION_API_KEY_VIEWED, 'API Key Viewed'),
     ]
 
     user = models.ForeignKey(
@@ -3167,4 +3318,98 @@ class WalletBalanceIssue(models.Model):
         indexes = [
             models.Index(fields=['status', 'txn_at'], name='core_wbi_status_txn_idx'),
             models.Index(fields=['user', 'status'], name='core_wbi_user_status_idx'),
+        ]
+
+
+class ApiIdempotencyRecord(models.Model):
+    """One client reference per API user so the same request cannot transfer twice."""
+
+    STATUS_PROCESSING = 'processing'
+    STATUS_COMPLETED = 'completed'
+    STATUS_CHOICES = [
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_COMPLETED, 'Completed'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='api_idempotency_records',
+    )
+    reference = models.CharField(max_length=64)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PROCESSING, db_index=True,
+    )
+    wallet_transfer = models.ForeignKey(
+        'WalletTransfer',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='api_idempotency_records',
+    )
+    response_payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.user.phone} {self.reference} ({self.status})'
+
+    class Meta:
+        verbose_name = 'API Idempotency Record'
+        verbose_name_plural = 'API Idempotency Records'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'reference'],
+                name='core_apiidemp_user_ref_uniq',
+            ),
+        ]
+
+
+class ApiFundTransferLog(models.Model):
+    """Audit trail for Fund Transfer API calls. Never store API keys here."""
+
+    STATUS_SUCCESS = 'success'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_SUCCESS, 'Success'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='api_fund_transfer_logs',
+        null=True,
+        blank=True,
+        help_text='Authenticated API user when known. Null for invalid-key attempts.',
+    )
+    reference = models.CharField(max_length=64, blank=True, default='')
+    receiver = models.CharField(max_length=80, blank=True, default='')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, db_index=True)
+    error_code = models.CharField(max_length=64, blank=True, default='')
+    error_message = models.CharField(max_length=255, blank=True, default='')
+    wallet_transfer = models.ForeignKey(
+        'WalletTransfer',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='api_fund_transfer_logs',
+    )
+    transaction_id = models.CharField(max_length=100, blank=True, default='')
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        who = self.user.phone if self.user_id else 'anonymous'
+        return f'{who} {self.reference or "-"} {self.status}'
+
+    class Meta:
+        verbose_name = 'API Fund Transfer Log'
+        verbose_name_plural = 'API Fund Transfer Logs'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at'], name='core_apiftlog_user_idx'),
+            models.Index(fields=['status', '-created_at'], name='core_apiftlog_status_idx'),
         ]

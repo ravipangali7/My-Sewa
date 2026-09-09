@@ -122,6 +122,9 @@ REST_FRAMEWORK = {
         'core.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
+    'DEFAULT_THROTTLE_RATES': {
+        'fund_transfer_api': '60/min',
+    },
 }
 
 # CORS / CSRF from configured frontend + backend origins
@@ -185,6 +188,14 @@ DATABASES = {
         },
     }
 }
+
+if os.environ.get('DJANGO_TEST_SQLITE', '').lower() in ('1', 'true', 'yes'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
 
 # Shared file cache so OTP / rate-limit keys work across multiple workers.
 # LocMemCache is per-process and makes OTPs appear expired immediately under gunicorn.

@@ -260,6 +260,18 @@ export async function apiBlob(path: string): Promise<Blob> {
   return res.blob();
 }
 
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export function apiUpload<T = unknown>(
   path: string,
   formData: FormData,
@@ -1220,6 +1232,67 @@ export const apiClient = {
     }),
   adminDeleteUser: (id: number) =>
     api<{ message: string }>(`/api/admin/users/${id}/`, { method: "DELETE" }),
+  adminApiUsers: (filters?: { q?: string; api_only?: boolean }) => {
+    const params = new URLSearchParams();
+    if (filters?.q?.trim()) params.set("q", filters.q.trim());
+    if (filters?.api_only === false) params.set("api_only", "0");
+    const query = params.toString();
+    return api<{
+      items: import("./types").AdminApiUser[];
+      stats: { total: number; enabled: number };
+    }>(`/api/admin/api-users/${query ? `?${query}` : ""}`);
+  },
+  adminGetApiUser: (id: number) =>
+    api<import("./types").AdminApiUser>(`/api/admin/api-users/${id}/`),
+  adminSetApiUserAccess: (id: number, is_api_user: boolean) =>
+    api<{ message: string; data: import("./types").AdminApiUser }>(`/api/admin/api-users/${id}/`, {
+      method: "PATCH",
+      body: { is_api_user },
+    }),
+  adminRegenerateApiKey: (id: number) =>
+    api<{ message: string; data: import("./types").AdminApiUser }>(
+      `/api/admin/api-users/${id}/regenerate-key/`,
+      { method: "POST", body: {} },
+    ),
+  adminRevealApiKey: (id: number) =>
+    api<import("./types").AdminApiUser>(`/api/admin/api-users/${id}/reveal-key/`),
+  adminApiUserLogs: (id: number) =>
+    api<{
+      items: import("./types").AdminApiUserLog[];
+      transfers: Array<{
+        id: number;
+        transaction_id: string;
+        reference: string;
+        receiver_phone: string;
+        amount: string;
+        status: string;
+        created_at: string;
+      }>;
+    }>(`/api/admin/api-users/${id}/logs/`),
+  developerProfile: () => api<import("./types").DeveloperApiProfile>("/api/developer/"),
+  developerRegenerateKey: () =>
+    api<import("./types").DeveloperApiProfile>("/api/developer/regenerate-key/", {
+      method: "POST",
+      body: {},
+    }),
+  developerDocs: () => api<import("./types").DeveloperApiDocumentation>("/api/developer/docs/"),
+  developerDownloadDocs: async (format: "markdown" | "html" | "pdf") => {
+    const ext = format === "markdown" ? "md" : format;
+    const blob = await apiBlob(`/api/developer/docs/download/?doc_format=${format}`);
+    triggerBlobDownload(blob, `mysewa-fund-transfer-api.${ext}`);
+  },
+  developerTransfers: () =>
+    api<{
+      items: import("./types").AdminApiUserLog[];
+      transfers: Array<{
+        transaction_id: string;
+        reference: string;
+        receiver: string;
+        amount: string;
+        status: string;
+        created_at: string;
+      }>;
+    }>("/api/developer/transfers/"),
   /** Soft-delete account via GET /api/auth/delete-account/<phone>/<password>/ */
   deleteAccount: (phone: string, password: string) =>
     api<{ message: string; detail?: string }>(

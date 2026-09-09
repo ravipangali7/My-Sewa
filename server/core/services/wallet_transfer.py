@@ -4,14 +4,21 @@ Atomic MySewa wallet-to-wallet debit/credit used by user transfers and Dealer pu
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Sum
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 
-from ..models import Wallet, WalletTransfer, _ensure_wallet_transfer_table
+from ..models import Wallet, WalletTransfer, BankTransferTransaction, _ensure_wallet_transfer_table
+
+User = get_user_model()
+_PHONE_DIGITS_RE = re.compile(r'\D+')
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +30,85 @@ def get_or_create_wallet(user):
         return Wallet.objects.create(user=user, balance=Decimal('0.00'))
 
 
+def normalize_nepal_mobile(raw: str) -> str:
+    digits = _PHONE_DIGITS_RE.sub('', raw or '')
+    if digits.startswith('977') and len(digits) >= 13:
+        digits = digits[-10:]
+    elif digits.startswith('0') and len(digits) == 11:
+        digits = digits[1:]
+    return digits
+
+
+def lookup_active_user(raw: str):
+    """Resolve a MySewa user by phone, email, or numeric user id."""
+    stripped = (raw or '').strip()
+    if not stripped:
+        return None
+
+    phone = normalize_nepal_mobile(stripped)
+    if phone:
+        user = User.objects.filter(phone=phone, is_active=True).first()
+        if user:
+            return user
+        if stripped != phone:
+            user = User.objects.filter(phone=stripped, is_active=True).first()
+            if user:
+                return user
+
+    if '@' in stripped:
+        user = User.objects.filter(email__iexact=stripped, is_active=True).first()
+        if user:
+            return user
+
+    if stripped.isdigit():
+        return User.objects.filter(pk=int(stripped), is_active=True).first()
+    return None
+
+
+def check_daily_transfer_limit(user, amount: Decimal) -> Response | None:
+    from .app_config import get_app_config
+
+    tx_cfg = get_app_config().get('transactions') or {}
+    daily_limit = Decimal(str(tx_cfg.get('daily_transfer_limit') or 0))
+    if daily_limit <= 0:
+        return None
+    today = timezone.localdate()
+    bank_used = (
+        BankTransferTransaction.objects.filter(
+            user=user,
+            created_at__date=today,
+        )
+        .exclude(status='failed')
+        .aggregate(total=Sum('amount'))['total']
+        or Decimal('0.00')
+    )
+    wallet_used = (
+        WalletTransfer.objects.filter(
+            sender=user,
+            created_at__date=today,
+        )
+        .exclude(status='failed')
+        .aggregate(total=Sum('amount'))['total']
+        or Decimal('0.00')
+    )
+    used = bank_used + wallet_used
+    if used + amount > daily_limit:
+        return Response(
+            {
+                'error': 'Daily transfer limit exceeded',
+                'message': (
+                    f'Daily transfer limit is Rs. {daily_limit}. '
+                    f'You have already transferred Rs. {used} today.'
+                ),
+                'code': 'daily_limit_exceeded',
+                'daily_limit': str(daily_limit),
+                'used_today': str(used),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
+
+
 def perform_wallet_transfer(
     *,
     sender,
@@ -30,6 +116,8 @@ def perform_wallet_transfer(
     amount: Decimal,
     remarks: str = '',
     apply_charges: bool = True,
+    source: str = WalletTransfer.SOURCE_APP,
+    client_reference: str = '',
 ) -> tuple[WalletTransfer | None, Response | None]:
     """Debit sender and credit recipient. Returns (transfer, None) or (None, error Response).
 
@@ -131,6 +219,8 @@ def perform_wallet_transfer(
                 recipient=recipient,
                 amount=amount,
                 remarks=remarks,
+                source=source or WalletTransfer.SOURCE_APP,
+                client_reference=(client_reference or '').strip(),
                 status='success',
                 reference=f'MYSEWA_WT_{uuid.uuid4().hex[:14].upper()}',
                 sender_balance_before=sender_before,

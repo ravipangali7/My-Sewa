@@ -6,6 +6,7 @@ import {
   Camera,
   ChevronRight,
   KeyRound,
+  Code2,
   Lock,
   LogOut,
   Mail,
@@ -426,6 +427,14 @@ function Profile() {
                     : t("profile.pinSubtitle")
                 }
               />
+              {user.is_api_user ? (
+                <SettingsRow
+                  to="/app/developer"
+                  icon={Code2}
+                  title={t("developer.title")}
+                  subtitle={t("developer.profileSubtitle")}
+                />
+              ) : null}
             </div>
           </section>
 
@@ -532,7 +541,13 @@ function SettingsRow({
   subtitle,
   trailing,
 }: {
-  to: "/app/profile/edit" | "/app/profile/kyc" | "/app/profile/password" | "/app/profile/pin" | "/app/support-chat";
+  to:
+    | "/app/profile/edit"
+    | "/app/profile/kyc"
+    | "/app/profile/password"
+    | "/app/profile/pin"
+    | "/app/support-chat"
+    | "/app/developer";
   icon: typeof UserRound;
   title: string;
   subtitle: string;

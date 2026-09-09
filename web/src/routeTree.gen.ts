@@ -37,12 +37,14 @@ import { Route as AdminTopupsRouteImport } from './routes/admin/topups'
 import { Route as AdminTransactionHistoryRouteImport } from './routes/admin/transaction-history'
 import { Route as AdminTransfersRouteImport } from './routes/admin/transfers'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
+import { Route as AdminApiUsersRouteImport } from './routes/admin/api-users'
 import { Route as AdminWalletsRouteImport } from './routes/admin/wallets'
 import { Route as AdminWaterRouteImport } from './routes/admin/water'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as AppCheckoutReturnRouteImport } from './routes/app/checkout-return'
 import { Route as AppCommunityElectricityRouteImport } from './routes/app/community-electricity'
 import { Route as AppDataTopupRouteImport } from './routes/app/data-topup'
+import { Route as AppDeveloperRouteImport } from './routes/app/developer'
 import { Route as AppElectricityRouteImport } from './routes/app/electricity'
 import { Route as AppHistoryRouteImport } from './routes/app/history'
 import { Route as AppInternetRouteImport } from './routes/app/internet'
@@ -74,6 +76,7 @@ import { Route as AdminInternetInternetIdRouteImport } from './routes/admin/inte
 import { Route as AdminKycKycIdRouteImport } from './routes/admin/kyc_.$kycId'
 import { Route as AdminTopupsTopupIdRouteImport } from './routes/admin/topups_.$topupId'
 import { Route as AdminUsersUserIdRouteImport } from './routes/admin/users_.$userId'
+import { Route as AdminApiUsersUserIdRouteImport } from './routes/admin/api-users_.$userId'
 import { Route as AdminUsersNewRouteImport } from './routes/admin/users_.new'
 import { Route as AdminWalletsWalletIdRouteImport } from './routes/admin/wallets_.$walletId'
 import { Route as AdminWaterWaterIdRouteImport } from './routes/admin/water_.$waterId'
@@ -231,6 +234,11 @@ const AdminUsersRoute = AdminUsersRouteImport.update({
   path: '/admin/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminApiUsersRoute = AdminApiUsersRouteImport.update({
+  id: '/admin/api-users',
+  path: '/admin/api-users',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminWalletsRoute = AdminWalletsRouteImport.update({
   id: '/admin/wallets',
   path: '/admin/wallets',
@@ -259,6 +267,11 @@ const AppCommunityElectricityRoute = AppCommunityElectricityRouteImport.update({
 const AppDataTopupRoute = AppDataTopupRouteImport.update({
   id: '/app/data-topup',
   path: '/app/data-topup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppDeveloperRoute = AppDeveloperRouteImport.update({
+  id: '/app/developer',
+  path: '/app/developer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppElectricityRoute = AppElectricityRouteImport.update({
@@ -418,6 +431,11 @@ const AdminUsersUserIdRoute = AdminUsersUserIdRouteImport.update({
   path: '/admin/users/$userId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminApiUsersUserIdRoute = AdminApiUsersUserIdRouteImport.update({
+  id: '/admin/api-users_/$userId',
+  path: '/admin/api-users/$userId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminUsersNewRoute = AdminUsersNewRouteImport.update({
   id: '/admin/users_/new',
   path: '/admin/users/new',
@@ -525,11 +543,13 @@ export interface FileRoutesByFullPath {
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
   '/app/checkout-return': typeof AppCheckoutReturnRoute
   '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
+  '/app/developer': typeof AppDeveloperRoute
   '/app/electricity': typeof AppElectricityRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
@@ -563,6 +583,7 @@ export interface FileRoutesByFullPath {
   '/admin/kyc/$kycId': typeof AdminKycKycIdRoute
   '/admin/topups/$topupId': typeof AdminTopupsTopupIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/admin/api-users/$userId': typeof AdminApiUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/wallets/$walletId': typeof AdminWalletsWalletIdRoute
   '/admin/water/$waterId': typeof AdminWaterWaterIdRoute
@@ -607,11 +628,13 @@ export interface FileRoutesByTo {
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
   '/app/checkout-return': typeof AppCheckoutReturnRoute
   '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
+  '/app/developer': typeof AppDeveloperRoute
   '/app/electricity': typeof AppElectricityRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
@@ -645,6 +668,7 @@ export interface FileRoutesByTo {
   '/admin/kyc/$kycId': typeof AdminKycKycIdRoute
   '/admin/topups/$topupId': typeof AdminTopupsTopupIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/admin/api-users/$userId': typeof AdminApiUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/wallets/$walletId': typeof AdminWalletsWalletIdRoute
   '/admin/water/$waterId': typeof AdminWaterWaterIdRoute
@@ -690,11 +714,13 @@ export interface FileRoutesById {
   '/admin/transaction-history': typeof AdminTransactionHistoryRoute
   '/admin/transfers': typeof AdminTransfersRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/wallets': typeof AdminWalletsRoute
   '/admin/water': typeof AdminWaterRoute
   '/app/checkout-return': typeof AppCheckoutReturnRoute
   '/app/community-electricity': typeof AppCommunityElectricityRoute
   '/app/data-topup': typeof AppDataTopupRoute
+  '/app/developer': typeof AppDeveloperRoute
   '/app/electricity': typeof AppElectricityRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
@@ -728,6 +754,7 @@ export interface FileRoutesById {
   '/admin/kyc_/$kycId': typeof AdminKycKycIdRoute
   '/admin/topups_/$topupId': typeof AdminTopupsTopupIdRoute
   '/admin/users_/$userId': typeof AdminUsersUserIdRoute
+  '/admin/api-users_/$userId': typeof AdminApiUsersUserIdRoute
   '/admin/users_/new': typeof AdminUsersNewRoute
   '/admin/wallets_/$walletId': typeof AdminWalletsWalletIdRoute
   '/admin/water_/$waterId': typeof AdminWaterWaterIdRoute
@@ -774,11 +801,13 @@ export interface FileRouteTypes {
     | '/admin/transaction-history'
     | '/admin/transfers'
     | '/admin/users'
+    | '/admin/api-users'
     | '/admin/wallets'
     | '/admin/water'
     | '/app/checkout-return'
     | '/app/community-electricity'
     | '/app/data-topup'
+    | '/app/developer'
     | '/app/electricity'
     | '/app/history'
     | '/app/internet'
@@ -812,6 +841,7 @@ export interface FileRouteTypes {
     | '/admin/kyc/$kycId'
     | '/admin/topups/$topupId'
     | '/admin/users/$userId'
+    | '/admin/api-users/$userId'
     | '/admin/users/new'
     | '/admin/wallets/$walletId'
     | '/admin/water/$waterId'
@@ -856,11 +886,13 @@ export interface FileRouteTypes {
     | '/admin/transaction-history'
     | '/admin/transfers'
     | '/admin/users'
+    | '/admin/api-users'
     | '/admin/wallets'
     | '/admin/water'
     | '/app/checkout-return'
     | '/app/community-electricity'
     | '/app/data-topup'
+    | '/app/developer'
     | '/app/electricity'
     | '/app/history'
     | '/app/internet'
@@ -894,6 +926,7 @@ export interface FileRouteTypes {
     | '/admin/kyc/$kycId'
     | '/admin/topups/$topupId'
     | '/admin/users/$userId'
+    | '/admin/api-users/$userId'
     | '/admin/users/new'
     | '/admin/wallets/$walletId'
     | '/admin/water/$waterId'
@@ -938,11 +971,13 @@ export interface FileRouteTypes {
     | '/admin/transaction-history'
     | '/admin/transfers'
     | '/admin/users'
+    | '/admin/api-users'
     | '/admin/wallets'
     | '/admin/water'
     | '/app/checkout-return'
     | '/app/community-electricity'
     | '/app/data-topup'
+    | '/app/developer'
     | '/app/electricity'
     | '/app/history'
     | '/app/internet'
@@ -976,6 +1011,7 @@ export interface FileRouteTypes {
     | '/admin/kyc_/$kycId'
     | '/admin/topups_/$topupId'
     | '/admin/users_/$userId'
+    | '/admin/api-users_/$userId'
     | '/admin/users_/new'
     | '/admin/wallets_/$walletId'
     | '/admin/water_/$waterId'
@@ -1021,11 +1057,13 @@ export interface RootRouteChildren {
   AdminTransactionHistoryRoute: typeof AdminTransactionHistoryRoute
   AdminTransfersRoute: typeof AdminTransfersRoute
   AdminUsersRoute: typeof AdminUsersRoute
+  AdminApiUsersRoute: typeof AdminApiUsersRoute
   AdminWalletsRoute: typeof AdminWalletsRoute
   AdminWaterRoute: typeof AdminWaterRoute
   AppCheckoutReturnRoute: typeof AppCheckoutReturnRoute
   AppCommunityElectricityRoute: typeof AppCommunityElectricityRoute
   AppDataTopupRoute: typeof AppDataTopupRoute
+  AppDeveloperRoute: typeof AppDeveloperRoute
   AppElectricityRoute: typeof AppElectricityRoute
   AppHistoryRoute: typeof AppHistoryRoute
   AppInternetRoute: typeof AppInternetRoute
@@ -1059,6 +1097,7 @@ export interface RootRouteChildren {
   AdminKycKycIdRoute: typeof AdminKycKycIdRoute
   AdminTopupsTopupIdRoute: typeof AdminTopupsTopupIdRoute
   AdminUsersUserIdRoute: typeof AdminUsersUserIdRoute
+  AdminApiUsersUserIdRoute: typeof AdminApiUsersUserIdRoute
   AdminUsersNewRoute: typeof AdminUsersNewRoute
   AdminWalletsWalletIdRoute: typeof AdminWalletsWalletIdRoute
   AdminWaterWaterIdRoute: typeof AdminWaterWaterIdRoute
@@ -1274,6 +1313,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/api-users': {
+      id: '/admin/api-users'
+      path: '/admin/api-users'
+      fullPath: '/admin/api-users'
+      preLoaderRoute: typeof AdminApiUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/wallets': {
       id: '/admin/wallets'
       path: '/admin/wallets'
@@ -1314,6 +1360,13 @@ declare module '@tanstack/react-router' {
       path: '/app/data-topup'
       fullPath: '/app/data-topup'
       preLoaderRoute: typeof AppDataTopupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/developer': {
+      id: '/app/developer'
+      path: '/app/developer'
+      fullPath: '/app/developer'
+      preLoaderRoute: typeof AppDeveloperRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/electricity': {
@@ -1533,6 +1586,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsersUserIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/api-users_/$userId': {
+      id: '/admin/api-users_/$userId'
+      path: '/admin/api-users/$userId'
+      fullPath: '/admin/api-users/$userId'
+      preLoaderRoute: typeof AdminApiUsersUserIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/users_/new': {
       id: '/admin/users_/new'
       path: '/admin/users/new'
@@ -1669,11 +1729,13 @@ const rootRouteChildren: RootRouteChildren = {
   AdminTransactionHistoryRoute: AdminTransactionHistoryRoute,
   AdminTransfersRoute: AdminTransfersRoute,
   AdminUsersRoute: AdminUsersRoute,
+  AdminApiUsersRoute: AdminApiUsersRoute,
   AdminWalletsRoute: AdminWalletsRoute,
   AdminWaterRoute: AdminWaterRoute,
   AppCheckoutReturnRoute: AppCheckoutReturnRoute,
   AppCommunityElectricityRoute: AppCommunityElectricityRoute,
   AppDataTopupRoute: AppDataTopupRoute,
+  AppDeveloperRoute: AppDeveloperRoute,
   AppElectricityRoute: AppElectricityRoute,
   AppHistoryRoute: AppHistoryRoute,
   AppInternetRoute: AppInternetRoute,
@@ -1708,6 +1770,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminKycKycIdRoute: AdminKycKycIdRoute,
   AdminTopupsTopupIdRoute: AdminTopupsTopupIdRoute,
   AdminUsersUserIdRoute: AdminUsersUserIdRoute,
+  AdminApiUsersUserIdRoute: AdminApiUsersUserIdRoute,
   AdminUsersNewRoute: AdminUsersNewRoute,
   AdminWalletsWalletIdRoute: AdminWalletsWalletIdRoute,
   AdminWaterWaterIdRoute: AdminWaterWaterIdRoute,

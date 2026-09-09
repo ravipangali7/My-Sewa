@@ -137,6 +137,8 @@ export interface UserProfile {
   can_wallet_adjust?: boolean;
   /** When false, this user cannot initiate remittance fund transfers. Defaults to true. */
   can_remittance_transfer?: boolean;
+  /** When true, this user can use the Fund Transfer API with an API key. */
+  is_api_user?: boolean;
   wallet_frozen?: boolean;
   wallet_status?: "frozen" | "unfrozen";
   commission_rate?: string | null;
@@ -1044,6 +1046,67 @@ export interface ActivityItem {
 export interface AdminUser extends UserProfile {
   wallet_id: number | null;
   wallet_balance: string;
+  api_key_masked?: string;
+  has_api_key?: boolean;
+  api_key_created_at?: string | null;
+  api_key_updated_at?: string | null;
+  api_last_used_at?: string | null;
+}
+
+export interface AdminApiUser extends AdminUser {
+  api_key?: string;
+}
+
+export interface AdminApiUserLog {
+  id: number;
+  reference: string;
+  receiver: string;
+  amount: string | null;
+  status: string;
+  error_code: string;
+  error_message?: string;
+  transaction_id: string;
+  ip_address?: string | null;
+  created_at: string;
+}
+
+export interface DeveloperApiProfile {
+  is_api_user: boolean;
+  status: string;
+  api_key: string;
+  api_key_masked: string;
+  api_key_created_at: string | null;
+  api_key_updated_at: string | null;
+  api_last_used_at: string | null;
+  endpoint: string;
+  documentation: DeveloperApiDocumentation;
+  message?: string;
+}
+
+export interface DeveloperApiDocumentation {
+  title: string;
+  version: string;
+  base_url: string;
+  endpoint: string;
+  path: string;
+  method: string;
+  authentication: {
+    type: string;
+    header: string;
+    notes: string[];
+  };
+  headers: Array<{ name: string; required?: boolean; example: string; notes?: string }>;
+  request_body: Record<
+    string,
+    { required: boolean; type: string; description: string; example: unknown }
+  >;
+  validation: string[];
+  success_response: Record<string, unknown>;
+  error_responses: Array<{ http: number; code: string; error: string }>;
+  idempotency: string;
+  security: string[];
+  downloads?: { path: string; query: string; note: string };
+  examples: { curl: string; python: string; javascript: string };
 }
 
 export interface AdminUserWritePayload {
@@ -1061,6 +1124,7 @@ export interface AdminUserWritePayload {
   can_fund_transfer?: boolean;
   can_wallet_adjust?: boolean;
   can_remittance_transfer?: boolean;
+  is_api_user?: boolean;
   commission_rate?: string | number | null;
   tds_rate?: string | number | null;
   sub_agent_commission_rate?: string | number | null;
