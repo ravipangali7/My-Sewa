@@ -1613,7 +1613,7 @@ class CheckoutSession(models.Model):
         verbose_name_plural = "Checkout sessions"
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['user', 'status', 'amount']),
+            models.Index(fields=['user', 'status', 'amount'], name='core_checko_user_id_d81a4a_idx'),
         ]
 
 
