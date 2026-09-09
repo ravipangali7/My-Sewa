@@ -97,6 +97,22 @@ export const Route = createFileRoute("/app/load")({
   component: LoadWallet,
 });
 
+function formatHimalPayPayload(body: unknown): string {
+  if (body == null) return "";
+  if (typeof body === "string") return body.trim();
+  if (typeof body !== "object") return String(body);
+  const rec = body as Record<string, unknown>;
+  const payload =
+    rec.HimalPay ?? rec.himapayResponse ?? rec.himalpay_response ?? (rec.error || rec.message ? rec : null);
+  if (payload == null) return "";
+  if (typeof payload === "string") return payload.trim();
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
 function CheckoutInstructions({ t }: { t: TranslateFn }) {
   const steps = [
     t("load.checkoutStep1"),
@@ -166,6 +182,7 @@ function LoadWallet() {
     } | null;
   } | null>(null);
   const [checkoutQrSrc, setCheckoutQrSrc] = useState("");
+  const [himalpayNetworkText, setHimalpayNetworkText] = useState("");
 
   const destQuery = useQuery({
     queryKey: ["deposit-destinations"],
@@ -196,7 +213,6 @@ function LoadWallet() {
   const requireScreenshot = security?.require_deposit_screenshot !== false;
   const minDeposit = payment?.min_deposit ?? 100;
   const maxDeposit = payment?.max_deposit ?? 100000;
-  const checkoutEnabled = payment?.himalpay_checkout_enabled === true;
   const instructions = payment?.deposit_instructions?.trim() || "";
   const canChooseDealer =
     destQuery.data?.can_use_dealer ??
@@ -304,6 +320,7 @@ function LoadWallet() {
       return apiClient.checkoutInitiate({ amount: amt });
     },
     onSuccess: (res) => {
+      setHimalpayNetworkText(formatHimalPayPayload(res));
       const paymentUrl = res.payment_url;
       const depositId = Number(res.data?.id || 0);
       if (!paymentUrl || !depositId) {
@@ -322,6 +339,8 @@ function LoadWallet() {
       queryClient.invalidateQueries({ queryKey: ["deposits"] });
     },
     onError: (err) => {
+      const body = err instanceof ApiError ? err.body : null;
+      setHimalpayNetworkText(formatHimalPayPayload(body));
       toast.error(
         err instanceof ApiError || err instanceof Error
           ? err.message
@@ -343,7 +362,7 @@ function LoadWallet() {
   }, [payingCheckout, minDeposit, checkoutAmount]);
 
   useEffect(() => {
-    if (!payingCheckout || !checkoutEnabled || checkoutSession) return;
+    if (!payingCheckout || checkoutSession) return;
     if (checkoutMutation.isPending || checkoutAutoStarted.current) return;
     const amt = Number(checkoutAmount);
     if (!Number.isFinite(amt) || amt < 10 || amt < minDeposit) return;
@@ -351,7 +370,6 @@ function LoadWallet() {
     checkoutMutation.mutate();
   }, [
     payingCheckout,
-    checkoutEnabled,
     checkoutAmount,
     checkoutSession,
     checkoutMutation.isPending,
@@ -481,9 +499,15 @@ function LoadWallet() {
                   <p className="mt-1 text-[13px] text-muted-foreground">{t("load.checkoutHelp")}</p>
                 </div>
                 <CheckoutInstructions t={t} />
-                {!checkoutEnabled ? (
-                  <p className="text-[13px] text-destructive">{t("load.checkoutNotConfigured")}</p>
-                ) : !checkoutSession ? (
+                {himalpayNetworkText ? (
+                  <div className="rounded-xl border border-border bg-muted/30 px-3 py-3">
+                    <p className="mb-2 text-[13px] font-semibold">HimalPay:</p>
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed text-foreground">
+                      {himalpayNetworkText}
+                    </pre>
+                  </div>
+                ) : null}
+                {!checkoutSession ? (
                   <form
                     className="space-y-4"
                     onSubmit={(e) => {

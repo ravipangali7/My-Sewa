@@ -27,7 +27,11 @@ from .services.checkout_deposit import (
     verify_deposit,
 )
 from .services.himalpay import HimalPayError
-from .services.himalpay_checkout import HimalPayCheckoutAPI
+from .services.himalpay_checkout import (
+    HimalPayCheckoutAPI,
+    get_himalpay_checkout_credentials,
+    is_checkout_configured,
+)
 
 User = get_user_model()
 
@@ -325,6 +329,13 @@ class HimalPayCheckoutDepositTests(TestCase):
         headers = api._headers()
         self.assertEqual(headers['X-Checkout-API-Key'], 'mck_live_secret')
         self.assertNotIn('X-API-Key', headers)
+
+    @override_settings(HIMALPAY_CHECKOUT_API_KEY='', HIMALPAY_API_KEY='existing-reseller-key')
+    def test_checkout_falls_back_to_existing_himalpay_key(self):
+        with patch('core.services.app_config.get_app_config', return_value={'integrations': {}}):
+            creds = get_himalpay_checkout_credentials()
+            self.assertEqual(creds['api_key'], 'existing-reseller-key')
+            self.assertTrue(is_checkout_configured())
 
     def test_admin_cannot_approve_unverified_checkout(self):
         staff = User.objects.create_user(

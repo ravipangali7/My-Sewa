@@ -61,10 +61,12 @@ def get_himalpay_checkout_credentials() -> Dict[str, str]:
     """
     Resolve Checkout credentials: Settings.config.integrations first, then env.
 
-    Checkout uses a distinct API key from the reseller X-API-Key.
+    Checkout prefers a dedicated Web Checkout key. If that is empty, reuse the
+    existing HimalPay reseller API key so checkout-initiate is still called
+    and the HimalPay body can be returned to the client.
     """
     from django.conf import settings as django_settings
-    from .app_config import get_app_config
+    from .app_config import get_app_config, get_himalpay_credentials
 
     env_key = (getattr(django_settings, 'HIMALPAY_CHECKOUT_API_KEY', '') or '').strip()
     env_base = (getattr(django_settings, 'HIMALPAY_CHECKOUT_BASE_URL', '') or '').strip()
@@ -84,9 +86,16 @@ def get_himalpay_checkout_credentials() -> Dict[str, str]:
     db_reseller_base = str(integrations.get('himalpay_base_url') or '').strip()
     db_return = str(integrations.get('himalpay_checkout_return_url') or '').strip()
 
+    api_key = db_key or env_key
+    if not api_key:
+        try:
+            api_key = str(get_himalpay_credentials().get('api_key') or '').strip()
+        except Exception:
+            api_key = ''
+
     base = (db_base or env_base or db_reseller_base or env_reseller_base).rstrip('/')
     return {
-        'api_key': db_key or env_key,
+        'api_key': api_key,
         'base_url': base,
         'return_url': db_return or env_return,
     }
