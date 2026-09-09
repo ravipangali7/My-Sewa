@@ -48,7 +48,8 @@ val debugKeystoreFile = File(System.getProperty("user.home"), ".android/debug.ke
 
 android {
     namespace = "com.infelogroup.mysewa"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_secure_storage 11 compiles against API 37; Flutter's default is still 36.
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
