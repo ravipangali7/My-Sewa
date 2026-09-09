@@ -28,6 +28,7 @@ from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple
 
 from django.db import IntegrityError, transaction
+from django.db.utils import OperationalError, ProgrammingError
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -230,9 +231,18 @@ def _get_or_create_wallet(user) -> Wallet:
 def _parse_expires_at(expires_at):
     if not expires_at:
         return None
-    if hasattr(expires_at, 'isoformat') and not isinstance(expires_at, str):
-        return expires_at
-    return parse_datetime(str(expires_at))
+    try:
+        if hasattr(expires_at, 'isoformat') and not isinstance(expires_at, (str, bytes)):
+            parsed = expires_at
+        else:
+            parsed = parse_datetime(str(expires_at))
+        if parsed is None:
+            return None
+        if timezone.is_naive(parsed):
+            return timezone.make_aware(parsed, timezone.get_current_timezone())
+        return parsed
+    except Exception:
+        return None
 
 
 def _reusable_checkout_session(user, amount) -> Optional[CheckoutSession]:
@@ -264,7 +274,10 @@ def create_checkout_session(user, amount) -> Tuple[CheckoutSession, str]:
     Does not create a Deposit or credit the wallet.
     Returns (session, payment_url).
     """
+    from ..models import _ensure_checkout_session_table
     from .app_config import get_app_config, validate_amount_bounds
+
+    _ensure_checkout_session_table()
 
     if not is_checkout_configured():
         raise HimalPayError(
@@ -288,7 +301,14 @@ def create_checkout_session(user, amount) -> Tuple[CheckoutSession, str]:
     if err:
         raise HimalPayError(err, status_code=400)
 
-    existing = _reusable_checkout_session(user, amount)
+    try:
+        existing = _reusable_checkout_session(user, amount)
+    except (OperationalError, ProgrammingError):
+        _ensure_checkout_session_table()
+        try:
+            existing = _reusable_checkout_session(user, amount)
+        except (OperationalError, ProgrammingError):
+            existing = None
     if existing:
         return existing, existing.payment_url
 
@@ -313,17 +333,46 @@ def create_checkout_session(user, amount) -> Tuple[CheckoutSession, str]:
             response_data=sanitize_provider_payload(raw),
         )
 
-    session = CheckoutSession.objects.create(
-        user=user,
-        amount=amount,
-        currency='NPR',
-        status=SESSION_AWAITING,
-        purchase_order_identifier=order_id,
-        process_id=process_id,
-        payment_url=payment_url,
-        expires_at=_parse_expires_at(payload.get('expires_at')),
-        provider_payload=sanitize_provider_payload(raw),
-    )
+    try:
+        session = CheckoutSession.objects.create(
+            user=user,
+            amount=amount,
+            currency='NPR',
+            status=SESSION_AWAITING,
+            purchase_order_identifier=order_id,
+            process_id=process_id,
+            payment_url=payment_url,
+            expires_at=_parse_expires_at(payload.get('expires_at')),
+            provider_payload=sanitize_provider_payload(raw),
+        )
+    except IntegrityError:
+        existing = (
+            CheckoutSession.objects.filter(process_id=process_id).first()
+            or CheckoutSession.objects.filter(purchase_order_identifier=order_id).first()
+        )
+        if existing and (existing.payment_url or '').strip():
+            return existing, existing.payment_url
+        raise HimalPayError('Could not save checkout session.', status_code=502)
+    except (OperationalError, ProgrammingError) as exc:
+        logger.exception('Checkout session table missing on save')
+        _ensure_checkout_session_table()
+        try:
+            session = CheckoutSession.objects.create(
+                user=user,
+                amount=amount,
+                currency='NPR',
+                status=SESSION_AWAITING,
+                purchase_order_identifier=order_id,
+                process_id=process_id,
+                payment_url=payment_url,
+                expires_at=_parse_expires_at(payload.get('expires_at')),
+                provider_payload=sanitize_provider_payload(raw),
+            )
+        except Exception as inner:
+            raise HimalPayError(
+                'Checkout is temporarily unavailable. Please try again.',
+                status_code=503,
+            ) from inner
     return session, payment_url
 
 
@@ -682,6 +731,9 @@ def resolve_checkout_intent(
     user=None,
 ) -> Tuple[Optional[CheckoutSession], Optional[Deposit]]:
     """Find the QR session first, then a legacy Checkout Deposit row."""
+    from ..models import _ensure_checkout_session_table
+
+    _ensure_checkout_session_table()
     sid = _coerce_pk(session_id)
     did = _coerce_pk(deposit_id)
     gid = _coerce_pk(generic_id)

@@ -359,6 +359,61 @@ def _ensure_wallet_transfer_table():
     return True
 
 
+_checkout_session_table_ready = False
+
+
+def _record_checkout_session_migration():
+    from django.db.migrations.recorder import MigrationRecorder
+
+    recorder = MigrationRecorder(connection)
+    name = '0065_checkoutsession'
+    if recorder.migration_qs.filter(app='core', name=name).exists():
+        return
+    if recorder.migration_qs.filter(
+        app='core', name='0064_merge_0063_alter_and_0063_checkout',
+    ).exists():
+        recorder.record_applied('core', name)
+
+
+def _ensure_checkout_session_table():
+    """
+    Create core_checkoutsession if deploy skipped migrate 0065.
+    POST /api/deposit/checkout/initiate/ queries this model; a missing table 500s Deposit.
+    """
+    global _checkout_session_table_ready
+    if _checkout_session_table_ready:
+        return False
+
+    table = 'core_checkoutsession'
+    try:
+        names = connection.introspection.table_names()
+        if table in names:
+            _record_checkout_session_migration()
+            _checkout_session_table_ready = True
+            return False
+        if 'core_customuser' not in names:
+            return False
+    except Exception:
+        return False
+
+    from django.apps import apps
+
+    model = apps.get_model('core', 'CheckoutSession')
+    try:
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(model)
+    except Exception:
+        if table in connection.introspection.table_names():
+            _record_checkout_session_migration()
+            _checkout_session_table_ready = True
+            return False
+        raise
+
+    _record_checkout_session_migration()
+    _checkout_session_table_ready = True
+    return True
+
+
 _support_chat_tables_ready = False
 
 _SUPPORT_CHAT_TABLES = (

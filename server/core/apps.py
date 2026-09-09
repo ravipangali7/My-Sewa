@@ -21,6 +21,7 @@ class CoreConfig(AppConfig):
                 _ensure_support_chat_attachment_columns,
                 _ensure_support_chat_tables,
                 _ensure_wallet_transfer_table,
+                _ensure_checkout_session_table,
             )
 
             _ensure_authtoken_table()
@@ -29,6 +30,7 @@ class CoreConfig(AppConfig):
             _ensure_electricity_bill_table()
             _ensure_remittance_citizenship_columns()
             _ensure_wallet_transfer_table()
+            _ensure_checkout_session_table()
             _ensure_support_chat_tables()
             _ensure_support_chat_attachment_columns()
         except Exception:

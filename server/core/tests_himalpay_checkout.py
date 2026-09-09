@@ -452,6 +452,11 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.assertTrue(hasattr(HimalPayCheckoutAPI, 'initiate_checkout'))
         self.assertTrue(hasattr(HimalPayCheckoutAPI, 'checkout_status'))
 
+    def test_ensure_checkout_session_table_is_idempotent(self):
+        from .models import _ensure_checkout_session_table
+        self.assertFalse(_ensure_checkout_session_table())
+        self.assertFalse(_ensure_checkout_session_table())
+
     def test_initiate_requires_authentication(self):
         guest = APIClient()
         resp = guest.post(

@@ -6,8 +6,9 @@ from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+import logging
 
-from ..models import Deposit
+from ..models import Deposit, _ensure_checkout_session_table
 from ..serializers import DepositSerializer, DepositCreateSerializer
 from ..services.app_config import require_feature_enabled, require_account_approved, require_wallet_not_frozen
 from ..services.himalpay import HimalPayError, with_himapay_response
@@ -28,6 +29,8 @@ from ..services.checkout_deposit import (
 )
 from ..services.himalpay_checkout import append_query, default_frontend_return_url
 from ..services.notifications import notify_deposit_submitted
+
+logger = logging.getLogger(__name__)
 
 _DEPOSIT_PENDING = ('pending', 'processing')
 _DEPOSIT_FAILED = ('rejected', 'failed', 'cancelled', 'expired', 'refunded')
@@ -61,6 +64,9 @@ def _himalpay_network_payload(exc: HimalPayError):
 
 
 def _deposit_error(exc: HimalPayError):
+    http_status = exc.status_code or status.HTTP_400_BAD_REQUEST
+    if http_status == 500:
+        http_status = status.HTTP_502_BAD_GATEWAY
     return Response(
         with_himapay_response(
             {
@@ -72,7 +78,7 @@ def _deposit_error(exc: HimalPayError):
             },
             _himalpay_network_payload(exc),
         ),
-        status=exc.status_code or status.HTTP_400_BAD_REQUEST,
+        status=http_status,
     )
 
 
@@ -182,9 +188,23 @@ def checkout_initiate(request):
 
     amount = request.data.get('amount')
     try:
+        _ensure_checkout_session_table()
         session, payment_url = create_checkout_session(request.user, amount)
     except HimalPayError as exc:
         return _deposit_error(exc)
+    except Exception as exc:
+        logger.exception('checkout_initiate failed')
+        return Response(
+            with_himapay_response(
+                {
+                    'error': str(exc) or 'Could not start Himal Pay Checkout.',
+                    'message': str(exc) or 'Could not start Himal Pay Checkout.',
+                    'code': 'checkout_initiate_failed',
+                },
+                {'error': str(exc)},
+            ),
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
 
     return Response(
         with_himapay_response(
