@@ -22,13 +22,19 @@ from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
 from ..authentication import ApiKeyAuthentication, TokenAuthentication
-from ..models import ApiFundTransferLog, _ensure_api_fund_transfer
+from ..models import ApiFundTransferLog, BankTransferTransaction, _ensure_api_fund_transfer
 from ..services.api_docs import (
     documentation_payload,
     fund_transfer_url,
     html_documentation,
     markdown_documentation,
     pdf_documentation,
+)
+from ..services.api_bank import (
+    execute_api_bank_list,
+    execute_api_bank_transfer,
+    execute_api_verified_bank,
+    mask_account_number,
 )
 from ..services.api_fund_transfer import api_error, execute_api_fund_transfer
 from ..services.api_keys import mask_api_key, regenerate_api_key
@@ -52,7 +58,7 @@ def _require_api_user(user):
     if not getattr(user, 'is_api_user', False):
         return api_error(
             'API access disabled',
-            'API fund-transfer access is not enabled for this account.',
+            'API access is not enabled for this account.',
             'api_access_disabled',
             status.HTTP_403_FORBIDDEN,
         )
@@ -89,14 +95,14 @@ def _auth_error_response(exc) -> Response:
     if 'disabled' in lowered:
         return api_error(
             'API access disabled',
-            'API fund-transfer access is disabled for this account.',
+            'API access is disabled for this account.',
             'api_access_disabled',
             status.HTTP_403_FORBIDDEN,
         )
     if 'inactive' in lowered:
         return api_error(
             'User inactive',
-            'This account is inactive and cannot perform transfers.',
+            'This account is inactive and cannot use the API.',
             'user_inactive',
             status.HTTP_403_FORBIDDEN,
         )
@@ -135,6 +141,49 @@ class FundTransferView(APIView):
 
     def post(self, request):
         return execute_api_fund_transfer(request)
+
+
+class BankApiView(APIView):
+    authentication_classes = [ApiKeyAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [FundTransferApiThrottle]
+
+    def handle_exception(self, exc):
+        if isinstance(exc, (AuthenticationFailed, NotAuthenticated, Throttled)):
+            return _auth_error_response(exc)
+        if isinstance(exc, APIException):
+            return super().handle_exception(exc)
+        logger.exception('Unhandled Bank API error')
+        return api_error(
+            'Server/internal error',
+            'The request could not be completed. Please try again.',
+            'server_error',
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+class BankListView(BankApiView):
+    def get(self, request):
+        denied = _require_api_user(request.user)
+        if denied:
+            return denied
+        return execute_api_bank_list(request)
+
+
+class VerifiedBankView(BankApiView):
+    def post(self, request):
+        denied = _require_api_user(request.user)
+        if denied:
+            return denied
+        return execute_api_verified_bank(request)
+
+
+class BankTransferView(BankApiView):
+    def post(self, request):
+        denied = _require_api_user(request.user)
+        if denied:
+            return denied
+        return execute_api_bank_transfer(request)
 
 
 @api_view(['GET'])
@@ -191,17 +240,17 @@ def developer_documentation_download(request):
     if fmt in ('md', 'markdown'):
         content = markdown_documentation(request)
         response = HttpResponse(content, content_type='text/markdown; charset=utf-8')
-        response['Content-Disposition'] = 'attachment; filename="mysewa-fund-transfer-api.md"'
+        response['Content-Disposition'] = 'attachment; filename="mysewa-developer-api.md"'
         return response
     if fmt in ('html', 'htm'):
         content = html_documentation(request)
         response = HttpResponse(content, content_type='text/html; charset=utf-8')
-        response['Content-Disposition'] = 'attachment; filename="mysewa-fund-transfer-api.html"'
+        response['Content-Disposition'] = 'attachment; filename="mysewa-developer-api.html"'
         return response
     if fmt == 'pdf':
         content = pdf_documentation(request)
         response = HttpResponse(content, content_type='application/pdf')
-        response['Content-Disposition'] = 'attachment; filename="mysewa-fund-transfer-api.pdf"'
+        response['Content-Disposition'] = 'attachment; filename="mysewa-developer-api.pdf"'
         return response
     return api_error(
         'Invalid request',
@@ -219,32 +268,11 @@ def developer_transfer_history(request):
     if denied:
         return denied
     _ensure_api_fund_transfer()
-    qs = (
-        ApiFundTransferLog.objects.filter(user=request.user)
-        .select_related('wallet_transfer', 'wallet_transfer__recipient')
-        .order_by('-created_at', '-id')
-    )
-    q = (request.query_params.get('q') or '').strip()
-    if q:
-        qs = qs.filter(
-            Q(reference__icontains=q)
-            | Q(receiver__icontains=q)
-            | Q(transaction_id__icontains=q)
-            | Q(error_code__icontains=q)
-            | Q(error_message__icontains=q)
-        )
-    status_filter = (request.query_params.get('status') or '').strip().lower()
-    if status_filter in ('success', 'failed'):
-        qs = qs.filter(status=status_filter)
     tz = get_current_timezone()
     start = parse_date(request.query_params.get('start_date') or '')
     end = parse_date(request.query_params.get('end_date') or '')
-    if start:
-        qs = qs.filter(created_at__gte=make_aware(datetime.combine(start, time.min), tz))
-    if end:
-        qs = qs.filter(
-            created_at__lt=make_aware(datetime.combine(end + timedelta(days=1), time.min), tz)
-        )
+    q = (request.query_params.get('q') or '').strip()
+    status_filter = (request.query_params.get('status') or '').strip().lower()
     try:
         page = max(int(request.query_params.get('page') or 1), 1)
     except (TypeError, ValueError):
@@ -254,16 +282,61 @@ def developer_transfer_history(request):
     except (TypeError, ValueError):
         page_size = 20
     page_size = min(max(page_size, 1), 50)
-    count = qs.count()
+
+    fund_qs = ApiFundTransferLog.objects.filter(user=request.user).select_related(
+        'wallet_transfer', 'wallet_transfer__recipient'
+    )
+    bank_qs = BankTransferTransaction.objects.filter(
+        user=request.user,
+        source=BankTransferTransaction.SOURCE_API,
+    )
+    if start:
+        start_dt = make_aware(datetime.combine(start, time.min), tz)
+        fund_qs = fund_qs.filter(created_at__gte=start_dt)
+        bank_qs = bank_qs.filter(created_at__gte=start_dt)
+    if end:
+        end_dt = make_aware(datetime.combine(end + timedelta(days=1), time.min), tz)
+        fund_qs = fund_qs.filter(created_at__lt=end_dt)
+        bank_qs = bank_qs.filter(created_at__lt=end_dt)
+    if q:
+        fund_qs = fund_qs.filter(
+            Q(reference__icontains=q)
+            | Q(receiver__icontains=q)
+            | Q(transaction_id__icontains=q)
+            | Q(error_code__icontains=q)
+            | Q(error_message__icontains=q)
+        )
+        bank_qs = bank_qs.filter(
+            Q(client_reference__icontains=q)
+            | Q(merchant_txn_id__icontains=q)
+            | Q(destination_bank__icontains=q)
+            | Q(destination_bank_name__icontains=q)
+            | Q(destination_acc_no__icontains=q)
+            | Q(destination_acc_name__icontains=q)
+            | Q(provider_txn_id__icontains=q)
+        )
+    if status_filter in ('success', 'failed'):
+        fund_qs = fund_qs.filter(status=status_filter)
+        bank_qs = bank_qs.filter(status=status_filter)
+    elif status_filter == 'pending':
+        fund_qs = fund_qs.none()
+        bank_qs = bank_qs.filter(status='pending')
+
+    items = [
+        _serialize_api_transfer_log(row, request.user)
+        for row in fund_qs
+    ]
+    items.extend(_serialize_api_bank_transfer(row, request.user) for row in bank_qs)
+    items.sort(key=lambda row: (row['created_at'] or datetime.min, row['id']), reverse=True)
+    count = len(items)
     offset = (page - 1) * page_size
-    rows = list(qs[offset:offset + page_size])
-    items = [_serialize_api_transfer_log(row, request.user) for row in rows]
+    page_items = items[offset:offset + page_size]
     return Response({
-        'items': items,
+        'items': page_items,
         'count': count,
         'page': page,
         'page_size': page_size,
-        'has_next': offset + len(rows) < count,
+        'has_next': offset + len(page_items) < count,
         'has_previous': page > 1,
     })
 
@@ -289,4 +362,38 @@ def _serialize_api_transfer_log(row: ApiFundTransferLog, user) -> dict:
         'error_code': row.error_code,
         'error_message': row.error_message,
         'wallet_transfer_id': transfer.id if transfer else None,
+        'provider_reference': '',
+        'account_number': '',
+        'bank_code': '',
+    }
+
+
+def _serialize_api_bank_transfer(row: BankTransferTransaction, user) -> dict:
+    status_map = {
+        'success': 'SUCCESS',
+        'failed': 'FAILED',
+        'pending': 'PENDING',
+    }
+    receiver = ' '.join(
+        part for part in (
+            row.destination_bank_name or row.destination_bank,
+            mask_account_number(row.destination_acc_no),
+        ) if part
+    ).strip()
+    return {
+        'id': row.id,
+        'transaction_id': row.merchant_txn_id,
+        'sender': getattr(user, 'phone', '') or '',
+        'receiver': receiver,
+        'amount': str(row.amount) if row.amount is not None else None,
+        'reference': row.client_reference,
+        'status': status_map.get(row.status, (row.status or '').upper()),
+        'method': 'API Bank Transfer',
+        'created_at': row.created_at,
+        'error_code': '' if row.status != 'failed' else 'transfer_failed',
+        'error_message': '' if row.status != 'failed' else 'Bank transfer failed.',
+        'wallet_transfer_id': None,
+        'provider_reference': row.provider_txn_id or row.reference_id or '',
+        'account_number': mask_account_number(row.destination_acc_no),
+        'bank_code': row.destination_bank,
     }

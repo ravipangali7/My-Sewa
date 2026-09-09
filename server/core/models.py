@@ -478,6 +478,23 @@ def _ensure_api_fund_transfer():
         except Exception:
             pass
 
+    bt_table = 'core_banktransfertransaction'
+    if bt_table in names:
+        try:
+            with connection.cursor() as cursor:
+                bt_cols = {
+                    col.name
+                    for col in connection.introspection.get_table_description(cursor, bt_table)
+                }
+            bt_model = apps.get_model('core', 'BankTransferTransaction')
+            missing_bt = [name for name in ('source', 'client_reference') if name not in bt_cols]
+            if missing_bt:
+                with connection.schema_editor() as schema_editor:
+                    for name in missing_bt:
+                        schema_editor.add_field(bt_model, bt_model._meta.get_field(name))
+        except Exception:
+            pass
+
     extra_tables = (
         ('core_apiidempotencyrecord', 'ApiIdempotencyRecord'),
         ('core_apifundtransferlog', 'ApiFundTransferLog'),
@@ -1704,6 +1721,26 @@ class BankTransferTransaction(models.Model):
     balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     verified = models.BooleanField(default=False)
+    SOURCE_APP = 'app'
+    SOURCE_API = 'api'
+    SOURCE_CHOICES = [
+        (SOURCE_APP, 'App'),
+        (SOURCE_API, 'API'),
+    ]
+    source = models.CharField(
+        max_length=10,
+        choices=SOURCE_CHOICES,
+        default=SOURCE_APP,
+        db_index=True,
+        help_text='Whether this bank transfer was created from the app or the Bank Transfer API.',
+    )
+    client_reference = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='Client-supplied idempotency/reference for API bank transfers.',
+    )
     provider_response = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

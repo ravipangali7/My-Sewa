@@ -244,6 +244,21 @@ urlpatterns = [
         name='api_v1_fund_transfer',
     ),
     path(
+        'api/v1/banklist/',
+        api_v1_views.BankListView.as_view(),
+        name='api_v1_banklist',
+    ),
+    path(
+        'api/v1/verifiedbank/',
+        api_v1_views.VerifiedBankView.as_view(),
+        name='api_v1_verifiedbank',
+    ),
+    path(
+        'api/v1/banktransfer/',
+        api_v1_views.BankTransferView.as_view(),
+        name='api_v1_banktransfer',
+    ),
+    path(
         'api/developer/',
         api_v1_views.developer_profile,
         name='api_developer_profile',

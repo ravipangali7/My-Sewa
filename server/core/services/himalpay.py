@@ -17,6 +17,8 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+_HTTP = requests.Session()
+
 # Cached outbound public IP (value, monotonic expiry).
 _OUTBOUND_IP_CACHE: Tuple[Optional[str], float] = (None, 0.0)
 _OUTBOUND_IP_TTL_SEC = 300
@@ -484,7 +486,7 @@ class HimalPayAPI:
         )
 
         try:
-            response = requests.request(
+            response = _HTTP.request(
                 method=method,
                 url=url,
                 headers=self._headers(),

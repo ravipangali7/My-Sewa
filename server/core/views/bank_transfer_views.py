@@ -291,7 +291,9 @@ def _resolve_destination_bank(himalpay: HimalPayAPI, code: str, bank_name: str =
 
     banks = []
     try:
-        banks = _normalize_banks(himalpay.list_banks())
+        from ..services.himalpay_banks import fetch_normalized_banks
+
+        banks, _source = fetch_normalized_banks(himalpay=himalpay)
     except Exception as exc:
         logger.warning('Could not load bank list for code resolve: %s', exc)
 

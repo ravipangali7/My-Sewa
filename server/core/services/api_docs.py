@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 
 from django.conf import settings
 
 from .api_docs_html import render_html_documentation
 from .api_docs_pdf import render_pdf_documentation
 
-DOCS_VERSION = '1.1'
+DOCS_VERSION = '1.2'
+
+
+def _json_block(payload) -> str:
+    return json.dumps(payload or {}, indent=2)
 
 
 def api_base_url(request=None) -> str:
@@ -31,9 +36,402 @@ def fund_transfer_url(request=None) -> str:
     return f'{api_base_url(request)}{fund_transfer_path()}'
 
 
+def banklist_path() -> str:
+    return '/api/v1/banklist/'
+
+
+def verifiedbank_path() -> str:
+    return '/api/v1/verifiedbank/'
+
+
+def banktransfer_path() -> str:
+    return '/api/v1/banktransfer/'
+
+
+def _auth_headers(include_json: bool = True) -> list[dict]:
+    headers = [
+        {'name': 'Authorization', 'required': True, 'example': 'Bearer YOUR_API_KEY'},
+    ]
+    if include_json:
+        headers.append({'name': 'Content-Type', 'required': True, 'example': 'application/json'})
+    return headers
+
+
+def _shared_auth_errors() -> list[dict]:
+    return [
+        {
+            'http': 401,
+            'code': 'invalid_api_key',
+            'error': 'Invalid API key',
+            'message': 'The API key is missing, invalid, or has been revoked.',
+        },
+        {
+            'http': 403,
+            'code': 'api_access_disabled',
+            'error': 'API access disabled',
+            'message': 'API access is disabled for this account.',
+        },
+        {
+            'http': 403,
+            'code': 'user_inactive',
+            'error': 'User inactive',
+            'message': 'This account is inactive and cannot use the API.',
+        },
+        {
+            'http': 429,
+            'code': 'throttled',
+            'error': 'Too many requests',
+            'message': 'Too many requests. Please slow down and try again.',
+        },
+        {
+            'http': 500,
+            'code': 'server_error',
+            'error': 'Server/internal error',
+            'message': 'The request could not be completed. Please try again.',
+        },
+    ]
+
+
+def _provider_errors() -> list[dict]:
+    return [
+        {
+            'http': 502,
+            'code': 'provider_unavailable',
+            'error': 'HimalPay unavailable',
+            'message': 'The payment provider is temporarily unavailable. Please try again later.',
+        },
+        {
+            'http': 504,
+            'code': 'provider_timeout',
+            'error': 'HimalPay timeout',
+            'message': 'The payment provider took too long to respond. Please try again.',
+        },
+        {
+            'http': 400,
+            'code': 'provider_error',
+            'error': 'HimalPay API error',
+            'message': 'The payment provider rejected this request.',
+        },
+    ]
+
+
+def _curl_get(url: str) -> str:
+    return (
+        f'curl -X GET "{url}" \\\n'
+        '  -H "Authorization: Bearer YOUR_API_KEY"'
+    )
+
+
+def _curl_post(url: str, body: str) -> str:
+    return (
+        f'curl -X POST "{url}" \\\n'
+        '  -H "Authorization: Bearer YOUR_API_KEY" \\\n'
+        '  -H "Content-Type: application/json" \\\n'
+        f"  -d '{body}'"
+    )
+
+
+def _python_get(url: str) -> str:
+    return (
+        'import requests\n\n'
+        f'url = "{url}"\n'
+        'headers = {"Authorization": "Bearer YOUR_API_KEY"}\n'
+        'response = requests.get(url, headers=headers, timeout=30)\n'
+        'print(response.status_code, response.json())\n'
+    )
+
+
+def _python_post(url: str, payload: str) -> str:
+    return (
+        'import requests\n\n'
+        f'url = "{url}"\n'
+        'headers = {\n'
+        '    "Authorization": "Bearer YOUR_API_KEY",\n'
+        '    "Content-Type": "application/json",\n'
+        '}\n'
+        f'payload = {payload}\n'
+        'response = requests.post(url, json=payload, headers=headers, timeout=60)\n'
+        'print(response.status_code, response.json())\n'
+    )
+
+
+def _javascript_get(url: str) -> str:
+    return (
+        f'const url = "{url}";\n'
+        'const response = await fetch(url, {\n'
+        '  method: "GET",\n'
+        '  headers: { Authorization: "Bearer YOUR_API_KEY" },\n'
+        '});\n'
+        'const data = await response.json();\n'
+        'console.log(response.status, data);\n'
+    )
+
+
+def _javascript_post(url: str, payload: str) -> str:
+    return (
+        f'const url = "{url}";\n'
+        'const response = await fetch(url, {\n'
+        '  method: "POST",\n'
+        '  headers: {\n'
+        '    Authorization: "Bearer YOUR_API_KEY",\n'
+        '    "Content-Type": "application/json",\n'
+        '  },\n'
+        f'  body: JSON.stringify({payload}),\n'
+        '});\n'
+        'const data = await response.json();\n'
+        'console.log(response.status, data);\n'
+    )
+
+
 def documentation_payload(request=None) -> dict:
     base = api_base_url(request)
     endpoint = fund_transfer_url(request)
+    banklist_url = f'{base}{banklist_path()}'
+    verifiedbank_url = f'{base}{verifiedbank_path()}'
+    banktransfer_url = f'{base}{banktransfer_path()}'
+    verify_example = {
+        'bank_code': 'NABILNPKA',
+        'bank_account_number': '1234567890123',
+        'account_holder_name': 'John Doe',
+    }
+    transfer_example = {
+        **verify_example,
+        'amount': 1000,
+        'reference': 'ORDER-10001',
+    }
+    verify_example_json = _json_block(verify_example)
+    transfer_example_json = _json_block(transfer_example)
+    bank_list_success = {
+        'success': True,
+        'source': 'himalpay',
+        'data': [
+            {'bank_code': 'NABILNPKA', 'bank_name': 'Nabil Bank Limited'},
+            {'bank_code': 'NICENPKA', 'bank_name': 'NIC Asia Bank Limited'},
+        ],
+    }
+    verify_success = {
+        'success': True,
+        'verified': True,
+        'message': 'Bank account verified successfully',
+        'data': {
+            'bank_code': 'NABILNPKA',
+            'bank_name': 'Nabil Bank Limited',
+            'account_number': '*********0123',
+            'account_holder_name': 'John Doe',
+        },
+    }
+    verify_failed = {
+        'success': False,
+        'verified': False,
+        'message': 'Bank account verification failed',
+        'error': 'Bank account verification failed',
+        'code': 'verification_failed',
+    }
+    bank_transfer_success = {
+        'success': True,
+        'message': 'Bank transfer successful',
+        'transaction_id': 'MYSEWA_BT_A1B2C3D4E5F678',
+        'provider_reference': 'HP123456',
+        'reference': 'ORDER-10001',
+        'amount': 1000,
+        'status': 'SUCCESS',
+        'data': {
+            'bank_code': 'NABILNPKA',
+            'bank_name': 'Nabil Bank Limited',
+            'account_number': '*********0123',
+            'account_holder_name': 'John Doe',
+            'method': 'API Bank Transfer',
+        },
+    }
+    bank_flow = [
+        'GET /api/v1/banklist/ to load HimalPay bank codes and names (cached when unchanged).',
+        'POST /api/v1/verifiedbank/ with bank_code, bank_account_number, and account_holder_name. MySewa calls HimalPay BANK_TRANSFER_VERIFICATION.',
+        'After a successful verify, POST /api/v1/banktransfer/ with the same bank details, amount, and a unique reference. MySewa re-verifies with HimalPay, then calls BANK_TRANSFER and records the wallet transaction.',
+    ]
+    bank_list_section = {
+        'id': 'bank-list',
+        'title': 'Bank List API',
+        'purpose': (
+            'Returns banks currently available through the configured HimalPay BANK_TRANSFER_LIST service. '
+            'MySewa does not hardcode this list. Use bank_code from this response in later calls. '
+            'Results are cached for about 30 minutes; pass refresh=1 to force a HimalPay refresh.'
+        ),
+        'method': 'GET',
+        'path': banklist_path(),
+        'url': banklist_url,
+        'headers': _auth_headers(include_json=False),
+        'query': [
+            {
+                'name': 'refresh',
+                'required': False,
+                'type': 'boolean',
+                'description': 'Set to 1 to bypass cache and fetch a fresh HimalPay bank list.',
+                'example': '1',
+            },
+        ],
+        'request_body': {},
+        'request_example': None,
+        'success_http': '200 OK',
+        'success_response': bank_list_success,
+        'errors': _shared_auth_errors() + _provider_errors() + [
+            {
+                'http': 403,
+                'code': 'unauthorized_transaction',
+                'error': 'Unauthorized transaction',
+                'message': 'Transfers or bank transfer permission are disabled.',
+            },
+        ],
+        'examples': {
+            'curl': _curl_get(banklist_url),
+            'python': _python_get(banklist_url),
+            'javascript': _javascript_get(banklist_url),
+        },
+        'notes': [
+            'bank_code is the HimalPay instrument/SWIFT-style code (for example NABILNPKA), not a local nickname.',
+            'bank_name is the display name returned by HimalPay.',
+            'source is himalpay on a live fetch or cache when a recent list is reused.',
+        ],
+    }
+    verified_bank_section = {
+        'id': 'verified-bank',
+        'title': 'Verified Bank API',
+        'purpose': (
+            'Verifies a destination bank account against HimalPay BANK_TRANSFER_VERIFICATION. '
+            'This call does not debit the wallet. A successful verify is required before /banktransfer/ '
+            'for the same API user, bank, account number, and holder name (valid about 15 minutes). '
+            'HimalPay does not issue a verification token; MySewa remembers the successful match internally.'
+        ),
+        'method': 'POST',
+        'path': verifiedbank_path(),
+        'url': verifiedbank_url,
+        'headers': _auth_headers(),
+        'query': [],
+        'request_body': {
+            'bank_code': {
+                'required': True,
+                'type': 'string',
+                'description': 'HimalPay bank code from GET /api/v1/banklist/. bank_name may be sent instead when uniquely resolvable.',
+                'example': 'NABILNPKA',
+            },
+            'bank_account_number': {
+                'required': True,
+                'type': 'string',
+                'description': 'Destination account number. Aliases: account_number, destination_acc_no.',
+                'example': '1234567890123',
+            },
+            'account_holder_name': {
+                'required': True,
+                'type': 'string',
+                'description': 'Registered account holder name. Aliases: account_name, destination_acc_name.',
+                'example': 'John Doe',
+            },
+            'bank_name': {
+                'required': False,
+                'type': 'string',
+                'description': 'Optional bank display name used to resolve a short or missing bank_code.',
+                'example': 'Nabil Bank Limited',
+            },
+        },
+        'request_example': verify_example,
+        'success_http': '200 OK when HimalPay confirms the account and the holder name matches.',
+        'success_response': verify_success,
+        'failed_response': verify_failed,
+        'errors': _shared_auth_errors() + _provider_errors() + [
+            {'http': 400, 'code': 'invalid_bank_code', 'error': 'Invalid bank code', 'message': 'bank_code or bank_name is required.'},
+            {'http': 400, 'code': 'bank_not_supported', 'error': 'Bank not supported', 'message': 'This bank is not on the HimalPay bank list.'},
+            {'http': 400, 'code': 'invalid_account_number', 'error': 'Invalid account number', 'message': 'bank_account_number is missing or malformed.'},
+            {'http': 400, 'code': 'missing_account_holder_name', 'error': 'Missing account holder name', 'message': 'account_holder_name is required.'},
+            {'http': 400, 'code': 'verification_failed', 'error': 'Bank account verification failed', 'message': 'The account number and holder name did not match HimalPay records.'},
+        ],
+        'examples': {
+            'curl': _curl_post(verifiedbank_url, verify_example_json),
+            'python': _python_post(verifiedbank_url, verify_example_json),
+            'javascript': _javascript_post(verifiedbank_url, verify_example_json),
+        },
+        'notes': [
+            'MySewa maps the request to HimalPay fields bank_code, account_number, account_name, merchant_txn_id, and is_mobile=n.',
+            'Account numbers are masked in the API response.',
+            'Verification failure is returned as verified: false. Results are never faked.',
+        ],
+    }
+    bank_transfer_section = {
+        'id': 'bank-transfer',
+        'title': 'Bank Transfer API',
+        'purpose': (
+            'Pays a verified bank account through HimalPay BANK_TRANSFER using the API user MySewa wallet. '
+            'The wallet is debited only after HimalPay reports success (or auto-verified pending policy). '
+            'Failed HimalPay responses do not consume the client reference, so the same reference can be retried.'
+        ),
+        'method': 'POST',
+        'path': banktransfer_path(),
+        'url': banktransfer_url,
+        'headers': _auth_headers() + [
+            {
+                'name': 'Idempotency-Key',
+                'required': False,
+                'example': 'ORDER-10001',
+                'notes': 'Optional. If omitted, body reference is used.',
+            },
+        ],
+        'query': [],
+        'request_body': {
+            'bank_code': {
+                'required': True,
+                'type': 'string',
+                'description': 'Same HimalPay bank code used in /verifiedbank/.',
+                'example': 'NABILNPKA',
+            },
+            'bank_account_number': {
+                'required': True,
+                'type': 'string',
+                'description': 'Destination account number previously verified.',
+                'example': '1234567890123',
+            },
+            'account_holder_name': {
+                'required': True,
+                'type': 'string',
+                'description': 'Account holder name previously verified.',
+                'example': 'John Doe',
+            },
+            'amount': {
+                'required': True,
+                'type': 'number',
+                'description': 'NPR amount. Must be greater than zero and within transfer limits. HimalPay is paid in paisa.',
+                'example': 1000,
+            },
+            'reference': {
+                'required': True,
+                'type': 'string',
+                'description': 'Unique client reference (1-64 letters, digits, hyphen, underscore, period). Replay of a completed reference returns the original result without a second debit.',
+                'example': 'ORDER-10001',
+            },
+        },
+        'request_example': transfer_example,
+        'success_http': '201 Created on a new SUCCESS transfer; 202 Accepted when HimalPay/MySewa status is PENDING; 200 OK on idempotent replay.',
+        'success_response': bank_transfer_success,
+        'errors': _shared_auth_errors() + _provider_errors() + [
+            {'http': 400, 'code': 'verification_required', 'error': 'Verification required', 'message': 'Call POST /api/v1/verifiedbank/ first for these bank details.'},
+            {'http': 400, 'code': 'verification_failed', 'error': 'Bank account verification failed', 'message': 'HimalPay re-verification failed before payout.'},
+            {'http': 400, 'code': 'insufficient_balance', 'error': 'Insufficient balance', 'message': 'Wallet does not cover amount plus charges.'},
+            {'http': 400, 'code': 'invalid_amount', 'error': 'Invalid amount', 'message': 'Amount must be a valid number greater than zero and within limits.'},
+            {'http': 400, 'code': 'duplicate_reference', 'error': 'Duplicate reference', 'message': 'Reference is missing, malformed, or already being processed.'},
+            {'http': 409, 'code': 'duplicate_reference', 'error': 'Duplicate reference', 'message': 'This reference is already being processed.'},
+            {'http': 400, 'code': 'transfer_failed', 'error': 'Transfer failed', 'message': 'HimalPay rejected or failed the payout. Wallet was not debited.'},
+            {'http': 400, 'code': 'bank_not_supported', 'error': 'Bank not supported', 'message': 'This bank is not on the HimalPay bank list.'},
+            {'http': 403, 'code': 'unauthorized_transaction', 'error': 'Unauthorized transaction', 'message': 'Bank transfer is disabled, blocked, or over the daily limit.'},
+        ],
+        'examples': {
+            'curl': _curl_post(banktransfer_url, transfer_example_json),
+            'python': _python_post(banktransfer_url, transfer_example_json),
+            'javascript': _javascript_post(banktransfer_url, transfer_example_json),
+        },
+        'notes': [
+            'MySewa re-verifies with HimalPay immediately before BANK_TRANSFER. A cached /verifiedbank/ result is required but is not treated as the final match.',
+            'transaction_id is the MySewa merchant id (MYSEWA_BT_...). provider_reference is HimalPay when present.',
+            'status is SUCCESS, PENDING, or FAILED. Do not treat PENDING as paid.',
+            'HimalPay payout fields: destination_bank, destination_acc_no, destination_acc_name, amount in paisa.',
+        ],
+    }
     success_body = {
         'success': True,
         'message': 'Fund transfer successful',
@@ -49,7 +447,7 @@ def documentation_payload(request=None) -> dict:
         'code': 'insufficient_balance',
     }
     return {
-        'title': 'MySewa Fund Transfer API',
+        'title': 'MySewa Developer API',
         'product': 'MySewa',
         'version': 'v1',
         'docs_version': DOCS_VERSION,
@@ -230,7 +628,8 @@ def documentation_payload(request=None) -> dict:
         'transaction_history': {
             'title': 'API Transaction History',
             'summary': (
-                'API transactions are created automatically when your application calls the Fund Transfer API. '
+                'API transactions are created automatically when your application calls Fund Transfer or Bank Transfer APIs. '
+                'Bank verification is not a wallet transaction and does not appear here.'
                 'There is no manual "create API transaction" action in the dashboard.'
             ),
             'fields': [
@@ -240,8 +639,9 @@ def documentation_payload(request=None) -> dict:
                 'Amount',
                 'Client reference',
                 'Status (SUCCESS or FAILED)',
-                'Method (always API)',
+                'Method (API for wallet-to-wallet, API Bank Transfer for HimalPay payouts)',
                 'Created date/time',
+                'Masked bank account and provider reference for bank transfers',
                 'Failure reason when the request did not succeed',
             ],
             'empty': (
@@ -265,22 +665,28 @@ def documentation_payload(request=None) -> dict:
             'Store the API key like a password. Rotate it if it is exposed.',
             'Never log API keys, put them in URLs, or share them in support tickets.',
             'Regenerating a key invalidates the previous key immediately.',
-            'The Fund Transfer API is throttled to 60 requests per minute per API user.',
+            'The Developer API is throttled to 60 requests per minute per API user.',
         ],
         'examples': {
             'curl': _curl_example(endpoint),
             'python': _python_example(endpoint),
             'javascript': _javascript_example(endpoint),
         },
+        'bank_flow': bank_flow,
+        'api_sections': [bank_list_section, verified_bank_section, bank_transfer_section],
         'toc': [
             {'id': 'introduction', 'title': 'Introduction'},
             {'id': 'base-url', 'title': 'API Base URL'},
             {'id': 'authentication', 'title': 'Authentication'},
             {'id': 'api-key', 'title': 'API Key'},
+            {'id': 'bank-flow', 'title': 'Bank API integration flow'},
+            {'id': 'bank-list', 'title': 'Bank List API'},
+            {'id': 'verified-bank', 'title': 'Verified Bank API'},
+            {'id': 'bank-transfer', 'title': 'Bank Transfer API'},
             {'id': 'fund-transfer', 'title': 'Fund Transfer API'},
-            {'id': 'request', 'title': 'Request Parameters'},
+            {'id': 'request', 'title': 'Fund Transfer request'},
             {'id': 'headers', 'title': 'Headers'},
-            {'id': 'examples', 'title': 'Request Examples'},
+            {'id': 'examples', 'title': 'Fund Transfer examples'},
             {'id': 'curl', 'title': 'cURL Example'},
             {'id': 'python', 'title': 'Python Example'},
             {'id': 'javascript', 'title': 'JavaScript Example'},
@@ -346,6 +752,104 @@ def _javascript_example(endpoint: str) -> str:
     )
 
 
+def _markdown_api_section(section: dict) -> str:
+    params = section.get('request_body') or {}
+    param_rows = '\n'.join(
+        f"| `{name}` | {'yes' if field.get('required') else 'no'} | {field.get('type')} | {field.get('description')} |"
+        for name, field in params.items()
+    ) or '| — | — | — | No request body |'
+    query = section.get('query') or []
+    query_md = ''
+    if query:
+        query_rows = '\n'.join(
+            f"| `{item['name']}` | {'yes' if item.get('required') else 'no'} | {item.get('type')} | {item.get('description')} |"
+            for item in query
+        )
+        query_md = f"""
+### Query parameters
+
+| Field | Required | Type | Description |
+| --- | --- | --- | --- |
+{query_rows}
+"""
+    errors = '\n'.join(
+        f"- `{item['http']}` `{item['code']}` — {item['error']}: {item.get('message') or ''}".rstrip()
+        for item in section.get('errors') or []
+    )
+    notes = '\n'.join(f"- {item}" for item in section.get('notes') or [])
+    request_block = ''
+    if section.get('request_example'):
+        request_block = f"""
+### Request example
+
+```json
+{_json_block(section['request_example'])}
+```
+"""
+    failed_block = ''
+    if section.get('failed_response'):
+        failed_block = f"""
+### Failed verification
+
+```json
+{_json_block(section['failed_response'])}
+```
+"""
+    examples = section.get('examples') or {}
+    return f"""## {section['title']}
+
+`{section['method']} {section['path']}`
+
+Full URL: `{section['url']}`
+
+{section['purpose']}
+
+### Headers
+
+{chr(10).join(f"- `{h['name']}`{' (required)' if h.get('required') else ''} — `{h['example']}`" for h in section.get('headers') or [])}
+{query_md}
+### Request parameters
+
+| Field | Required | Type | Description |
+| --- | --- | --- | --- |
+{param_rows}
+{request_block}
+### Successful response
+
+{section.get('success_http') or '200 OK'}
+
+```json
+{_json_block(section.get('success_response') or {})}
+```
+{failed_block}
+### Examples
+
+#### cURL
+
+```bash
+{examples.get('curl') or ''}
+```
+
+#### Python
+
+```python
+{examples.get('python') or ''}
+```
+
+#### JavaScript
+
+```javascript
+{examples.get('javascript') or ''}
+```
+
+### Errors
+
+{errors}
+
+{notes}
+"""
+
+
 def markdown_documentation(request=None) -> str:
     doc = documentation_payload(request)
     errors = '\n'.join(
@@ -361,13 +865,15 @@ def markdown_documentation(request=None) -> str:
     flow = '\n'.join(f'{i}. {step}' for i, step in enumerate(doc['how_it_works'], start=1))
     history_fields = '\n'.join(f'- {item}' for item in doc['transaction_history']['fields'])
     codes = '\n'.join(f"- `{item['http']}` — {item['meaning']}" for item in doc['http_status_codes'])
+    bank_flow = '\n'.join(f'{i}. {step}' for i, step in enumerate(doc.get('bank_flow') or [], start=1))
+    bank_md = '\n'.join(_markdown_api_section(section) for section in doc.get('api_sections') or [])
     return f"""# {doc['title']}
 
 Version: {doc['version']} · Documentation {doc['docs_version']} · {doc['published_at']}
 
 ## Introduction
 
-MySewa Fund Transfer API lets an approved API user move NPR from their MySewa wallet to another MySewa wallet from their own website or application.
+MySewa Developer API lets an approved API user move NPR from their MySewa wallet: wallet-to-wallet Fund Transfer, or HimalPay bank payouts via Bank List, Verified Bank, and Bank Transfer.
 
 You do **not** create API transactions from the Developer dashboard. Your application calls the API; MySewa creates the transaction automatically.
 
@@ -394,6 +900,20 @@ Send the API key as a Bearer token:
 1. An admin enables Fund Transfer API access on your account.
 2. Open **Developer / API** in the MySewa app to view, copy, or regenerate the key.
 3. Regenerating a key invalidates the previous key immediately.
+
+## Bank API integration flow
+
+Recommended order. The three bank endpoints are independent, but payouts require a recent successful verification of the same bank details.
+
+```
+1. GET /api/v1/banklist/
+2. POST /api/v1/verifiedbank/
+3. POST /api/v1/banktransfer/
+```
+
+{bank_flow}
+
+{bank_md}
 
 ## Fund Transfer API
 
@@ -495,12 +1015,6 @@ Dashboard users with API access can download this document:
 
 Supported `doc_format` values: `markdown`, `html`, `pdf`.
 """
-
-
-def _json_block(payload: dict) -> str:
-    import json
-
-    return json.dumps(payload, indent=2)
 
 
 def html_documentation(request=None) -> str:

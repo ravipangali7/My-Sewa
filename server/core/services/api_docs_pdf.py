@@ -107,7 +107,7 @@ class PdfBuilder:
     def _header(self):
         self.rect(0, PAGE_H - 36, PAGE_W, 36, BRAND, fill=True)
         self.text(MARGIN_L, PAGE_H - 23, 'MySewa Developer API', 'Helvetica-Bold', 10, WHITE)
-        self.text(PAGE_W - MARGIN_R - 90, PAGE_H - 23, 'Fund Transfer API', 'Helvetica', 9, WHITE)
+        self.text(PAGE_W - MARGIN_R - 90, PAGE_H - 23, 'Developer API', 'Helvetica', 9, WHITE)
 
     def _footer(self):
         self.rect(0, 0, PAGE_W, 32, BRAND_DARK, fill=True)
@@ -273,13 +273,14 @@ class PdfBuilder:
         self.filled_rect(0, PAGE_H - 214, PAGE_W, 4, (0.125, 0.765, 0.416))
         self.text(MARGIN_L, PAGE_H - 70, 'MySewa', 'Helvetica-Bold', 28, WHITE)
         self.text(MARGIN_L, PAGE_H - 100, 'Developer API Documentation', 'Helvetica-Bold', 22, WHITE)
-        self.text(MARGIN_L, PAGE_H - 126, 'Fund Transfer API', 'Helvetica', 16, WHITE)
+        self.text(MARGIN_L, PAGE_H - 126, 'Fund Transfer and HimalPay Bank APIs', 'Helvetica', 14, WHITE)
         self.text(MARGIN_L, PAGE_H - 160, f"API {doc['version']}   |   Docs {doc['docs_version']}   |   {doc['published_at']}", 'Helvetica', 11, WHITE)
         self.y = PAGE_H - 250
-        self.paragraph('Official integration guide for wallet-to-wallet fund transfer.')
-        self.callout('API transactions are created automatically when your application calls POST /api/v1/fund-transfer/. They are not created manually from the dashboard.')
+        self.paragraph('Official integration guide for wallet-to-wallet fund transfer and HimalPay bank payouts.')
+        self.callout('API transactions are created automatically when your application calls the APIs. They are not created manually from the dashboard.')
         self.paragraph(f"Base URL: {doc['base_url']}", font='Helvetica-Bold')
-        self.paragraph(f"Endpoint: {doc['method']} {doc['path']}")
+        self.paragraph('Bank APIs: GET /api/v1/banklist/  |  POST /api/v1/verifiedbank/  |  POST /api/v1/banktransfer/')
+        self.paragraph(f"Fund Transfer: {doc['method']} {doc['path']}")
         self.text(MARGIN_L, 56, 'mysewa.sewabyapar.com', 'Helvetica', 10, MUTED)
         self.text(MARGIN_L, 40, 'Confidential  |  For authorized API users', 'Helvetica', 9, MUTED)
 
@@ -370,12 +371,12 @@ def render_pdf_documentation(doc: dict) -> bytes:
     pdf.new_page()
     pdf.heading('1. Introduction')
     pdf.paragraph(
-        'The MySewa Fund Transfer API lets an approved API user move NPR from their wallet '
-        'to another MySewa wallet from their own website or application.'
+        'The MySewa Developer API lets an approved API user move NPR from their wallet '
+        'to another MySewa wallet, or to a bank account through HimalPay.'
     )
     pdf.callout(
         'You do not create API transactions from the Developer dashboard. Your application '
-        'calls the API; MySewa creates the transaction automatically.'
+        'calls the API; MySewa creates the transaction automatically. Bank verification is not a wallet transaction.'
     )
     pdf.heading('How API Fund Transfer Works')
     pdf.numbered(doc['how_it_works'])
@@ -384,7 +385,7 @@ def render_pdf_documentation(doc: dict) -> bytes:
     pdf.code_block(doc['base_url'])
 
     pdf.heading('3. Authentication')
-    pdf.paragraph('This endpoint accepts Bearer API keys only. Dashboard login tokens are rejected.')
+    pdf.paragraph('All Developer API endpoints accept Bearer API keys only. Dashboard login tokens are rejected.')
     pdf.code_block(doc['authentication']['header'])
     pdf.bullets(doc['authentication']['notes'])
 
@@ -396,6 +397,66 @@ def render_pdf_documentation(doc: dict) -> bytes:
             'Regenerating a key invalidates the previous key immediately.',
         ]
     )
+
+    pdf.heading('Bank API integration flow')
+    pdf.paragraph('Recommended order. The three bank endpoints are independent, but payouts require a recent successful verification of the same bank details.')
+    pdf.code_block('1. GET /api/v1/banklist/\n2. POST /api/v1/verifiedbank/\n3. POST /api/v1/banktransfer/')
+    pdf.numbered(doc.get('bank_flow') or [])
+
+    for section in doc.get('api_sections') or []:
+        pdf.heading(section['title'])
+        pdf.endpoint(section.get('method') or 'POST', section.get('path') or '')
+        pdf.paragraph(section.get('purpose') or '')
+        pdf.paragraph(f"Full URL: {section.get('url') or ''}")
+        if section.get('query'):
+            pdf.paragraph('Query parameters')
+            pdf.table(
+                ['Field', 'Required', 'Type', 'Description'],
+                [
+                    [item['name'], 'Yes' if item.get('required') else 'No', str(item.get('type') or ''), str(item.get('description') or '')]
+                    for item in section['query']
+                ],
+                [0.18, 0.14, 0.12, 0.56],
+            )
+        body = section.get('request_body') or {}
+        if body:
+            pdf.paragraph('Request parameters')
+            pdf.table(
+                ['Field', 'Required', 'Type', 'Description'],
+                [
+                    [name, 'Yes' if field.get('required') else 'No', str(field.get('type')), str(field.get('description'))]
+                    for name, field in body.items()
+                ],
+                [0.22, 0.12, 0.12, 0.54],
+            )
+        if section.get('request_example'):
+            pdf.code_block(json.dumps(section['request_example'], indent=2))
+        pdf.paragraph(section.get('success_http') or '200 OK')
+        pdf.code_block(json.dumps(section.get('success_response') or {}, indent=2))
+        if section.get('failed_response'):
+            pdf.paragraph('Failed verification')
+            pdf.code_block(json.dumps(section['failed_response'], indent=2))
+        examples = section.get('examples') or {}
+        if examples.get('curl'):
+            pdf.heading('cURL', 12)
+            pdf.code_block(examples['curl'])
+        if examples.get('python'):
+            pdf.heading('Python', 12)
+            pdf.code_block(examples['python'])
+        if examples.get('javascript'):
+            pdf.heading('JavaScript', 12)
+            pdf.code_block(examples['javascript'])
+        if section.get('errors'):
+            pdf.table(
+                ['HTTP', 'Code', 'Error', 'When'],
+                [
+                    [str(item['http']), item['code'], item['error'], item.get('message') or '']
+                    for item in section['errors']
+                ],
+                [0.12, 0.26, 0.24, 0.38],
+            )
+        if section.get('notes'):
+            pdf.bullets(section['notes'])
 
     pdf.heading('5. Fund Transfer API')
     pdf.endpoint(doc['method'], doc['path'])

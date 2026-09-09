@@ -19,6 +19,98 @@ def _code(text: str, lang: str = '') -> str:
     )
 
 
+def _error_table(errors) -> str:
+    rows = ''.join(
+        '<tr>'
+        f'<td><code>{item["http"]}</code></td>'
+        f'<td><code>{_esc(item["code"])}</code></td>'
+        f'<td>{_esc(item["error"])}</td>'
+        f'<td>{_esc(item.get("message") or "")}</td>'
+        '</tr>'
+        for item in errors or []
+    )
+    return (
+        '<table><thead><tr><th>HTTP</th><th>Code</th><th>Error</th><th>When</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table>'
+    )
+
+
+def _param_table(fields: dict, headers=None) -> str:
+    if not fields:
+        return '<p class="empty">No JSON body. This endpoint uses the method and URL only.</p>'
+    rows = ''.join(
+        '<tr>'
+        f'<td><code>{_esc(name)}</code></td>'
+        f'<td>{"Yes" if field.get("required") else "No"}</td>'
+        f'<td>{_esc(field.get("type"))}</td>'
+        f'<td>{_esc(field.get("description"))}</td>'
+        '</tr>'
+        for name, field in fields.items()
+    )
+    return (
+        '<table><thead><tr><th>Field</th><th>Required</th><th>Type</th><th>Description</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table>'
+    )
+
+
+def _render_endpoint(section: dict) -> str:
+    method = (section.get('method') or 'POST').upper()
+    method_class = 'get' if method == 'GET' else 'post'
+    query = section.get('query') or []
+    query_html = ''
+    if query:
+        rows = ''.join(
+            '<tr>'
+            f'<td><code>{_esc(item["name"])}</code></td>'
+            f'<td>{"Yes" if item.get("required") else "No"}</td>'
+            f'<td>{_esc(item.get("type"))}</td>'
+            f'<td>{_esc(item.get("description"))}</td>'
+            '</tr>'
+            for item in query
+        )
+        query_html = (
+            '<h3>Query parameters</h3>'
+            '<table><thead><tr><th>Field</th><th>Required</th><th>Type</th><th>Description</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table>'
+        )
+    request_html = ''
+    if section.get('request_example'):
+        request_html = _code(json.dumps(section['request_example'], indent=2), 'json')
+    failed_html = ''
+    if section.get('failed_response'):
+        failed_html = '<h3>Failed verification</h3>' + _code(
+            json.dumps(section['failed_response'], indent=2), 'json'
+        )
+    examples = section.get('examples') or {}
+    notes = ''.join(f'<li>{_esc(item)}</li>' for item in section.get('notes') or [])
+    return f"""
+      <h2 id="{_esc(section['id'])}">{_esc(section['title'])}</h2>
+      <div class="card endpoint">
+        <span class="method {method_class}">{_esc(method)}</span>
+        <span>{_esc(section['path'])}</span>
+      </div>
+      <p>{_esc(section.get('purpose') or '')}</p>
+      <p>Full URL: <code>{_esc(section.get('url') or '')}</code></p>
+      {query_html}
+      <h3>Request parameters</h3>
+      {_param_table(section.get('request_body') or {})}
+      {request_html}
+      <h3>Successful response</h3>
+      <p>{_esc(section.get('success_http') or '')}</p>
+      {_code(json.dumps(section.get('success_response') or {{}}, indent=2), 'json')}
+      {failed_html}
+      <h3>cURL</h3>
+      {_code(examples.get('curl') or '', 'bash')}
+      <h3>Python</h3>
+      {_code(examples.get('python') or '', 'python')}
+      <h3>JavaScript</h3>
+      {_code(examples.get('javascript') or '', 'javascript')}
+      <h3>Errors</h3>
+      {_error_table(section.get('errors'))}
+      <ul>{notes}</ul>
+    """
+
+
 def render_html_documentation(doc: dict) -> str:
     toc = ''.join(
         f'<a href="#{_esc(item["id"])}">{_esc(item["title"])}</a>'
@@ -63,6 +155,11 @@ def render_html_documentation(doc: dict) -> str:
     security = ''.join(f'<li>{_esc(item)}</li>' for item in doc['security'])
     validation = ''.join(f'<li>{_esc(item)}</li>' for item in doc['validation'])
     auth_notes = ''.join(f'<li>{_esc(item)}</li>' for item in doc['authentication']['notes'])
+    bank_flow = ''.join(
+        f'<li><span class="step">{i}</span><span>{_esc(step)}</span></li>'
+        for i, step in enumerate(doc.get('bank_flow') or [], start=1)
+    )
+    bank_html = ''.join(_render_endpoint(section) for section in doc.get('api_sections') or [])
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -194,6 +291,8 @@ def render_html_documentation(doc: dict) -> str:
       padding: 4px 10px;
       font-size: 12px;
     }}
+    .method.get {{ background: #2563eb; }}
+    .method.post {{ background: var(--brand); }}
     table {{
       width: 100%;
       border-collapse: collapse;
@@ -281,7 +380,7 @@ def render_html_documentation(doc: dict) -> str:
     <main class="content">
       <section class="hero">
         <h1>Developer API Documentation</h1>
-        <p>Fund Transfer API for MySewa wallets. Transactions are created by your application, not from the dashboard.</p>
+        <p>Fund Transfer and HimalPay Bank APIs for authorized MySewa API users. Transactions are created by your application, not from the dashboard.</p>
         <div class="meta">
           <span class="chip">API { _esc(doc['version']) }</span>
           <span class="chip">Docs { _esc(doc['docs_version']) }</span>
@@ -290,8 +389,8 @@ def render_html_documentation(doc: dict) -> str:
       </section>
 
       <h2 id="introduction">1. Introduction</h2>
-      <p>The Fund Transfer API moves NPR from the authenticated API user's wallet to another MySewa wallet. Integrate it into your own website or application. MySewa authenticates the request, validates sender and receiver, updates wallets atomically, and returns the result.</p>
-      <div class="note">Users do not manually create API transactions from Developer / API. History only shows transfers your application already requested.</div>
+      <p>The Developer API moves NPR from the authenticated API user's wallet: to another MySewa wallet (Fund Transfer) or to a HimalPay bank account (Bank List, Verified Bank, Bank Transfer). MySewa authenticates the Bearer API key, validates the request, and returns a clean JSON result.</p>
+      <div class="note">Users do not manually create API transactions from Developer / API. History only shows transfers your application already requested. Bank verification is not a wallet transaction.</div>
 
       <h2 id="how-it-works">How API Fund Transfer Works</h2>
       <ol class="steps">{flow}</ol>
@@ -310,6 +409,12 @@ def render_html_documentation(doc: dict) -> str:
         <li>The key is shown on Developer / API. Copy it and store it like a password.</li>
         <li>Regenerating the key immediately invalidates the previous key.</li>
       </ul>
+
+      <h2 id="bank-flow">Bank API integration flow</h2>
+      <p>Use these three endpoints in this order. They are independent HTTP APIs, but <code>/banktransfer/</code> requires a recent successful <code>/verifiedbank/</code> for the same bank details.</p>
+      {_code('1. GET /api/v1/banklist/\n2. POST /api/v1/verifiedbank/\n3. POST /api/v1/banktransfer/', 'text')}
+      <ol class="steps">{bank_flow}</ol>
+      {bank_html}
 
       <h2 id="fund-transfer">5. Fund Transfer API</h2>
       <div class="card endpoint">

@@ -213,6 +213,54 @@ function DeveloperApiPage() {
               </div>
             </section>
 
+            {(docs.bank_flow?.length || docs.api_sections?.length) ? (
+              <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
+                <h2 className="text-sm font-semibold">{t("developer.bankFlowTitle")}</h2>
+                <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-3 text-[11px] text-slate-100">
+{`1. GET /api/v1/banklist/
+2. POST /api/v1/verifiedbank/
+3. POST /api/v1/banktransfer/`}
+                </pre>
+                <ol className="space-y-2 text-sm">
+                  {(docs.bank_flow || []).map((step, index) => (
+                    <li key={step} className="flex gap-2">
+                      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">
+                        {index + 1}
+                      </span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ) : null}
+
+            {(docs.api_sections || []).map((section) => (
+              <section key={section.id} className="rounded-2xl border border-border bg-white p-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={section.method === "GET" ? "bg-blue-600" : ""}>{section.method}</Badge>
+                  <h2 className="text-sm font-semibold">{section.title}</h2>
+                </div>
+                <p className="font-mono text-xs break-all text-muted-foreground">
+                  {section.method} {section.url || section.path}
+                </p>
+                <p className="text-sm text-muted-foreground">{section.purpose}</p>
+                {section.request_example ? (
+                  <DocBlock title={t("developer.request")}>
+                    {JSON.stringify(section.request_example, null, 2)}
+                  </DocBlock>
+                ) : null}
+                <DocBlock title={t("developer.success")}>
+                  {JSON.stringify(section.success_response, null, 2)}
+                </DocBlock>
+                {section.failed_response ? (
+                  <DocBlock title={t("developer.statusFailed")}>
+                    {JSON.stringify(section.failed_response, null, 2)}
+                  </DocBlock>
+                ) : null}
+                {section.examples?.curl ? <DocBlock title="cURL">{section.examples.curl}</DocBlock> : null}
+              </section>
+            ))}
+
             <ApiTransactionHistory />
 
             <DocBlock title={t("developer.request")}>
@@ -335,6 +383,7 @@ function ApiTransactionHistory() {
             <option value="all">{t("list.allStatuses")}</option>
             <option value="success">{t("developer.statusSuccess")}</option>
             <option value="failed">{t("developer.statusFailed")}</option>
+            <option value="pending">{t("developer.statusPending")}</option>
           </select>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -361,7 +410,7 @@ function ApiTransactionHistory() {
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
           {items.map((row) => (
-            <li key={row.id}>
+            <li key={`${row.method}-${row.id}-${row.transaction_id}`}>
               <button
                 type="button"
                 onClick={() => setSelected(row)}
@@ -415,6 +464,12 @@ function ApiTransactionHistory() {
                 <dd className="mt-1"><StatusChip status={selected.status} /></dd>
               </div>
               <Detail label={t("developer.method")} value={selected.method} />
+              {selected.provider_reference ? (
+                <Detail label={t("developer.providerReference")} value={selected.provider_reference} />
+              ) : null}
+              {selected.account_number ? (
+                <Detail label={t("developer.accountNumber")} value={selected.account_number} />
+              ) : null}
               <Detail label={t("common.date")} value={formatDateTime(selected.created_at)} />
               {selected.status === "FAILED" ? (
                 <Detail

@@ -1086,6 +1086,9 @@ export interface DeveloperApiTransfer {
   error_code: string;
   error_message: string;
   wallet_transfer_id: number | null;
+  provider_reference?: string;
+  account_number?: string;
+  bank_code?: string;
 }
 
 export interface DeveloperApiTransferList {
@@ -1149,6 +1152,22 @@ export interface DeveloperApiDocumentation {
   published_at?: string;
   request_example?: Record<string, unknown>;
   success_http?: string;
+  bank_flow?: string[];
+  api_sections?: DeveloperApiEndpointSection[];
+}
+
+export interface DeveloperApiEndpointSection {
+  id: string;
+  title: string;
+  purpose: string;
+  method: string;
+  path: string;
+  url: string;
+  request_example?: Record<string, unknown> | null;
+  success_response: Record<string, unknown>;
+  failed_response?: Record<string, unknown>;
+  examples?: { curl?: string; python?: string; javascript?: string };
+  notes?: string[];
 }
 
 export interface AdminUserWritePayload {

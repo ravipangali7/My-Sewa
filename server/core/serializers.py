@@ -1681,6 +1681,7 @@ class BankTransferTransactionSerializer(serializers.ModelSerializer):
             'reference_id', 'charge', 'cashback', 'total_debited',
             'provider_charge', 'platform_charge',
             'balance_before', 'balance_after', 'verified',
+            'source', 'client_reference',
             'created_at', 'updated_at',
         )
         read_only_fields = fields

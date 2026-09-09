@@ -392,13 +392,13 @@ class TopupTransactionAdmin(admin.ModelAdmin):
 @admin.register(BankTransferTransaction)
 class BankTransferTransactionAdmin(admin.ModelAdmin):
     list_display = (
-        'user', 'destination_bank', 'destination_acc_no', 'amount',
-        'status', 'total_debited', 'merchant_txn_id', 'created_at',
+        'user', 'source', 'destination_bank', 'destination_acc_no', 'amount',
+        'status', 'total_debited', 'merchant_txn_id', 'client_reference', 'created_at',
     )
-    list_filter = ('status', 'destination_bank', 'created_at')
+    list_filter = ('status', 'source', 'destination_bank', 'created_at')
     search_fields = (
         'user__phone', 'destination_acc_no', 'destination_acc_name',
-        'merchant_txn_id', 'provider_txn_id', 'reference_id',
+        'merchant_txn_id', 'provider_txn_id', 'reference_id', 'client_reference',
     )
     readonly_fields = (
         'user', 'amount', 'destination_bank', 'destination_bank_name',
@@ -406,7 +406,8 @@ class BankTransferTransactionAdmin(admin.ModelAdmin):
         'transaction_remarks', 'transaction_remarks_2', 'transaction_remarks_3',
         'status', 'merchant_txn_id', 'provider_txn_id', 'reference_id',
         'charge', 'provider_charge', 'platform_charge', 'cashback', 'total_debited',
-        'balance_before', 'balance_after', 'verified', 'provider_response',
+        'balance_before', 'balance_after', 'verified', 'source', 'client_reference',
+        'provider_response',
         'created_at', 'updated_at',
     )
     ordering = ('-created_at',)

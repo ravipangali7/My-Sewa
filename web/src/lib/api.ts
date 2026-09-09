@@ -1288,7 +1288,7 @@ export const apiClient = {
     const blob = await apiBlob(`/api/developer/docs/download/?doc_format=${format}`);
     await triggerBlobDownload(
       new Blob([blob], { type: mime }),
-      `mysewa-fund-transfer-api.${ext}`,
+      `mysewa-developer-api.${ext}`,
     );
   },
   developerTransfers: (filters?: {
