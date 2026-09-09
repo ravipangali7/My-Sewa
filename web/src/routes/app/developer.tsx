@@ -1,12 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useState } from "react";
-import { Copy, Download, Eye, EyeOff, RefreshCw } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronRight, Copy, Download, Eye, EyeOff, RefreshCw, Search } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { BackButton } from "@/components/BackButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { StatusChip } from "@/components/StatusChip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,11 +21,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatNPR } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { canUseFundTransferApi } from "@/lib/account-status";
+import type { DeveloperApiTransfer } from "@/lib/types";
 
 export const Route = createFileRoute("/app/developer")({
   head: () => ({
@@ -30,7 +35,7 @@ export const Route = createFileRoute("/app/developer")({
       { title: "Developer API — MySewa" },
       {
         name: "description",
-        content: "MySewa Fund Transfer API credentials, documentation, and examples.",
+        content: "MySewa Fund Transfer API credentials, documentation, and API transaction history.",
       },
     ],
   }),
@@ -118,6 +123,7 @@ function DeveloperApiPage() {
                   {showKey ? data.api_key : data.api_key_masked}
                 </p>
               </div>
+              <p className="text-xs text-muted-foreground">{t("developer.keyWarning")}</p>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" onClick={() => setShowKey((v) => !v)}>
                   {showKey ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
@@ -150,6 +156,21 @@ function DeveloperApiPage() {
               </div>
             </section>
 
+            <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
+              <h2 className="text-sm font-semibold">{t("developer.howTitle")}</h2>
+              <p className="text-sm text-muted-foreground">{t("developer.howLead")}</p>
+              <ol className="space-y-2 text-sm">
+                {(docs.how_it_works || []).map((step, index) => (
+                  <li key={step} className="flex gap-2">
+                    <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">
+                      {index + 1}
+                    </span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+
             <section className="rounded-2xl border border-border bg-white p-4 space-y-2">
               <h2 className="text-sm font-semibold">{t("developer.docsTitle")}</h2>
               <p className="text-xs text-muted-foreground break-all">
@@ -157,31 +178,25 @@ function DeveloperApiPage() {
               </p>
               <p className="text-sm">{docs.authentication.header}</p>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={() => void download("markdown")}>
+                <Button size="sm" variant="outline" onClick={() => void download("pdf")}>
                   <Download className="size-3.5" />
-                  Markdown
+                  PDF
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => void download("html")}>
                   <Download className="size-3.5" />
                   HTML
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => void download("pdf")}>
+                <Button size="sm" variant="outline" onClick={() => void download("markdown")}>
                   <Download className="size-3.5" />
-                  PDF
+                  Markdown
                 </Button>
               </div>
             </section>
 
+            <ApiTransactionHistory />
+
             <DocBlock title={t("developer.request")}>
-              {JSON.stringify(
-                {
-                  receiver: "98XXXXXXXX",
-                  amount: 1000,
-                  reference: "ORDER-10001",
-                },
-                null,
-                2,
-              )}
+              {JSON.stringify(docs.request_example ?? { receiver: "98XXXXXXXX", amount: 1000, reference: "ORDER-10001" }, null, 2)}
             </DocBlock>
             <DocBlock title={t("developer.success")}>
               {JSON.stringify(docs.success_response, null, 2)}
@@ -199,7 +214,7 @@ function DeveloperApiPage() {
               <h2 className="mb-2 text-sm font-semibold">{t("developer.errors")}</h2>
               <ul className="space-y-1 text-sm">
                 {docs.error_responses.map((item) => (
-                  <li key={item.code}>
+                  <li key={`${item.http}-${item.code}-${item.message ?? ""}`}>
                     <span className="font-mono text-xs">{item.http}</span> {item.error}{" "}
                     <span className="text-muted-foreground">({item.code})</span>
                   </li>
@@ -223,6 +238,184 @@ function DeveloperApiPage() {
         )}
       </div>
     </UserShell>
+  );
+}
+
+function ApiTransactionHistory() {
+  const t = useT();
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<DeveloperApiTransfer | null>(null);
+
+  const query = useQuery({
+    queryKey: ["developer", "transfers", q, status, startDate, endDate, page],
+    queryFn: () => {
+      const filters: {
+        q?: string;
+        status?: string;
+        start_date?: string;
+        end_date?: string;
+        page: number;
+        page_size: number;
+      } = { page, page_size: 20 };
+      if (q.trim()) filters.q = q.trim();
+      if (status !== "all") filters.status = status;
+      if (startDate) filters.start_date = startDate;
+      if (endDate) filters.end_date = endDate;
+      return apiClient.developerTransfers(filters);
+    },
+  });
+
+  const items = query.data?.items ?? [];
+  const empty = !query.isLoading && items.length === 0;
+  const emptyFiltered = empty && Boolean(q.trim() || status !== "all" || startDate || endDate);
+
+  const rangeLabel = useMemo(() => {
+    const count = query.data?.count ?? 0;
+    const size = query.data?.page_size ?? 20;
+    const current = query.data?.page ?? page;
+    if (!count) return "";
+    const from = (current - 1) * size + 1;
+    const to = Math.min(current * size, count);
+    return `${from}–${to} / ${count}`;
+  }, [page, query.data]);
+
+  return (
+    <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold">{t("developer.historyTitle")}</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{t("developer.historyLead")}</p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="relative sm:col-span-2">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={q}
+            onChange={(e) => {
+              setPage(1);
+              setQ(e.target.value);
+            }}
+            placeholder={t("developer.historySearch")}
+            className="h-10 rounded-xl pl-9"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">{t("common.status")}</Label>
+          <select
+            value={status}
+            onChange={(e) => {
+              setPage(1);
+              setStatus(e.target.value);
+            }}
+            className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm"
+          >
+            <option value="all">{t("list.allStatuses")}</option>
+            <option value="success">{t("developer.statusSuccess")}</option>
+            <option value="failed">{t("developer.statusFailed")}</option>
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">{t("list.startDate")}</Label>
+            <Input type="date" value={startDate} onChange={(e) => { setPage(1); setStartDate(e.target.value); }} className="h-10 rounded-xl" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("list.endDate")}</Label>
+            <Input type="date" value={endDate} onChange={(e) => { setPage(1); setEndDate(e.target.value); }} className="h-10 rounded-xl" />
+          </div>
+        </div>
+      </div>
+
+      {query.isLoading ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">{t("common.loading")}</p>
+      ) : empty ? (
+        <div className="rounded-xl bg-muted/60 px-4 py-8 text-center">
+          <p className="text-sm font-medium">{t("developer.historyEmptyTitle")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {emptyFiltered ? t("developer.historyEmptyFiltered") : t("developer.historyEmpty")}
+          </p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+          {items.map((row) => (
+            <li key={row.id}>
+              <button
+                type="button"
+                onClick={() => setSelected(row)}
+                className="flex w-full items-center gap-3 px-3 py-3 text-left active:bg-muted/60"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{row.receiver || "—"}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {row.reference || "—"} · {formatDateTime(row.created_at)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold">{row.amount ? formatNPR(row.amount) : "—"}</p>
+                  <StatusChip status={row.status} compact className="mt-1" />
+                </div>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {query.data && query.data.count > 0 ? (
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span>{rangeLabel}</span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" disabled={!query.data.has_previous} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              {t("developer.prev")}
+            </Button>
+            <Button size="sm" variant="outline" disabled={!query.data.has_next} onClick={() => setPage((p) => p + 1)}>
+              {t("developer.next")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      <Sheet open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelected(null); }}>
+        <SheetContent side="bottom" className="max-h-[88dvh] overflow-y-auto rounded-t-2xl px-4 pb-8 pt-5">
+          <SheetHeader className="mb-4 text-left">
+            <SheetTitle>{t("developer.historyDetail")}</SheetTitle>
+          </SheetHeader>
+          {selected ? (
+            <dl className="space-y-3 text-sm">
+              <Detail label={t("developer.txnId")} value={selected.transaction_id || "—"} />
+              <Detail label={t("developer.sender")} value={selected.sender || "—"} />
+              <Detail label={t("common.recipient")} value={selected.receiver || "—"} />
+              <Detail label={t("common.amount")} value={selected.amount ? formatNPR(selected.amount) : "—"} />
+              <Detail label={t("developer.reference")} value={selected.reference || "—"} />
+              <div>
+                <dt className="text-xs text-muted-foreground">{t("common.status")}</dt>
+                <dd className="mt-1"><StatusChip status={selected.status} /></dd>
+              </div>
+              <Detail label={t("developer.method")} value={selected.method} />
+              <Detail label={t("common.date")} value={formatDateTime(selected.created_at)} />
+              {selected.status === "FAILED" ? (
+                <Detail
+                  label={t("developer.failureReason")}
+                  value={selected.error_message || selected.error_code || "—"}
+                />
+              ) : null}
+            </dl>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+    </section>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 break-all font-medium">{value}</dd>
+    </div>
   );
 }
 

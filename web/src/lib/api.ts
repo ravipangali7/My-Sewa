@@ -1281,18 +1281,26 @@ export const apiClient = {
     const blob = await apiBlob(`/api/developer/docs/download/?doc_format=${format}`);
     triggerBlobDownload(blob, `mysewa-fund-transfer-api.${ext}`);
   },
-  developerTransfers: () =>
-    api<{
-      items: import("./types").AdminApiUserLog[];
-      transfers: Array<{
-        transaction_id: string;
-        reference: string;
-        receiver: string;
-        amount: string;
-        status: string;
-        created_at: string;
-      }>;
-    }>("/api/developer/transfers/"),
+  developerTransfers: (filters?: {
+    q?: string;
+    status?: string;
+    start_date?: string;
+    end_date?: string;
+    page?: number;
+    page_size?: number;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.q?.trim()) params.set("q", filters.q.trim());
+    if (filters?.status && filters.status !== "all") params.set("status", filters.status);
+    if (filters?.start_date) params.set("start_date", filters.start_date);
+    if (filters?.end_date) params.set("end_date", filters.end_date);
+    if (filters?.page) params.set("page", String(filters.page));
+    if (filters?.page_size) params.set("page_size", String(filters.page_size));
+    const query = params.toString();
+    return api<import("./types").DeveloperApiTransferList>(
+      `/api/developer/transfers/${query ? `?${query}` : ""}`,
+    );
+  },
   /** Soft-delete account via GET /api/auth/delete-account/<phone>/<password>/ */
   deleteAccount: (phone: string, password: string) =>
     api<{ message: string; detail?: string }>(

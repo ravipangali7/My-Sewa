@@ -322,6 +322,11 @@ class ApiFundTransferTests(APITestCase):
         self.assertEqual(body.get('path'), '/api/v1/fund-transfer/')
         self.assertIn('examples', body)
         self.assertIn('curl', body['examples'])
+        self.assertIn('how_it_works', body)
+        self.assertGreaterEqual(len(body['how_it_works']), 8)
+        self.assertIn('transaction_history', body)
+        self.assertEqual(body['success_response'].get('status'), 'SUCCESS')
+        self.assertTrue(str(body['success_response'].get('transaction_id', '')).startswith('MYSEWA_WT_'))
 
         for fmt, content_type in (
             ('markdown', 'text/markdown'),
@@ -336,7 +341,15 @@ class ApiFundTransferTests(APITestCase):
             self.assertIn(content_type, download['Content-Type'])
             if fmt == 'pdf':
                 self.assertTrue(download.content.startswith(b'%PDF'))
+                self.assertIn(b'Fund Transfer API', download.content)
+                self.assertIn(b'/F1', download.content)
+                self.assertGreater(len(download.content), 4000)
+            elif fmt == 'html':
+                self.assertIn(b'How API Fund Transfer Works', download.content)
+                self.assertIn(b'class="sidebar"', download.content)
+                self.assertIn(b'data-copy', download.content)
             else:
+                self.assertIn(b'How API Fund Transfer Works', download.content)
                 self.assertIn(b'Fund Transfer', download.content)
 
     def test_documentation_denied_for_normal_user(self):
@@ -384,3 +397,49 @@ class ApiFundTransferTests(APITestCase):
         profile = data.get('data') or data
         self.assertTrue(profile.get('is_api_user'))
         self.assertNotIn('api_key', profile)
+
+    def test_api_transaction_history_lists_own_success_and_failed(self):
+        ok = self._post({
+            'receiver': '9800000402',
+            'amount': 100,
+            'reference': 'ORDER-HIST-OK',
+        })
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED, ok.content)
+        failed = self._post({
+            'receiver': '9800000402',
+            'amount': 999999,
+            'reference': 'ORDER-HIST-FAIL',
+        })
+        self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.client.credentials()
+        self.client.force_authenticate(user=self.sender)
+        empty_receiver = APIClient()
+        enable_api_access(self.receiver)
+        empty_receiver.force_authenticate(user=self.receiver)
+        other = empty_receiver.get(reverse('api_developer_transfers'))
+        self.assertEqual(other.status_code, status.HTTP_200_OK, other.content)
+        self.assertEqual(other.json().get('count'), 0)
+        self.assertEqual(other.json().get('items'), [])
+
+        mine = self.client.get(reverse('api_developer_transfers'))
+        self.assertEqual(mine.status_code, status.HTTP_200_OK, mine.content)
+        body = mine.json()
+        self.assertGreaterEqual(body.get('count'), 2)
+        refs = {item['reference'] for item in body['items']}
+        self.assertIn('ORDER-HIST-OK', refs)
+        self.assertIn('ORDER-HIST-FAIL', refs)
+        for item in body['items']:
+            self.assertEqual(item.get('method'), 'API')
+            self.assertEqual(item.get('sender'), self.sender.phone)
+        success = next(item for item in body['items'] if item['reference'] == 'ORDER-HIST-OK')
+        self.assertEqual(success['status'], 'SUCCESS')
+        self.assertTrue(success['transaction_id'])
+        failed_item = next(item for item in body['items'] if item['reference'] == 'ORDER-HIST-FAIL')
+        self.assertEqual(failed_item['status'], 'FAILED')
+        self.assertTrue(failed_item.get('error_code') or failed_item.get('error_message'))
+
+        filtered = self.client.get(reverse('api_developer_transfers'), {'status': 'failed', 'q': 'HIST-FAIL'})
+        self.assertEqual(filtered.status_code, status.HTTP_200_OK)
+        self.assertEqual(filtered.json().get('count'), 1)
+        self.assertEqual(filtered.json()['items'][0]['reference'], 'ORDER-HIST-FAIL')

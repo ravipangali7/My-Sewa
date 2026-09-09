@@ -807,6 +807,14 @@ class CustomUser(AbstractUser):
         default='',
         help_text="Hashed transaction PIN (exactly 4 digits). Empty if not set.",
     )
+    login_biometric_enabled = models.BooleanField(
+        default=False,
+        help_text="User preference: allow biometric login on enrolled devices. No biometric templates are stored.",
+    )
+    transaction_pin_biometric_enabled = models.BooleanField(
+        default=False,
+        help_text="User preference: allow biometric confirmation instead of typing the transaction PIN. No biometric templates are stored.",
+    )
     date_of_birth = models.DateField(
         null=True,
         blank=True,
@@ -2555,6 +2563,69 @@ class DeviceToken(models.Model):
         ordering = ['-updated_at']
 
 
+class BiometricDevice(models.Model):
+    """Device-bound secret for native biometric login / PIN confirmation.
+
+    The server stores only a hashed secret and preference flags.
+    Fingerprint / Face templates never leave the device OS.
+    """
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='biometric_devices',
+    )
+    device_id = models.UUIDField(unique=True, db_index=True)
+    secret_hash = models.CharField(max_length=128)
+    login_enabled = models.BooleanField(default=False)
+    pin_enabled = models.BooleanField(default=False)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.user.phone} device {self.device_id}'
+
+    class Meta:
+        verbose_name = 'Biometric Device'
+        verbose_name_plural = 'Biometric Devices'
+        ordering = ['-updated_at']
+
+
+class BiometricAssertion(models.Model):
+    """Short-lived, single-use proof that native biometric succeeded on-device."""
+
+    PURPOSE_TRANSACTION_PIN = 'transaction_pin'
+    PURPOSE_CHOICES = [
+        (PURPOSE_TRANSACTION_PIN, 'Transaction PIN'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='biometric_assertions',
+    )
+    purpose = models.CharField(
+        max_length=32,
+        choices=PURPOSE_CHOICES,
+        default=PURPOSE_TRANSACTION_PIN,
+        db_index=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'{self.user.phone} {self.purpose} assertion'
+
+    class Meta:
+        verbose_name = 'Biometric Assertion'
+        verbose_name_plural = 'Biometric Assertions'
+        indexes = [
+            models.Index(fields=['user', 'purpose', 'used_at', 'expires_at']),
+        ]
+
+
 class KYCSubmission(models.Model):
     """User KYC verification submission (supports resubmit after rejection)."""
 
@@ -2725,6 +2796,11 @@ class SecurityAuditLog(models.Model):
     ACTION_API_ACCESS_DISABLED = 'api_access_disabled'
     ACTION_API_KEY_REGENERATED = 'api_key_regenerated'
     ACTION_API_KEY_VIEWED = 'api_key_viewed'
+    ACTION_BIOMETRIC_LOGIN = 'biometric_login'
+    ACTION_BIOMETRIC_LOGIN_ENABLED = 'biometric_login_enabled'
+    ACTION_BIOMETRIC_LOGIN_DISABLED = 'biometric_login_disabled'
+    ACTION_BIOMETRIC_PIN_ENABLED = 'biometric_pin_enabled'
+    ACTION_BIOMETRIC_PIN_DISABLED = 'biometric_pin_disabled'
     ACTION_CHOICES = [
         (ACTION_TRANSACTION_PIN_SET, 'Transaction PIN Set'),
         (ACTION_TRANSACTION_PIN_CHANGED, 'Transaction PIN Changed'),
@@ -2751,6 +2827,11 @@ class SecurityAuditLog(models.Model):
         (ACTION_API_ACCESS_DISABLED, 'API Access Disabled'),
         (ACTION_API_KEY_REGENERATED, 'API Key Regenerated'),
         (ACTION_API_KEY_VIEWED, 'API Key Viewed'),
+        (ACTION_BIOMETRIC_LOGIN, 'Biometric Login'),
+        (ACTION_BIOMETRIC_LOGIN_ENABLED, 'Biometric Login Enabled'),
+        (ACTION_BIOMETRIC_LOGIN_DISABLED, 'Biometric Login Disabled'),
+        (ACTION_BIOMETRIC_PIN_ENABLED, 'Transaction PIN Biometric Enabled'),
+        (ACTION_BIOMETRIC_PIN_DISABLED, 'Transaction PIN Biometric Disabled'),
     ]
 
     user = models.ForeignKey(

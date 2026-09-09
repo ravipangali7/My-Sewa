@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time, timedelta
 
+from django.db.models import Q
 from django.http import HttpResponse
+from django.utils.dateparse import parse_date
+from django.utils.timezone import get_current_timezone, make_aware
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import (
@@ -18,7 +22,7 @@ from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
 from ..authentication import ApiKeyAuthentication, TokenAuthentication
-from ..models import ApiFundTransferLog, WalletTransfer, _ensure_api_fund_transfer
+from ..models import ApiFundTransferLog, _ensure_api_fund_transfer
 from ..services.api_docs import (
     documentation_payload,
     fund_transfer_url,
@@ -214,38 +218,75 @@ def developer_transfer_history(request):
     denied = _require_api_user(request.user)
     if denied:
         return denied
-    logs = (
+    _ensure_api_fund_transfer()
+    qs = (
         ApiFundTransferLog.objects.filter(user=request.user)
-        .select_related('wallet_transfer')
-        .order_by('-created_at')[:100]
+        .select_related('wallet_transfer', 'wallet_transfer__recipient')
+        .order_by('-created_at', '-id')
     )
-    items = [
-        {
-            'id': row.id,
-            'reference': row.reference,
-            'receiver': row.receiver,
-            'amount': str(row.amount) if row.amount is not None else None,
-            'status': row.status,
-            'error_code': row.error_code,
-            'transaction_id': row.transaction_id,
-            'created_at': row.created_at,
-        }
-        for row in logs
-    ]
-    transfers = (
-        WalletTransfer.objects.filter(sender=request.user, source=WalletTransfer.SOURCE_API)
-        .select_related('recipient')
-        .order_by('-created_at')[:100]
-    )
-    history = [
-        {
-            'transaction_id': row.reference,
-            'reference': row.client_reference,
-            'receiver': row.recipient.phone,
-            'amount': str(row.amount),
-            'status': 'SUCCESS' if row.status == 'success' else row.status.upper(),
-            'created_at': row.created_at,
-        }
-        for row in transfers
-    ]
-    return Response({'items': items, 'transfers': history})
+    q = (request.query_params.get('q') or '').strip()
+    if q:
+        qs = qs.filter(
+            Q(reference__icontains=q)
+            | Q(receiver__icontains=q)
+            | Q(transaction_id__icontains=q)
+            | Q(error_code__icontains=q)
+            | Q(error_message__icontains=q)
+        )
+    status_filter = (request.query_params.get('status') or '').strip().lower()
+    if status_filter in ('success', 'failed'):
+        qs = qs.filter(status=status_filter)
+    tz = get_current_timezone()
+    start = parse_date(request.query_params.get('start_date') or '')
+    end = parse_date(request.query_params.get('end_date') or '')
+    if start:
+        qs = qs.filter(created_at__gte=make_aware(datetime.combine(start, time.min), tz))
+    if end:
+        qs = qs.filter(
+            created_at__lt=make_aware(datetime.combine(end + timedelta(days=1), time.min), tz)
+        )
+    try:
+        page = max(int(request.query_params.get('page') or 1), 1)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.query_params.get('page_size') or 20)
+    except (TypeError, ValueError):
+        page_size = 20
+    page_size = min(max(page_size, 1), 50)
+    count = qs.count()
+    offset = (page - 1) * page_size
+    rows = list(qs[offset:offset + page_size])
+    items = [_serialize_api_transfer_log(row, request.user) for row in rows]
+    return Response({
+        'items': items,
+        'count': count,
+        'page': page,
+        'page_size': page_size,
+        'has_next': offset + len(rows) < count,
+        'has_previous': page > 1,
+    })
+
+
+def _serialize_api_transfer_log(row: ApiFundTransferLog, user) -> dict:
+    transfer = row.wallet_transfer
+    receiver = row.receiver
+    if transfer and getattr(transfer, 'recipient', None):
+        receiver = transfer.recipient.phone or receiver
+    status_value = 'SUCCESS' if row.status == ApiFundTransferLog.STATUS_SUCCESS else 'FAILED'
+    return {
+        'id': row.id,
+        'transaction_id': row.transaction_id or (getattr(transfer, 'reference', '') or ''),
+        'sender': getattr(user, 'phone', '') or '',
+        'receiver': receiver,
+        'amount': str(row.amount) if row.amount is not None else (
+            str(transfer.amount) if transfer else None
+        ),
+        'reference': row.reference,
+        'status': status_value,
+        'method': 'API',
+        'created_at': row.created_at,
+        'error_code': row.error_code,
+        'error_message': row.error_message,
+        'wallet_transfer_id': transfer.id if transfer else None,
+    }

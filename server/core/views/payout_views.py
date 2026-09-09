@@ -480,7 +480,7 @@ def dealer_load_user_wallet(request, user_id):
         )
 
     pin_failed = transaction_pin_gate(
-        request.user, serializer.validated_data.get('transaction_pin')
+        request.user, serializer.validated_data.get('transaction_pin'), request
     )
     if pin_failed:
         return pin_failed

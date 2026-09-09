@@ -57,37 +57,73 @@ def require_transaction_pin(user, pin) -> None:
         )
 
 
-def transaction_pin_gate(user, pin) -> Optional[Response]:
-    """
-    Verify PIN and return a 400 Response on failure, or None on success.
+def _wants_biometric(request) -> bool:
+    if request is None:
+        return False
+    data = getattr(request, 'data', None)
+    if data is None:
+        return False
+    try:
+        value = data.get('use_biometric')
+    except (AttributeError, TypeError):
+        return False
+    if value is True or value == 1:
+        return True
+    if isinstance(value, str) and value.strip().lower() in ('1', 'true', 'yes'):
+        return True
+    return False
 
-    Convenient for ``@api_view`` handlers that prefer early returns.
+
+def _pin_error_response(exc: ValidationError) -> Response:
+    detail = exc.detail
+    errors = {}
+    code = None
+    if isinstance(detail, dict):
+        for key, value in detail.items():
+            if key == 'code':
+                code = value[0] if isinstance(value, list) else value
+                continue
+            if isinstance(value, list):
+                errors[key] = [str(item) for item in value]
+            else:
+                errors[key] = [str(value)]
+    else:
+        errors['transaction_pin'] = [str(detail)]
+
+    first = next(iter(errors.values()), ['Invalid transaction PIN.'])[0]
+    body = {
+        'message': first,
+        'errors': errors,
+        'error': 'Invalid transaction PIN',
+    }
+    if code:
+        body['code'] = str(code)
+    return Response(body, status=status.HTTP_400_BAD_REQUEST)
+
+
+def transaction_pin_gate(user, pin, request=None) -> Optional[Response]:
     """
+    Verify PIN or a server-side biometric assertion.
+
+    Native biometric success is proven by a short-lived assertion that Flutter
+    created over an authenticated API call. A frontend ``use_biometric``
+    flag alone is never enough.
+    """
+    raw = (pin or '').strip() if isinstance(pin, str) else str(pin or '').strip()
+    if raw:
+        try:
+            require_transaction_pin(user, raw)
+            return None
+        except ValidationError as exc:
+            return _pin_error_response(exc)
+
+    if _wants_biometric(request):
+        from .biometric import consume_transaction_assertion
+
+        return consume_transaction_assertion(user)
+
     try:
         require_transaction_pin(user, pin)
         return None
     except ValidationError as exc:
-        detail = exc.detail
-        errors = {}
-        code = None
-        if isinstance(detail, dict):
-            for key, value in detail.items():
-                if key == 'code':
-                    code = value[0] if isinstance(value, list) else value
-                    continue
-                if isinstance(value, list):
-                    errors[key] = [str(item) for item in value]
-                else:
-                    errors[key] = [str(value)]
-        else:
-            errors['transaction_pin'] = [str(detail)]
-
-        first = next(iter(errors.values()), ['Invalid transaction PIN.'])[0]
-        body = {
-            'message': first,
-            'errors': errors,
-            'error': 'Invalid transaction PIN',
-        }
-        if code:
-            body['code'] = str(code)
-        return Response(body, status=status.HTTP_400_BAD_REQUEST)
+        return _pin_error_response(exc)

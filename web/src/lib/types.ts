@@ -1070,6 +1070,30 @@ export interface AdminApiUserLog {
   created_at: string;
 }
 
+export interface DeveloperApiTransfer {
+  id: number;
+  transaction_id: string;
+  sender: string;
+  receiver: string;
+  amount: string | null;
+  reference: string;
+  status: string;
+  method: string;
+  created_at: string;
+  error_code: string;
+  error_message: string;
+  wallet_transfer_id: number | null;
+}
+
+export interface DeveloperApiTransferList {
+  items: DeveloperApiTransfer[];
+  count: number;
+  page: number;
+  page_size: number;
+  has_next: boolean;
+  has_previous: boolean;
+}
+
 export interface DeveloperApiProfile {
   is_api_user: boolean;
   status: string;
@@ -1102,11 +1126,26 @@ export interface DeveloperApiDocumentation {
   >;
   validation: string[];
   success_response: Record<string, unknown>;
-  error_responses: Array<{ http: number; code: string; error: string }>;
+  error_body?: Record<string, unknown>;
+  error_responses: Array<{ http: number; code: string; error: string; message?: string }>;
+  http_status_codes?: Array<{ http: number; meaning: string }>;
+  how_it_works?: string[];
+  transaction_history?: {
+    title: string;
+    summary: string;
+    fields: string[];
+    empty: string;
+    note: string;
+  };
   idempotency: string;
   security: string[];
   downloads?: { path: string; query: string; note: string };
   examples: { curl: string; python: string; javascript: string };
+  toc?: Array<{ id: string; title: string }>;
+  docs_version?: string;
+  published_at?: string;
+  request_example?: Record<string, unknown>;
+  success_http?: string;
 }
 
 export interface AdminUserWritePayload {

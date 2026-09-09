@@ -310,7 +310,7 @@ def pay_bill(request):
 
     from ..services.pin import transaction_pin_gate
     pin_failed = transaction_pin_gate(
-        request.user, serializer.validated_data.get('transaction_pin')
+        request.user, serializer.validated_data.get('transaction_pin'), request
     )
     if pin_failed:
         return pin_failed

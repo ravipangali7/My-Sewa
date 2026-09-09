@@ -72,6 +72,14 @@ def validate_transaction_pin_value(value):
     return pin
 
 
+def validate_optional_transaction_pin(value):
+    """Allow blank PIN when the client will authorize via biometric assertion."""
+    pin = (value or '').strip() if isinstance(value, str) else str(value or '').strip()
+    if not pin:
+        return ''
+    return validate_transaction_pin_value(pin)
+
+
 def validate_date_of_birth_value(value):
     """Ensure date of birth is present and not in the future."""
     if value is None:
@@ -190,7 +198,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'role', 'assigned_dealer_id', 'parent_agent_id', 'assigned_sub_agent_id',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
             'kyc_status', 'citizenship_number', 'kyc_verified', 'profile_locked',
-            'has_transaction_pin', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
+            'has_transaction_pin', 'login_biometric_enabled',
+            'transaction_pin_biometric_enabled',
+            'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'wallet_frozen', 'wallet_status', 'is_api_user',
             'date_joined', 'last_login',
         )
@@ -201,7 +211,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
             'kyc_status', 'citizenship_number',
             'kyc_verified', 'profile_locked', 'is_api_user',
-            'has_transaction_pin', 'date_joined', 'last_login',
+            'has_transaction_pin', 'login_biometric_enabled',
+            'transaction_pin_biometric_enabled',
+            'date_joined', 'last_login',
         )
 
     def get_avatar_url(self, obj):
@@ -843,11 +855,11 @@ class WalletTransferCreateSerializer(serializers.Serializer):
         max_length=255, required=False, allow_blank=True, default='',
     )
     transaction_pin = serializers.CharField(
-        required=True, write_only=True, min_length=4, max_length=4,
+        required=False, allow_blank=True, write_only=True,
     )
 
     def validate_transaction_pin(self, value):
-        return validate_transaction_pin_value(value)
+        return validate_optional_transaction_pin(value)
 
     def validate_amount(self, value):
         if value <= 0:
@@ -916,11 +928,11 @@ class PushBalanceCreateSerializer(serializers.Serializer):
         max_length=255, required=False, allow_blank=True, default='Push Balance',
     )
     transaction_pin = serializers.CharField(
-        required=True, write_only=True, min_length=4, max_length=4,
+        required=False, allow_blank=True, write_only=True,
     )
 
     def validate_transaction_pin(self, value):
-        return validate_transaction_pin_value(value)
+        return validate_optional_transaction_pin(value)
 
     def validate_amount(self, value):
         if value <= 0:

@@ -121,7 +121,7 @@ def create_wallet_transfer(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     pin_failed = transaction_pin_gate(
-        request.user, serializer.validated_data.get('transaction_pin')
+        request.user, serializer.validated_data.get('transaction_pin'), request
     )
     if pin_failed:
         return pin_failed

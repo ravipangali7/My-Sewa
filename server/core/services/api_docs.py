@@ -1,7 +1,14 @@
-"""Fund Transfer API documentation content used by the dashboard and downloads."""
+"""Fund Transfer API documentation generated from the live implementation."""
 from __future__ import annotations
 
+from datetime import date
+
 from django.conf import settings
+
+from .api_docs_html import render_html_documentation
+from .api_docs_pdf import render_pdf_documentation
+
+DOCS_VERSION = '1.1'
 
 
 def api_base_url(request=None) -> str:
@@ -27,9 +34,26 @@ def fund_transfer_url(request=None) -> str:
 def documentation_payload(request=None) -> dict:
     base = api_base_url(request)
     endpoint = fund_transfer_url(request)
+    success_body = {
+        'success': True,
+        'message': 'Fund transfer successful',
+        'transaction_id': 'MYSEWA_WT_A1B2C3D4E5F678',
+        'reference': 'ORDER-10001',
+        'amount': 1000,
+        'status': 'SUCCESS',
+    }
+    error_body = {
+        'success': False,
+        'error': 'Insufficient balance',
+        'message': 'Human-readable explanation',
+        'code': 'insufficient_balance',
+    }
     return {
         'title': 'MySewa Fund Transfer API',
+        'product': 'MySewa',
         'version': 'v1',
+        'docs_version': DOCS_VERSION,
+        'published_at': date.today().isoformat(),
         'base_url': base,
         'endpoint': endpoint,
         'path': fund_transfer_path(),
@@ -78,6 +102,11 @@ def documentation_payload(request=None) -> dict:
                 'example': 'ORDER-10001',
             },
         },
+        'request_example': {
+            'receiver': '98XXXXXXXX',
+            'amount': 1000,
+            'reference': 'ORDER-10001',
+        },
         'validation': [
             'Receiver must exist, be active, and must not be the sender.',
             'Amount must be a positive number (zero and negative values are rejected).',
@@ -85,35 +114,145 @@ def documentation_payload(request=None) -> dict:
             'Sender wallet must have sufficient balance including any applicable charges.',
             'Sender must be an API user with an active, approved account and wallet transfer permission.',
             'Frozen or blocked wallets cannot send or receive.',
-            'Reference is required, 1–64 characters: letters, digits, hyphen, underscore, and period.',
+            'Reference is required, 1-64 characters: letters, digits, hyphen, underscore, and period.',
         ],
-        'success_response': {
-            'success': True,
-            'message': 'Fund transfer successful',
-            'transaction_id': 'TXN123456789',
-            'reference': 'ORDER-10001',
-            'amount': 1000,
-            'status': 'SUCCESS',
-        },
+        'success_http': '201 Created for a new transfer; 200 OK when replaying a completed reference.',
+        'success_response': success_body,
+        'error_body': error_body,
         'error_responses': [
-            {'http': 401, 'code': 'invalid_api_key', 'error': 'Invalid API key'},
-            {'http': 403, 'code': 'api_access_disabled', 'error': 'API access disabled'},
-            {'http': 403, 'code': 'user_inactive', 'error': 'User inactive'},
-            {'http': 400, 'code': 'invalid_receiver', 'error': 'Invalid receiver'},
-            {'http': 404, 'code': 'receiver_not_found', 'error': 'Receiver not found'},
-            {'http': 400, 'code': 'insufficient_balance', 'error': 'Insufficient balance'},
-            {'http': 400, 'code': 'invalid_amount', 'error': 'Invalid amount'},
-            {'http': 409, 'code': 'duplicate_reference', 'error': 'Duplicate reference'},
-            {'http': 403, 'code': 'unauthorized_transaction', 'error': 'Unauthorized transaction'},
-            {'http': 404, 'code': 'wallet_unavailable', 'error': 'Wallet unavailable'},
-            {'http': 429, 'code': 'throttled', 'error': 'Too many requests'},
-            {'http': 500, 'code': 'server_error', 'error': 'Server/internal error'},
+            {
+                'http': 401,
+                'code': 'invalid_api_key',
+                'error': 'Invalid API key',
+                'message': 'The API key is missing, invalid, or has been revoked.',
+            },
+            {
+                'http': 403,
+                'code': 'api_access_disabled',
+                'error': 'API access disabled',
+                'message': 'API fund-transfer access is disabled for this account.',
+            },
+            {
+                'http': 403,
+                'code': 'user_inactive',
+                'error': 'User inactive',
+                'message': 'This account is inactive and cannot perform transfers.',
+            },
+            {
+                'http': 400,
+                'code': 'invalid_receiver',
+                'error': 'Invalid receiver',
+                'message': 'Receiver is required, is the sender, or cannot receive transfers.',
+            },
+            {
+                'http': 404,
+                'code': 'receiver_not_found',
+                'error': 'Receiver not found',
+                'message': 'No MySewa user was found for that receiver.',
+            },
+            {
+                'http': 400,
+                'code': 'insufficient_balance',
+                'error': 'Insufficient balance',
+                'message': 'Sender wallet does not cover amount plus applicable charges.',
+            },
+            {
+                'http': 400,
+                'code': 'invalid_amount',
+                'error': 'Invalid amount',
+                'message': 'Amount must be a valid number greater than zero and within limits.',
+            },
+            {
+                'http': 400,
+                'code': 'duplicate_reference',
+                'error': 'Duplicate reference',
+                'message': 'Reference is missing, malformed, or already being processed.',
+            },
+            {
+                'http': 409,
+                'code': 'duplicate_reference',
+                'error': 'Duplicate reference',
+                'message': 'This reference is already being processed.',
+            },
+            {
+                'http': 403,
+                'code': 'unauthorized_transaction',
+                'error': 'Unauthorized transaction',
+                'message': 'Wallet transfer is disabled, blocked, frozen, or over the daily limit.',
+            },
+            {
+                'http': 404,
+                'code': 'wallet_unavailable',
+                'error': 'Wallet unavailable',
+                'message': 'Wallet is unavailable for this transfer.',
+            },
+            {
+                'http': 429,
+                'code': 'throttled',
+                'error': 'Too many requests',
+                'message': 'Too many requests. Please slow down and try again.',
+            },
+            {
+                'http': 500,
+                'code': 'server_error',
+                'error': 'Server/internal error',
+                'message': 'The transfer could not be completed. Please try again.',
+            },
+        ],
+        'http_status_codes': [
+            {'http': 200, 'meaning': 'Idempotent replay of a completed transfer. No second debit.'},
+            {'http': 201, 'meaning': 'New fund transfer created and wallets updated.'},
+            {'http': 400, 'meaning': 'Validation failed (receiver, amount, balance, or reference).'},
+            {'http': 401, 'meaning': 'Missing, invalid, or revoked API key.'},
+            {'http': 403, 'meaning': 'API access disabled, inactive user, or unauthorized wallet.'},
+            {'http': 404, 'meaning': 'Receiver or wallet was not found.'},
+            {'http': 409, 'meaning': 'The same reference is already being processed.'},
+            {'http': 429, 'meaning': 'Rate limit exceeded (60 requests per minute).'},
+            {'http': 500, 'meaning': 'Unexpected server error. Reference is not consumed; retry is allowed.'},
         ],
         'idempotency': (
             'Each API user may use a given `reference` (or Idempotency-Key) only once for a successful transfer. '
-            'A repeated request with the same reference returns the original transaction_id and does not debit again. '
-            'A failed attempt does not consume the reference, so the client may retry.'
+            'A repeated request with the same reference returns HTTP 200 and the original transaction_id and does not debit again. '
+            'A failed attempt does not consume the reference, so the client may retry the same reference.'
         ),
+        'how_it_works': [
+            'An administrator enables Fund Transfer API access for your MySewa account. An API key is generated automatically.',
+            'You copy the API key from Developer / API and store it securely in your own website or application.',
+            'Your application sends POST /api/v1/fund-transfer/ with receiver, amount, and a unique reference.',
+            'MySewa authenticates the Bearer API key. Dashboard login tokens are rejected.',
+            'MySewa validates the sender, receiver, amount, limits, and wallet state.',
+            'If the sender wallet has sufficient balance (including charges), the sender is debited.',
+            'The receiver wallet is credited in the same atomic wallet transfer.',
+            'A wallet transaction is created automatically. You do not create API transactions from the dashboard.',
+            'The API returns transaction_id, reference, amount, and status.',
+            'Successful and failed API calls appear in API Transaction History for the authenticated API user.',
+        ],
+        'transaction_history': {
+            'title': 'API Transaction History',
+            'summary': (
+                'API transactions are created automatically when your application calls the Fund Transfer API. '
+                'There is no manual "create API transaction" action in the dashboard.'
+            ),
+            'fields': [
+                'Transaction ID (MySewa wallet-transfer reference, present on success)',
+                'Sender (authenticated API user)',
+                'Receiver (phone, email, or user id submitted in the request)',
+                'Amount',
+                'Client reference',
+                'Status (SUCCESS or FAILED)',
+                'Method (always API)',
+                'Created date/time',
+                'Failure reason when the request did not succeed',
+            ],
+            'empty': (
+                'No API transactions yet. Transactions will appear here after your application '
+                'makes a fund-transfer request through the API.'
+            ),
+            'note': (
+                'Successful API transfers also appear in standard wallet history because they reuse '
+                'the existing MySewa wallet-transfer ledger. Failed API attempts are audit records only.'
+            ),
+        },
         'downloads': {
             'path': '/api/developer/docs/download/',
             'query': 'doc_format=markdown|html|pdf',
@@ -126,12 +265,33 @@ def documentation_payload(request=None) -> dict:
             'Store the API key like a password. Rotate it if it is exposed.',
             'Never log API keys, put them in URLs, or share them in support tickets.',
             'Regenerating a key invalidates the previous key immediately.',
+            'The Fund Transfer API is throttled to 60 requests per minute per API user.',
         ],
         'examples': {
             'curl': _curl_example(endpoint),
             'python': _python_example(endpoint),
             'javascript': _javascript_example(endpoint),
         },
+        'toc': [
+            {'id': 'introduction', 'title': 'Introduction'},
+            {'id': 'base-url', 'title': 'API Base URL'},
+            {'id': 'authentication', 'title': 'Authentication'},
+            {'id': 'api-key', 'title': 'API Key'},
+            {'id': 'fund-transfer', 'title': 'Fund Transfer API'},
+            {'id': 'request', 'title': 'Request Parameters'},
+            {'id': 'headers', 'title': 'Headers'},
+            {'id': 'examples', 'title': 'Request Examples'},
+            {'id': 'curl', 'title': 'cURL Example'},
+            {'id': 'python', 'title': 'Python Example'},
+            {'id': 'javascript', 'title': 'JavaScript Example'},
+            {'id': 'success', 'title': 'Successful Response'},
+            {'id': 'errors', 'title': 'Error Responses'},
+            {'id': 'status-codes', 'title': 'HTTP Status Codes'},
+            {'id': 'idempotency', 'title': 'Duplicate / Idempotency Rules'},
+            {'id': 'history', 'title': 'API Transaction History'},
+            {'id': 'security', 'title': 'Security Guidelines'},
+            {'id': 'flow', 'title': 'Integration Flow'},
+        ],
     }
 
 
@@ -189,7 +349,7 @@ def _javascript_example(endpoint: str) -> str:
 def markdown_documentation(request=None) -> str:
     doc = documentation_payload(request)
     errors = '\n'.join(
-        f"- `{item['http']}` `{item['code']}` — {item['error']}"
+        f"- `{item['http']}` `{item['code']}` — {item['error']}: {item.get('message') or ''}".rstrip()
         for item in doc['error_responses']
     )
     headers = '\n'.join(
@@ -198,19 +358,26 @@ def markdown_documentation(request=None) -> str:
     )
     rules = '\n'.join(f'- {rule}' for rule in doc['validation'])
     security = '\n'.join(f'- {item}' for item in doc['security'])
+    flow = '\n'.join(f'{i}. {step}' for i, step in enumerate(doc['how_it_works'], start=1))
+    history_fields = '\n'.join(f'- {item}' for item in doc['transaction_history']['fields'])
+    codes = '\n'.join(f"- `{item['http']}` — {item['meaning']}" for item in doc['http_status_codes'])
     return f"""# {doc['title']}
 
-Version: {doc['version']}
+Version: {doc['version']} · Documentation {doc['docs_version']} · {doc['published_at']}
 
-## Base URL
+## Introduction
+
+MySewa Fund Transfer API lets an approved API user move NPR from their MySewa wallet to another MySewa wallet from their own website or application.
+
+You do **not** create API transactions from the Developer dashboard. Your application calls the API; MySewa creates the transaction automatically.
+
+## How API Fund Transfer Works
+
+{flow}
+
+## API Base URL
 
 `{doc['base_url']}`
-
-## Endpoint
-
-`{doc['method']} {doc['path']}`
-
-Full URL: `{doc['endpoint']}`
 
 ## Authentication
 
@@ -222,11 +389,23 @@ Send the API key as a Bearer token:
 
 {chr(10).join('- ' + n for n in doc['authentication']['notes'])}
 
+## API Key
+
+1. An admin enables Fund Transfer API access on your account.
+2. Open **Developer / API** in the MySewa app to view, copy, or regenerate the key.
+3. Regenerating a key invalidates the previous key immediately.
+
+## Fund Transfer API
+
+`{doc['method']} {doc['path']}`
+
+Full URL: `{doc['endpoint']}`
+
 ## Headers
 
 {headers}
 
-## Request body
+## Request Parameters
 
 | Field | Required | Type | Description |
 | --- | --- | --- | --- |
@@ -237,49 +416,74 @@ Send the API key as a Bearer token:
 Example:
 
 ```json
-{{
-  "receiver": "98XXXXXXXX",
-  "amount": 1000,
-  "reference": "ORDER-10001"
-}}
+{ _json_block(doc['request_example']) }
 ```
 
 ## Validation rules
 
 {rules}
 
-## Successful response
+## Request Examples
 
-HTTP `201 Created` (or `200 OK` when replaying a duplicate reference):
+### cURL
+
+```bash
+{doc['examples']['curl']}
+```
+
+### Python
+
+```python
+{doc['examples']['python']}
+```
+
+### JavaScript
+
+```javascript
+{doc['examples']['javascript']}
+```
+
+## Successful Response
+
+{doc['success_http']}
+
+`transaction_id` is the MySewa wallet-transfer reference (for example `MYSEWA_WT_...`).
 
 ```json
 { _json_block(doc['success_response']) }
 ```
 
-`transaction_id` is the MySewa wallet-transfer reference (for example `MYSEWA_WT_...`).
-
-## Error responses
+## Error Responses
 
 {errors}
 
 Error body shape:
 
 ```json
-{{
-  "success": false,
-  "error": "Insufficient balance",
-  "message": "Human-readable explanation",
-  "code": "insufficient_balance"
-}}
+{ _json_block(doc['error_body']) }
 ```
 
 Internal exception messages and stack traces are never returned.
+
+## HTTP Status Codes
+
+{codes}
 
 ## Duplicate / idempotency behavior
 
 {doc['idempotency']}
 
-## Security recommendations
+## API Transaction History
+
+{doc['transaction_history']['summary']}
+
+{history_fields}
+
+{doc['transaction_history']['note']}
+
+Empty state: {doc['transaction_history']['empty']}
+
+## Security Guidelines
 
 {security}
 
@@ -290,24 +494,6 @@ Dashboard users with API access can download this document:
 `GET /api/developer/docs/download/?doc_format=markdown`
 
 Supported `doc_format` values: `markdown`, `html`, `pdf`.
-
-## cURL
-
-```bash
-{doc['examples']['curl']}
-```
-
-## Python
-
-```python
-{doc['examples']['python']}
-```
-
-## JavaScript (fetch)
-
-```javascript
-{doc['examples']['javascript']}
-```
 """
 
 
@@ -318,101 +504,8 @@ def _json_block(payload: dict) -> str:
 
 
 def html_documentation(request=None) -> str:
-    import html as html_lib
-
-    md = markdown_documentation(request)
-    escaped = html_lib.escape(md)
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>MySewa Fund Transfer API</title>
-  <style>
-    body {{ font-family: system-ui, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; color: #111; }}
-    pre {{ background: #0f172a; color: #e2e8f0; padding: 1rem; overflow: auto; border-radius: 8px; white-space: pre-wrap; }}
-    h1, h2 {{ color: #0f766e; }}
-  </style>
-</head>
-<body>
-  <pre>{escaped}</pre>
-</body>
-</html>
-"""
+    return render_html_documentation(documentation_payload(request))
 
 
 def pdf_documentation(request=None) -> bytes:
-    """Minimal multi-page PDF from the markdown documentation (no extra dependency)."""
-    text = markdown_documentation(request)
-    return _text_to_pdf('MySewa Fund Transfer API', text)
-
-
-def _escape_pdf(text: str) -> str:
-    return text.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
-
-
-def _text_to_pdf(_title: str, text: str) -> bytes:
-    lines: list[str] = []
-    for raw in text.replace('\t', '    ').splitlines():
-        if not raw:
-            lines.append('')
-            continue
-        chunk = raw
-        while len(chunk) > 92:
-            lines.append(chunk[:92])
-            chunk = chunk[92:]
-        lines.append(chunk)
-
-    page_height = 792
-    page_width = 612
-    margin = 48
-    leading = 12
-    lines_per_page = max(1, (page_height - 2 * margin) // leading)
-    pages = [lines[i:i + lines_per_page] for i in range(0, len(lines), lines_per_page)] or [['']]
-
-    content_streams = []
-    for page_lines in pages:
-        y = page_height - margin
-        parts = ['BT', '/F1 10 Tf', f'{margin} {y} Td', f'{leading} TL']
-        for line in page_lines:
-            parts.append(f'({_escape_pdf(line)}) Tj T*')
-        parts.append('ET')
-        content_streams.append('\n'.join(parts).encode('latin-1', 'replace'))
-
-    font_id = 3 + 2 * len(pages)
-    objects: list[bytes] = [
-        b'<< /Type /Catalog /Pages 2 0 R >>',
-        f'<< /Type /Pages /Count {len(pages)} /Kids [{" ".join(f"{3 + i} 0 R" for i in range(len(pages)))}] >>'.encode(
-            'latin-1'
-        ),
-    ]
-    for page_index in range(len(pages)):
-        content_id = 3 + len(pages) + page_index
-        objects.append(
-            (
-                f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width} {page_height}] '
-                f'/Resources << /Font << /F1 {font_id} 0 R >> >> '
-                f'/Contents {content_id} 0 R >>'
-            ).encode('latin-1')
-        )
-    for stream in content_streams:
-        objects.append(b'<< /Length %d >>\nstream\n' % len(stream) + stream + b'\nendstream')
-    objects.append(b'<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>')
-
-    out = bytearray(b'%PDF-1.4\n')
-    offsets = [0]
-    for index, obj in enumerate(objects, start=1):
-        offsets.append(len(out))
-        out.extend(f'{index} 0 obj\n'.encode('ascii'))
-        out.extend(obj)
-        out.extend(b'\nendobj\n')
-    xref_pos = len(out)
-    out.extend(f'xref\n0 {len(objects) + 1}\n'.encode('ascii'))
-    out.extend(b'0000000000 65535 f \n')
-    for offset in offsets[1:]:
-        out.extend(f'{offset:010d} 00000 n \n'.encode('ascii'))
-    out.extend(
-        f'trailer << /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n'.encode(
-            'ascii'
-        )
-    )
-    return bytes(out)
+    return render_pdf_documentation(documentation_payload(request))
