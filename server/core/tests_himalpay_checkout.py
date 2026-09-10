@@ -20,6 +20,7 @@ from .services.checkout_deposit import (
     FAILED_PAYMENT,
     PENDING_PAYMENT,
     SETTLED,
+    checkout_session_public_dict,
     create_checkout_session,
     extract_documented_identifiers,
     public_checkout_details,
@@ -134,7 +135,11 @@ class HimalPayCheckoutDepositTests(TestCase):
             HimalPayCheckoutAPI,
             'initiate_checkout',
             return_value=_initiate_payload('ignored'),
-        ) as mocked:
+        ) as mocked, patch.object(
+            HimalPayCheckoutAPI,
+            'checkout_status',
+            return_value=_status_payload(amount_paisa=100000, order_id='ignored'),
+        ):
             session, payment_url = create_checkout_session(self.user, Decimal('1000.00'))
         self.assertTrue(mocked.called)
         kwargs = mocked.call_args.kwargs
@@ -148,6 +153,12 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.assertTrue(session.purchase_order_identifier)
         self.assertIsNone(session.deposit_id)
         self.assertIn('process_id=', payment_url)
+        self.assertEqual(public_checkout_details(session).get('ncash_id'), '9800000000')
+        self.assertEqual(public_checkout_details(session).get('account_holder'), 'Sita Store')
+        pub = checkout_session_public_dict(session)
+        self.assertFalse(pub.get('merchant_qr_available'))
+        self.assertIsNone(pub.get('qr_payload'))
+        self.assertTrue(str(pub.get('payment_url') or '').startswith('https://'))
         self.assertEqual(self.wallet.balance, Decimal('50.00'))
         self.assertFalse(
             Deposit.objects.filter(user=self.user, provider='himalpay_checkout').exists()
@@ -350,6 +361,10 @@ class HimalPayCheckoutDepositTests(TestCase):
             HimalPayCheckoutAPI,
             'initiate_checkout',
             return_value=_initiate_payload('x'),
+        ), patch.object(
+            HimalPayCheckoutAPI,
+            'checkout_status',
+            return_value=_status_payload(amount_paisa=100000, order_id='x'),
         ):
             resp = self.client.post(
                 reverse('deposit_checkout_initiate'),
@@ -371,6 +386,11 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.assertEqual(details.get('provider'), 'Himal Pay')
         self.assertEqual(details.get('product_name'), 'MySewa Wallet Deposit')
         self.assertEqual(details.get('currency'), 'NPR')
+        self.assertEqual(details.get('merchant_name'), 'Sita Store')
+        self.assertEqual(details.get('ncash_id'), '9800000000')
+        self.assertFalse(details.get('merchant_qr_available'))
+        self.assertFalse(data.get('merchant_qr_available'))
+        self.assertIsNone(data.get('qr_payload'))
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal('50.00'))
         self.assertFalse(
@@ -380,11 +400,16 @@ class HimalPayCheckoutDepositTests(TestCase):
 
     def test_initiate_reuses_unexpired_pending_session(self):
         first = self._open_session()
-        with patch.object(HimalPayCheckoutAPI, 'initiate_checkout') as mocked:
+        with patch.object(HimalPayCheckoutAPI, 'initiate_checkout') as mocked, patch.object(
+            HimalPayCheckoutAPI,
+            'checkout_status',
+            return_value=_status_payload(amount_paisa=100000, order_id=ORDER_ID),
+        ):
             session, payment_url = create_checkout_session(self.user, Decimal('1000.00'))
         mocked.assert_not_called()
         self.assertEqual(session.id, first.id)
         self.assertEqual(payment_url, first.payment_url)
+        self.assertEqual(public_checkout_details(session).get('ncash_id'), '9800000000')
         self.assertFalse(
             Deposit.objects.filter(user=self.user, provider='himalpay_checkout').exists()
         )
@@ -553,15 +578,20 @@ class HimalPayCheckoutDepositTests(TestCase):
         details = public_checkout_details(deposit)
         self.assertEqual(details['merchant_name'], 'Sita Store')
         self.assertEqual(details['merchant_phone'], '9800000000')
-        self.assertEqual(details['product_name'], 'MySewa Wallet Deposit')
-        self.assertEqual(details['currency'], 'NPR')
+        self.assertEqual(details['account_holder'], 'Sita Store')
+        self.assertEqual(details['ncash_id'], '9800000000')
+        self.assertFalse(details['merchant_qr_available'])
 
     def test_initiate_payload_uses_documented_fields(self):
         with patch.object(
             HimalPayCheckoutAPI,
             'initiate_checkout',
             return_value=_initiate_payload('x'),
-        ) as mocked:
+        ) as mocked, patch.object(
+            HimalPayCheckoutAPI,
+            'checkout_status',
+            return_value=_status_payload(amount_paisa=25000, order_id='x'),
+        ):
             create_checkout_session(self.user, Decimal('250.00'))
         kwargs = mocked.call_args.kwargs
         self.assertEqual(set(kwargs.keys()), {

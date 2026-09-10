@@ -4,7 +4,9 @@ Himal Pay Checkout wallet deposit (payin) settlement.
 Flow (from official Checkout docs):
   1. Backend calls checkout-initiate and stores a CheckoutSession (QR only).
      No Deposit / wallet transaction is created at this step.
-  2. User scans the live Himal Pay QR from another bank app or eSewa.
+  2. User pays this Checkout session in Himal Pay / N-Cash (payment_url).
+     Himal Pay returns a web checkout URL, not a NepalPay/Fonepay merchant QR,
+     so Fonepay / NepalPay / SmartQR bank scanners cannot complete it.
   3. Backend polls checkout-status (or return/webhook).
   4. Wallet Deposit is created and credited only when
      payment.status == "completed" AND amount / order id match.
@@ -169,7 +171,15 @@ def public_checkout_details(record) -> Dict[str, str]:
         'merchant_phone': str(
             merchant.get('mobile_no') or merchant.get('phone') or ''
         ).strip(),
+        'account_holder': str(merchant.get('name') or '').strip(),
+        'ncash_id': str(
+            merchant.get('mobile_no') or merchant.get('phone') or ''
+        ).strip(),
         'currency': str(getattr(record, 'currency', None) or 'NPR'),
+        # Checkout initiate returns payment_url only — never a NepalPay/EMV payload.
+        'merchant_qr_available': False,
+        'qr_kind': '',
+        'payin_mode': 'ncash_wallet_checkout',
     }
 
 
@@ -188,6 +198,8 @@ def checkout_session_public_dict(session: CheckoutSession) -> Dict[str, Any]:
         'purchase_order_identifier': session.purchase_order_identifier,
         'process_id': session.process_id,
         'payment_url': session.payment_url,
+        'qr_payload': None,
+        'merchant_qr_available': False,
         'expires_at': expires.isoformat() if expires else None,
         'checkout_details': public_checkout_details(session),
         'transaction_id': session.process_id or '',
@@ -310,6 +322,8 @@ def create_checkout_session(user, amount) -> Tuple[CheckoutSession, str]:
         except (OperationalError, ProgrammingError):
             existing = None
     if existing:
+        if not public_checkout_details(existing).get('ncash_id'):
+            existing = _enrich_session_from_status(existing, HimalPayCheckoutAPI())
         return existing, existing.payment_url
 
     order_id = new_purchase_order_identifier()
@@ -373,7 +387,24 @@ def create_checkout_session(user, amount) -> Tuple[CheckoutSession, str]:
                 'Checkout is temporarily unavailable. Please try again.',
                 status_code=503,
             ) from inner
-    return session, payment_url
+    return _enrich_session_from_status(session, client), payment_url
+
+
+def _enrich_session_from_status(session: CheckoutSession, client: HimalPayCheckoutAPI) -> CheckoutSession:
+    """Attach checkout-status merchant/account fields so the Deposit tab can show them."""
+    process_id = (session.process_id or '').strip()
+    if not process_id:
+        return session
+    try:
+        status_payload = client.checkout_status(process_id)
+    except Exception as exc:
+        logger.info('Checkout status after initiate skipped: %s', exc)
+        return session
+    merged = dict(session.provider_payload or {})
+    merged.update(sanitize_provider_payload(status_payload))
+    session.provider_payload = merged
+    session.save(update_fields=['provider_payload', 'updated_at'])
+    return session
 
 
 def create_checkout_deposit(user, amount) -> Tuple[CheckoutSession, str]:
