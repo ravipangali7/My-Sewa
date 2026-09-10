@@ -1588,19 +1588,19 @@ function SettingsPage() {
               </SettingsPanel>
 
               <SettingsPanel
-                title="HimalPay Checkout (wallet deposit)"
-                description="API key used to generate the live Himal Pay QR on the user Deposit tab. Super Admin can paste the N-Cash Web Checkout key here. If this field is empty, the existing HimalPay API key is used. Wallet credit happens only after Himal Pay confirms the payment."
+                title="HimalPay Payin (Deposit QR)"
+                description="Payin API key for the user Deposit tab QR. Saved in Super Admin Settings (not in source code). This is separate from the HimalPay reseller key used for bills, top-up, bank transfer, and payout. Do not replace that reseller key."
                 onSave={saveHimalpay}
                 saving={saving}
               >
                 <div className="grid gap-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="himalpay_checkout_api_key">Checkout API key</Label>
+                    <Label htmlFor="himalpay_checkout_api_key">Payin API key</Label>
                     <PasswordInput
                       id="himalpay_checkout_api_key"
-                      revealLabel="Checkout API key"
+                      revealLabel="Payin API key"
                       autoComplete="off"
-                      placeholder="mck_xxxxxxxxxxxxxxxx"
+                      placeholder="Paste the HimalPay Payin / Web Checkout key"
                       value={config.integrations?.himalpay_checkout_api_key ?? ""}
                       onChange={(e) =>
                         setConfig((c) => ({
@@ -1613,12 +1613,12 @@ function SettingsPage() {
                       }
                     />
                     <p className="text-xs text-muted-foreground">
-                      Server-side only. Saved here, this key generates the live Deposit QR.
-                      Leave empty to use the existing HimalPay API key.
+                      Header: X-Checkout-API-Key. Stored here in Super Admin Settings.
+                      If LIVE rejects the key, the server also tries the UAT Payin host.
                     </p>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="himalpay_checkout_base_url">Checkout API base URL</Label>
+                    <Label htmlFor="himalpay_checkout_base_url">Payin API base URL</Label>
                     <Input
                       id="himalpay_checkout_base_url"
                       type="url"
@@ -1639,9 +1639,9 @@ function SettingsPage() {
                       }
                     />
                     <p className="text-xs text-muted-foreground">
-                      LIVE default: https://api.himalpay.com.np/api/v1. UAT docs list
-                      https://uatapi.himalpay.com.np/api/v1. Confirm with Himal Pay if LIVE
-                      checkout paths differ.
+                      LIVE: https://api.himalpay.com.np/api/v1. UAT Payin:
+                      https://uatapi.himalpay.com.np/api/v1. Leave the reseller
+                      HimalPay API key and base URL unchanged.
                     </p>
                   </div>
                   <div className="space-y-1.5">

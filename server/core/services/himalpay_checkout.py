@@ -45,6 +45,13 @@ CHECKOUT_MIN_PAISA = 1000
 INITIATE_PATH = '/checkout/checkout-initiate'
 STATUS_PATH = '/checkout/checkout-status'
 
+# Checkout/Payin hosts. Reseller payouts keep using HIMALPAY_BASE_URL separately.
+CHECKOUT_LIVE_BASE = 'https://api.himalpay.com.np/api/v1'
+CHECKOUT_UAT_BASE = 'https://uatapi.himalpay.com.np/api/v1'
+
+INITIATE_PATH = '/checkout/checkout-initiate'
+STATUS_PATH = '/checkout/checkout-status'
+
 PAYMENT_STATUS_STARTED = 'started'
 PAYMENT_STATUS_COMPLETED = 'completed'
 PAYMENT_STATUS_EXPIRED = 'expired'
@@ -86,6 +93,7 @@ def get_himalpay_checkout_credentials() -> Dict[str, str]:
     db_reseller_base = str(integrations.get('himalpay_base_url') or '').strip()
     db_return = str(integrations.get('himalpay_checkout_return_url') or '').strip()
 
+    dedicated_key = bool(db_key or env_key)
     api_key = db_key or env_key
     if not api_key:
         try:
@@ -93,17 +101,45 @@ def get_himalpay_checkout_credentials() -> Dict[str, str]:
         except Exception:
             api_key = ''
 
-    base = (db_base or env_base or db_reseller_base or env_reseller_base).rstrip('/')
+    if dedicated_key:
+        base = (db_base or env_base or CHECKOUT_LIVE_BASE).rstrip('/')
+    else:
+        base = (db_base or env_base or db_reseller_base or env_reseller_base).rstrip('/')
     return {
         'api_key': api_key,
         'base_url': base,
         'return_url': db_return or env_return,
+        'dedicated_key': dedicated_key,
     }
 
 
 def is_checkout_configured() -> bool:
     creds = get_himalpay_checkout_credentials()
     return bool(creds.get('api_key'))
+
+
+def checkout_host_candidates(primary: str) -> list:
+    """LIVE first (or the configured host), then the other Checkout environment."""
+    primary = (primary or CHECKOUT_LIVE_BASE).rstrip('/')
+    hosts = [primary]
+    for extra in (CHECKOUT_LIVE_BASE, CHECKOUT_UAT_BASE):
+        if extra not in hosts:
+            hosts.append(extra)
+    return hosts
+
+
+def is_checkout_auth_error(exc: HimalPayError) -> bool:
+    message = str(getattr(exc, 'message', '') or exc).lower()
+    error_type = str(getattr(exc, 'error_type', '') or '').lower()
+    if getattr(exc, 'status_code', None) not in (401, 403):
+        return False
+    return (
+        'checkout api key' in message
+        or 'checkout-api-key' in message
+        or 'invalid auth' in message
+        or 'invalidauth' in error_type.replace(' ', '')
+        or 'missingauth' in error_type.replace(' ', '')
+    )
 
 
 def append_query(url: str, **params: str) -> str:
@@ -151,6 +187,36 @@ class HimalPayCheckoutAPI:
         self.configured_return_url = creds['return_url']
         self.timeout = getattr(settings, 'HIMALPAY_TIMEOUT', 60)
         self.bypass_api = getattr(settings, 'HIMALPAY_BYPASS_API', False)
+
+    def _request_with_host_failover(self, method: str, endpoint: str, payload: Optional[Dict] = None) -> Any:
+        """
+        Call Checkout on the configured host, then the other environment.
+
+        UAT Payin keys are rejected on LIVE (`invalid checkout api key`). Retrying
+        UAT generates the QR without changing the reseller payout host/key.
+        """
+        last_error: Optional[HimalPayError] = None
+        for host in checkout_host_candidates(self.base_url):
+            self.base_url = host
+            try:
+                data = self._request(method, endpoint, payload)
+                logger.info('HimalPay Checkout %s %s succeeded on %s', method, endpoint, host)
+                return data
+            except HimalPayError as exc:
+                retry_status = endpoint == STATUS_PATH and exc.status_code in (404, 400)
+                if is_checkout_auth_error(exc) or retry_status:
+                    logger.warning(
+                        'HimalPay Checkout %s failed on %s (%s); trying next Payin host',
+                        endpoint,
+                        host,
+                        exc.status_code,
+                    )
+                    last_error = exc
+                    continue
+                raise
+        if last_error:
+            raise last_error
+        raise HimalPayError('Himal Pay Checkout request failed', status_code=502)
 
     def _headers(self) -> Dict[str, str]:
         if not self.api_key and not self.bypass_api:
@@ -273,7 +339,7 @@ class HimalPayCheckoutAPI:
                 },
             }
 
-        data = self._request('POST', INITIATE_PATH, payload)
+        data = self._request_with_host_failover('POST', INITIATE_PATH, payload)
         if not isinstance(data, dict):
             raise HimalPayError('Unexpected Checkout initiate response', status_code=502)
         init_status = str(data.get('status') or '').strip().lower()
@@ -323,7 +389,7 @@ class HimalPayCheckoutAPI:
                 },
             }
 
-        data = self._request('POST', STATUS_PATH, {'process_id': process_id})
+        data = self._request_with_host_failover('POST', STATUS_PATH, {'process_id': process_id})
         if not isinstance(data, dict):
             raise HimalPayError('Unexpected Checkout status response', status_code=502)
         return data

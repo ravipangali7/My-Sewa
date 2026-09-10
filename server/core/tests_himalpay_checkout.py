@@ -422,12 +422,34 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.assertEqual(headers['X-Checkout-API-Key'], 'mck_live_secret')
         self.assertNotIn('X-API-Key', headers)
 
-    @override_settings(HIMALPAY_CHECKOUT_API_KEY='', HIMALPAY_API_KEY='existing-reseller-key')
+    def test_checkout_retries_uat_when_live_rejects_payin_key(self):
+        api = HimalPayCheckoutAPI()
+        api.api_key = 'uat-payin-key'
+        api.base_url = 'https://api.himalpay.com.np/api/v1'
+        live_error = HimalPayError(
+            'invalid checkout api key',
+            status_code=401,
+            error_code=1001,
+            error_type='Auth.InvalidAuthToken',
+        )
+        uat_ok = _initiate_payload('order-1')
+        with patch.object(api, '_request', side_effect=[live_error, uat_ok]) as mocked:
+            data = api.initiate_checkout(
+                amount_rupees=Decimal('100.00'),
+                purchase_order_identifier='MS-UAT-1',
+                return_url='https://example.com/return',
+                product_name='MySewa Wallet Deposit',
+            )
+        self.assertEqual(mocked.call_count, 2)
+        self.assertEqual(api.base_url, 'https://uatapi.himalpay.com.np/api/v1')
+        self.assertEqual(data['payload']['process_id'], PROCESS_ID)
+
     def test_checkout_falls_back_to_existing_himalpay_key(self):
-        with patch('core.services.app_config.get_app_config', return_value={'integrations': {}}):
-            creds = get_himalpay_checkout_credentials()
-            self.assertEqual(creds['api_key'], 'existing-reseller-key')
-            self.assertTrue(is_checkout_configured())
+        with override_settings(HIMALPAY_CHECKOUT_API_KEY='', HIMALPAY_API_KEY='existing-reseller-key'):
+            with patch('core.services.app_config.get_app_config', return_value={'integrations': {}}):
+                creds = get_himalpay_checkout_credentials()
+                self.assertEqual(creds['api_key'], 'existing-reseller-key')
+                self.assertTrue(is_checkout_configured())
 
     def test_admin_cannot_approve_unverified_checkout(self):
         staff = User.objects.create_user(
