@@ -176,10 +176,6 @@ def public_checkout_details(record) -> Dict[str, str]:
             merchant.get('mobile_no') or merchant.get('phone') or ''
         ).strip(),
         'currency': str(getattr(record, 'currency', None) or 'NPR'),
-        # Checkout initiate returns payment_url only — never a NepalPay/EMV payload.
-        'merchant_qr_available': False,
-        'qr_kind': '',
-        'payin_mode': 'ncash_wallet_checkout',
     }
 
 
@@ -198,8 +194,6 @@ def checkout_session_public_dict(session: CheckoutSession) -> Dict[str, Any]:
         'purchase_order_identifier': session.purchase_order_identifier,
         'process_id': session.process_id,
         'payment_url': session.payment_url,
-        'qr_payload': None,
-        'merchant_qr_available': False,
         'expires_at': expires.isoformat() if expires else None,
         'checkout_details': public_checkout_details(session),
         'transaction_id': session.process_id or '',

@@ -18,8 +18,6 @@ falling back to the existing production reseller host
 https://api.himalpay.com.np/api/v1.
 
 The Checkout documentation does not define:
-  - a merchant / NepalPay / Fonepay / NQR generate endpoint
-  - a QR payload, EMV string, or QR image in checkout-initiate
   - a webhook/callback payload
   - HMAC / signature / checksum
   - merchant id / client id / signature key fields

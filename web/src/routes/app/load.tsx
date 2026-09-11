@@ -28,6 +28,7 @@ import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { enabledPaymentAccounts } from "@/lib/payment-accounts";
+import { toDataURL } from "@/lib/qrcode";
 import type { DepositDestinations, PaymentMethod } from "@/lib/types";
 
 const DEPOSIT_PAYMENT_METHODS: PaymentMethod[] = ["bank", "khalti", "esewa"];
@@ -144,9 +145,9 @@ function LoadWallet() {
       account_holder?: string;
       ncash_id?: string;
       currency?: string;
-      merchant_qr_available?: boolean;
     } | null;
   } | null>(null);
+  const [checkoutQrSrc, setCheckoutQrSrc] = useState("");
 
   const destQuery = useQuery({
     queryKey: ["deposit-destinations"],
@@ -337,6 +338,18 @@ function LoadWallet() {
     minDeposit,
   ]);
 
+  useEffect(() => {
+    if (!checkoutSession?.paymentUrl) {
+      setCheckoutQrSrc("");
+      return;
+    }
+    try {
+      setCheckoutQrSrc(toDataURL(checkoutSession.paymentUrl, { width: 720 }));
+    } catch {
+      setCheckoutQrSrc("");
+    }
+  }, [checkoutSession?.paymentUrl]);
+
   const checkoutStatusQuery = useQuery({
     queryKey: ["checkout-verify-live", checkoutSession?.sessionId, checkoutSession?.processId],
     enabled: Boolean(token) && payingCheckout && Boolean(checkoutSession?.sessionId),
@@ -393,8 +406,6 @@ function LoadWallet() {
   const liveCheckout = checkoutStatusQuery.data?.data;
   const checkoutDetails = liveCheckout?.checkout_details || checkoutSession?.details;
   const checkoutAmountValue = liveCheckout?.amount || checkoutSession?.amount || "";
-  const checkoutOrderId =
-    liveCheckout?.purchase_order_identifier || checkoutSession?.orderId || "";
   const checkoutAccountHolder = (
     checkoutDetails?.account_holder ||
     checkoutDetails?.merchant_name ||
@@ -486,15 +497,25 @@ function LoadWallet() {
                 </div>
                 {checkoutSession ? (
                   <div className="space-y-4">
-                    <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
-                      <p className="text-[13px] font-semibold">{t("load.checkoutQrUnavailableTitle")}</p>
-                      <p className="mt-1 text-[13px] text-muted-foreground">
-                        {t("load.checkoutQrUnavailable")}
+                    <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-white px-3 py-5 sm:px-6">
+                      {checkoutQrSrc ? (
+                        <img
+                          src={checkoutQrSrc}
+                          alt={t("load.checkoutQrAlt")}
+                          className="aspect-square w-full max-w-[min(92vw,24rem)] bg-white object-contain"
+                        />
+                      ) : (
+                        <div className="flex aspect-square w-full max-w-[min(92vw,24rem)] items-center justify-center text-sm text-muted-foreground">
+                          {t("load.checkoutQrBuilding")}
+                        </div>
+                      )}
+                      <p className="max-w-[24rem] text-center text-[13px] text-muted-foreground">
+                        {t("load.checkoutQrScan")}
                       </p>
                       {checkoutSession.paymentUrl ? (
                         <Button
                           type="button"
-                          className="mt-3 h-11 w-full rounded-xl"
+                          className="h-11 w-full max-w-[24rem] rounded-xl"
                           onClick={() => {
                             window.open(
                               checkoutSession.paymentUrl,
@@ -515,11 +536,12 @@ function LoadWallet() {
                         <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                           {t("load.checkoutProvider")}
                         </span>
-                        {liveCheckout ? (
+                        {liveCheckout &&
+                        liveCheckout.status !== "awaiting_payment" &&
+                        liveCheckout.status !== "pending" &&
+                        liveCheckout.status !== "processing" ? (
                           <StatusChip status={liveCheckout.status} className="ml-auto" />
-                        ) : (
-                          <StatusChip status="pending" className="ml-auto" />
-                        )}
+                        ) : null}
                       </div>
                       <p className="mb-3 text-[13px] font-medium text-muted-foreground">
                         {t("load.checkoutDetailsTitle")}
@@ -537,9 +559,6 @@ function LoadWallet() {
                           label={t("load.checkoutAmountToPay")}
                           value={checkoutAmountValue ? formatNPR(checkoutAmountValue) : "—"}
                         />
-                        {checkoutOrderId ? (
-                          <CopyableField label={t("load.checkoutOrder")} value={checkoutOrderId} />
-                        ) : null}
                       </dl>
                       <p className="mt-3 text-[12px] leading-snug text-muted-foreground">
                         {t("load.checkoutBankScanNote")}
@@ -563,17 +582,17 @@ function LoadWallet() {
                       >
                         {checkoutMutation.isPending
                           ? t("load.checkoutQrBuilding")
-                          : t("load.checkoutRetry")}
+                          : t("load.checkoutShowQr")}
                       </Button>
                     ) : null}
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <p className="text-[13px] text-muted-foreground">
+                    <div className="flex aspect-square w-full max-w-[min(92vw,24rem)] mx-auto items-center justify-center rounded-2xl border border-border bg-white text-sm text-muted-foreground">
                       {checkoutMutation.isPending
                         ? t("load.checkoutQrBuilding")
                         : t("load.checkoutFailed")}
-                    </p>
+                    </div>
                     {checkoutMutation.isError ? (
                       <p className="text-center text-[13px] text-destructive">
                         {checkoutMutation.error instanceof ApiError ||
@@ -596,7 +615,7 @@ function LoadWallet() {
                     >
                       {checkoutMutation.isPending
                         ? t("load.checkoutQrBuilding")
-                        : t("load.checkoutRetry")}
+                        : t("load.checkoutShowQr")}
                     </Button>
                   </div>
                 )}

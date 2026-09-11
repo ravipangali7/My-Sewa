@@ -20,7 +20,6 @@ from .services.checkout_deposit import (
     FAILED_PAYMENT,
     PENDING_PAYMENT,
     SETTLED,
-    checkout_session_public_dict,
     create_checkout_session,
     extract_documented_identifiers,
     public_checkout_details,
@@ -155,10 +154,6 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.assertIn('process_id=', payment_url)
         self.assertEqual(public_checkout_details(session).get('ncash_id'), '9800000000')
         self.assertEqual(public_checkout_details(session).get('account_holder'), 'Sita Store')
-        pub = checkout_session_public_dict(session)
-        self.assertFalse(pub.get('merchant_qr_available'))
-        self.assertIsNone(pub.get('qr_payload'))
-        self.assertTrue(str(pub.get('payment_url') or '').startswith('https://'))
         self.assertEqual(self.wallet.balance, Decimal('50.00'))
         self.assertFalse(
             Deposit.objects.filter(user=self.user, provider='himalpay_checkout').exists()
@@ -388,9 +383,6 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.assertEqual(details.get('currency'), 'NPR')
         self.assertEqual(details.get('merchant_name'), 'Sita Store')
         self.assertEqual(details.get('ncash_id'), '9800000000')
-        self.assertFalse(details.get('merchant_qr_available'))
-        self.assertFalse(data.get('merchant_qr_available'))
-        self.assertIsNone(data.get('qr_payload'))
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal('50.00'))
         self.assertFalse(
@@ -580,7 +572,6 @@ class HimalPayCheckoutDepositTests(TestCase):
         self.assertEqual(details['merchant_phone'], '9800000000')
         self.assertEqual(details['account_holder'], 'Sita Store')
         self.assertEqual(details['ncash_id'], '9800000000')
-        self.assertFalse(details['merchant_qr_available'])
 
     def test_initiate_payload_uses_documented_fields(self):
         with patch.object(

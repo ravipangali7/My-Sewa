@@ -509,9 +509,6 @@ export interface Deposit {
     account_holder?: string;
     ncash_id?: string;
     currency?: string;
-    merchant_qr_available?: boolean;
-    qr_kind?: string;
-    payin_mode?: string;
   } | null;
   expires_at?: string | null;
   completed_at?: string | null;
@@ -551,8 +548,6 @@ export interface CheckoutSession {
   purchase_order_identifier?: string | null;
   process_id?: string | null;
   payment_url?: string;
-  qr_payload?: string | null;
-  merchant_qr_available?: boolean;
   checkout_details?: Deposit["checkout_details"];
   expires_at?: string | null;
   transaction_id?: string;
