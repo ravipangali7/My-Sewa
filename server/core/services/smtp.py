@@ -1,6 +1,6 @@
 """
 SMTP settings helpers — read credentials from Settings.config.smtp
-with Django EMAIL_* / hardcoded Gmail fallbacks, and build a mail connection.
+with Django EMAIL_* / built-in Gmail fallbacks, and build a mail connection.
 
 Supported config keys (aliases accepted):
   smtp_email / username
@@ -11,12 +11,16 @@ Supported config keys (aliases accepted):
 """
 from __future__ import annotations
 
+import logging
+import smtplib
 from typing import Any, Dict, Optional
 
 from django.conf import settings as django_settings
 from django.core.mail import EmailMultiAlternatives, get_connection
 
 from .app_config import get_app_config
+
+logger = logging.getLogger(__name__)
 
 PASSWORD_MASK = '••••••••'
 
@@ -37,6 +41,18 @@ FALLBACK_SMTP = {
 _REVOKED_SMTP_PASSWORDS = frozenset({
     'ibidizfnxgtdpywm',
 })
+
+# Accounts known to use revoked credentials — never prefer over FALLBACK / env
+_REVOKED_SMTP_USERS = frozenset({
+    'jhalakravi7@gmail.com',
+})
+
+
+def _smtp_timeout() -> int:
+    try:
+        return int(getattr(django_settings, 'EMAIL_TIMEOUT', 30) or 30)
+    except (TypeError, ValueError):
+        return 30
 
 
 def default_smtp_config() -> Dict[str, Any]:
@@ -79,6 +95,17 @@ def _is_usable_smtp_password(value) -> bool:
     return text not in _REVOKED_SMTP_PASSWORDS
 
 
+def _is_revoked_smtp_user(email: str) -> bool:
+    return (email or '').strip().lower() in _REVOKED_SMTP_USERS
+
+
+def _credential_fingerprint(cfg: Dict[str, Any]) -> tuple:
+    email = (cfg.get('smtp_email') or cfg.get('username') or '').strip().lower()
+    password = _normalize_password(cfg.get('smtp_password') or cfg.get('password'))
+    host = (cfg.get('host') or '').strip().lower()
+    return (host, email, password)
+
+
 def normalize_smtp_dict(raw: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Normalize alias keys onto the canonical smtp_* + legacy fields."""
     data = dict(default_smtp_config())
@@ -112,13 +139,11 @@ def normalize_smtp_dict(raw: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
     host = _first_nonempty(data.get('host')) or FALLBACK_SMTP['host']
 
-    # If stored account used the revoked Gmail login, also reset identity to fallback
-    if not smtp_password and smtp_email in (
-        'jhalakravi7@gmail.com',
-        FALLBACK_SMTP['smtp_email'],
-    ):
+    # Drop revoked Gmail identities so FALLBACK / env credentials are used
+    if _is_revoked_smtp_user(smtp_email):
         smtp_email = ''
         smtp_email_from = ''
+        smtp_password = ''
 
     normalized = {
         'enabled': bool(data.get('enabled', True)),
@@ -175,13 +200,71 @@ def _env_smtp_overlay() -> Dict[str, Any]:
     }
 
 
+def _stored_smtp_is_preferable(stored_raw: Dict[str, Any]) -> bool:
+    """
+    Prefer admin-stored SMTP only when explicitly enabled and credentials look usable.
+    Revoked accounts/passwords must not block env / FALLBACK.
+    """
+    if not isinstance(stored_raw, dict) or not stored_raw:
+        return False
+    if stored_raw.get('enabled') is False:
+        return False
+
+    email = _first_nonempty(stored_raw.get('smtp_email'), stored_raw.get('username'))
+    password = _first_nonempty(stored_raw.get('smtp_password'), stored_raw.get('password'))
+
+    if _is_revoked_smtp_user(email):
+        return False
+    if password and not _is_usable_smtp_password(password):
+        return False
+
+    # Prefer stored when enabled (default) and either has a usable password or a custom host
+    enabled = bool(stored_raw.get('enabled', True))
+    if not enabled:
+        return False
+    if _is_usable_smtp_password(password):
+        return True
+    # Email set without password still preferred only if it is not a revoked identity;
+    # normalize will fill FALLBACK password for that email which may mismatch — avoid.
+    return False
+
+
+def _heal_revoked_stored_smtp(stored_raw: Dict[str, Any]) -> None:
+    """Persist FALLBACK credentials when admin Settings still hold revoked SMTP."""
+    if not isinstance(stored_raw, dict) or not stored_raw:
+        return
+    email = _first_nonempty(stored_raw.get('smtp_email'), stored_raw.get('username'))
+    password = _first_nonempty(stored_raw.get('smtp_password'), stored_raw.get('password'))
+    needs_heal = _is_revoked_smtp_user(email) or (
+        password and not _is_usable_smtp_password(password)
+    )
+    if not needs_heal:
+        return
+    try:
+        from ..models import Settings
+
+        settings_obj = Settings.load()
+        cfg = dict(settings_obj.get_config() or {})
+        healed = normalize_smtp_dict(FALLBACK_SMTP)
+        healed['enabled'] = True
+        cfg['smtp'] = healed
+        settings_obj.config = cfg
+        settings_obj.save(update_fields=['config', 'updated_at'])
+        logger.warning(
+            'Healed revoked SMTP settings → %s',
+            healed.get('smtp_email'),
+        )
+    except Exception:
+        logger.debug('Could not persist healed SMTP settings', exc_info=True)
+
+
 def get_smtp_config() -> Dict[str, Any]:
     """
     Resolve SMTP settings.
 
     Priority:
-      1. Settings.config.smtp (admin portal) when enabled / has credentials
-      2. Django EMAIL_* env
+      1. Settings.config.smtp when enabled with usable credentials
+      2. Django EMAIL_* env (when username + password set)
       3. Built-in Gmail fallbacks
     """
     stored_raw: Dict[str, Any] = {}
@@ -190,18 +273,31 @@ def get_smtp_config() -> Dict[str, Any]:
     except Exception:
         stored_raw = {}
 
-    stored = normalize_smtp_dict(stored_raw)
+    _heal_revoked_stored_smtp(stored_raw)
+
+    # Re-read after possible heal
+    try:
+        stored_raw = dict(get_app_config().get('smtp') or {})
+    except Exception:
+        pass
+
     env = _env_smtp_overlay()
 
-    # Prefer admin-stored values when enabled (or when email/password are set)
-    use_stored = bool(stored.get('enabled')) or bool(
-        _first_nonempty(stored_raw.get('smtp_email'), stored_raw.get('username'))
-    )
+    if _stored_smtp_is_preferable(stored_raw):
+        return normalize_smtp_dict(stored_raw)
 
-    if use_stored:
-        return stored
+    # Prefer env when it has usable credentials
+    if _is_usable_smtp_password(env.get('smtp_password')) and _first_nonempty(
+        env.get('smtp_email')
+    ):
+        merged = dict(FALLBACK_SMTP)
+        for key, value in env.items():
+            if _first_nonempty(value) or key in ('port', 'encryption'):
+                if value is not None and str(value).strip() != '':
+                    merged[key] = value
+        return normalize_smtp_dict(merged)
 
-    # Merge env over fallbacks
+    # Merge any partial env over fallbacks
     merged = dict(FALLBACK_SMTP)
     for key, value in env.items():
         if _first_nonempty(value):
@@ -277,8 +373,40 @@ def get_email_connection(smtp: Optional[Dict[str, Any]] = None, *, fail_silently
         password=_normalize_password(cfg.get('smtp_password') or cfg.get('password')) or None,
         use_tls=use_tls,
         use_ssl=use_ssl,
+        timeout=_smtp_timeout(),
         fail_silently=fail_silently,
     )
+
+
+def _send_with_config(
+    *,
+    subject: str,
+    text_body: str,
+    recipients: list,
+    html_body: Optional[str],
+    cfg: Dict[str, Any],
+    fail_silently: bool,
+    bcc: Optional[list],
+) -> bool:
+    connection = get_email_connection(cfg, fail_silently=fail_silently)
+    message = EmailMultiAlternatives(
+        subject=subject,
+        body=text_body,
+        from_email=format_from_address(cfg),
+        to=recipients,
+        bcc=bcc or None,
+        connection=connection,
+    )
+    if html_body:
+        message.attach_alternative(html_body, 'text/html')
+    # Help inbox providers treat transactional OTP mail correctly
+    message.extra_headers = {
+        **(message.extra_headers or {}),
+        'X-Mailer': 'MySewa',
+        'Auto-Submitted': 'auto-generated',
+    }
+    sent_count = message.send(fail_silently=fail_silently)
+    return bool(sent_count)
 
 
 def send_smtp_email(
@@ -291,25 +419,98 @@ def send_smtp_email(
     fail_silently: bool = True,
     bcc: Optional[list] = None,
 ) -> bool:
-    """Send an email using the configured (or overridden) SMTP connection."""
+    """Send an email using the configured (or overridden) SMTP connection.
+
+    If the primary SMTP account rejects the message (auth / policy), automatically
+    retries once with FALLBACK_SMTP so OTP and receipts keep flowing.
+    """
     recipients = [r for r in recipients if r]
     bcc_list = [r for r in (bcc or []) if r]
     if not recipients:
         return False
+
     cfg = normalize_smtp_dict(smtp or get_smtp_config())
-    connection = get_email_connection(cfg, fail_silently=fail_silently)
-    message = EmailMultiAlternatives(
-        subject=subject,
-        body=text_body,
-        from_email=format_from_address(cfg),
-        to=recipients,
-        bcc=bcc_list or None,
-        connection=connection,
+    fallback = normalize_smtp_dict(FALLBACK_SMTP)
+    try_fallback = _credential_fingerprint(cfg) != _credential_fingerprint(fallback)
+
+    try:
+        sent = _send_with_config(
+            subject=subject,
+            text_body=text_body,
+            recipients=recipients,
+            html_body=html_body,
+            cfg=cfg,
+            fail_silently=fail_silently,
+            bcc=bcc_list,
+        )
+        if sent:
+            logger.info(
+                'SMTP accepted mail via %s → %s (%s)',
+                cfg.get('smtp_email'),
+                recipients,
+                subject,
+            )
+            return True
+    except (smtplib.SMTPException, OSError, TimeoutError) as exc:
+        logger.error(
+            'SMTP send failed via %s for %s: %s',
+            cfg.get('smtp_email'),
+            recipients,
+            exc,
+        )
+        if not try_fallback:
+            if not fail_silently:
+                raise
+            return False
+        # Fall through to fallback retry
+        sent = False
+    except Exception:
+        logger.exception(
+            'Unexpected SMTP error via %s for %s',
+            cfg.get('smtp_email'),
+            recipients,
+        )
+        if not try_fallback:
+            if not fail_silently:
+                raise
+            return False
+        sent = False
+
+    if not try_fallback:
+        return False
+
+    logger.warning(
+        'Retrying email via fallback SMTP (%s) after primary failure (%s)',
+        fallback.get('smtp_email'),
+        cfg.get('smtp_email'),
     )
-    if html_body:
-        message.attach_alternative(html_body, 'text/html')
-    sent_count = message.send(fail_silently=fail_silently)
-    return bool(sent_count)
+    try:
+        sent = _send_with_config(
+            subject=subject,
+            text_body=text_body,
+            recipients=recipients,
+            html_body=html_body,
+            cfg=fallback,
+            fail_silently=fail_silently,
+            bcc=bcc_list,
+        )
+        if sent:
+            logger.info(
+                'Fallback SMTP accepted mail via %s → %s (%s)',
+                fallback.get('smtp_email'),
+                recipients,
+                subject,
+            )
+        return bool(sent)
+    except Exception:
+        logger.exception(
+            'Fallback SMTP also failed for %s: %s',
+            recipients,
+            subject,
+        )
+        if not fail_silently:
+            raise
+        return False
 
 
 def smtp_config_for_admin(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -363,6 +564,21 @@ def preserve_smtp_password_on_merge(current: Dict[str, Any], incoming: Dict[str,
             (current or {}).get('smtp_password'),
             (current or {}).get('password'),
         )
-        merged['smtp_password'] = old_password
-        merged['password'] = old_password
+        # Do not preserve a revoked password onto a healed account
+        if _is_usable_smtp_password(old_password) and not _is_revoked_smtp_user(
+            _first_nonempty(merged.get('smtp_email'), merged.get('username'))
+        ):
+            merged['smtp_password'] = old_password
+            merged['password'] = old_password
+        else:
+            # Prefer fallback password when healing away from revoked identity
+            merged['smtp_password'] = FALLBACK_SMTP['smtp_password']
+            merged['password'] = FALLBACK_SMTP['smtp_password']
+            if _is_revoked_smtp_user(
+                _first_nonempty(merged.get('smtp_email'), merged.get('username'))
+            ):
+                merged['smtp_email'] = FALLBACK_SMTP['smtp_email']
+                merged['username'] = FALLBACK_SMTP['smtp_email']
+                merged['smtp_email_from'] = FALLBACK_SMTP['smtp_email_from']
+                merged['from_email'] = FALLBACK_SMTP['smtp_email_from']
     return normalize_smtp_dict(merged)

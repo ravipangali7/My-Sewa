@@ -336,6 +336,7 @@ DEFAULT_FROM_EMAIL = os.environ.get(
     'DEFAULT_FROM_EMAIL',
     f'{EMAIL_FROM_NAME} <{EMAIL_HOST_USER}>',
 )
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '30'))
 
 # Explicit SMTP_* aliases (same values) for clarity / docs
 SMTP_HOST = EMAIL_HOST

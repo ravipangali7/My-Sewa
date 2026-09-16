@@ -380,10 +380,13 @@ def _start_login_otp_challenge(
             fail_detail = 'OTP delivery failed for email channel.'
         elif channel == 'sms':
             fail_message = (
-                'Unable to send a verification code to your phone. '
-                'Please try again later or contact support.'
+                'Unable to send a verification code. '
+                'Add a working email to your account or contact support.'
             )
-            fail_detail = 'OTP delivery failed for SMS channel.'
+            fail_detail = (
+                'OTP delivery failed: SMS gateway is not configured and '
+                'email delivery did not succeed.'
+            )
         else:
             fail_message = (
                 'Unable to send a verification code to your email or phone. '

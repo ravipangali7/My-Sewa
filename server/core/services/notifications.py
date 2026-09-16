@@ -805,7 +805,7 @@ def send_login_otp(
         send_sms = False
     elif prefer == 'sms':
         send_sms = True
-        # Keep email as a delivery fallback for phone login.
+        # Email is the reliable channel until a real SMS gateway is configured.
         send_email = bool(email)
     else:
         send_email = True
@@ -846,6 +846,13 @@ def send_login_otp(
             f'Valid for {expiry_label}. Do not share this code.'
         )
         sms_sent = _send_sms(phone, sms_message)
+        # Placeholder SMS must not mask a failed email delivery for phone login.
+        # When SMS is unavailable, email (if sent) remains the sole success channel.
+        if not sms_sent and not email_sent and prefer == 'sms' and email:
+            logger.error(
+                'Login OTP SMS unavailable and email also failed for user phone=%s',
+                mask_phone(phone),
+            )
 
     return {
         'email_sent': email_sent,
@@ -946,6 +953,7 @@ def send_email_change_otp(email: str, otp: str, new_email: str) -> bool:
         ),
     )
     return _send_email(subject, text, [email], html_message=html, fail_silently=True)
+
 
 def notify_welcome_signup(user) -> None:
     """Thank-you / welcome email after successful registration (when email is set)."""
@@ -1158,13 +1166,20 @@ def notify_account_approved(user) -> None:
 
 def _send_sms(phone: str, message: str) -> bool:
     """
-    Placeholder SMS sender. Logs the message so the toggle is observable.
-    Replace with a real SMS gateway when available.
+    Placeholder SMS sender.
+
+    Logs the outbound message for operators, but returns False so callers do not
+    treat SMS as delivered. Login OTP therefore relies on email until a real
+    SMS gateway is wired up.
     """
     if not phone:
         return False
-    logger.info('SMS to %s: %s', phone, message)
-    return True
+    logger.warning(
+        'SMS gateway not configured; message to %s was not delivered: %s',
+        phone,
+        message,
+    )
+    return False
 
 
 def _push(
