@@ -199,7 +199,8 @@ def login(request):
 
     identifier = identifier.strip()
     login_via = 'email' if _looks_like_email(identifier) else 'phone'
-    preferred_channel = 'email' if login_via == 'email' else 'sms'
+    # Login OTP is always emailed — SMS gateway is not configured.
+    preferred_channel = 'email'
     logger.debug(f"Normalized login identifier ({login_via}): {identifier[:3]}***")
 
     security = get_app_config().get('security') or {}
@@ -375,7 +376,8 @@ def _start_login_otp_challenge(
         if channel == 'email':
             fail_message = (
                 'Unable to send a verification code to your email. '
-                'Please try again later or contact support.'
+                'Confirm your account has a valid email address, then try again '
+                'or contact support.'
             )
             fail_detail = 'OTP delivery failed for email channel.'
         elif channel == 'sms':
@@ -389,10 +391,10 @@ def _start_login_otp_challenge(
             )
         else:
             fail_message = (
-                'Unable to send a verification code to your email or phone. '
+                'Unable to send a verification code to your email. '
                 'Please try again later or contact support.'
             )
-            fail_detail = 'OTP delivery failed for both email and SMS channels.'
+            fail_detail = 'OTP email delivery failed.'
         return Response({
             'error': 'otp_delivery_failed',
             'message': fail_message,
@@ -418,27 +420,22 @@ def _start_login_otp_challenge(
     if delivery.get('phone_hint'):
         channel_parts.append(delivery['phone_hint'])
     destinations = ' and '.join(channel_parts) if channel_parts else 'your registered contacts'
+    delivered = set(delivery.get('channels') or [])
 
-    if channel == 'sms' or via == 'phone':
-        if delivery.get('phone_hint') and delivery.get('email_hint'):
-            message = (
-                f'A verification code has been sent to your phone ({delivery["phone_hint"]}) '
-                f'and email ({delivery["email_hint"]}). '
-                'Enter the code to finish signing in.'
-            )
-        elif delivery.get('phone_hint'):
-            message = (
-                f'A verification code has been sent to your phone ({delivery["phone_hint"]}). '
-                'Enter the code to finish signing in.'
-            )
-        else:
-            message = (
-                f'A verification code has been sent to {destinations}. '
-                'Enter the code to finish signing in.'
-            )
-    elif channel == 'email' or via == 'email':
+    if 'email' in delivered and 'sms' in delivered:
         message = (
-            f'A verification code has been sent to your email ({destinations}). '
+            f'A verification code has been sent to your email ({delivery.get("email_hint")}) '
+            f'and phone ({delivery.get("phone_hint")}). '
+            'Enter the code to finish signing in.'
+        )
+    elif 'email' in delivered:
+        message = (
+            f'A verification code has been sent to your email ({delivery.get("email_hint") or destinations}). '
+            'Enter the code to finish signing in.'
+        )
+    elif 'sms' in delivered:
+        message = (
+            f'A verification code has been sent to your phone ({delivery.get("phone_hint") or destinations}). '
             'Enter the code to finish signing in.'
         )
     else:

@@ -306,7 +306,7 @@ def _admin_alert_emails() -> List[str]:
                 .values_list('email', flat=True)
             )
     except Exception:
-        logger.exception('Failed to resolve Super Admin emails')
+        logger.debug('Failed to resolve Super Admin emails', exc_info=True)
         return []
 
     seen = set()
@@ -772,7 +772,9 @@ def send_password_reset_otp(email: str, otp: str) -> bool:
         ],
         footer_note='If you did not request a password reset, you can ignore this email.',
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    return _send_email(
+        subject, text, [email], html_message=html, fail_silently=True, copy_admin=False
+    )
 
 
 def send_login_otp(
@@ -783,16 +785,13 @@ def send_login_otp(
     preferred_channel: str | None = None,
 ) -> dict:
     """
-    Send a login OTP to the user.
+    Send a login OTP to the user's registered email.
 
-    preferred_channel:
-      - 'email': send only to email (email login)
-      - 'sms': send via SMS; also email when available so the user can still
-        receive the code if SMS delivery is unavailable
-      - None / other: try both channels (legacy)
+    SMS is not configured; delivery is email-only. preferred_channel is retained
+    for API compatibility / logging but does not enable fake SMS success.
 
     Returns a dict with email_sent / sms_sent booleans and channel hints.
-    Login proceeds when at least one requested channel succeeds.
+    Login proceeds when email delivery succeeds.
     """
     site_name = _site_name()
     email = _user_email(user)
@@ -800,70 +799,62 @@ def send_login_otp(
     expiry_label = f'{expires_minutes} minute{"s" if expires_minutes != 1 else ""}'
     prefer = (preferred_channel or '').strip().lower() or None
 
-    if prefer == 'email':
-        send_email = True
-        send_sms = False
-    elif prefer == 'sms':
-        send_sms = True
-        # Email is the reliable channel until a real SMS gateway is configured.
-        send_email = bool(email)
-    else:
-        send_email = True
-        send_sms = True
-
     email_sent = False
     sms_sent = False
 
-    if send_email and email:
-        subject = f'{site_name} Login OTP'
-        text = (
-            f'Your {site_name} login verification code is: {otp}\n\n'
-            f'This code expires in {expiry_label}.\n'
-            'If you did not try to sign in, secure your account immediately.'
+    if not email:
+        logger.error(
+            'Login OTP cannot be delivered: user has no email (phone=%s)',
+            mask_phone(phone) if phone else '-',
         )
-        html = render_transaction_email(
-            title='Login verification code',
-            subtitle='Use this one-time code to finish signing in.',
-            amount_label='Verification code',
-            amount_display=otp,
-            status='success',
-            status_label=f'Valid {expiry_label}',
-            rows=[
-                ('Expires', expiry_label),
-                ('Security tip', 'Never share this code with anyone.'),
-            ],
-            footer_note=(
-                'If you did not try to sign in, secure your account immediately.'
-            ),
-        )
-        email_sent = _send_email(
-            subject, text, [email], html_message=html, fail_silently=True
-        )
+        return {
+            'email_sent': False,
+            'sms_sent': False,
+            'email_hint': None,
+            'phone_hint': None,
+            'channels': [],
+            'preferred_channel': prefer,
+            'error': 'user_has_no_email',
+        }
 
-    if send_sms and phone:
-        sms_message = (
-            f'{site_name} login code: {otp}. '
-            f'Valid for {expiry_label}. Do not share this code.'
+    subject = f'{site_name} Login OTP'
+    text = (
+        f'Your {site_name} login verification code is: {otp}\n\n'
+        f'This code expires in {expiry_label}.\n'
+        'If you did not try to sign in, secure your account immediately.'
+    )
+    html = render_transaction_email(
+        title='Login verification code',
+        subtitle='Use this one-time code to finish signing in.',
+        amount_label='Verification code',
+        amount_display=otp,
+        status='success',
+        status_label=f'Valid {expiry_label}',
+        rows=[
+            ('Expires', expiry_label),
+            ('Security tip', 'Never share this code with anyone.'),
+        ],
+        footer_note=(
+            'If you did not try to sign in, secure your account immediately.'
+        ),
+    )
+    email_sent = _send_email(
+        subject, text, [email], html_message=html, fail_silently=True, copy_admin=False
+    )
+    if not email_sent:
+        logger.error(
+            'Login OTP email failed for %s (preferred_channel=%s)',
+            mask_email(email),
+            prefer,
         )
-        sms_sent = _send_sms(phone, sms_message)
-        # Placeholder SMS must not mask a failed email delivery for phone login.
-        # When SMS is unavailable, email (if sent) remains the sole success channel.
-        if not sms_sent and not email_sent and prefer == 'sms' and email:
-            logger.error(
-                'Login OTP SMS unavailable and email also failed for user phone=%s',
-                mask_phone(phone),
-            )
 
     return {
         'email_sent': email_sent,
         'sms_sent': sms_sent,
-        'email_hint': mask_email(email) if email and email_sent else None,
-        'phone_hint': mask_phone(phone) if phone and sms_sent else None,
-        'channels': [
-            *(['email'] if email_sent else []),
-            *(['sms'] if sms_sent else []),
-        ],
-        'preferred_channel': prefer,
+        'email_hint': mask_email(email) if email_sent else None,
+        'phone_hint': None,
+        'channels': (['email'] if email_sent else []),
+        'preferred_channel': prefer or 'email',
     }
 
 
@@ -893,7 +884,9 @@ def send_transaction_pin_reset_otp(email: str, otp: str) -> bool:
             'and keep using your current PIN.'
         ),
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    return _send_email(
+        subject, text, [email], html_message=html, fail_silently=True, copy_admin=False
+    )
 
 
 def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
@@ -922,7 +915,9 @@ def send_phone_change_otp(email: str, otp: str, new_phone: str) -> bool:
             'If you did not request this change, secure your account immediately.'
         ),
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    return _send_email(
+        subject, text, [email], html_message=html, fail_silently=True, copy_admin=False
+    )
 
 
 def send_email_change_otp(email: str, otp: str, new_email: str) -> bool:
@@ -952,7 +947,9 @@ def send_email_change_otp(email: str, otp: str, new_email: str) -> bool:
             'If you did not request this change, secure your account immediately.'
         ),
     )
-    return _send_email(subject, text, [email], html_message=html, fail_silently=True)
+    return _send_email(
+        subject, text, [email], html_message=html, fail_silently=True, copy_admin=False
+    )
 
 
 def notify_welcome_signup(user) -> None:

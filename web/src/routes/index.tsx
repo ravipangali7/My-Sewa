@@ -46,11 +46,14 @@ export const Route = createFileRoute("/")({
 });
 
 function isPhoneLoginChallenge(challenge: LoginOtpChallenge) {
+  // Only treat as SMS when SMS actually delivered — never based on login_via alone.
   return (
-    challenge.login_via === "phone" ||
-    challenge.preferred_channel === "sms" ||
-    (challenge.channels.includes("sms") && !challenge.channels.includes("email"))
+    challenge.channels.includes("sms") && !challenge.channels.includes("email")
   );
+}
+
+function otpDeliveredViaEmail(challenge: LoginOtpChallenge) {
+  return challenge.channels.includes("email") || Boolean(challenge.email_hint);
 }
 
 function LoginPage() {
@@ -76,12 +79,11 @@ function LoginPage() {
 
   const destinationHint = useMemo(() => {
     if (!challenge) return "";
-    if (isPhoneLoginChallenge(challenge)) {
-      const parts = [challenge.phone_hint, challenge.email_hint].filter(Boolean);
-      return parts.join(" · ") || t("auth.yourPhone");
-    }
-    if (challenge.login_via === "email" || challenge.preferred_channel === "email") {
+    if (otpDeliveredViaEmail(challenge)) {
       return challenge.email_hint || t("auth.yourEmail");
+    }
+    if (isPhoneLoginChallenge(challenge)) {
+      return challenge.phone_hint || t("auth.yourPhone");
     }
     const parts = [challenge.email_hint, challenge.phone_hint].filter(Boolean);
     return parts.join(" · ") || t("auth.registeredContacts");
@@ -112,8 +114,17 @@ function LoginPage() {
 
   const notifyOtpSent = (next: LoginOtpChallenge, options?: { resent?: boolean }) => {
     const title = options?.resent ? t("auth.otpResent") : t("auth.otpSent");
+    if (otpDeliveredViaEmail(next)) {
+      toast.success(title, {
+        description:
+          next.message ||
+          t("auth.otpSentToEmail", {
+            email: next.email_hint || t("auth.yourEmail"),
+          }),
+      });
+      return;
+    }
     if (isPhoneLoginChallenge(next)) {
-      // Phone login: never show the verification code in the UI — toast only.
       toast.success(title, {
         description:
           next.message ||
@@ -124,11 +135,7 @@ function LoginPage() {
       return;
     }
     toast.success(title, {
-      description:
-        next.message ||
-        t("auth.otpSentToEmail", {
-          email: next.email_hint || t("auth.yourEmail"),
-        }),
+      description: next.message || t("auth.otpSent"),
     });
   };
 

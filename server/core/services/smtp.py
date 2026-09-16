@@ -229,17 +229,30 @@ def _stored_smtp_is_preferable(stored_raw: Dict[str, Any]) -> bool:
     return False
 
 
-def _heal_revoked_stored_smtp(stored_raw: Dict[str, Any]) -> None:
-    """Persist FALLBACK credentials when admin Settings still hold revoked SMTP."""
-    if not isinstance(stored_raw, dict) or not stored_raw:
+def _ensure_usable_stored_smtp(stored_raw: Dict[str, Any]) -> None:
+    """
+    Persist working FALLBACK credentials into Settings when stored SMTP is
+    missing, revoked, or otherwise unusable — so admin UI matches runtime.
+    Respects explicit enabled=False (env/fallback used without overwriting).
+    """
+    if not isinstance(stored_raw, dict):
+        stored_raw = {}
+    if stored_raw.get('enabled') is False:
         return
+    if _stored_smtp_is_preferable(stored_raw):
+        return
+
     email = _first_nonempty(stored_raw.get('smtp_email'), stored_raw.get('username'))
     password = _first_nonempty(stored_raw.get('smtp_password'), stored_raw.get('password'))
-    needs_heal = _is_revoked_smtp_user(email) or (
-        password and not _is_usable_smtp_password(password)
-    )
-    if not needs_heal:
+    # Only auto-write when credentials are absent/revoked — not when a custom
+    # non-revoked password exists (even if it might be wrong; send-time retry handles that).
+    if (
+        password
+        and _is_usable_smtp_password(password)
+        and not _is_revoked_smtp_user(email)
+    ):
         return
+
     try:
         from ..models import Settings
 
@@ -251,11 +264,11 @@ def _heal_revoked_stored_smtp(stored_raw: Dict[str, Any]) -> None:
         settings_obj.config = cfg
         settings_obj.save(update_fields=['config', 'updated_at'])
         logger.warning(
-            'Healed revoked SMTP settings → %s',
+            'Bootstrapped Settings SMTP → %s (previous was missing/revoked)',
             healed.get('smtp_email'),
         )
     except Exception:
-        logger.debug('Could not persist healed SMTP settings', exc_info=True)
+        logger.debug('Could not persist bootstrapped SMTP settings', exc_info=True)
 
 
 def get_smtp_config() -> Dict[str, Any]:
@@ -273,9 +286,9 @@ def get_smtp_config() -> Dict[str, Any]:
     except Exception:
         stored_raw = {}
 
-    _heal_revoked_stored_smtp(stored_raw)
+    _ensure_usable_stored_smtp(stored_raw)
 
-    # Re-read after possible heal
+    # Re-read after possible bootstrap/heal
     try:
         stored_raw = dict(get_app_config().get('smtp') or {})
     except Exception:

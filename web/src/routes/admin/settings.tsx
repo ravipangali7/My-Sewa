@@ -176,13 +176,13 @@ const DEFAULT_CONFIG: AppConfig = {
     host: "smtp.gmail.com",
     port: 587,
     encryption: "tls",
-    smtp_email: "targetdubai2026@gmail.com",
+    smtp_email: "",
     smtp_password: "",
-    smtp_email_from: "targetdubai2026@gmail.com",
+    smtp_email_from: "",
     smtp_name: "MySewa",
-    username: "targetdubai2026@gmail.com",
+    username: "",
     password: "",
-    from_email: "targetdubai2026@gmail.com",
+    from_email: "",
     from_name: "MySewa",
   },
   remittance: {
@@ -2124,8 +2124,9 @@ function SettingsPage() {
                       }
                     />
                     <p className="text-xs text-muted-foreground">
-                      Stored in Settings.config.smtp. Leave blank when saving to keep the
-                      existing password. Fallback Gmail credentials are used until you override.
+                      Stored securely in Settings.config.smtp on the server. Leave blank when
+                      saving to keep the existing password. Until you save your own credentials,
+                      the server uses its configured SMTP fallback.
                     </p>
                   </div>
                 </div>

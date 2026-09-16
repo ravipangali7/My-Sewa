@@ -3667,7 +3667,7 @@ def admin_test_smtp_email(request):
     )
 
     try:
-        send_smtp_email(
+        sent = send_smtp_email(
             subject,
             text,
             [to_email],
@@ -3684,11 +3684,26 @@ def admin_test_smtp_email(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    if not sent:
+        return Response(
+            {
+                'ok': False,
+                'message': (
+                    f'SMTP did not accept the test email for {to_email}. '
+                    'Check host, encryption, username, and app password, then try again.'
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     return Response(
         {
             'ok': True,
             'message': f'Test email sent to {to_email}.',
             'to_email': to_email,
+            'from_email': format_from_address(smtp),
+            'host': host,
+            'port': smtp.get('port'),
         }
     )
 
