@@ -166,6 +166,10 @@ const DEFAULT_CONFIG: AppConfig = {
     himalpay_checkout_api_key: "",
     himalpay_checkout_base_url: "https://api.himalpay.com.np/api/v1",
     himalpay_checkout_return_url: "",
+    paybridgenp_api_key: "",
+    paybridgenp_webhook_secret: "",
+    paybridgenp_base_url: "https://api.paybridgenp.com",
+    paybridgenp_return_url: "",
   },
   smtp: {
     enabled: true,
@@ -574,6 +578,26 @@ function SettingsPage() {
       himalpay_checkout_return_url: config.integrations?.himalpay_checkout_return_url ?? "",
       ...(portalPassword && portalPassword !== "••••••••"
         ? { himalpay_portal_password: portalPassword }
+        : {}),
+    });
+  };
+
+  const savePayBridge = () => {
+    const MASK = "••••••••";
+    const apiKey = (config.integrations?.paybridgenp_api_key ?? "").trim();
+    const webhookSecret = (config.integrations?.paybridgenp_webhook_secret ?? "").trim();
+    const baseUrl = (
+      config.integrations?.paybridgenp_base_url ||
+      DEFAULT_CONFIG.integrations!.paybridgenp_base_url ||
+      "https://api.paybridgenp.com"
+    ).trim();
+    saveConfigSection("integrations", {
+      paybridgenp_base_url: baseUrl || "https://api.paybridgenp.com",
+      paybridgenp_return_url: (config.integrations?.paybridgenp_return_url ?? "").trim(),
+      // Only send secrets when the admin entered a new value (not the mask).
+      ...(apiKey && apiKey !== MASK ? { paybridgenp_api_key: apiKey } : {}),
+      ...(webhookSecret && webhookSecret !== MASK
+        ? { paybridgenp_webhook_secret: webhookSecret }
         : {}),
     });
   };
@@ -1671,6 +1695,147 @@ function SettingsPage() {
                 </div>
               </SettingsPanel>
 
+              <SettingsPanel
+                title="PayBridgeNP"
+                description="Live hosted checkout for the user Deposit tab (eSewa, Khalti, Fonepay). API key and webhook secret are stored server-side in Settings (or env) and are never sent to the app, APK, or public APIs."
+                onSave={savePayBridge}
+                saving={saving}
+              >
+                <div className="grid gap-4">
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs">
+                    <span
+                      className={
+                        config.integrations?.paybridgenp_configured
+                          ? "font-medium text-success"
+                          : "font-medium text-destructive"
+                      }
+                    >
+                      {config.integrations?.paybridgenp_configured
+                        ? "Configured"
+                        : "Not configured"}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {config.integrations?.paybridgenp_api_key_set
+                        ? "API key saved in Settings"
+                        : config.integrations?.paybridgenp_env_api_key_set
+                          ? "API key loaded from server environment"
+                          : "Add an API key below or set PAYBRIDGENP_API_KEY on the server"}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="paybridgenp_api_key">API Key</Label>
+                    <PasswordInput
+                      id="paybridgenp_api_key"
+                      revealLabel="API Key"
+                      autoComplete="off"
+                      placeholder={
+                        config.integrations?.paybridgenp_api_key_set
+                          ? "Saved — paste a new sk_live_… key to replace"
+                          : "sk_live_… from PayBridgeNP Dashboard → Settings → API Keys"
+                      }
+                      value={config.integrations?.paybridgenp_api_key ?? ""}
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          integrations: {
+                            ...c.integrations!,
+                            paybridgenp_api_key: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Authorization: Bearer. Leave unchanged to keep the current key. Never put
+                      this in Vite / React / Flutter env vars.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="paybridgenp_webhook_secret">Webhook Secret</Label>
+                    <PasswordInput
+                      id="paybridgenp_webhook_secret"
+                      revealLabel="Webhook Secret"
+                      autoComplete="off"
+                      placeholder={
+                        config.integrations?.paybridgenp_webhook_secret_set
+                          ? "Saved — paste a new secret to replace"
+                          : config.integrations?.paybridgenp_env_webhook_secret_set
+                            ? "Loaded from env — paste here to store in Settings instead"
+                            : "Signing secret shown once when you add the webhook"
+                      }
+                      value={config.integrations?.paybridgenp_webhook_secret ?? ""}
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          integrations: {
+                            ...c.integrations!,
+                            paybridgenp_webhook_secret: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Verifies X-PayBridgeNP-Signature. Register webhook URL{" "}
+                      <code className="rounded bg-muted px-1">
+                        {"{BACKEND_ORIGIN}/webhooks/paybridgenp/"}
+                      </code>{" "}
+                      for payment.succeeded, payment.failed, payment.cancelled, payment.refunded.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="paybridgenp_base_url">Base URL</Label>
+                    <Input
+                      id="paybridgenp_base_url"
+                      type="url"
+                      placeholder="https://api.paybridgenp.com"
+                      value={
+                        config.integrations?.paybridgenp_base_url ||
+                        DEFAULT_CONFIG.integrations!.paybridgenp_base_url ||
+                        "https://api.paybridgenp.com"
+                      }
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          integrations: {
+                            ...c.integrations!,
+                            paybridgenp_base_url: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Default: https://api.paybridgenp.com
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="paybridgenp_return_url">Return URL</Label>
+                    <Input
+                      id="paybridgenp_return_url"
+                      type="url"
+                      placeholder="https://your-api.example/api/deposit/paybridge/return/"
+                      value={config.integrations?.paybridgenp_return_url ?? ""}
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          integrations: {
+                            ...c.integrations!,
+                            paybridgenp_return_url: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Optional. Defaults to BACKEND_ORIGIN/api/deposit/paybridge/return/?order=…
+                      (server verifies, then redirects to /app/paybridge-return). Wallet credit
+                      still requires the signed webhook.
+                    </p>
+                  </div>
+                </div>
+              </SettingsPanel>
+
               <div className="rounded-xl border border-border bg-surface p-5">
                 <div className="mb-4">
                   <h2 className="text-base font-semibold">Method default QR codes</h2>
@@ -2427,7 +2592,7 @@ function SettingsPanel({
         </div>
         <Button type="submit" disabled={saving} className="gap-1.5">
           <Save className="size-3.5" />
-          {saving ? "Saving…" : "Save changes"}
+          {saving ? "Saving…" : "Save Changes"}
         </Button>
       </div>
       <div className="mt-5">{children}</div>

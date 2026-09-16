@@ -743,6 +743,51 @@ export const apiClient = {
       body,
     }),
 
+  paybridgeInitiate: (body: { amount: number | string }) =>
+    api<{
+      message: string;
+      payment_url: string;
+      checkout_url: string;
+      data: import("./types").Deposit;
+    }>("/api/deposit/paybridge/initiate/", {
+      method: "POST",
+      body,
+    }),
+
+  paybridgeVerify: (body: {
+    deposit_id?: number;
+    id?: number;
+    order_id?: string;
+    order?: string;
+    purchase_order_identifier?: string;
+    session_id?: string;
+    process_id?: string;
+    payment_id?: string;
+  }) =>
+    api<{
+      message: string;
+      outcome: string;
+      already_processed?: boolean;
+      data: import("./types").Deposit | null;
+    }>("/api/deposit/paybridge/verify/", {
+      method: "POST",
+      body,
+    }),
+
+  paybridgeStatus: (depositId: number) =>
+    api<{
+      id: number;
+      orderId: string;
+      order_id: string;
+      amount: string;
+      currency: string;
+      status: string;
+      session_id?: string;
+      payment_id?: string;
+      checkout_url?: string;
+      failure_reason?: string;
+    }>(`/api/deposit/${depositId}/status/`),
+
   calculateCharge: (
     wallet_service_name: "NTC" | "NCELL" | "BANK_TRANSFER" | string,
     amount: number,

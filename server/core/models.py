@@ -1225,6 +1225,12 @@ def default_app_config():
             'himalpay_checkout_api_key': '',
             'himalpay_checkout_base_url': 'https://api.himalpay.com.np/api/v1',
             'himalpay_checkout_return_url': '',
+            # PayBridgeNP hosted checkout (eSewa + Khalti + Fonepay).
+            # Secret key + webhook signing secret — never expose to clients.
+            'paybridgenp_api_key': '',
+            'paybridgenp_webhook_secret': '',
+            'paybridgenp_base_url': 'https://api.paybridgenp.com',
+            'paybridgenp_return_url': '',
         },
         'smtp': {
             'enabled': True,
@@ -1461,7 +1467,7 @@ class DealerPayoutAccount(models.Model):
 
 
 class Deposit(models.Model):
-    """User deposit requests (manual proof + Himal Pay Checkout payin)."""
+    """User deposit requests (manual proof + Himal Pay / PayBridgeNP payin)."""
     STATUS_PENDING = 'pending'
     STATUS_PROCESSING = 'processing'
     STATUS_APPROVED = 'approved'
@@ -1483,9 +1489,11 @@ class Deposit(models.Model):
 
     PROVIDER_MANUAL = 'manual'
     PROVIDER_HIMALPAY_CHECKOUT = 'himalpay_checkout'
+    PROVIDER_PAYBRIDGENP = 'paybridgenp'
     PROVIDER_CHOICES = [
         (PROVIDER_MANUAL, 'Manual'),
         (PROVIDER_HIMALPAY_CHECKOUT, 'Himal Pay Checkout'),
+        (PROVIDER_PAYBRIDGENP, 'PayBridgeNP'),
     ]
 
     VERIFY_UNVERIFIED = 'unverified'
@@ -1508,21 +1516,24 @@ class Deposit(models.Model):
         choices=PROVIDER_CHOICES,
         default=PROVIDER_MANUAL,
         db_index=True,
-        help_text='manual = screenshot proof; himalpay_checkout = N-Cash Merchant Checkout',
+        help_text=(
+            'manual = screenshot proof; himalpay_checkout = N-Cash Checkout; '
+            'paybridgenp = PayBridgeNP hosted checkout'
+        ),
     )
     purchase_order_identifier = models.CharField(
         max_length=120,
         unique=True,
         null=True,
         blank=True,
-        help_text='Globally unique Checkout purchase_order_identifier',
+        help_text='Internal order / Checkout purchase_order_identifier',
     )
     process_id = models.CharField(
-        max_length=64,
+        max_length=80,
         unique=True,
         null=True,
         blank=True,
-        help_text='Himal Pay Checkout process_id',
+        help_text='Provider session id (HimalPay process_id or PayBridgeNP cs_…)',
     )
     payment_url = models.TextField(blank=True, default='')
     expires_at = models.DateTimeField(null=True, blank=True)

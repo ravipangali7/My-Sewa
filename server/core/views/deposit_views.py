@@ -1,5 +1,5 @@
 """
-Deposit views: manual wallet load + Himal Pay Checkout payin.
+Deposit views: manual wallet load + Himal Pay Checkout + PayBridgeNP payin.
 """
 from django.http import HttpResponseRedirect
 from rest_framework import status
@@ -29,6 +29,8 @@ from ..services.checkout_deposit import (
 )
 from ..services.himalpay_checkout import append_query, default_frontend_return_url
 from ..services.notifications import notify_deposit_submitted
+from ..services.paybridgenp import PayBridgeError
+from ..services import paybridge_deposit as pb
 
 logger = logging.getLogger(__name__)
 
@@ -369,5 +371,219 @@ def checkout_webhook(request):
                 getattr(payload_source, 'provider_payload', None) if payload_source else None
             ),
         ),
+        status=status.HTTP_200_OK,
+    )
+
+
+def _paybridge_error(exc: PayBridgeError):
+    http_status = exc.status_code or status.HTTP_400_BAD_REQUEST
+    if http_status == 500:
+        http_status = status.HTTP_502_BAD_GATEWAY
+    return Response(
+        {
+            'error': str(exc.message or exc),
+            'message': str(exc.message or exc),
+            'code': 'paybridgenp_error',
+            'error_code': getattr(exc, 'error_code', None),
+            'error_type': getattr(exc, 'error_type', None),
+        },
+        status=http_status,
+    )
+
+
+def _paybridge_verify_response(request, outcome, deposit):
+    messages = {
+        pb.SETTLED: 'Deposit verified and wallet credited',
+        pb.ALREADY_PROCESSED: 'Deposit already processed',
+        pb.PENDING_PAYMENT: 'Payment is not completed yet',
+        pb.FAILED_PAYMENT: 'Payment was not successful',
+        pb.AMOUNT_MISMATCH: 'Provider amount does not match the deposit. Held for review.',
+        pb.ORDER_MISMATCH: 'Provider order id does not match the deposit. Held for review.',
+    }
+    http_status = status.HTTP_200_OK
+    if outcome in (pb.AMOUNT_MISMATCH, pb.ORDER_MISMATCH):
+        http_status = status.HTTP_409_CONFLICT
+    return Response(
+        {
+            'message': messages.get(outcome, 'PayBridgeNP status updated'),
+            'outcome': outcome,
+            'already_processed': outcome == pb.ALREADY_PROCESSED,
+            'data': DepositSerializer(deposit, context={'request': request}).data if deposit else None,
+        },
+        status=http_status,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def paybridge_initiate(request):
+    """Create a PayBridgeNP hosted checkout deposit. Does not credit wallet."""
+    blocked = require_feature_enabled('deposits')
+    if blocked:
+        return blocked
+
+    pending = require_account_approved(request.user)
+    if pending:
+        return pending
+
+    frozen = require_wallet_not_frozen(request.user)
+    if frozen:
+        return frozen
+
+    amount = request.data.get('amount')
+    try:
+        deposit, checkout_url = pb.create_paybridge_deposit(request.user, amount)
+    except PayBridgeError as exc:
+        return _paybridge_error(exc)
+    except Exception as exc:
+        logger.exception('paybridge_initiate failed')
+        return Response(
+            {
+                'error': str(exc) or 'Could not start PayBridgeNP checkout.',
+                'message': str(exc) or 'Could not start PayBridgeNP checkout.',
+                'code': 'paybridge_initiate_failed',
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    return Response(
+        {
+            'message': 'PayBridgeNP checkout ready',
+            'payment_url': checkout_url,
+            'checkout_url': checkout_url,
+            'data': DepositSerializer(deposit, context={'request': request}).data,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def paybridge_verify(request):
+    """
+    Server-side verification via PayBridgeNP GET session/payment.
+    Never trusts client-supplied payment status or amount.
+    """
+    deposit = pb.lookup_paybridge_deposit(
+        order_id=str(
+            request.data.get('order_id')
+            or request.data.get('order')
+            or request.data.get('purchase_order_identifier')
+            or ''
+        ),
+        session_id=str(request.data.get('session_id') or request.data.get('process_id') or ''),
+        payment_id=str(request.data.get('payment_id') or ''),
+        deposit_id=request.data.get('deposit_id') or request.data.get('id'),
+        user=request.user,
+    )
+    if deposit is None:
+        return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        outcome, deposit = pb.verify_deposit(deposit)
+    except PayBridgeError as exc:
+        return _paybridge_error(exc)
+    return _paybridge_verify_response(request, outcome, deposit)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def paybridge_status(request, deposit_id):
+    """Authenticated deposit status for the owning user only."""
+    try:
+        deposit = Deposit.objects.get(
+            pk=deposit_id,
+            user=request.user,
+            provider=Deposit.PROVIDER_PAYBRIDGENP,
+        )
+    except Deposit.DoesNotExist:
+        return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Soft poll provider while still open (does not trust client).
+    if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+        try:
+            _, deposit = pb.verify_deposit(deposit)
+        except PayBridgeError:
+            pass
+        except Exception:
+            logger.exception('paybridge_status verify failed deposit=%s', deposit_id)
+
+    return Response(pb.public_deposit_dict(deposit), status=status.HTTP_200_OK)
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+@authentication_classes([])
+def paybridge_return(request):
+    """
+    Customer return_url. Identifies deposit from our `order` query param,
+    then verifies via PayBridgeNP API. Never trusts redirect status/amount.
+    """
+    order = (
+        request.query_params.get('order')
+        or request.query_params.get('order_id')
+        or ''
+    )
+    session_id = (
+        request.query_params.get('session_id')
+        or request.query_params.get('process_id')
+        or ''
+    )
+    payment_id = request.query_params.get('payment_id') or ''
+
+    deposit = pb.lookup_paybridge_deposit(
+        order_id=order,
+        session_id=session_id,
+        payment_id=payment_id,
+    )
+    if deposit is None:
+        return HttpResponseRedirect(pb.frontend_result_url(order=order, error='not_found'))
+
+    try:
+        pb.verify_deposit(deposit)
+    except PayBridgeError:
+        pass
+    except Exception:
+        logger.exception('paybridge_return verify failed deposit=%s', deposit.pk)
+
+    return HttpResponseRedirect(
+        pb.frontend_result_url(order=deposit.purchase_order_identifier or order, deposit_id=deposit.pk)
+    )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@authentication_classes([])
+def paybridge_webhook(request):
+    """
+    Signed PayBridgeNP webhook. Uses raw body for HMAC verification.
+    Credits wallet only after payment.succeeded + amount/currency match.
+    """
+    raw_body = getattr(request, '_paybridge_raw_body', None)
+    if raw_body is None:
+        try:
+            raw_body = request.body.decode('utf-8')
+        except Exception:
+            raw_body = ''
+    signature = (
+        request.META.get('HTTP_X_PAYBRIDGENP_SIGNATURE')
+        or request.headers.get('X-PayBridgeNP-Signature')
+        or ''
+    )
+    try:
+        outcome, deposit = pb.process_raw_webhook(raw_body, signature)
+    except PayBridgeError as exc:
+        return _paybridge_error(exc)
+    except Exception:
+        logger.exception('paybridge_webhook failed')
+        return Response({'error': 'Webhook processing failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response(
+        {
+            'received': True,
+            'outcome': outcome,
+            'already_processed': outcome == pb.ALREADY_PROCESSED,
+            'deposit_id': deposit.pk if deposit else None,
+            'status': deposit.status if deposit else None,
+        },
         status=status.HTTP_200_OK,
     )

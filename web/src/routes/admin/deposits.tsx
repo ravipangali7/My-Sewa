@@ -157,13 +157,15 @@ function DepositsPage() {
 
   const depositActions = (d: Deposit) => {
     const isCheckout = d.provider === "himalpay_checkout";
+    const isPayBridge = d.provider === "paybridgenp";
     const canManualApprove =
-      d.status === "pending" && (!isCheckout || d.verification_status === "mismatch");
+      d.status === "pending" &&
+      ((!isCheckout && !isPayBridge) || d.verification_status === "mismatch");
     const canReject = d.status === "pending" || d.status === "processing";
-    if (canManualApprove || canReject || isCheckout) {
+    if (canManualApprove || canReject || isCheckout || isPayBridge) {
       return (
         <div className="flex flex-wrap gap-2">
-          {isCheckout ? (
+          {isCheckout || isPayBridge ? (
             <Button
               size="sm"
               variant="outline"
@@ -336,7 +338,11 @@ function DepositsPage() {
                     {formatNPR(d.amount)}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {d.provider === "himalpay_checkout" ? "Himal Pay" : "Manual"}
+                    {d.provider === "paybridgenp"
+                      ? "PayBridgeNP"
+                      : d.provider === "himalpay_checkout"
+                        ? "Himal Pay"
+                        : "Manual"}
                   </TableCell>
                   <TableCell className="max-w-36 truncate text-sm text-muted-foreground">
                     {d.process_id || d.transaction_id || "—"}

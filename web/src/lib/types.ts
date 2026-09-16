@@ -13,7 +13,7 @@ export type CheckoutSessionStatus =
   | "failed"
   | "cancelled"
   | "expired";
-export type DepositProvider = "manual" | "himalpay_checkout";
+export type DepositProvider = "manual" | "himalpay_checkout" | "paybridgenp";
 export type DepositVerificationStatus = "unverified" | "verified" | "mismatch" | "failed";
 /** Denormalized KYC status on the user (mirrors latest submission). */
 export type KycStatus = "not_submitted" | "pending" | "approved" | "rejected";
@@ -364,6 +364,17 @@ export interface IntegrationsConfig {
   himalpay_checkout_api_key_set?: boolean;
   himalpay_checkout_base_url?: string;
   himalpay_checkout_return_url?: string;
+  paybridgenp_api_key?: string;
+  paybridgenp_api_key_set?: boolean;
+  paybridgenp_webhook_secret?: string;
+  paybridgenp_webhook_secret_set?: boolean;
+  /** True when PAYBRIDGENP_API_KEY is set in server env (value never returned). */
+  paybridgenp_env_api_key_set?: boolean;
+  paybridgenp_env_webhook_secret_set?: boolean;
+  /** True when Settings DB or env has an API key. */
+  paybridgenp_configured?: boolean;
+  paybridgenp_base_url?: string;
+  paybridgenp_return_url?: string;
 }
 
 export interface SmtpConfig {

@@ -99,7 +99,7 @@ export function buildActivity(
       subtitle:
         d.status === "rejected" && d.rejection_reason
           ? t("activity.rejected", { reason: d.rejection_reason })
-          : d.provider === "himalpay_checkout"
+          : d.provider === "paybridgenp" || d.provider === "himalpay_checkout"
             ? t("load.checkoutProvider")
             : (d.note ?? t("activity.walletLoad")),
       amount: d.amount,
@@ -404,7 +404,9 @@ export function buildActivityStatement(
     pushDetail(
       details,
       t("history.serviceName"),
-      d.provider === "himalpay_checkout" ? t("load.checkoutProvider") : t("notif.typeDeposit"),
+      d.provider === "paybridgenp" || d.provider === "himalpay_checkout"
+        ? t("load.checkoutProvider")
+        : t("notif.typeDeposit"),
     );
     pushDetail(details, t("common.status"), translateStatus(d.status, t));
     pushDetail(details, t("common.amountNpr"), formatNPR(d.amount));

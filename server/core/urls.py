@@ -186,6 +186,36 @@ urlpatterns = [
         deposit_views.checkout_webhook,
         name='deposit_checkout_webhook',
     ),
+    path(
+        'api/deposit/paybridge/initiate/',
+        deposit_views.paybridge_initiate,
+        name='deposit_paybridge_initiate',
+    ),
+    path(
+        'api/deposit/paybridge/verify/',
+        deposit_views.paybridge_verify,
+        name='deposit_paybridge_verify',
+    ),
+    path(
+        'api/deposit/paybridge/return/',
+        deposit_views.paybridge_return,
+        name='deposit_paybridge_return',
+    ),
+    path(
+        'api/deposit/paybridge/webhook/',
+        deposit_views.paybridge_webhook,
+        name='deposit_paybridge_webhook',
+    ),
+    path(
+        'webhooks/paybridgenp/',
+        deposit_views.paybridge_webhook,
+        name='webhooks_paybridgenp',
+    ),
+    path(
+        'api/deposit/<int:deposit_id>/status/',
+        deposit_views.paybridge_status,
+        name='deposit_paybridge_status',
+    ),
     path('api/deposit/<int:deposit_id>/', deposit_views.get_deposit, name='get_deposit'),
 
     # KYC endpoints (multi-document identity verification)

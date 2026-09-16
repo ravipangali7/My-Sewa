@@ -101,7 +101,8 @@ function DepositDetailPage() {
   });
 
   const d = depositQuery.data;
-  const isCheckout = d?.provider === "himalpay_checkout";
+  const isCheckout =
+    d?.provider === "himalpay_checkout" || d?.provider === "paybridgenp";
   const canManualApprove =
     d?.status === "pending" && (!isCheckout || d.verification_status === "mismatch");
   const canReject = d?.status === "pending" || d?.status === "processing";
@@ -242,12 +243,18 @@ function DepositDetailPage() {
                 </h3>
                 <dl>
                   <StatementRow label="Type">
-                    {d.provider === "himalpay_checkout"
-                      ? "Himal Pay Checkout"
-                      : "Manual wallet load"}
+                    {d.provider === "paybridgenp"
+                      ? "PayBridgeNP Wallet Deposit"
+                      : d.provider === "himalpay_checkout"
+                        ? "Himal Pay Checkout"
+                        : "Manual wallet load"}
                   </StatementRow>
                   <StatementRow label="Provider">
-                    {d.provider === "himalpay_checkout" ? "Himal Pay" : "Manual"}
+                    {d.provider === "paybridgenp"
+                      ? "PayBridgeNP"
+                      : d.provider === "himalpay_checkout"
+                        ? "Himal Pay"
+                        : "Manual"}
                   </StatementRow>
                   <StatementRow label="Internal order ID">
                     {d.purchase_order_identifier?.trim() || "—"}

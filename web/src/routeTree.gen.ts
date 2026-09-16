@@ -50,6 +50,7 @@ import { Route as AppHistoryRouteImport } from './routes/app/history'
 import { Route as AppInternetRouteImport } from './routes/app/internet'
 import { Route as AppLoadRouteImport } from './routes/app/load'
 import { Route as AppNotificationsRouteImport } from './routes/app/notifications'
+import { Route as AppPaybridgeReturnRouteImport } from './routes/app/paybridge-return'
 import { Route as AppProfileRouteImport } from './routes/app/profile'
 import { Route as AppRemittanceRouteImport } from './routes/app/remittance'
 import { Route as AppScanRouteImport } from './routes/app/scan'
@@ -298,6 +299,11 @@ const AppLoadRoute = AppLoadRouteImport.update({
 const AppNotificationsRoute = AppNotificationsRouteImport.update({
   id: '/app/notifications',
   path: '/app/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppPaybridgeReturnRoute = AppPaybridgeReturnRouteImport.update({
+  id: '/app/paybridge-return',
+  path: '/app/paybridge-return',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppProfileRoute = AppProfileRouteImport.update({
@@ -561,6 +567,7 @@ export interface FileRoutesByFullPath {
   '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
+  '/app/paybridge-return': typeof AppPaybridgeReturnRoute
   '/app/profile': typeof AppProfileRoute
   '/app/remittance': typeof AppRemittanceRoute
   '/app/scan': typeof AppScanRoute
@@ -647,6 +654,7 @@ export interface FileRoutesByTo {
   '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
+  '/app/paybridge-return': typeof AppPaybridgeReturnRoute
   '/app/profile': typeof AppProfileRoute
   '/app/remittance': typeof AppRemittanceRoute
   '/app/scan': typeof AppScanRoute
@@ -734,6 +742,7 @@ export interface FileRoutesById {
   '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
   '/app/notifications': typeof AppNotificationsRoute
+  '/app/paybridge-return': typeof AppPaybridgeReturnRoute
   '/app/profile': typeof AppProfileRoute
   '/app/remittance': typeof AppRemittanceRoute
   '/app/scan': typeof AppScanRoute
@@ -822,6 +831,7 @@ export interface FileRouteTypes {
     | '/app/internet'
     | '/app/load'
     | '/app/notifications'
+    | '/app/paybridge-return'
     | '/app/profile'
     | '/app/remittance'
     | '/app/scan'
@@ -908,6 +918,7 @@ export interface FileRouteTypes {
     | '/app/internet'
     | '/app/load'
     | '/app/notifications'
+    | '/app/paybridge-return'
     | '/app/profile'
     | '/app/remittance'
     | '/app/scan'
@@ -994,6 +1005,7 @@ export interface FileRouteTypes {
     | '/app/internet'
     | '/app/load'
     | '/app/notifications'
+    | '/app/paybridge-return'
     | '/app/profile'
     | '/app/remittance'
     | '/app/scan'
@@ -1081,6 +1093,7 @@ export interface RootRouteChildren {
   AppInternetRoute: typeof AppInternetRoute
   AppLoadRoute: typeof AppLoadRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
+  AppPaybridgeReturnRoute: typeof AppPaybridgeReturnRoute
   AppProfileRoute: typeof AppProfileRoute
   AppRemittanceRoute: typeof AppRemittanceRoute
   AppScanRoute: typeof AppScanRoute
@@ -1415,6 +1428,13 @@ declare module '@tanstack/react-router' {
       path: '/app/notifications'
       fullPath: '/app/notifications'
       preLoaderRoute: typeof AppNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/paybridge-return': {
+      id: '/app/paybridge-return'
+      path: '/app/paybridge-return'
+      fullPath: '/app/paybridge-return'
+      preLoaderRoute: typeof AppPaybridgeReturnRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/profile': {
@@ -1761,6 +1781,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppInternetRoute: AppInternetRoute,
   AppLoadRoute: AppLoadRoute,
   AppNotificationsRoute: AppNotificationsRoute,
+  AppPaybridgeReturnRoute: AppPaybridgeReturnRoute,
   AppProfileRoute: AppProfileRoute,
   AppRemittanceRoute: AppRemittanceRoute,
   AppScanRoute: AppScanRoute,
@@ -1811,13 +1832,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

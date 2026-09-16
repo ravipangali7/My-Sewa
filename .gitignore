@@ -6,3 +6,7 @@
 
 "*.hprof" 
 *.hprof 
+
+# PayBridgeNP live secrets (never commit)
+server/.env.paybridgenp
+.env.paybridgenp

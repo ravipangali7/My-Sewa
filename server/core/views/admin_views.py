@@ -2124,7 +2124,7 @@ def admin_list_deposits(request):
     elif status_filter == 'success':
         qs = qs.filter(status='approved')
     provider_filter = (request.query_params.get('provider') or '').strip()
-    if provider_filter in ('manual', 'himalpay_checkout'):
+    if provider_filter in ('manual', 'himalpay_checkout', 'paybridgenp'):
         qs = qs.filter(provider=provider_filter)
     if q:
         qs = qs.filter(
@@ -2201,7 +2201,18 @@ def admin_approve_deposit(request, deposit_id):
         return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
 
     is_checkout = getattr(deposit, 'provider', 'manual') == Deposit.PROVIDER_HIMALPAY_CHECKOUT
+    is_paybridge = getattr(deposit, 'provider', 'manual') == Deposit.PROVIDER_PAYBRIDGENP
     is_mismatch = getattr(deposit, 'verification_status', '') == Deposit.VERIFY_MISMATCH
+    if is_paybridge and not is_mismatch:
+        return Response(
+            {
+                'error': (
+                    'PayBridgeNP deposits are credited only after a signed '
+                    'webhook or server-side payment verification.'
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if is_checkout and not is_mismatch:
         return Response(
             {
@@ -2212,7 +2223,7 @@ def admin_approve_deposit(request, deposit_id):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
-    allowed = ('pending', 'failed') if is_checkout and is_mismatch else ('pending',)
+    allowed = ('pending', 'failed') if (is_checkout or is_paybridge) and is_mismatch else ('pending',)
     if deposit.status not in allowed:
         return Response(
             {'error': f'Deposit is already {deposit.status}'},
@@ -2272,14 +2283,31 @@ def admin_reject_deposit(request, deposit_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_verify_checkout_deposit(request, deposit_id):
-    """Re-run Himal Pay checkout-status verification for a checkout deposit."""
+    """Re-run provider verification for Himal Pay Checkout or PayBridgeNP deposits."""
     try:
         deposit = Deposit.objects.select_related('user').get(pk=deposit_id)
     except Deposit.DoesNotExist:
         return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if deposit.provider == Deposit.PROVIDER_PAYBRIDGENP:
+        from ..services.paybridge_deposit import verify_deposit as verify_pb
+        from ..services.paybridgenp import PayBridgeError
+        try:
+            outcome, deposit = verify_pb(deposit)
+        except PayBridgeError as exc:
+            return Response(
+                {'error': str(exc.message or exc), 'message': str(exc.message or exc)},
+                status=exc.status_code or status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({
+            'message': 'PayBridgeNP status refreshed',
+            'outcome': outcome,
+            'data': DepositSerializer(deposit, context={'request': request}).data,
+        })
+
     if deposit.provider != Deposit.PROVIDER_HIMALPAY_CHECKOUT:
         return Response(
-            {'error': 'Not a Himal Pay Checkout deposit'},
+            {'error': 'Not a provider checkout deposit'},
             status=status.HTTP_400_BAD_REQUEST,
         )
     from ..services.checkout_deposit import verify_deposit
@@ -3465,8 +3493,30 @@ def admin_settings(request):
                             merged_integ['himalpay_portal_password'] = (
                                 (current.get(section) or {}).get('himalpay_portal_password') or ''
                             )
-                        merged_integ.pop('himalpay_portal_password_set', None)
-                        merged_integ.pop('himalpay_checkout_api_key_set', None)
+                        for secret_key in (
+                            'paybridgenp_api_key',
+                            'paybridgenp_webhook_secret',
+                        ):
+                            incoming_secret = str(values.get(secret_key) or '').strip()
+                            if not incoming_secret or incoming_secret == PASSWORD_MASK:
+                                merged_integ[secret_key] = (
+                                    (current.get(section) or {}).get(secret_key) or ''
+                                )
+                        # Never persist UI-only flags
+                        for flag in (
+                            'himalpay_portal_password_set',
+                            'himalpay_checkout_api_key_set',
+                            'paybridgenp_api_key_set',
+                            'paybridgenp_webhook_secret_set',
+                            'paybridgenp_env_api_key_set',
+                            'paybridgenp_env_webhook_secret_set',
+                            'paybridgenp_configured',
+                        ):
+                            merged_integ.pop(flag, None)
+                        # Normalize base URL default
+                        base = str(merged_integ.get('paybridgenp_base_url') or '').strip()
+                        if not base:
+                            merged_integ['paybridgenp_base_url'] = 'https://api.paybridgenp.com'
                         current[section] = merged_integ
                     else:
                         current[section] = {**(current.get(section) or {}), **values}

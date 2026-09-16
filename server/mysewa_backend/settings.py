@@ -23,9 +23,11 @@ pymysql.install_as_MySQLdb()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Load environment variables from server/.env
+# Optional gitignored secrets file (never commit live keys).
 try:
     from dotenv import load_dotenv
     load_dotenv(BASE_DIR / '.env')
+    load_dotenv(BASE_DIR / '.env.paybridgenp', override=False)
 except ImportError:
     pass
 
@@ -299,6 +301,17 @@ HIMALPAY_TIMEOUT = int(os.environ.get('HIMALPAY_TIMEOUT', '60'))
 HIMALPAY_CHECKOUT_API_KEY = os.environ.get('HIMALPAY_CHECKOUT_API_KEY', '').strip()
 HIMALPAY_CHECKOUT_BASE_URL = os.environ.get('HIMALPAY_CHECKOUT_BASE_URL', '').strip()
 HIMALPAY_CHECKOUT_RETURN_URL = os.environ.get('HIMALPAY_CHECKOUT_RETURN_URL', '').strip()
+
+# PayBridgeNP hosted checkout (eSewa + Khalti + Fonepay). Secret key server-only.
+# Prefer Admin → Settings → integrations, else env / .env.paybridgenp (gitignored).
+PAYBRIDGENP_API_KEY = os.environ.get('PAYBRIDGENP_API_KEY', '').strip()
+PAYBRIDGENP_WEBHOOK_SECRET = os.environ.get('PAYBRIDGENP_WEBHOOK_SECRET', '').strip()
+PAYBRIDGENP_BASE_URL = os.environ.get('PAYBRIDGENP_BASE_URL', 'https://api.paybridgenp.com').strip()
+PAYBRIDGENP_RETURN_URL = os.environ.get('PAYBRIDGENP_RETURN_URL', '').strip()
+PAYBRIDGENP_TIMEOUT = int(os.environ.get('PAYBRIDGENP_TIMEOUT', '60'))
+PAYBRIDGENP_BYPASS_API = os.environ.get('PAYBRIDGENP_BYPASS_API', 'false').lower() in (
+    '1', 'true', 'yes',
+)
 # Key loading priority (in order):
 # 1. service hub api/Private key.txt (workspace root) - PRIMARY LOCATION for updated keys
 # 2. SERVICE_HUB_PRIVATE_KEY_PATH (if set and file exists)

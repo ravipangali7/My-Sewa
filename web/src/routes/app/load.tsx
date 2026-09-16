@@ -5,7 +5,6 @@ import { Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
-import { CopyableField } from "@/components/CopyableField";
 import { DepositAccountsPanel } from "@/components/DepositAccountsPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +27,6 @@ import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { enabledPaymentAccounts } from "@/lib/payment-accounts";
-import { toDataURL } from "@/lib/qrcode";
 import type { DepositDestinations, PaymentMethod } from "@/lib/types";
 
 const DEPOSIT_PAYMENT_METHODS: PaymentMethod[] = ["bank", "khalti", "esewa"];
@@ -85,12 +83,12 @@ export const Route = createFileRoute("/app/load")({
       {
         name: "description",
         content:
-          "Load your MySewa wallet with Himal Pay / N-Cash Checkout or submit a manual deposit with payment proof.",
+          "Load your MySewa wallet with PayBridgeNP (eSewa, Khalti, Fonepay) or submit a manual deposit with payment proof.",
       },
       { property: "og:title", content: "Load Wallet — MySewa" },
       {
         property: "og:description",
-        content: "Submit a manual wallet load request with proof and track approval status.",
+        content: "Deposit via PayBridgeNP hosted checkout or submit a manual wallet load request.",
       },
     ],
   }),
@@ -130,24 +128,15 @@ function LoadWallet() {
   const [file, setFile] = useState<File | null>(null);
   const [destSource, setDestSource] = useState<DestSource>("platform");
   const [checkoutAmount, setCheckoutAmount] = useState("");
-  const [checkoutSession, setCheckoutSession] = useState<{
+  const [paybridgeDeposit, setPaybridgeDeposit] = useState<{
+    depositId: number;
     paymentUrl: string;
-    sessionId: number;
     orderId: string;
-    processId: string;
+    sessionId: string;
     amount: string;
-    details?: {
-      provider?: string;
-      channel?: string;
-      product_name?: string;
-      merchant_name?: string;
-      merchant_phone?: string;
-      account_holder?: string;
-      ncash_id?: string;
-      currency?: string;
-    } | null;
   } | null>(null);
-  const [checkoutQrSrc, setCheckoutQrSrc] = useState("");
+  const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
+  const checkoutPaidToast = useRef(false);
 
   const destQuery = useQuery({
     queryKey: ["deposit-destinations"],
@@ -276,30 +265,32 @@ function LoadWallet() {
       if (accountPending) throw new Error(t("account.pending"));
       if (walletFrozen) throw new Error(t("account.walletFrozen"));
       if (!depositsEnabled) throw new Error(t("load.disabledError"));
-      const amt = Number(checkoutAmount) || Math.max(minDeposit, 10);
+      const amt = Number(checkoutAmount);
       if (!Number.isFinite(amt) || amt <= 0) throw new Error(t("load.validAmount"));
       if (amt < minDeposit) throw new Error(t("load.minError", { min: minDeposit }));
       if (maxDeposit > 0 && amt > maxDeposit)
         throw new Error(t("load.maxError", { max: maxDeposit }));
       if (amt < 10) throw new Error(t("load.checkoutMinError"));
-      return apiClient.checkoutInitiate({ amount: amt });
+      return apiClient.paybridgeInitiate({ amount: amt });
     },
     onSuccess: (res) => {
-      const paymentUrl = res.payment_url;
-      const sessionId = Number(res.data?.session_id || res.data?.id || 0);
-      if (!paymentUrl || !sessionId) {
+      const paymentUrl = res.checkout_url || res.payment_url;
+      const depositId = Number(res.data?.id || 0);
+      if (!paymentUrl || !depositId) {
         toast.error(t("load.checkoutFailed"));
         return;
       }
       checkoutPaidToast.current = false;
-      setCheckoutSession({
+      setPaybridgeDeposit({
+        depositId,
         paymentUrl,
-        sessionId,
         orderId: res.data?.purchase_order_identifier || "",
-        processId: res.data?.process_id || res.data?.transaction_id || "",
+        sessionId: res.data?.process_id || "",
         amount: String(res.data?.amount || checkoutAmount),
-        details: res.data?.checkout_details || null,
       });
+      setPaymentSheetOpen(true);
+      // Hosted checkout (Free plan): open provider page; WebView/mobile supports external URL.
+      window.open(paymentUrl, "_blank", "noopener,noreferrer");
     },
     onError: (err) => {
       toast.error(
@@ -310,63 +301,22 @@ function LoadWallet() {
     },
   });
 
-  const checkoutAutoStarted = useRef(false);
-  const checkoutPaidToast = useRef(false);
-
   useEffect(() => {
-    if (!payingCheckout) {
-      checkoutAutoStarted.current = false;
-      return;
-    }
+    if (!payingCheckout) return;
     if (!checkoutAmount) {
       setCheckoutAmount(String(Math.max(minDeposit, 10)));
     }
   }, [payingCheckout, minDeposit, checkoutAmount]);
 
-  useEffect(() => {
-    if (!payingCheckout || checkoutSession) return;
-    if (checkoutMutation.isPending || checkoutAutoStarted.current) return;
-    const amt = Number(checkoutAmount);
-    if (!Number.isFinite(amt) || amt < 10 || amt < minDeposit) return;
-    checkoutAutoStarted.current = true;
-    checkoutMutation.mutate();
-  }, [
-    payingCheckout,
-    checkoutAmount,
-    checkoutSession,
-    checkoutMutation.isPending,
-    minDeposit,
-  ]);
-
-  useEffect(() => {
-    if (!checkoutSession?.paymentUrl) {
-      setCheckoutQrSrc("");
-      return;
-    }
-    try {
-      setCheckoutQrSrc(toDataURL(checkoutSession.paymentUrl, { width: 720 }));
-    } catch {
-      setCheckoutQrSrc("");
-    }
-  }, [checkoutSession?.paymentUrl]);
-
   const checkoutStatusQuery = useQuery({
-    queryKey: ["checkout-verify-live", checkoutSession?.sessionId, checkoutSession?.processId],
-    enabled: Boolean(token) && payingCheckout && Boolean(checkoutSession?.sessionId),
-    queryFn: () =>
-      apiClient.checkoutVerify({
-        id: checkoutSession!.sessionId,
-        session_id: checkoutSession!.sessionId,
-        process_id: checkoutSession!.processId || undefined,
-        purchase_order_identifier: checkoutSession!.orderId || undefined,
-      }),
+    queryKey: ["paybridge-status", paybridgeDeposit?.depositId],
+    enabled: Boolean(token) && Boolean(paybridgeDeposit?.depositId) && paymentSheetOpen,
+    queryFn: () => apiClient.paybridgeStatus(paybridgeDeposit!.depositId),
     retry: false,
     refetchInterval: (query) => {
-      const status = query.state.data?.data?.status;
-      const outcome = query.state.data?.outcome;
+      const status = query.state.data?.status;
       if (
         status === "approved" ||
-        status === "settled" ||
         status === "failed" ||
         status === "cancelled" ||
         status === "expired" ||
@@ -375,24 +325,13 @@ function LoadWallet() {
       ) {
         return false;
       }
-      if (outcome === "pending_payment" || status === "awaiting_payment" || status === "pending" || status === "processing") {
-        return 4000;
-      }
       return 4000;
     },
   });
 
   useEffect(() => {
-    const status = checkoutStatusQuery.data?.data?.status;
-    const outcome = checkoutStatusQuery.data?.outcome;
-    if (
-      status !== "approved" &&
-      status !== "settled" &&
-      outcome !== "settled" &&
-      outcome !== "already_processed"
-    ) {
-      return;
-    }
+    const status = checkoutStatusQuery.data?.status;
+    if (status !== "approved") return;
     void queryClient.invalidateQueries({ queryKey: ["wallet"] });
     void queryClient.invalidateQueries({ queryKey: ["wallet", "balance"] });
     void queryClient.invalidateQueries({ queryKey: ["wallet", "transactions"] });
@@ -400,28 +339,25 @@ function LoadWallet() {
     if (!checkoutPaidToast.current) {
       checkoutPaidToast.current = true;
       toast.success(t("load.checkoutSuccess"));
+      setPaymentSheetOpen(false);
+      setPaybridgeDeposit(null);
     }
-  }, [checkoutStatusQuery.data?.data?.status, checkoutStatusQuery.data?.outcome, queryClient, t]);
+  }, [checkoutStatusQuery.data?.status, queryClient, t]);
 
-  const liveCheckout = checkoutStatusQuery.data?.data;
-  const checkoutDetails = liveCheckout?.checkout_details || checkoutSession?.details;
-  const checkoutAmountValue = liveCheckout?.amount || checkoutSession?.amount || "";
-  const checkoutAccountHolder = (
-    checkoutDetails?.account_holder ||
-    checkoutDetails?.merchant_name ||
-    ""
-  ).trim();
-  const checkoutNcashId = (
-    checkoutDetails?.ncash_id ||
-    checkoutDetails?.merchant_phone ||
-    ""
-  ).trim();
-  const checkoutPaid =
-    liveCheckout?.status === "approved" || liveCheckout?.status === "settled";
-  const checkoutNeedsNewQr =
+  const liveCheckout = checkoutStatusQuery.data;
+  const checkoutAmountValue = liveCheckout?.amount || paybridgeDeposit?.amount || "";
+  const checkoutPaid = liveCheckout?.status === "approved";
+  const checkoutNeedsRetry =
     liveCheckout?.status === "failed" ||
     liveCheckout?.status === "cancelled" ||
     liveCheckout?.status === "expired";
+  const checkoutWaiting =
+    !checkoutPaid &&
+    !checkoutNeedsRetry &&
+    Boolean(paybridgeDeposit) &&
+    (liveCheckout?.status === "pending" ||
+      liveCheckout?.status === "processing" ||
+      !liveCheckout?.status);
 
   return (
     <UserShell
@@ -495,130 +431,61 @@ function LoadWallet() {
                   <h2 className="text-[15px] font-semibold">{t("load.checkoutTitle")}</h2>
                   <p className="mt-1 text-[13px] text-muted-foreground">{t("load.checkoutHelp")}</p>
                 </div>
-                {checkoutSession ? (
-                  <div className="space-y-4">
-                    <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-white px-3 py-5 sm:px-6">
-                      {checkoutQrSrc ? (
-                        <img
-                          src={checkoutQrSrc}
-                          alt={t("load.checkoutQrAlt")}
-                          className="aspect-square w-full max-w-[min(92vw,24rem)] bg-white object-contain"
-                        />
-                      ) : (
-                        <div className="flex aspect-square w-full max-w-[min(92vw,24rem)] items-center justify-center text-sm text-muted-foreground">
-                          {t("load.checkoutQrBuilding")}
-                        </div>
-                      )}
-                      <p className="max-w-[24rem] text-center text-[13px] text-muted-foreground">
-                        {t("load.checkoutQrScan")}
-                      </p>
-                      {checkoutSession.paymentUrl ? (
-                        <Button
-                          type="button"
-                          className="h-11 w-full max-w-[24rem] rounded-xl"
-                          onClick={() => {
-                            window.open(
-                              checkoutSession.paymentUrl,
-                              "_blank",
-                              "noopener,noreferrer",
-                            );
-                          }}
-                        >
-                          {t("load.checkoutOpenPay")}
-                        </Button>
-                      ) : null}
-                    </div>
-                    <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <p className="text-[14px] font-semibold">
-                          {t("load.checkoutAccountTitle")}
-                        </p>
-                        <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                          {t("load.checkoutProvider")}
-                        </span>
-                        {liveCheckout &&
-                        liveCheckout.status !== "awaiting_payment" &&
-                        liveCheckout.status !== "pending" &&
-                        liveCheckout.status !== "processing" ? (
-                          <StatusChip status={liveCheckout.status} className="ml-auto" />
-                        ) : null}
-                      </div>
-                      <p className="mb-3 text-[13px] font-medium text-muted-foreground">
-                        {t("load.checkoutDetailsTitle")}
-                      </p>
-                      <dl className="min-w-0 space-y-2 text-[14px]">
-                        <CopyableField
-                          label={t("load.accountHolder")}
-                          value={checkoutAccountHolder || t("load.checkoutProvider")}
-                          mono={false}
-                        />
-                        {checkoutNcashId ? (
-                          <CopyableField label={t("load.ncashId")} value={checkoutNcashId} />
-                        ) : null}
-                        <CopyableField
-                          label={t("load.checkoutAmountToPay")}
-                          value={checkoutAmountValue ? formatNPR(checkoutAmountValue) : "—"}
-                        />
-                      </dl>
-                      <p className="mt-3 text-[12px] leading-snug text-muted-foreground">
-                        {t("load.checkoutBankScanNote")}
-                      </p>
-                    </div>
-                    {checkoutPaid ? (
-                      <p className="text-center text-[13px] font-medium text-success">
-                        {t("load.checkoutSuccess")}
-                      </p>
-                    ) : null}
-                    {checkoutNeedsNewQr ? (
-                      <Button
-                        type="button"
-                        className="h-12 w-full rounded-xl"
-                        disabled={checkoutMutation.isPending}
-                        onClick={() => {
-                          setCheckoutSession(null);
-                          checkoutAutoStarted.current = false;
-                          checkoutMutation.mutate();
-                        }}
-                      >
-                        {checkoutMutation.isPending
-                          ? t("load.checkoutQrBuilding")
-                          : t("load.checkoutShowQr")}
-                      </Button>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex aspect-square w-full max-w-[min(92vw,24rem)] mx-auto items-center justify-center rounded-2xl border border-border bg-white text-sm text-muted-foreground">
-                      {checkoutMutation.isPending
-                        ? t("load.checkoutQrBuilding")
-                        : t("load.checkoutFailed")}
-                    </div>
-                    {checkoutMutation.isError ? (
-                      <p className="text-center text-[13px] text-destructive">
-                        {checkoutMutation.error instanceof ApiError ||
-                        checkoutMutation.error instanceof Error
-                          ? checkoutMutation.error.message
-                          : t("load.checkoutFailed")}
-                      </p>
-                    ) : null}
-                    <Button
-                      type="button"
-                      className="h-12 w-full rounded-xl"
-                      disabled={checkoutMutation.isPending}
-                      onClick={() => {
-                        checkoutAutoStarted.current = false;
-                        if (!checkoutAmount) {
-                          setCheckoutAmount(String(Math.max(minDeposit, 10)));
-                        }
-                        checkoutMutation.mutate();
-                      }}
-                    >
-                      {checkoutMutation.isPending
-                        ? t("load.checkoutQrBuilding")
-                        : t("load.checkoutShowQr")}
-                    </Button>
-                  </div>
-                )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="paybridge_amount">{t("load.depositedAmount")}</Label>
+                  <Input
+                    id="paybridge_amount"
+                    type="number"
+                    inputMode="decimal"
+                    min={Math.max(minDeposit, 10)}
+                    max={maxDeposit > 0 ? maxDeposit : undefined}
+                    step="1"
+                    value={checkoutAmount}
+                    onChange={(e) => setCheckoutAmount(e.target.value)}
+                    className="h-11 rounded-xl"
+                    placeholder={String(Math.max(minDeposit, 10))}
+                    disabled={checkoutMutation.isPending}
+                  />
+                  <p className="text-[12px] text-muted-foreground">
+                    {t("load.minError", { min: Math.max(minDeposit, 10) })}
+                    {maxDeposit > 0 ? ` · ${t("load.maxError", { max: maxDeposit })}` : ""}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  className="h-12 w-full rounded-xl"
+                  disabled={
+                    checkoutMutation.isPending ||
+                    accountPending ||
+                    walletFrozen ||
+                    !depositsEnabled
+                  }
+                  onClick={() => {
+                    if (paybridgeDeposit && !checkoutNeedsRetry && !checkoutPaid) {
+                      setPaymentSheetOpen(true);
+                      if (paybridgeDeposit.paymentUrl) {
+                        window.open(
+                          paybridgeDeposit.paymentUrl,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                      }
+                      return;
+                    }
+                    checkoutMutation.mutate();
+                  }}
+                >
+                  {checkoutMutation.isPending
+                    ? t("load.checkoutRedirecting")
+                    : t("load.checkoutPay")}
+                </Button>
+                <ul className="space-y-1.5 text-[13px] text-muted-foreground">
+                  <li>1. {t("load.checkoutStep1")}</li>
+                  <li>2. {t("load.checkoutStep2")}</li>
+                  <li>3. {t("load.checkoutStep3")}</li>
+                  <li>4. {t("load.checkoutStep4")}</li>
+                  <li>5. {t("load.checkoutStep5")}</li>
+                </ul>
               </section>
             ) : (
               <>
@@ -884,11 +751,13 @@ function LoadWallet() {
                         </span>
                       </p>
                       <p className="truncate text-[13px] text-muted-foreground">
-                        {d.provider === "himalpay_checkout"
+                        {d.provider === "paybridgenp"
                           ? t("load.checkoutProvider")
-                          : d.transaction_id
-                            ? `${t("common.txnId")}: ${d.transaction_id}`
-                            : t("common.noNote")}
+                          : d.provider === "himalpay_checkout"
+                            ? t("load.checkoutProviderHimal")
+                            : d.transaction_id
+                              ? `${t("common.txnId")}: ${d.transaction_id}`
+                              : t("common.noNote")}
                         {d.purchase_order_identifier
                           ? ` · ${d.purchase_order_identifier}`
                           : d.deposit_date
@@ -925,6 +794,112 @@ function LoadWallet() {
           )}
         </section>
       </div>
+      <Sheet
+        open={paymentSheetOpen}
+        onOpenChange={(open) => {
+          setPaymentSheetOpen(open);
+          if (!open && checkoutPaid) {
+            setPaybridgeDeposit(null);
+          }
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="max-h-[88dvh] overflow-y-auto overscroll-y-contain rounded-t-2xl px-4 pb-[max(2rem,calc(1rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] pt-5"
+        >
+          <SheetHeader className="mb-4 text-left">
+            <SheetTitle>{t("load.checkoutTitle")}</SheetTitle>
+          </SheetHeader>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">{t("load.checkoutAmountToPay")}</span>
+              <span className="tabular font-semibold">
+                {checkoutAmountValue ? formatNPR(checkoutAmountValue) : "—"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">{t("common.status")}</span>
+              {liveCheckout?.status ? (
+                <StatusChip status={liveCheckout.status} />
+              ) : (
+                <span className="text-sm text-muted-foreground">{t("load.checkoutPending")}</span>
+              )}
+            </div>
+            {paybridgeDeposit?.orderId ? (
+              <p className="break-all text-[13px] text-muted-foreground">
+                {t("load.checkoutOrder")}: {paybridgeDeposit.orderId}
+              </p>
+            ) : null}
+            {checkoutWaiting ? (
+              <p className="text-center text-[13px] text-muted-foreground">
+                {t("load.checkoutPending")}
+              </p>
+            ) : null}
+            {checkoutPaid ? (
+              <p className="text-center text-[13px] font-medium text-success">
+                {t("load.checkoutSuccess")}
+              </p>
+            ) : null}
+            {checkoutNeedsRetry ? (
+              <p className="text-center text-[13px] text-destructive">
+                {liveCheckout?.failure_reason || t("load.checkoutNotPaid")}
+              </p>
+            ) : null}
+            <p className="text-[12px] text-muted-foreground">{t("load.checkoutVerifyNote")}</p>
+            <div className="flex flex-col gap-2">
+              {paybridgeDeposit?.paymentUrl && !checkoutPaid ? (
+                <Button
+                  type="button"
+                  className="h-11 w-full rounded-xl"
+                  onClick={() => {
+                    window.open(
+                      paybridgeDeposit.paymentUrl,
+                      "_blank",
+                      "noopener,noreferrer",
+                    );
+                  }}
+                >
+                  {t("load.checkoutOpenPay")}
+                </Button>
+              ) : null}
+              {!checkoutPaid ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 w-full rounded-xl"
+                  disabled={checkoutStatusQuery.isFetching}
+                  onClick={() => void checkoutStatusQuery.refetch()}
+                >
+                  {checkoutStatusQuery.isFetching
+                    ? t("load.checkoutVerifying")
+                    : t("load.checkoutCheckStatus")}
+                </Button>
+              ) : null}
+              {checkoutNeedsRetry ? (
+                <Button
+                  type="button"
+                  className="h-11 w-full rounded-xl"
+                  disabled={checkoutMutation.isPending}
+                  onClick={() => {
+                    setPaybridgeDeposit(null);
+                    checkoutMutation.mutate();
+                  }}
+                >
+                  {t("load.checkoutPay")}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-11 w-full rounded-xl"
+                onClick={() => setPaymentSheetOpen(false)}
+              >
+                {t("common.cancel")}
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
       <Sheet open={searchOpen} onOpenChange={setSearchOpen}>
         <SheetContent
           side="bottom"

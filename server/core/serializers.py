@@ -1556,6 +1556,21 @@ class SettingsSerializer(serializers.ModelSerializer):
                 integrations['himalpay_portal_password_set'] = False
             checkout_key = str(integrations.get('himalpay_checkout_api_key') or '').strip()
             integrations['himalpay_checkout_api_key_set'] = bool(checkout_key)
+            # PayBridgeNP secrets: never return raw values to the admin UI.
+            from django.conf import settings as django_settings
+            pb_key = str(integrations.get('paybridgenp_api_key') or '').strip()
+            pb_wh = str(integrations.get('paybridgenp_webhook_secret') or '').strip()
+            env_pb_key = bool((getattr(django_settings, 'PAYBRIDGENP_API_KEY', '') or '').strip())
+            env_pb_wh = bool((getattr(django_settings, 'PAYBRIDGENP_WEBHOOK_SECRET', '') or '').strip())
+            integrations['paybridgenp_api_key_set'] = bool(pb_key)
+            integrations['paybridgenp_webhook_secret_set'] = bool(pb_wh)
+            integrations['paybridgenp_env_api_key_set'] = env_pb_key
+            integrations['paybridgenp_env_webhook_secret_set'] = env_pb_wh
+            integrations['paybridgenp_configured'] = bool(pb_key or env_pb_key)
+            integrations['paybridgenp_api_key'] = PASSWORD_MASK if pb_key else ''
+            integrations['paybridgenp_webhook_secret'] = PASSWORD_MASK if pb_wh else ''
+            if not str(integrations.get('paybridgenp_base_url') or '').strip():
+                integrations['paybridgenp_base_url'] = 'https://api.paybridgenp.com'
             config['integrations'] = integrations
         except Exception:
             pass
