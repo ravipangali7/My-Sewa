@@ -3,8 +3,9 @@ PayBridgeNP wallet deposit settlement.
 
 Flow:
   1. Create Deposit(provider=paybridgenp, status=pending) with internal order ID.
-  2. POST /v1/checkout (hosted) → save session id + checkout_url.
-  3. User pays on PayBridgeNP hosted page (eSewa / Khalti / Fonepay).
+  2. Prefer POST /v1/qr/fonepay (Direct-QR) so the Fonepay QR renders in-app.
+     Fall back to POST /v1/checkout (hosted) when Direct-QR is unavailable.
+  3. User pays via in-app QR (or hosted page fallback).
   4. Webhook payment.succeeded (signed) OR return/verify via GET session + GET payment.
   5. On success: status=approved → existing deposit signal credits wallet once.
 
@@ -52,6 +53,9 @@ VERIFY_UNVERIFIED = Deposit.VERIFY_UNVERIFIED
 VERIFY_VERIFIED = Deposit.VERIFY_VERIFIED
 VERIFY_MISMATCH = Deposit.VERIFY_MISMATCH
 
+MODE_DIRECT_QR = 'direct_qr'
+MODE_HOSTED = 'hosted'
+
 
 def new_order_id() -> str:
     return f'MS-PB-{uuid.uuid4().hex}'
@@ -85,8 +89,14 @@ def sanitize_provider_payload(payload) -> Dict[str, Any]:
     return _clean(payload) or {}
 
 
-def public_deposit_dict(deposit: Deposit) -> Dict[str, Any]:
-    return {
+def public_deposit_dict(deposit: Deposit, *, include_qr: bool = False) -> Dict[str, Any]:
+    payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
+    qr = payload.get('qr') if isinstance(payload.get('qr'), dict) else {}
+    mode = str(payload.get('mode') or '').strip()
+    if not mode:
+        mode = MODE_DIRECT_QR if qr else (MODE_HOSTED if deposit.payment_url else '')
+
+    out: Dict[str, Any] = {
         'id': deposit.pk,
         'order_id': deposit.purchase_order_identifier or '',
         'orderId': deposit.purchase_order_identifier or '',
@@ -98,10 +108,17 @@ def public_deposit_dict(deposit: Deposit) -> Dict[str, Any]:
         'session_id': deposit.process_id or '',
         'payment_id': (deposit.transaction_id or '') if str(deposit.transaction_id or '').startswith('pay_') else '',
         'checkout_url': deposit.payment_url or '',
+        'payment_url': deposit.payment_url or '',
+        'mode': mode,
+        'events_url': str(qr.get('events_url') or qr.get('eventsUrl') or '').strip(),
         'expires_at': deposit.expires_at.isoformat() if deposit.expires_at else None,
         'failure_reason': deposit.failure_reason or '',
         'verification_status': deposit.verification_status,
     }
+    if include_qr:
+        out['qr_image'] = str(qr.get('qr_image') or qr.get('qrImage') or '').strip()
+        out['qr_message'] = str(qr.get('qr_message') or qr.get('qrMessage') or '').strip()
+    return out
 
 
 def _parse_expires_at(value):
@@ -128,15 +145,20 @@ def _customer_for(user) -> Dict[str, str]:
             getattr(user, 'last_name', '') or '',
         ) if part
     ).strip()
-    details: Dict[str, str] = {}
-    if name:
-        details['name'] = name[:120]
-    email = (getattr(user, 'email', None) or '').strip()
-    if email:
-        details['email'] = email[:120]
     phone = (getattr(user, 'phone', None) or '').strip()
+    email = (getattr(user, 'email', None) or '').strip()
+    if not name:
+        name = f'MySewa {phone}' if phone else 'MySewa User'
+    if not email:
+        # Direct-QR requires email; synthesize a stable receipt address from phone.
+        local = ''.join(ch for ch in phone if ch.isalnum()) or f'user{getattr(user, "pk", 0)}'
+        email = f'{local}@users.mysewa.local'
+    details: Dict[str, str] = {
+        'name': name[:100],
+        'email': email[:120],
+    }
     if phone:
-        details['phone'] = phone[:50]
+        details['phone'] = phone[:30]
     return details
 
 
@@ -149,21 +171,125 @@ def _reusable_pending(user, amount) -> Optional[Deposit]:
             provider=PROVIDER,
             status__in=(Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING),
         )
-        .exclude(payment_url='')
         .order_by('-created_at')
     )
     for deposit in qs[:8]:
         if deposit.expires_at and deposit.expires_at <= now:
             continue
-        if (deposit.payment_url or '').strip():
+        payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
+        qr = payload.get('qr') if isinstance(payload.get('qr'), dict) else {}
+        has_qr = bool(qr.get('qr_image') or qr.get('qr_message') or deposit.process_id)
+        has_checkout = bool((deposit.payment_url or '').strip())
+        if has_qr or has_checkout:
             return deposit
     return None
 
 
-def create_paybridge_deposit(user, amount) -> Tuple[Deposit, str]:
+def _qr_fields(session: Dict[str, Any]) -> Dict[str, str]:
+    events_url = str(session.get('events_url') or session.get('eventsUrl') or '').strip()
+    session_id = str(session.get('id') or '').strip()
+    if not events_url and session_id:
+        base = get_paybridgenp_credentials().get('base_url') or 'https://api.paybridgenp.com'
+        events_url = f'{base.rstrip("/")}/v1/qr/{session_id}/events'
+    return {
+        'qr_image': str(session.get('qr_image') or session.get('qrImage') or '').strip(),
+        'qr_message': str(session.get('qr_message') or session.get('qrMessage') or '').strip(),
+        'events_url': events_url,
+    }
+
+
+def _store_qr_payload(session: Dict[str, Any], qr: Dict[str, str]) -> Dict[str, Any]:
+    """Persist QR metadata without the large base64 image (returned to client only)."""
+    return sanitize_provider_payload({
+        'mode': MODE_DIRECT_QR,
+        'qr': {
+            'qr_message': qr.get('qr_message') or '',
+            'events_url': qr.get('events_url') or '',
+            'provider': 'fonepay',
+            'has_image': bool(qr.get('qr_image')),
+            'session': {
+                key: session.get(key)
+                for key in ('id', 'amount', 'currency', 'provider', 'status', 'expires_at', 'livemode')
+                if key in session
+            },
+        },
+    })
+
+
+def _public_with_live_qr(deposit: Deposit, qr: Dict[str, str]) -> Dict[str, Any]:
+    out = public_deposit_dict(deposit, include_qr=False)
+    out['qr_image'] = qr.get('qr_image') or ''
+    out['qr_message'] = qr.get('qr_message') or ''
+    out['events_url'] = qr.get('events_url') or out.get('events_url') or ''
+    out['mode'] = MODE_DIRECT_QR
+    return out
+
+
+def _is_direct_qr_unavailable(exc: PayBridgeError) -> bool:
+    """True when merchant plan / permission blocks Direct-QR — fall back to hosted."""
+    err_obj = ''
+    if isinstance(exc.response_data, dict):
+        nested = exc.response_data.get('error')
+        if isinstance(nested, dict):
+            err_obj = ' '.join(
+                str(nested.get(k) or '') for k in ('message', 'code', 'type')
+            )
+        else:
+            err_obj = str(nested or '')
+    text = ' '.join(
+        str(part or '')
+        for part in (
+            getattr(exc, 'message', ''),
+            getattr(exc, 'provider_message', ''),
+            getattr(exc, 'error_type', ''),
+            err_obj,
+        )
+    ).lower()
+    status = int(getattr(exc, 'status_code', 0) or 0)
+    markers = (
+        'pro plan',
+        'upgrade',
+        'direct-qr',
+        'direct qr',
+        'not available on your plan',
+        'not included in your plan',
+        'plan does not',
+        'requires pro',
+        'growth or higher',
+        'forbidden',
+        'insufficient_scope',
+        'scope',
+    )
+    if any(m in text for m in markers):
+        return True
+    # Explicit permission denials on the QR endpoint (not invalid API key).
+    if status == 403:
+        return True
+    return False
+
+
+def create_paybridge_deposit(
+    user,
+    amount,
+    *,
+    source: str = Deposit.SOURCE_APP,
+    client_reference: str = '',
+    initiated_by=None,
+    allow_reuse: bool = True,
+    metadata_extra: Optional[Dict[str, Any]] = None,
+) -> Tuple[Deposit, Dict[str, Any]]:
     """
-    Create pending Deposit and PayBridgeNP hosted checkout session.
-    Returns (deposit, checkout_url). Does not credit wallet.
+    Create pending Deposit and PayBridgeNP payment session.
+
+    Prefers Direct-QR (in-app Fonepay QR). Falls back to hosted checkout URL
+    when Direct-QR is unavailable for the merchant.
+
+    Returns (deposit, public_payload) where public_payload includes qr_image /
+    events_url for Direct-QR, or checkout_url for hosted fallback.
+    Does not credit wallet.
+
+    For API payin, pass source=Deposit.SOURCE_API, client_reference, initiated_by,
+    and allow_reuse=False (idempotency is handled by the Payin API layer).
     """
     from .app_config import get_app_config, validate_amount_bounds
 
@@ -191,15 +317,45 @@ def create_paybridge_deposit(user, amount) -> Tuple[Deposit, str]:
     if err:
         raise PayBridgeError(err, status_code=400)
 
-    existing = _reusable_pending(user, amount)
-    if existing:
-        return existing, existing.payment_url
+    if allow_reuse and source != Deposit.SOURCE_API:
+        existing = _reusable_pending(user, amount)
+        if existing:
+            payload = existing.provider_payload if isinstance(existing.provider_payload, dict) else {}
+            mode = str(payload.get('mode') or '').strip()
+            if mode == MODE_DIRECT_QR or (
+                not existing.payment_url and existing.process_id
+            ):
+                try:
+                    return existing, refresh_paybridge_qr(existing)
+                except Exception:
+                    logger.exception(
+                        'Could not refresh reusable PayBridgeNP QR deposit=%s',
+                        existing.pk,
+                    )
+            return existing, public_deposit_dict(existing, include_qr=True)
 
     order_id = new_order_id()
     client = PayBridgeNPAPI()
-    return_base = (client.configured_return_url or '').strip() or default_backend_return_url()
-    return_url = append_query(return_base, order=order_id)
-    cancel_url = append_query(return_base, order=order_id, status='cancelled')
+    customer = _customer_for(user)
+    metadata = {
+        'orderId': order_id,
+        'userId': str(user.pk),
+        'type': 'wallet_deposit',
+        'source': source or Deposit.SOURCE_APP,
+    }
+    if client_reference:
+        metadata['clientReference'] = str(client_reference)[:64]
+    if initiated_by is not None and getattr(initiated_by, 'pk', None):
+        metadata['apiUserId'] = str(initiated_by.pk)
+    if metadata_extra:
+        for key, value in metadata_extra.items():
+            if value is None:
+                continue
+            metadata[str(key)] = str(value)[:120]
+
+    note = 'PayBridgeNP Wallet Deposit'
+    if source == Deposit.SOURCE_API and client_reference:
+        note = f'API Payin:{client_reference}'[:255]
 
     deposit = Deposit.objects.create(
         user=user,
@@ -209,52 +365,121 @@ def create_paybridge_deposit(user, amount) -> Tuple[Deposit, str]:
         provider=PROVIDER,
         purchase_order_identifier=order_id,
         bank_name='PayBridgeNP',
-        note='PayBridgeNP Wallet Deposit',
+        note=note,
         verification_status=VERIFY_UNVERIFIED,
         deposit_date=timezone.localdate(),
+        source=source or Deposit.SOURCE_APP,
+        client_reference=(client_reference or '')[:64],
+        initiated_by=initiated_by if getattr(initiated_by, 'pk', None) else None,
     )
+    metadata['depositId'] = str(deposit.pk)
 
+    session: Dict[str, Any]
+    mode = MODE_DIRECT_QR
     try:
-        session = client.create_checkout(
+        session = client.create_fonepay_qr(
             amount_paisa=paisa,
-            return_url=return_url,
-            cancel_url=cancel_url,
-            metadata={
-                'orderId': order_id,
-                'userId': str(user.pk),
-                'type': 'wallet_deposit',
-                'depositId': str(deposit.pk),
-            },
-            description=f'MySewa Wallet Deposit #{deposit.pk}',
-            customer=_customer_for(user),
-            idempotency_key=f'checkout-{order_id}',
+            customer=customer,
+            metadata=metadata,
+            idempotency_key=f'qr-{order_id}',
         )
+    except PayBridgeError as qr_exc:
+        if not _is_direct_qr_unavailable(qr_exc):
+            deposit.status = Deposit.STATUS_FAILED
+            deposit.failure_reason = 'PayBridgeNP QR could not be created'
+            deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
+            raise
+        logger.warning(
+            'PayBridgeNP Direct-QR unavailable (%s); falling back to hosted checkout',
+            getattr(qr_exc, 'message', qr_exc),
+        )
+        mode = MODE_HOSTED
+        return_base = (client.configured_return_url or '').strip() or default_backend_return_url()
+        return_url = append_query(return_base, order=order_id)
+        cancel_url = append_query(return_base, order=order_id, status='cancelled')
+        try:
+            session = client.create_checkout(
+                amount_paisa=paisa,
+                return_url=return_url,
+                cancel_url=cancel_url,
+                metadata=metadata,
+                description=f'MySewa Wallet Deposit #{deposit.pk}',
+                customer=customer,
+                idempotency_key=f'checkout-{order_id}',
+            )
+        except Exception:
+            deposit.status = Deposit.STATUS_FAILED
+            deposit.failure_reason = 'PayBridgeNP checkout could not be created'
+            deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
+            raise
     except Exception:
         deposit.status = Deposit.STATUS_FAILED
-        deposit.failure_reason = 'PayBridgeNP checkout could not be created'
+        deposit.failure_reason = 'PayBridgeNP QR could not be created'
         deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
         raise
 
     session_id = str(session.get('id') or '').strip()
-    checkout_url = str(session.get('checkout_url') or '').strip()
     deposit.process_id = session_id or None
-    deposit.payment_url = checkout_url
     deposit.expires_at = _parse_expires_at(session.get('expires_at') or session.get('expiresAt'))
     deposit.status = Deposit.STATUS_PROCESSING
-    deposit.provider_payload = sanitize_provider_payload({'checkout': session})
+
+    if mode == MODE_DIRECT_QR:
+        qr = _qr_fields(session)
+        deposit.payment_url = ''
+        deposit.provider_payload = _store_qr_payload(session, qr)
+        try:
+            deposit.save(update_fields=[
+                'process_id', 'payment_url', 'expires_at', 'status',
+                'provider_payload', 'updated_at',
+            ])
+        except IntegrityError:
+            other = Deposit.objects.filter(process_id=session_id).first()
+            if other:
+                return other, public_deposit_dict(other, include_qr=True)
+            raise PayBridgeError('Could not save PayBridgeNP deposit.', status_code=502)
+        return deposit, _public_with_live_qr(deposit, qr)
+
+    checkout_url = str(session.get('checkout_url') or '').strip()
+    deposit.payment_url = checkout_url
+    deposit.provider_payload = sanitize_provider_payload({
+        'mode': MODE_HOSTED,
+        'checkout': session,
+    })
+
     try:
         deposit.save(update_fields=[
             'process_id', 'payment_url', 'expires_at', 'status',
             'provider_payload', 'updated_at',
         ])
     except IntegrityError:
-        # Extremely rare session id clash — look up by process_id
         other = Deposit.objects.filter(process_id=session_id).first()
         if other:
-            return other, other.payment_url
+            return other, public_deposit_dict(other, include_qr=True)
         raise PayBridgeError('Could not save PayBridgeNP deposit.', status_code=502)
 
-    return deposit, checkout_url
+    return deposit, public_deposit_dict(deposit, include_qr=True)
+
+
+def refresh_paybridge_qr(deposit: Deposit) -> Dict[str, Any]:
+    """Refresh the Fonepay QR display window for an in-app Direct-QR deposit."""
+    if deposit.provider != PROVIDER:
+        raise PayBridgeError('Not a PayBridgeNP deposit', status_code=400)
+    if deposit.status not in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+        raise PayBridgeError('Deposit is no longer awaiting payment', status_code=400)
+
+    payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
+    mode = str(payload.get('mode') or '').strip()
+    session_id = (deposit.process_id or '').strip()
+    if mode == MODE_HOSTED or not session_id:
+        raise PayBridgeError('This deposit has no refreshable in-app QR', status_code=400)
+
+    client = PayBridgeNPAPI()
+    session = client.refresh_fonepay_qr(session_id)
+    qr = _qr_fields(session)
+    deposit.expires_at = _parse_expires_at(session.get('expires_at') or session.get('expiresAt'))
+    deposit.provider_payload = _store_qr_payload(session, qr)
+    deposit.save(update_fields=['expires_at', 'provider_payload', 'updated_at'])
+    return _public_with_live_qr(deposit, qr)
 
 
 def _money(amount) -> Decimal:

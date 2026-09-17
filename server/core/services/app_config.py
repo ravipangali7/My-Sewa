@@ -249,12 +249,18 @@ _USER_FEATURE_MESSAGES = {
         'Remittance fund transfer is disabled for this account.',
         'remittance_transfer_forbidden',
     ),
+    'api_payin': (
+        'can_api_payin',
+        'Payin API access is disabled for this account.',
+        'api_payin_forbidden',
+    ),
 }
 
 
 def require_user_feature(user, feature: str) -> Optional[Response]:
     """
-    Per-user feature access. feature: 'fund_transfer' | 'wallet_adjustment' | 'remittance_transfer'.
+    Per-user feature access.
+    feature: 'fund_transfer' | 'wallet_adjustment' | 'remittance_transfer' | 'api_payin'.
     Returns a 403 Response when the user is not allowed, else None.
     """
     spec = _USER_FEATURE_MESSAGES.get(feature)

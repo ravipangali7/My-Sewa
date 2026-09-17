@@ -137,7 +137,9 @@ export interface UserProfile {
   can_wallet_adjust?: boolean;
   /** When false, this user cannot initiate remittance fund transfers. Defaults to true. */
   can_remittance_transfer?: boolean;
-  /** When true, this user can use the Fund Transfer API with an API key. */
+  /** When true (and is_api_user), this user may call the Payin / Wallet Load API. */
+  can_api_payin?: boolean;
+  /** When true, this user can use the Developer API with an API key. */
   is_api_user?: boolean;
   wallet_frozen?: boolean;
   wallet_status?: "frozen" | "unfrozen";
@@ -1071,6 +1073,7 @@ export interface AdminUser extends UserProfile {
 
 export interface AdminApiUser extends AdminUser {
   api_key?: string;
+  can_api_payin?: boolean;
 }
 
 export interface AdminApiUserLog {
@@ -1082,6 +1085,8 @@ export interface AdminApiUserLog {
   error_code: string;
   error_message?: string;
   transaction_id: string;
+  order_id?: string;
+  deposit_id?: number | null;
   ip_address?: string | null;
   created_at: string;
 }

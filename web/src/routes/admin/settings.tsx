@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   Bell,
@@ -41,8 +41,11 @@ import {
   normalizePaymentAccounts,
   paymentAccountsToBankDetails,
 } from "@/lib/payment-accounts";
-import type { AppConfig, PaymentAccount, PaymentMethod } from "@/lib/types";
+import type { AppConfig, AppSettings, PaymentAccount, PaymentMethod } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/** Must match server `PASSWORD_MASK` — never treat as a real secret value. */
+const PASSWORD_MASK = "••••••••";
 
 const DEPOSIT_METHODS: {
   method: PaymentMethod;
@@ -222,6 +225,10 @@ function SettingsPage() {
   const settingsQuery = useQuery({
     queryKey: ["admin", "settings"],
     queryFn: () => apiClient.adminGetSettings(),
+    // Admin edit form: do not live-refetch over in-progress field edits.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const himalpayStatusQuery = useQuery({
     queryKey: ["admin", "himalpay-status"],
@@ -248,12 +255,35 @@ function SettingsPage() {
   const [apkFile, setApkFile] = useState<File | null>(null);
   const [smtpTestEmail, setSmtpTestEmail] = useState("");
   const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
+  const [paybridgeApiKeyTouched, setPaybridgeApiKeyTouched] = useState(false);
+  const [paybridgeWebhookTouched, setPaybridgeWebhookTouched] = useState(false);
+  const settingsHydratedRef = useRef(false);
 
-  useEffect(() => {
-    if (!settingsQuery.data) return;
-    const remote = settingsQuery.data.config;
-    setAutoUpdateEnabled(Boolean(settingsQuery.data.auto_update_enabled));
-    setAppVersion(settingsQuery.data.app_version ?? "");
+  const applyRemoteSettings = (data: AppSettings) => {
+    const remote = data.config;
+    const remoteIntegrations = { ...(remote?.integrations ?? {}) };
+    // Never put the password mask into editable secret fields — show empty + "saved" placeholders.
+    if (
+      !remoteIntegrations.paybridgenp_api_key ||
+      remoteIntegrations.paybridgenp_api_key === PASSWORD_MASK
+    ) {
+      remoteIntegrations.paybridgenp_api_key = "";
+    }
+    if (
+      !remoteIntegrations.paybridgenp_webhook_secret ||
+      remoteIntegrations.paybridgenp_webhook_secret === PASSWORD_MASK
+    ) {
+      remoteIntegrations.paybridgenp_webhook_secret = "";
+    }
+    if (
+      !remoteIntegrations.himalpay_portal_password ||
+      remoteIntegrations.himalpay_portal_password === PASSWORD_MASK
+    ) {
+      remoteIntegrations.himalpay_portal_password = "";
+    }
+
+    setAutoUpdateEnabled(Boolean(data.auto_update_enabled));
+    setAppVersion(data.app_version ?? "");
     setConfig({
       site: { ...DEFAULT_CONFIG.site, ...(remote?.site ?? {}) },
       payment: { ...DEFAULT_CONFIG.payment, ...(remote?.payment ?? {}) },
@@ -263,7 +293,11 @@ function SettingsPage() {
       security: { ...DEFAULT_CONFIG.security, ...(remote?.security ?? {}) },
       integrations: {
         ...DEFAULT_CONFIG.integrations!,
-        ...(remote?.integrations ?? {}),
+        ...remoteIntegrations,
+        paybridgenp_base_url:
+          String(remoteIntegrations.paybridgenp_base_url || "").trim() ||
+          DEFAULT_CONFIG.integrations!.paybridgenp_base_url ||
+          "https://api.paybridgenp.com",
       },
       smtp: {
         ...DEFAULT_CONFIG.smtp!,
@@ -290,7 +324,9 @@ function SettingsPage() {
       },
     });
     setSmtpPasswordTouched(false);
-    setAccounts(normalizePaymentAccounts(settingsQuery.data.bank_details));
+    setPaybridgeApiKeyTouched(false);
+    setPaybridgeWebhookTouched(false);
+    setAccounts(normalizePaymentAccounts(data.bank_details));
     setSmtpTestEmail((prev) =>
       prev ||
       remote?.notifications?.admin_alert_email ||
@@ -298,6 +334,12 @@ function SettingsPage() {
       remote?.smtp?.from_email ||
       "",
     );
+  };
+
+  useEffect(() => {
+    if (!settingsQuery.data || settingsHydratedRef.current) return;
+    settingsHydratedRef.current = true;
+    applyRemoteSettings(settingsQuery.data);
   }, [settingsQuery.data]);
 
   useEffect(() => {
@@ -356,12 +398,16 @@ function SettingsPage() {
   const saveMutation = useMutation({
     mutationFn: (payload: FormData | Record<string, unknown>) =>
       apiClient.adminUpdateSettings(payload),
-    onSuccess: () => {
+    onSuccess: (result) => {
       toast.success("Settings saved — changes apply across the system");
       setQrFiles({});
       setAccountQrFiles({});
       setLogoFile(null);
       setApkFile(null);
+      if (result?.data) {
+        queryClient.setQueryData(["admin", "settings"], result.data);
+        applyRemoteSettings(result.data);
+      }
       invalidate();
     },
     onError: (err) => {
@@ -395,7 +441,7 @@ function SettingsPage() {
       const password =
         smtpPasswordTouched &&
         smtp.smtp_password &&
-        smtp.smtp_password !== "••••••••"
+        smtp.smtp_password !== PASSWORD_MASK
           ? smtp.smtp_password
           : undefined;
       const payload: Parameters<typeof apiClient.adminTestSmtpEmail>[0] = {
@@ -473,7 +519,7 @@ function SettingsPage() {
     if (
       smtpPasswordTouched &&
       smtp.smtp_password &&
-      smtp.smtp_password !== "••••••••"
+      smtp.smtp_password !== PASSWORD_MASK
     ) {
       payload.smtp_password = smtp.smtp_password;
       payload.password = smtp.smtp_password;
@@ -576,14 +622,13 @@ function SettingsPage() {
         DEFAULT_CONFIG.integrations!.himalpay_checkout_base_url ||
         "",
       himalpay_checkout_return_url: config.integrations?.himalpay_checkout_return_url ?? "",
-      ...(portalPassword && portalPassword !== "••••••••"
+      ...(portalPassword && portalPassword !== PASSWORD_MASK
         ? { himalpay_portal_password: portalPassword }
         : {}),
     });
   };
 
   const savePayBridge = () => {
-    const MASK = "••••••••";
     const apiKey = (config.integrations?.paybridgenp_api_key ?? "").trim();
     const webhookSecret = (config.integrations?.paybridgenp_webhook_secret ?? "").trim();
     const baseUrl = (
@@ -595,8 +640,10 @@ function SettingsPage() {
       paybridgenp_base_url: baseUrl || "https://api.paybridgenp.com",
       paybridgenp_return_url: (config.integrations?.paybridgenp_return_url ?? "").trim(),
       // Only send secrets when the admin entered a new value (not the mask).
-      ...(apiKey && apiKey !== MASK ? { paybridgenp_api_key: apiKey } : {}),
-      ...(webhookSecret && webhookSecret !== MASK
+      ...(paybridgeApiKeyTouched && apiKey && apiKey !== PASSWORD_MASK
+        ? { paybridgenp_api_key: apiKey }
+        : {}),
+      ...(paybridgeWebhookTouched && webhookSecret && webhookSecret !== PASSWORD_MASK
         ? { paybridgenp_webhook_secret: webhookSecret }
         : {}),
     });
@@ -1727,23 +1774,29 @@ function SettingsPage() {
                     <Label htmlFor="paybridgenp_api_key">API Key</Label>
                     <PasswordInput
                       id="paybridgenp_api_key"
+                      name="paybridgenp_api_key"
                       revealLabel="API Key"
-                      autoComplete="off"
+                      autoComplete="new-password"
                       placeholder={
                         config.integrations?.paybridgenp_api_key_set
                           ? "Saved — paste a new sk_live_… key to replace"
                           : "sk_live_… from PayBridgeNP Dashboard → Settings → API Keys"
                       }
-                      value={config.integrations?.paybridgenp_api_key ?? ""}
-                      onChange={(e) =>
+                      value={
+                        paybridgeApiKeyTouched
+                          ? (config.integrations?.paybridgenp_api_key ?? "")
+                          : ""
+                      }
+                      onChange={(e) => {
+                        setPaybridgeApiKeyTouched(true);
                         setConfig((c) => ({
                           ...c,
                           integrations: {
                             ...c.integrations!,
                             paybridgenp_api_key: e.target.value,
                           },
-                        }))
-                      }
+                        }));
+                      }}
                     />
                     <p className="text-xs text-muted-foreground">
                       Authorization: Bearer. Leave unchanged to keep the current key. Never put
@@ -1755,8 +1808,9 @@ function SettingsPage() {
                     <Label htmlFor="paybridgenp_webhook_secret">Webhook Secret</Label>
                     <PasswordInput
                       id="paybridgenp_webhook_secret"
+                      name="paybridgenp_webhook_secret"
                       revealLabel="Webhook Secret"
-                      autoComplete="off"
+                      autoComplete="new-password"
                       placeholder={
                         config.integrations?.paybridgenp_webhook_secret_set
                           ? "Saved — paste a new secret to replace"
@@ -1764,16 +1818,21 @@ function SettingsPage() {
                             ? "Loaded from env — paste here to store in Settings instead"
                             : "Signing secret shown once when you add the webhook"
                       }
-                      value={config.integrations?.paybridgenp_webhook_secret ?? ""}
-                      onChange={(e) =>
+                      value={
+                        paybridgeWebhookTouched
+                          ? (config.integrations?.paybridgenp_webhook_secret ?? "")
+                          : ""
+                      }
+                      onChange={(e) => {
+                        setPaybridgeWebhookTouched(true);
                         setConfig((c) => ({
                           ...c,
                           integrations: {
                             ...c.integrations!,
                             paybridgenp_webhook_secret: e.target.value,
                           },
-                        }))
-                      }
+                        }));
+                      }}
                     />
                     <p className="text-xs text-muted-foreground">
                       Verifies X-PayBridgeNP-Signature. Register webhook URL{" "}
@@ -1788,13 +1847,11 @@ function SettingsPage() {
                     <Label htmlFor="paybridgenp_base_url">Base URL</Label>
                     <Input
                       id="paybridgenp_base_url"
-                      type="url"
+                      type="text"
+                      inputMode="url"
+                      autoComplete="off"
                       placeholder="https://api.paybridgenp.com"
-                      value={
-                        config.integrations?.paybridgenp_base_url ||
-                        DEFAULT_CONFIG.integrations!.paybridgenp_base_url ||
-                        "https://api.paybridgenp.com"
-                      }
+                      value={config.integrations?.paybridgenp_base_url ?? ""}
                       onChange={(e) =>
                         setConfig((c) => ({
                           ...c,
@@ -1814,7 +1871,9 @@ function SettingsPage() {
                     <Label htmlFor="paybridgenp_return_url">Return URL</Label>
                     <Input
                       id="paybridgenp_return_url"
-                      type="url"
+                      type="text"
+                      inputMode="url"
+                      autoComplete="off"
                       placeholder="https://your-api.example/api/deposit/paybridge/return/"
                       value={config.integrations?.paybridgenp_return_url ?? ""}
                       onChange={(e) =>
@@ -2103,7 +2162,7 @@ function SettingsPage() {
                         smtpPasswordTouched
                           ? config.smtp?.smtp_password ?? ""
                           : config.smtp?.password_set
-                            ? "••••••••"
+                            ? PASSWORD_MASK
                             : config.smtp?.smtp_password ?? ""
                       }
                       onChange={(e) => {

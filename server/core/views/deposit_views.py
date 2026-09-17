@@ -417,7 +417,7 @@ def _paybridge_verify_response(request, outcome, deposit):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def paybridge_initiate(request):
-    """Create a PayBridgeNP hosted checkout deposit. Does not credit wallet."""
+    """Create a PayBridgeNP Direct-QR (preferred) or hosted checkout deposit."""
     blocked = require_feature_enabled('deposits')
     if blocked:
         return blocked
@@ -432,7 +432,7 @@ def paybridge_initiate(request):
 
     amount = request.data.get('amount')
     try:
-        deposit, checkout_url = pb.create_paybridge_deposit(request.user, amount)
+        deposit, public = pb.create_paybridge_deposit(request.user, amount)
     except PayBridgeError as exc:
         return _paybridge_error(exc)
     except Exception as exc:
@@ -446,14 +446,64 @@ def paybridge_initiate(request):
             status=status.HTTP_502_BAD_GATEWAY,
         )
 
+    checkout_url = str(public.get('checkout_url') or public.get('payment_url') or '').strip()
     return Response(
         {
             'message': 'PayBridgeNP checkout ready',
             'payment_url': checkout_url,
             'checkout_url': checkout_url,
+            'mode': public.get('mode') or '',
+            'qr_image': public.get('qr_image') or '',
+            'qr_message': public.get('qr_message') or '',
+            'events_url': public.get('events_url') or '',
+            'expires_at': public.get('expires_at'),
+            'session_id': public.get('session_id') or '',
             'data': DepositSerializer(deposit, context={'request': request}).data,
         },
         status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def paybridge_refresh_qr(request):
+    """Refresh the in-app Fonepay QR display window for a pending Direct-QR deposit."""
+    blocked = require_feature_enabled('deposits')
+    if blocked:
+        return blocked
+
+    deposit_id = request.data.get('deposit_id') or request.data.get('id')
+    try:
+        deposit = Deposit.objects.get(
+            pk=deposit_id,
+            user=request.user,
+            provider=Deposit.PROVIDER_PAYBRIDGENP,
+        )
+    except (Deposit.DoesNotExist, TypeError, ValueError):
+        return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        public = pb.refresh_paybridge_qr(deposit)
+    except PayBridgeError as exc:
+        return _paybridge_error(exc)
+    except Exception as exc:
+        logger.exception('paybridge_refresh_qr failed deposit=%s', deposit_id)
+        return Response(
+            {
+                'error': str(exc) or 'Could not refresh QR.',
+                'message': str(exc) or 'Could not refresh QR.',
+                'code': 'paybridge_refresh_failed',
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    return Response(
+        {
+            'message': 'QR refreshed',
+            **public,
+            'data': DepositSerializer(deposit, context={'request': request}).data,
+        },
+        status=status.HTTP_200_OK,
     )
 
 
@@ -507,7 +557,15 @@ def paybridge_status(request, deposit_id):
         except Exception:
             logger.exception('paybridge_status verify failed deposit=%s', deposit_id)
 
-    return Response(pb.public_deposit_dict(deposit), status=status.HTTP_200_OK)
+    include_qr = str(request.query_params.get('include_qr') or '').lower() in (
+        '1',
+        'true',
+        'yes',
+    )
+    return Response(
+        pb.public_deposit_dict(deposit, include_qr=include_qr),
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['GET', 'POST'])

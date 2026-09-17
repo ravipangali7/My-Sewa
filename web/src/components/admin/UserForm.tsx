@@ -31,6 +31,7 @@ export type UserFormValues = {
   can_fund_transfer: boolean;
   can_wallet_adjust: boolean;
   can_remittance_transfer: boolean;
+  can_api_payin: boolean;
   is_api_user: boolean;
   commission_rate: string;
   tds_rate: string;
@@ -57,6 +58,7 @@ function fromUser(user?: AdminUser | null): UserFormValues {
     can_fund_transfer: user?.can_fund_transfer ?? true,
     can_wallet_adjust: user?.can_wallet_adjust ?? true,
     can_remittance_transfer: user?.can_remittance_transfer ?? true,
+    can_api_payin: user?.can_api_payin ?? false,
     is_api_user: user?.is_api_user ?? false,
     commission_rate: user?.commission_rate ?? "0",
     tds_rate: user?.tds_rate ?? "",
@@ -111,6 +113,7 @@ export function UserForm({
       can_fund_transfer: values.can_fund_transfer,
       can_wallet_adjust: values.can_wallet_adjust,
       can_remittance_transfer: values.can_remittance_transfer,
+      can_api_payin: values.can_api_payin,
       is_api_user: values.is_api_user,
     };
     if (values.role === "dealer") {
@@ -397,16 +400,34 @@ export function UserForm({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <Label htmlFor="is_api_user" className="font-normal">
-              Fund Transfer API
+              Developer API access
             </Label>
             <p className="text-xs text-muted-foreground">
               Enable API access and automatically generate a unique API key the first time.
+              Covers Fund Transfer, Bank Transfer, and (when enabled below) Payin.
             </p>
           </div>
           <Switch
             id="is_api_user"
             checked={values.is_api_user}
             onCheckedChange={(checked) => set("is_api_user", checked)}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Label htmlFor="can_api_payin" className="font-normal">
+              Payin / Wallet Load API
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Allow this API user to initiate PayBridgeNP wallet loads for other MySewa users.
+              Requires Developer API access.
+            </p>
+          </div>
+          <Switch
+            id="can_api_payin"
+            checked={values.can_api_payin}
+            onCheckedChange={(checked) => set("can_api_payin", checked)}
+            disabled={!values.is_api_user}
           />
         </div>
       </div>

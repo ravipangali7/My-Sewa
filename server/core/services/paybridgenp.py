@@ -1,11 +1,15 @@
 """
-PayBridgeNP API client (hosted checkout + signed webhooks).
+PayBridgeNP API client (Direct-QR + hosted checkout + signed webhooks).
 
 Docs: https://docs.paybridgenp.com/
 Base: https://api.paybridgenp.com
 
 Auth: Authorization: Bearer <sk_live_...|sk_test_...>
 Amounts are integer paisa (10000 = NPR 100.00). Minimum 1000 paisa (Rs. 10).
+
+Prefer Direct-QR (`POST /v1/qr/fonepay`) so the Fonepay QR can be rendered
+inside MySewa without opening an external browser. Hosted checkout remains
+available as a fallback when Direct-QR is unavailable for the merchant plan.
 
 Never expose the secret key or webhook signing secret to clients.
 """
@@ -31,6 +35,8 @@ PAYBRIDGE_BASE_URL = 'https://api.paybridgenp.com'
 CHECKOUT_PATH = '/v1/checkout'
 SESSION_PATH = '/v1/sessions/{id}'
 PAYMENT_PATH = '/v1/payments/{id}'
+QR_FONEPAY_PATH = '/v1/qr/fonepay'
+QR_REFRESH_PATH = '/v1/qr/{id}/refresh'
 
 # PayBridgeNP / provider minimum (paisa).
 MIN_PAISA = 1000
@@ -182,13 +188,14 @@ class PayBridgeNPAPI:
             message = str((data or {}).get('message') or 'PayBridgeNP request failed')
             code = None
             etype = None
+        # HimalPayError expects optional int codes; PayBridgeNP uses strings.
+        int_code = code if isinstance(code, int) else None
         raise PayBridgeError(
             message,
             status_code=resp.status_code if resp.status_code >= 400 else 502,
             response_data=data if isinstance(data, dict) else {'raw': data},
-            error_code=code,
-            error_type=etype,
-            provider_message=message,
+            error_code=int_code,
+            error_type=str(code or etype or '') or None,
         )
 
     def _request(
@@ -291,6 +298,119 @@ class PayBridgeNPAPI:
                 'PayBridgeNP did not return a checkout session.',
                 status_code=502,
                 response_data=data,
+            )
+        return data
+
+    def create_fonepay_qr(
+        self,
+        *,
+        amount_paisa: int,
+        customer: Dict[str, str],
+        metadata: Optional[Dict[str, Any]] = None,
+        idempotency_key: str = '',
+    ) -> Dict[str, Any]:
+        """
+        Mint a Fonepay Direct-QR for in-app display (no hosted redirect).
+
+        Docs: POST /v1/qr/fonepay — returns qr_image (data URL), qr_message,
+        events_url, and expires_at (~3 min display window).
+        """
+        if amount_paisa < MIN_PAISA:
+            raise PayBridgeError('Minimum PayBridgeNP deposit is Rs. 10.00.', status_code=400)
+        if amount_paisa > MAX_PAISA:
+            raise PayBridgeError('Amount exceeds PayBridgeNP maximum.', status_code=400)
+
+        name = str((customer or {}).get('name') or '').strip()
+        email = str((customer or {}).get('email') or '').strip()
+        if not name or not email:
+            raise PayBridgeError(
+                'Customer name and email are required for PayBridgeNP QR.',
+                status_code=400,
+            )
+
+        if self.bypass_api:
+            order = (metadata or {}).get('orderId') or 'bypass'
+            session_id = f'cs_bypass_qr_{order}'
+            return {
+                'id': session_id,
+                'amount': int(amount_paisa),
+                'currency': 'NPR',
+                'provider': 'fonepay',
+                'status': 'initiated',
+                'qr_message': f'BYPASS-QR-{order}',
+                'qr_image': (
+                    'data:image/svg+xml;utf8,'
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320">'
+                    '<rect width="100%" height="100%" fill="%23fff"/>'
+                    '<text x="50%" y="50%" text-anchor="middle" fill="%23000">BYPASS QR</text>'
+                    '</svg>'
+                ),
+                'events_url': f'{self.base_url}/v1/qr/{session_id}/events',
+                'expires_at': None,
+                'livemode': False,
+            }
+
+        body: Dict[str, Any] = {
+            'amount': int(amount_paisa),
+            'currency': 'NPR',
+            'customer': {
+                'name': name[:100],
+                'email': email[:120],
+            },
+        }
+        phone = str((customer or {}).get('phone') or '').strip()
+        if phone:
+            body['customer']['phone'] = phone[:30]
+        if metadata:
+            body['metadata'] = metadata
+
+        data = self._request(
+            'POST',
+            QR_FONEPAY_PATH,
+            body,
+            idempotency_key=idempotency_key or '',
+        )
+        session_id = str(data.get('id') or '').strip()
+        qr_image = str(data.get('qr_image') or data.get('qrImage') or '').strip()
+        qr_message = str(data.get('qr_message') or data.get('qrMessage') or '').strip()
+        if not session_id or (not qr_image and not qr_message):
+            raise PayBridgeError(
+                'PayBridgeNP did not return a Fonepay QR.',
+                status_code=502,
+                response_data=data,
+            )
+        return data
+
+    def refresh_fonepay_qr(self, session_id: str) -> Dict[str, Any]:
+        """Refresh the ~3-minute Fonepay QR display window for an existing session."""
+        session_id = (session_id or '').strip()
+        if not session_id:
+            raise PayBridgeError('session_id is required', status_code=400)
+        if self.bypass_api:
+            return {
+                'id': session_id,
+                'amount': 0,
+                'currency': 'NPR',
+                'provider': 'fonepay',
+                'status': 'initiated',
+                'qr_message': f'BYPASS-QR-REFRESH-{session_id}',
+                'qr_image': (
+                    'data:image/svg+xml;utf8,'
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320">'
+                    '<rect width="100%" height="100%" fill="%23fff"/>'
+                    '<text x="50%" y="50%" text-anchor="middle" fill="%23000">BYPASS QR</text>'
+                    '</svg>'
+                ),
+                'events_url': f'{self.base_url}/v1/qr/{session_id}/events',
+                'expires_at': None,
+                'livemode': False,
+            }
+        data = self._request('POST', QR_REFRESH_PATH.format(id=session_id), {})
+        if not isinstance(data, dict) or not str(data.get('id') or '').strip():
+            raise PayBridgeError(
+                'PayBridgeNP did not return a refreshed QR.',
+                status_code=502,
+                response_data=data if isinstance(data, dict) else {'raw': data},
             )
         return data
 

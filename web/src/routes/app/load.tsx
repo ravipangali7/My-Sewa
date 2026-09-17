@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Upload } from "lucide-react";
+import { Search, Upload, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { UserShell } from "@/components/layout/UserShell";
 import { StatusChip } from "@/components/StatusChip";
@@ -27,11 +27,40 @@ import { downloadCsvExport } from "@/lib/list-query";
 import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { enabledPaymentAccounts } from "@/lib/payment-accounts";
+import { toDataURL } from "@/lib/qrcode";
+import { isMySewaNativeApp } from "@/lib/native-app";
 import type { DepositDestinations, PaymentMethod } from "@/lib/types";
 
 const DEPOSIT_PAYMENT_METHODS: PaymentMethod[] = ["bank", "khalti", "esewa"];
 
 type DestSource = "platform" | "dealer" | "checkout";
+
+type PaybridgeDepositState = {
+  depositId: number;
+  paymentUrl: string;
+  orderId: string;
+  sessionId: string;
+  amount: string;
+  mode: "direct_qr" | "hosted" | string;
+  qrImage: string;
+  qrMessage: string;
+  eventsUrl: string;
+  expiresAt: string | null;
+  qrScanned: boolean;
+};
+
+function resolveQrImage(qrImage: string, qrMessage: string): string {
+  if (qrImage) return qrImage;
+  if (!qrMessage) return "";
+  try {
+    return toDataURL(qrMessage, {
+      width: 320,
+      color: { dark: "#111827", light: "#FFFFFF" },
+    });
+  } catch {
+    return "";
+  }
+}
 
 function paymentMethodLabel(method: PaymentMethod, t: TranslateFn): string {
   if (method === "khalti") return t("load.methodKhalti");
@@ -83,12 +112,12 @@ export const Route = createFileRoute("/app/load")({
       {
         name: "description",
         content:
-          "Load your MySewa wallet with PayBridgeNP (eSewa, Khalti, Fonepay) or submit a manual deposit with payment proof.",
+          "Load your MySewa wallet with an in-app Fonepay QR via PayBridgeNP, or submit a manual deposit with payment proof.",
       },
       { property: "og:title", content: "Load Wallet — MySewa" },
       {
         property: "og:description",
-        content: "Deposit via PayBridgeNP hosted checkout or submit a manual wallet load request.",
+        content: "Deposit via in-app PayBridgeNP QR or submit a manual wallet load request.",
       },
     ],
   }),
@@ -128,13 +157,7 @@ function LoadWallet() {
   const [file, setFile] = useState<File | null>(null);
   const [destSource, setDestSource] = useState<DestSource>("platform");
   const [checkoutAmount, setCheckoutAmount] = useState("");
-  const [paybridgeDeposit, setPaybridgeDeposit] = useState<{
-    depositId: number;
-    paymentUrl: string;
-    orderId: string;
-    sessionId: string;
-    amount: string;
-  } | null>(null);
+  const [paybridgeDeposit, setPaybridgeDeposit] = useState<PaybridgeDepositState | null>(null);
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
   const checkoutPaidToast = useRef(false);
 
@@ -274,9 +297,11 @@ function LoadWallet() {
       return apiClient.paybridgeInitiate({ amount: amt });
     },
     onSuccess: (res) => {
-      const paymentUrl = res.checkout_url || res.payment_url;
       const depositId = Number(res.data?.id || 0);
-      if (!paymentUrl || !depositId) {
+      const mode = String(res.mode || (res.qr_image || res.qr_message ? "direct_qr" : "hosted"));
+      const paymentUrl = res.checkout_url || res.payment_url || "";
+      const qrImage = resolveQrImage(res.qr_image || "", res.qr_message || "");
+      if (!depositId || (mode === "direct_qr" ? !qrImage && !res.qr_message : !paymentUrl)) {
         toast.error(t("load.checkoutFailed"));
         return;
       }
@@ -285,18 +310,49 @@ function LoadWallet() {
         depositId,
         paymentUrl,
         orderId: res.data?.purchase_order_identifier || "",
-        sessionId: res.data?.process_id || "",
+        sessionId: res.session_id || res.data?.process_id || "",
         amount: String(res.data?.amount || checkoutAmount),
+        mode,
+        qrImage,
+        qrMessage: res.qr_message || "",
+        eventsUrl: res.events_url || "",
+        expiresAt: res.expires_at || null,
+        qrScanned: false,
       });
       setPaymentSheetOpen(true);
-      // Hosted checkout (Free plan): open provider page; WebView/mobile supports external URL.
-      window.open(paymentUrl, "_blank", "noopener,noreferrer");
     },
     onError: (err) => {
       toast.error(
         err instanceof ApiError || err instanceof Error
           ? err.message
           : t("load.checkoutFailed"),
+      );
+    },
+  });
+
+  const refreshQrMutation = useMutation({
+    mutationFn: async (depositId: number) => apiClient.paybridgeRefreshQr({ deposit_id: depositId }),
+    onSuccess: (res) => {
+      const qrImage = resolveQrImage(res.qr_image || "", res.qr_message || "");
+      setPaybridgeDeposit((prev) =>
+        prev
+          ? {
+              ...prev,
+              qrImage: qrImage || prev.qrImage,
+              qrMessage: res.qr_message || prev.qrMessage,
+              eventsUrl: res.events_url || prev.eventsUrl,
+              expiresAt: res.expires_at || null,
+              sessionId: res.session_id || prev.sessionId,
+              qrScanned: false,
+            }
+          : prev,
+      );
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : t("load.checkoutQrRefreshFailed"),
       );
     },
   });
@@ -329,6 +385,40 @@ function LoadWallet() {
     },
   });
 
+  // Live Direct-QR events (scan / paid / expired) without leaving the app.
+  useEffect(() => {
+    if (!paymentSheetOpen || !paybridgeDeposit?.eventsUrl) return;
+    if (typeof EventSource === "undefined") return;
+
+    const source = new EventSource(paybridgeDeposit.eventsUrl);
+    const onScanned = () => {
+      setPaybridgeDeposit((prev) => (prev ? { ...prev, qrScanned: true } : prev));
+    };
+    const onPaid = () => {
+      void checkoutStatusQuery.refetch();
+    };
+    const onExpired = () => {
+      if (paybridgeDeposit.depositId) {
+        refreshQrMutation.mutate(paybridgeDeposit.depositId);
+      }
+    };
+
+    source.addEventListener("qr.scanned", onScanned);
+    source.addEventListener("qr.paid", onPaid);
+    source.addEventListener("qr.expired", onExpired);
+    source.onerror = () => {
+      // Browser auto-reconnects; keep polling via status query as backup.
+    };
+
+    return () => {
+      source.removeEventListener("qr.scanned", onScanned);
+      source.removeEventListener("qr.paid", onPaid);
+      source.removeEventListener("qr.expired", onExpired);
+      source.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally tied to session URL
+  }, [paymentSheetOpen, paybridgeDeposit?.eventsUrl, paybridgeDeposit?.depositId]);
+
   useEffect(() => {
     const status = checkoutStatusQuery.data?.status;
     if (status !== "approved") return;
@@ -358,6 +448,9 @@ function LoadWallet() {
     (liveCheckout?.status === "pending" ||
       liveCheckout?.status === "processing" ||
       !liveCheckout?.status);
+  const showInAppQr =
+    Boolean(paybridgeDeposit?.qrImage) &&
+    (paybridgeDeposit?.mode === "direct_qr" || !paybridgeDeposit?.paymentUrl);
 
   return (
     <UserShell
@@ -463,13 +556,6 @@ function LoadWallet() {
                   onClick={() => {
                     if (paybridgeDeposit && !checkoutNeedsRetry && !checkoutPaid) {
                       setPaymentSheetOpen(true);
-                      if (paybridgeDeposit.paymentUrl) {
-                        window.open(
-                          paybridgeDeposit.paymentUrl,
-                          "_blank",
-                          "noopener,noreferrer",
-                        );
-                      }
                       return;
                     }
                     checkoutMutation.mutate();
@@ -830,7 +916,78 @@ function LoadWallet() {
                 {t("load.checkoutOrder")}: {paybridgeDeposit.orderId}
               </p>
             ) : null}
-            {checkoutWaiting ? (
+
+            {showInAppQr && !checkoutPaid ? (
+              <div className="space-y-3 rounded-2xl border border-border/70 bg-surface p-4">
+                <div className="text-center">
+                  <p className="text-[15px] font-semibold">{t("load.checkoutQrTitle")}</p>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    {t("load.checkoutQrScan")}
+                  </p>
+                </div>
+                <div className="mx-auto flex size-[240px] items-center justify-center rounded-xl bg-white p-3 shadow-sm">
+                  <img
+                    src={paybridgeDeposit!.qrImage}
+                    alt={t("load.checkoutQrAlt")}
+                    className="size-full object-contain"
+                  />
+                </div>
+                <div className="flex flex-col items-center gap-1 text-center text-[13px]">
+                  <p className="inline-flex items-center gap-2 font-medium">
+                    <span
+                      className={cn(
+                        "size-2 rounded-full",
+                        paybridgeDeposit?.qrScanned ? "bg-success" : "bg-amber-400",
+                      )}
+                    />
+                    {paybridgeDeposit?.qrScanned
+                      ? t("load.checkoutQrScanned")
+                      : t("load.checkoutQrWaiting")}
+                  </p>
+                  <p className="text-muted-foreground">{t("load.checkoutQrHelp")}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 w-full rounded-xl"
+                  disabled={refreshQrMutation.isPending}
+                  onClick={() => {
+                    if (paybridgeDeposit?.depositId) {
+                      refreshQrMutation.mutate(paybridgeDeposit.depositId);
+                    }
+                  }}
+                >
+                  <RefreshCw
+                    className={cn(
+                      "mr-2 size-4",
+                      refreshQrMutation.isPending && "animate-spin",
+                    )}
+                  />
+                  {refreshQrMutation.isPending
+                    ? t("load.checkoutQrRefreshing")
+                    : t("load.checkoutQrRefresh")}
+                </Button>
+              </div>
+            ) : null}
+
+            {!showInAppQr && paybridgeDeposit?.paymentUrl && !checkoutPaid ? (
+              <div className="space-y-3">
+                <p className="text-center text-[13px] text-muted-foreground">
+                  {t("load.checkoutHostedFallback")}
+                </p>
+                <div className="overflow-hidden rounded-xl border border-border">
+                  <iframe
+                    title={t("load.checkoutTitle")}
+                    src={paybridgeDeposit.paymentUrl}
+                    className="h-[min(52vh,420px)] w-full bg-white"
+                    allow="payment *"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {checkoutWaiting && !showInAppQr ? (
               <p className="text-center text-[13px] text-muted-foreground">
                 {t("load.checkoutPending")}
               </p>
@@ -847,11 +1004,16 @@ function LoadWallet() {
             ) : null}
             <p className="text-[12px] text-muted-foreground">{t("load.checkoutVerifyNote")}</p>
             <div className="flex flex-col gap-2">
-              {paybridgeDeposit?.paymentUrl && !checkoutPaid ? (
+              {!showInAppQr && paybridgeDeposit?.paymentUrl && !checkoutPaid ? (
                 <Button
                   type="button"
                   className="h-11 w-full rounded-xl"
                   onClick={() => {
+                    // Prefer staying in the Flutter WebView; only use a new tab on desktop web.
+                    if (isMySewaNativeApp()) {
+                      window.location.assign(paybridgeDeposit.paymentUrl);
+                      return;
+                    }
                     window.open(
                       paybridgeDeposit.paymentUrl,
                       "_blank",

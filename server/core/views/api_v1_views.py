@@ -23,6 +23,12 @@ from rest_framework.views import APIView
 
 from ..authentication import ApiKeyAuthentication, TokenAuthentication
 from ..models import ApiFundTransferLog, BankTransferTransaction, _ensure_api_fund_transfer
+from ..services.api_bank import (
+    execute_api_bank_list,
+    execute_api_bank_transfer,
+    execute_api_verified_bank,
+    mask_account_number,
+)
 from ..services.api_docs import (
     documentation_payload,
     fund_transfer_url,
@@ -30,14 +36,9 @@ from ..services.api_docs import (
     markdown_documentation,
     pdf_documentation,
 )
-from ..services.api_bank import (
-    execute_api_bank_list,
-    execute_api_bank_transfer,
-    execute_api_verified_bank,
-    mask_account_number,
-)
 from ..services.api_fund_transfer import api_error, execute_api_fund_transfer
 from ..services.api_keys import mask_api_key, regenerate_api_key
+from ..services.api_payin import execute_api_payin, execute_api_payin_status
 from ..services.security import log_security_event
 
 logger = logging.getLogger(__name__)
@@ -184,6 +185,32 @@ class BankTransferView(BankApiView):
         if denied:
             return denied
         return execute_api_bank_transfer(request)
+
+
+class PayinView(BankApiView):
+    """POST /api/v1/payin/ — start PayBridgeNP wallet load for a receiver."""
+
+    def post(self, request):
+        denied = _require_api_user(request.user)
+        if denied:
+            return denied
+        return execute_api_payin(request)
+
+
+class PayinStatusView(BankApiView):
+    """GET /api/v1/payin/status/ — poll payin status (soft-verifies with PayBridge when pending)."""
+
+    def get(self, request):
+        denied = _require_api_user(request.user)
+        if denied:
+            return denied
+        return execute_api_payin_status(request)
+
+    def post(self, request):
+        denied = _require_api_user(request.user)
+        if denied:
+            return denied
+        return execute_api_payin_status(request)
 
 
 @api_view(['GET'])

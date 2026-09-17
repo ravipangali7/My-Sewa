@@ -9,7 +9,7 @@ from django.conf import settings
 from .api_docs_html import render_html_documentation
 from .api_docs_pdf import render_pdf_documentation
 
-DOCS_VERSION = '1.2'
+DOCS_VERSION = '1.3'
 
 
 def _json_block(payload) -> str:
@@ -46,6 +46,22 @@ def verifiedbank_path() -> str:
 
 def banktransfer_path() -> str:
     return '/api/v1/banktransfer/'
+
+
+def payin_path() -> str:
+    return '/api/v1/payin/'
+
+
+def payin_status_path() -> str:
+    return '/api/v1/payin/status/'
+
+
+def payin_url(request=None) -> str:
+    return f'{api_base_url(request)}{payin_path()}'
+
+
+def payin_status_url(request=None) -> str:
+    return f'{api_base_url(request)}{payin_status_path()}'
 
 
 def _auth_headers(include_json: bool = True) -> list[dict]:
@@ -432,6 +448,200 @@ def documentation_payload(request=None) -> dict:
             'HimalPay payout fields: destination_bank, destination_acc_no, destination_acc_name, amount in paisa.',
         ],
     }
+    payin_example = {
+        'receiver': '98XXXXXXXX',
+        'amount': 1000,
+        'reference': 'PAYIN-10001',
+    }
+    payin_example_json = _json_block(payin_example)
+    payin_endpoint = payin_url(request)
+    payin_status_endpoint = payin_status_url(request)
+    payin_success = {
+        'success': True,
+        'message': 'Payin checkout ready',
+        'transaction_id': 'MS-PB-a1b2c3d4e5f6',
+        'deposit_id': 12345,
+        'order_id': 'MS-PB-a1b2c3d4e5f6',
+        'reference': 'PAYIN-10001',
+        'receiver': '98XXXXXXXX',
+        'amount': 1000,
+        'currency': 'NPR',
+        'status': 'PENDING',
+        'provider': 'paybridgenp',
+        'mode': 'hosted',
+        'checkout_url': 'https://checkout.paybridgenp.com/cs_xxx',
+        'payment_url': 'https://checkout.paybridgenp.com/cs_xxx',
+        'session_id': 'cs_xxx',
+        'payment_id': '',
+        'expires_at': '2026-09-17T12:00:00+05:45',
+        'failure_reason': '',
+        'verification_status': 'unverified',
+    }
+    payin_flow = [
+        'Enable API access (is_api_user) and Payin permission (can_api_payin) for the API user in Admin → API Users.',
+        'POST /api/v1/payin/ with receiver (MySewa phone), amount, and a unique reference.',
+        'MySewa creates a pending Deposit and starts PayBridgeNP checkout (Direct-QR or hosted URL).',
+        'Return checkout_url / qr_image to your customer so they can pay (eSewa, Khalti, Fonepay).',
+        'PayBridgeNP sends a signed webhook to MySewa. MySewa verifies the signature and payment, then credits the receiver wallet once.',
+        'Poll GET /api/v1/payin/status/?reference=… until status is SUCCESS, FAILED, CANCELLED, EXPIRED, or REFUNDED.',
+    ]
+    payin_section = {
+        'id': 'payin',
+        'title': 'Payin / Wallet Load API',
+        'purpose': (
+            'Starts a PayBridgeNP wallet-load for an existing MySewa user (receiver phone). '
+            'The wallet is credited only after a verified successful PayBridgeNP payment '
+            '(signed webhook or server-side verify). Duplicate wallet credit is prevented.'
+        ),
+        'method': 'POST',
+        'path': payin_path(),
+        'url': payin_endpoint,
+        'headers': _auth_headers() + [
+            {
+                'name': 'Idempotency-Key',
+                'required': False,
+                'example': 'PAYIN-10001',
+                'notes': 'Optional. If omitted, body reference is used.',
+            },
+        ],
+        'query': [],
+        'request_body': {
+            'receiver': {
+                'required': True,
+                'type': 'string',
+                'description': 'MySewa phone of the wallet to credit. Aliases: phone, mobile.',
+                'example': '98XXXXXXXX',
+            },
+            'amount': {
+                'required': True,
+                'type': 'number',
+                'description': 'NPR amount to load. Subject to deposit min/max in Settings.',
+                'example': 1000,
+            },
+            'reference': {
+                'required': True,
+                'type': 'string',
+                'description': 'Unique client reference (1–64 chars: letters, digits, ._-). Used for idempotency.',
+                'example': 'PAYIN-10001',
+            },
+        },
+        'request_example': payin_example,
+        'success_http': '201 Created for a new payin; 200 OK when the same reference is replayed.',
+        'success_response': payin_success,
+        'errors': _shared_auth_errors() + [
+            {
+                'http': 403,
+                'code': 'unauthorized_transaction',
+                'error': 'Unauthorized transaction',
+                'message': 'Payin API access is disabled for this account (can_api_payin).',
+            },
+            {
+                'http': 400,
+                'code': 'invalid_receiver',
+                'error': 'Invalid receiver',
+                'message': 'Receiver phone is required or cannot receive loads.',
+            },
+            {
+                'http': 404,
+                'code': 'receiver_not_found',
+                'error': 'Receiver not found',
+                'message': 'No MySewa user was found for that receiver.',
+            },
+            {
+                'http': 400,
+                'code': 'invalid_amount',
+                'error': 'Invalid amount',
+                'message': 'Amount is missing, invalid, or outside deposit limits.',
+            },
+            {
+                'http': 409,
+                'code': 'duplicate_reference',
+                'error': 'Duplicate reference',
+                'message': 'This reference is already being processed.',
+            },
+            {
+                'http': 503,
+                'code': 'provider_unavailable',
+                'error': 'PayBridgeNP unavailable',
+                'message': 'PayBridgeNP is not configured or temporarily unavailable.',
+            },
+        ],
+        'examples': {
+            'curl': _curl_post(payin_endpoint, payin_example_json),
+            'python': _python_post(payin_endpoint, payin_example_json),
+            'javascript': _javascript_post(payin_endpoint, payin_example_json),
+        },
+        'notes': [
+            'Requires is_api_user and can_api_payin. Existing payout API keys are unchanged; enable Payin separately.',
+            'status PENDING means checkout is ready — not yet paid. SUCCESS means wallet was credited.',
+            'Wallet credit happens only after verified PayBridgeNP payment.succeeded (webhook) or server verify.',
+            'Replaying the same reference returns the original checkout payload with refreshed live status fields.',
+            'mode may be hosted (checkout_url) or direct_qr (qr_image / events_url).',
+        ],
+    }
+    payin_status_section = {
+        'id': 'payin-status',
+        'title': 'Payin Status API',
+        'purpose': (
+            'Returns the live status of a Payin created by this API user. '
+            'When still PENDING, MySewa soft-verifies with PayBridgeNP before responding.'
+        ),
+        'method': 'GET',
+        'path': payin_status_path(),
+        'url': payin_status_endpoint,
+        'headers': _auth_headers(include_json=False),
+        'query': [
+            {
+                'name': 'reference',
+                'required': False,
+                'type': 'string',
+                'description': 'Client reference from POST /api/v1/payin/.',
+                'example': 'PAYIN-10001',
+            },
+            {
+                'name': 'order_id',
+                'required': False,
+                'type': 'string',
+                'description': 'MySewa / PayBridge order id (MS-PB-…). Alias: transaction_id.',
+                'example': 'MS-PB-a1b2c3d4e5f6',
+            },
+            {
+                'name': 'deposit_id',
+                'required': False,
+                'type': 'integer',
+                'description': 'Internal deposit id from the create response.',
+                'example': '12345',
+            },
+        ],
+        'request_body': {},
+        'request_example': None,
+        'success_http': '200 OK',
+        'success_response': {
+            **payin_success,
+            'message': 'Payin status',
+            'status': 'SUCCESS',
+            'payment_id': 'pay_xxx',
+            'verification_status': 'verified',
+        },
+        'errors': _shared_auth_errors() + [
+            {
+                'http': 404,
+                'code': 'payin_not_found',
+                'error': 'Payin not found',
+                'message': 'No payin was found for the given reference, order_id, or deposit_id.',
+            },
+        ],
+        'examples': {
+            'curl': _curl_get(f'{payin_status_endpoint}?reference=PAYIN-10001'),
+            'python': _python_get(f'{payin_status_endpoint}?reference=PAYIN-10001'),
+            'javascript': _javascript_get(f'{payin_status_endpoint}?reference=PAYIN-10001'),
+        },
+        'notes': [
+            'Provide at least one of reference, order_id/transaction_id, or deposit_id.',
+            'POST to the same path with a JSON body is also accepted.',
+            'Statuses: PENDING, SUCCESS, FAILED, CANCELLED, EXPIRED, REFUNDED.',
+        ],
+    }
     success_body = {
         'success': True,
         'message': 'Fund transfer successful',
@@ -673,7 +883,14 @@ def documentation_payload(request=None) -> dict:
             'javascript': _javascript_example(endpoint),
         },
         'bank_flow': bank_flow,
-        'api_sections': [bank_list_section, verified_bank_section, bank_transfer_section],
+        'payin_flow': payin_flow,
+        'api_sections': [
+            bank_list_section,
+            verified_bank_section,
+            bank_transfer_section,
+            payin_section,
+            payin_status_section,
+        ],
         'toc': [
             {'id': 'introduction', 'title': 'Introduction'},
             {'id': 'base-url', 'title': 'API Base URL'},
@@ -683,6 +900,9 @@ def documentation_payload(request=None) -> dict:
             {'id': 'bank-list', 'title': 'Bank List API'},
             {'id': 'verified-bank', 'title': 'Verified Bank API'},
             {'id': 'bank-transfer', 'title': 'Bank Transfer API'},
+            {'id': 'payin-flow', 'title': 'Payin integration flow'},
+            {'id': 'payin', 'title': 'Payin / Wallet Load API'},
+            {'id': 'payin-status', 'title': 'Payin Status API'},
             {'id': 'fund-transfer', 'title': 'Fund Transfer API'},
             {'id': 'request', 'title': 'Fund Transfer request'},
             {'id': 'headers', 'title': 'Headers'},
@@ -866,6 +1086,7 @@ def markdown_documentation(request=None) -> str:
     history_fields = '\n'.join(f'- {item}' for item in doc['transaction_history']['fields'])
     codes = '\n'.join(f"- `{item['http']}` — {item['meaning']}" for item in doc['http_status_codes'])
     bank_flow = '\n'.join(f'{i}. {step}' for i, step in enumerate(doc.get('bank_flow') or [], start=1))
+    payin_flow = '\n'.join(f'{i}. {step}' for i, step in enumerate(doc.get('payin_flow') or [], start=1))
     bank_md = '\n'.join(_markdown_api_section(section) for section in doc.get('api_sections') or [])
     return f"""# {doc['title']}
 
@@ -873,13 +1094,17 @@ Version: {doc['version']} · Documentation {doc['docs_version']} · {doc['publis
 
 ## Introduction
 
-MySewa Developer API lets an approved API user move NPR from their MySewa wallet: wallet-to-wallet Fund Transfer, or HimalPay bank payouts via Bank List, Verified Bank, and Bank Transfer.
+MySewa Developer API lets an approved API user move NPR from their MySewa wallet (Fund Transfer / Bank Transfer) and load wallets via PayBridgeNP Payin.
 
 You do **not** create API transactions from the Developer dashboard. Your application calls the API; MySewa creates the transaction automatically.
 
 ## How API Fund Transfer Works
 
 {flow}
+
+## Payin integration flow
+
+{payin_flow}
 
 ## API Base URL
 
@@ -897,9 +1122,10 @@ Send the API key as a Bearer token:
 
 ## API Key
 
-1. An admin enables Fund Transfer API access on your account.
-2. Open **Developer / API** in the MySewa app to view, copy, or regenerate the key.
-3. Regenerating a key invalidates the previous key immediately.
+1. An admin enables Fund Transfer API access on your account (`is_api_user`).
+2. For Payin, also enable **Payin API** (`can_api_payin`) on the same API user.
+3. Open **Developer / API** in the MySewa app to view, copy, or regenerate the key.
+4. Regenerating a key invalidates the previous key immediately.
 
 ## Bank API integration flow
 

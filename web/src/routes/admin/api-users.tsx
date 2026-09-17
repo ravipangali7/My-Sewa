@@ -54,7 +54,7 @@ function AdminApiUsersPage() {
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
-      apiClient.adminSetApiUserAccess(id, enabled),
+      apiClient.adminSetApiUserAccess(id, { is_api_user: enabled }),
     onSuccess: (_, vars) => {
       toast.success(vars.enabled ? "API access enabled. A key is generated if needed." : "API access disabled");
       queryClient.invalidateQueries({ queryKey: ["admin", "api-users"] });
@@ -66,7 +66,7 @@ function AdminApiUsersPage() {
   return (
     <AdminShell
       title="API Users"
-      description="Manage Fund Transfer API access. Keys are hidden in this list."
+      description="Manage Developer API access (Fund Transfer, Bank Transfer, Payin). Keys are hidden in this list."
       dense
     >
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">

@@ -52,7 +52,7 @@ class CustomUserAdminForm(forms.ModelForm):
         fields = (
             'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
             'date_of_birth', 'account_status',
-            'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
+            'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer', 'can_api_payin',
             'is_api_user',
             'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'is_active', 'is_staff',
@@ -78,11 +78,11 @@ class CustomUserAdmin(admin.ModelAdmin):
     form = CustomUserAdminForm
     list_display = (
         'phone', 'email', 'first_name', 'last_name', 'nickname',
-        'account_status', 'kyc_status', 'role', 'is_api_user', 'can_fund_transfer', 'can_wallet_adjust',
+        'account_status', 'kyc_status', 'role', 'is_api_user', 'can_api_payin', 'can_fund_transfer', 'can_wallet_adjust',
         'can_remittance_transfer', 'is_active', 'date_joined',
     )
     list_filter = (
-        'account_status', 'kyc_status', 'role', 'is_api_user', 'can_fund_transfer', 'can_wallet_adjust',
+        'account_status', 'kyc_status', 'role', 'is_api_user', 'can_api_payin', 'can_fund_transfer', 'can_wallet_adjust',
         'can_remittance_transfer', 'is_active', 'is_staff', 'date_joined',
     )
     search_fields = (
@@ -99,7 +99,7 @@ class CustomUserAdmin(admin.ModelAdmin):
     fields = (
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
         'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
-        'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer',
+        'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer', 'can_api_payin',
         'is_api_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
         'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
         'is_active', 'is_staff',

@@ -63,7 +63,8 @@ function AdminApiUserDetailPage() {
   };
 
   const accessMutation = useMutation({
-    mutationFn: (enabled: boolean) => apiClient.adminSetApiUserAccess(id, enabled),
+    mutationFn: (payload: { is_api_user?: boolean; can_api_payin?: boolean }) =>
+      apiClient.adminSetApiUserAccess(id, payload),
     onSuccess: (res) => {
       toast.success(res.message || "API access updated");
       setRevealedKey(null);
@@ -109,7 +110,7 @@ function AdminApiUserDetailPage() {
   return (
     <AdminShell
       title={u ? `API — ${u.phone}` : "API User"}
-      description="View API status, keys, and fund-transfer audit logs"
+      description="View API status, keys, Payin permission, and API audit logs"
     >
       <div className="mb-5">
         <BackButton to="/admin/api-users" label="Back to API users" />
@@ -146,8 +147,25 @@ function AdminApiUserDetailPage() {
                 </div>
                 <Switch
                   checked={Boolean(u.is_api_user)}
-                  onCheckedChange={(checked) => accessMutation.mutate(checked)}
+                  onCheckedChange={(checked) =>
+                    accessMutation.mutate({ is_api_user: checked })
+                  }
                   disabled={accessMutation.isPending}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">Payin / Wallet Load API</p>
+                  <p className="text-xs text-muted-foreground">
+                    Allow PayBridgeNP payin for this API key. Requires API access.
+                  </p>
+                </div>
+                <Switch
+                  checked={Boolean(u.can_api_payin)}
+                  onCheckedChange={(checked) =>
+                    accessMutation.mutate({ can_api_payin: checked })
+                  }
+                  disabled={accessMutation.isPending || !u.is_api_user}
                 />
               </div>
               <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
@@ -216,7 +234,7 @@ function AdminApiUserDetailPage() {
           </div>
 
           <div className="rounded-xl border border-border bg-surface p-4 sm:p-5">
-            <h2 className="mb-3 text-sm font-semibold">API transaction history</h2>
+            <h2 className="mb-3 text-sm font-semibold">Fund Transfer API history</h2>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -250,6 +268,56 @@ function AdminApiUserDetailPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="font-mono text-xs">{row.transaction_id || row.error_code || "—"}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="rounded-xl border border-border bg-surface p-4 sm:p-5">
+            <h2 className="mb-3 text-sm font-semibold">Payin / Wallet Load API history</h2>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>When</TableHead>
+                  <TableHead>Reference</TableHead>
+                  <TableHead>Receiver</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Order / Txn</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(logsQuery.data?.payin_items ?? []).length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                      No API payin calls yet.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  (logsQuery.data?.payin_items ?? []).map((row) => (
+                    <TableRow key={`payin-${row.id}`}>
+                      <TableCell className="text-xs">{formatDateTime(row.created_at)}</TableCell>
+                      <TableCell className="font-mono text-xs">{row.reference || "—"}</TableCell>
+                      <TableCell className="text-xs">{row.receiver || "—"}</TableCell>
+                      <TableCell className="text-xs">
+                        {row.amount != null ? formatNPR(row.amount) : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            row.status === "success" || row.status === "pending"
+                              ? "default"
+                              : "secondary"
+                          }
+                        >
+                          {row.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {row.transaction_id || row.order_id || row.error_code || "—"}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}

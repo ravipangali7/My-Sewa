@@ -748,8 +748,34 @@ export const apiClient = {
       message: string;
       payment_url: string;
       checkout_url: string;
+      mode?: string;
+      qr_image?: string;
+      qr_message?: string;
+      events_url?: string;
+      expires_at?: string | null;
+      session_id?: string;
       data: import("./types").Deposit;
     }>("/api/deposit/paybridge/initiate/", {
+      method: "POST",
+      body,
+    }),
+
+  paybridgeRefreshQr: (body: { deposit_id: number }) =>
+    api<{
+      message: string;
+      id: number;
+      mode?: string;
+      qr_image?: string;
+      qr_message?: string;
+      events_url?: string;
+      expires_at?: string | null;
+      session_id?: string;
+      checkout_url?: string;
+      payment_url?: string;
+      status?: string;
+      amount?: string;
+      data: import("./types").Deposit;
+    }>("/api/deposit/paybridge/refresh-qr/", {
       method: "POST",
       body,
     }),
@@ -785,6 +811,12 @@ export const apiClient = {
       session_id?: string;
       payment_id?: string;
       checkout_url?: string;
+      payment_url?: string;
+      mode?: string;
+      events_url?: string;
+      qr_image?: string;
+      qr_message?: string;
+      expires_at?: string | null;
       failure_reason?: string;
     }>(`/api/deposit/${depositId}/status/`),
 
@@ -1290,10 +1322,13 @@ export const apiClient = {
   },
   adminGetApiUser: (id: number) =>
     api<import("./types").AdminApiUser>(`/api/admin/api-users/${id}/`),
-  adminSetApiUserAccess: (id: number, is_api_user: boolean) =>
+  adminSetApiUserAccess: (
+    id: number,
+    payload: { is_api_user?: boolean; can_api_payin?: boolean },
+  ) =>
     api<{ message: string; data: import("./types").AdminApiUser }>(`/api/admin/api-users/${id}/`, {
       method: "PATCH",
-      body: { is_api_user },
+      body: payload,
     }),
   adminRegenerateApiKey: (id: number) =>
     api<{ message: string; data: import("./types").AdminApiUser }>(
@@ -1305,6 +1340,7 @@ export const apiClient = {
   adminApiUserLogs: (id: number) =>
     api<{
       items: import("./types").AdminApiUserLog[];
+      payin_items?: import("./types").AdminApiUserLog[];
       transfers: Array<{
         id: number;
         transaction_id: string;

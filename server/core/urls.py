@@ -192,6 +192,11 @@ urlpatterns = [
         name='deposit_paybridge_initiate',
     ),
     path(
+        'api/deposit/paybridge/refresh-qr/',
+        deposit_views.paybridge_refresh_qr,
+        name='deposit_paybridge_refresh_qr',
+    ),
+    path(
         'api/deposit/paybridge/verify/',
         deposit_views.paybridge_verify,
         name='deposit_paybridge_verify',
@@ -287,6 +292,16 @@ urlpatterns = [
         'api/v1/banktransfer/',
         api_v1_views.BankTransferView.as_view(),
         name='api_v1_banktransfer',
+    ),
+    path(
+        'api/v1/payin/',
+        api_v1_views.PayinView.as_view(),
+        name='api_v1_payin',
+    ),
+    path(
+        'api/v1/payin/status/',
+        api_v1_views.PayinStatusView.as_view(),
+        name='api_v1_payin_status',
     ),
     path(
         'api/developer/',

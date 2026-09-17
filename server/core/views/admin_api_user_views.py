@@ -8,7 +8,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from ..models import ApiFundTransferLog, WalletTransfer, _ensure_api_fund_transfer
+from ..models import ApiFundTransferLog, ApiPayinLog, WalletTransfer, _ensure_api_fund_transfer
 from ..serializers import AdminUserSerializer
 from ..services.api_keys import (
     disable_api_access,
@@ -26,6 +26,7 @@ User = get_user_model()
 def _api_user_payload(user, request, *, reveal_key=False):
     data = AdminUserSerializer(user, context={'request': request}).data
     data['is_api_user'] = bool(user.is_api_user)
+    data['can_api_payin'] = bool(getattr(user, 'can_api_payin', False))
     data['api_key_masked'] = mask_api_key(user.api_key)
     data['has_api_key'] = bool(user.api_key)
     data['api_key_created_at'] = user.api_key_created_at
@@ -79,35 +80,63 @@ def admin_api_user_detail(request, user_id):
 
     was_api_user = bool(user.is_api_user)
     enable = request.data.get('is_api_user')
-    if enable is None:
+    payin = request.data.get('can_api_payin', None)
+    if enable is None and payin is None:
         return Response(
-            {'error': 'Validation failed', 'errors': {'is_api_user': 'This field is required.'}},
+            {
+                'error': 'Validation failed',
+                'errors': {
+                    'is_api_user': 'Provide is_api_user and/or can_api_payin.',
+                },
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
-    enabled = bool(enable)
-    if enabled:
-        enable_api_access(user, generate_if_missing=True)
-        if not was_api_user:
+
+    update_fields = []
+    if enable is not None:
+        enabled = bool(enable)
+        if enabled:
+            enable_api_access(user, generate_if_missing=True)
+            if not was_api_user:
+                try:
+                    log_security_event(
+                        user=request.user,
+                        action='api_access_enabled',
+                        request=request,
+                        details={'target_id': user.pk, 'target_phone': user.phone},
+                    )
+                except Exception:
+                    pass
+        else:
+            disable_api_access(user)
             try:
                 log_security_event(
                     user=request.user,
-                    action='api_access_enabled',
+                    action='api_access_disabled',
                     request=request,
                     details={'target_id': user.pk, 'target_phone': user.phone},
                 )
             except Exception:
                 pass
-    else:
-        disable_api_access(user)
+
+    if payin is not None:
+        user.can_api_payin = bool(payin)
+        update_fields.append('can_api_payin')
+        user.save(update_fields=update_fields)
         try:
             log_security_event(
                 user=request.user,
-                action='api_access_disabled',
+                action='api_payin_access_updated',
                 request=request,
-                details={'target_id': user.pk, 'target_phone': user.phone},
+                details={
+                    'target_id': user.pk,
+                    'target_phone': user.phone,
+                    'can_api_payin': user.can_api_payin,
+                },
             )
         except Exception:
             pass
+
     user.refresh_from_db()
     return Response({
         'message': 'API access updated',
@@ -185,6 +214,11 @@ def admin_api_user_logs(request, user_id):
         .select_related('wallet_transfer')
         .order_by('-created_at')[:200]
     )
+    payin_logs = (
+        ApiPayinLog.objects.filter(user=user)
+        .select_related('deposit')
+        .order_by('-created_at')[:200]
+    )
     transfers = (
         WalletTransfer.objects.filter(sender=user, source=WalletTransfer.SOURCE_API)
         .select_related('recipient')
@@ -205,6 +239,23 @@ def admin_api_user_logs(request, user_id):
                 'created_at': row.created_at,
             }
             for row in logs
+        ],
+        'payin_items': [
+            {
+                'id': row.id,
+                'reference': row.reference,
+                'receiver': row.receiver,
+                'amount': str(row.amount) if row.amount is not None else None,
+                'status': row.status,
+                'error_code': row.error_code,
+                'error_message': row.error_message,
+                'transaction_id': row.transaction_id or row.order_id,
+                'order_id': row.order_id,
+                'deposit_id': row.deposit_id,
+                'ip_address': row.ip_address,
+                'created_at': row.created_at,
+            }
+            for row in payin_logs
         ],
         'transfers': [
             {

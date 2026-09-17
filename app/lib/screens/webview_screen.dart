@@ -504,6 +504,11 @@ class _WebViewScreenState extends State<WebViewScreen>
             return NavigationDecision.navigate;
           }
 
+          // PayBridgeNP hosted checkout / return pages stay in-app.
+          if (_isPayBridgeHost(uri)) {
+            return NavigationDecision.navigate;
+          }
+
           if (_shouldOpenExternally(uri)) {
             await _openExternal(uri);
             return NavigationDecision.prevent;
@@ -649,6 +654,17 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (scheme != 'http' && scheme != 'https') return false;
     final host = uri.host.toLowerCase();
     return host == AppConfig.host || host.endsWith('.${AppConfig.host}');
+  }
+
+  /// Keep PayBridgeNP checkout / API pages inside the app WebView (no Chrome).
+  bool _isPayBridgeHost(Uri uri) {
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != 'http' && scheme != 'https') return false;
+    final host = uri.host.toLowerCase();
+    return host == 'paybridgenp.com' ||
+        host.endsWith('.paybridgenp.com') ||
+        host == 'checkout.paybridgenp.com' ||
+        host == 'api.paybridgenp.com';
   }
 
   bool _looksLikeDownload(Uri uri) {

@@ -774,6 +774,14 @@ class CustomUser(AbstractUser):
         db_index=True,
         help_text="When enabled, this user can look up and receive remittance fund transfers.",
     )
+    can_api_payin = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "When enabled (and is_api_user), this account may call the Payin / Wallet Load API "
+            "to initiate PayBridgeNP checkout that credits another MySewa user's wallet."
+        ),
+    )
 
     ROLE_CUSTOMER = 'customer'
     ROLE_USER = 'customer'
@@ -1588,6 +1596,34 @@ class Deposit(models.Model):
     )
     balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    SOURCE_APP = 'app'
+    SOURCE_API = 'api'
+    SOURCE_CHOICES = [
+        (SOURCE_APP, 'App'),
+        (SOURCE_API, 'API'),
+    ]
+    source = models.CharField(
+        max_length=10,
+        choices=SOURCE_CHOICES,
+        default=SOURCE_APP,
+        db_index=True,
+        help_text='Whether this deposit was created from the app or the Payin API.',
+    )
+    client_reference = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='Client-supplied idempotency/reference for API payin deposits.',
+    )
+    initiated_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='initiated_deposits',
+        help_text='API user that initiated this payin (wallet credit still goes to user).',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -3479,6 +3515,13 @@ class ApiIdempotencyRecord(models.Model):
         blank=True,
         related_name='api_idempotency_records',
     )
+    deposit = models.ForeignKey(
+        'Deposit',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='api_idempotency_records',
+    )
     response_payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -3544,4 +3587,57 @@ class ApiFundTransferLog(models.Model):
         indexes = [
             models.Index(fields=['user', '-created_at'], name='core_apiftlog_user_idx'),
             models.Index(fields=['status', '-created_at'], name='core_apiftlog_status_idx'),
+        ]
+
+
+class ApiPayinLog(models.Model):
+    """Audit trail for Payin / Wallet Load API calls. Never store API keys here."""
+
+    STATUS_SUCCESS = 'success'
+    STATUS_FAILED = 'failed'
+    STATUS_PENDING = 'pending'
+    STATUS_CHOICES = [
+        (STATUS_SUCCESS, 'Success'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_PENDING, 'Pending'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='api_payin_logs',
+        null=True,
+        blank=True,
+        help_text='Authenticated API user when known. Null for invalid-key attempts.',
+    )
+    reference = models.CharField(max_length=64, blank=True, default='')
+    receiver = models.CharField(max_length=80, blank=True, default='')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, db_index=True)
+    error_code = models.CharField(max_length=64, blank=True, default='')
+    error_message = models.CharField(max_length=255, blank=True, default='')
+    deposit = models.ForeignKey(
+        'Deposit',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='api_payin_logs',
+    )
+    transaction_id = models.CharField(max_length=120, blank=True, default='')
+    order_id = models.CharField(max_length=120, blank=True, default='')
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        who = self.user.phone if self.user_id else 'anonymous'
+        return f'{who} payin {self.reference or "-"} {self.status}'
+
+    class Meta:
+        verbose_name = 'API Payin Log'
+        verbose_name_plural = 'API Payin Logs'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at'], name='core_apipayinlog_user_idx'),
+            models.Index(fields=['status', '-created_at'], name='core_apipayinlog_status_idx'),
         ]
