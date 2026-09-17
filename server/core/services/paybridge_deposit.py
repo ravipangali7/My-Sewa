@@ -163,6 +163,7 @@ def _customer_for(user) -> Dict[str, str]:
 
 
 def _reusable_pending(user, amount) -> Optional[Deposit]:
+    """Reuse only unexpired Direct-QR sessions (never hosted — hosted cannot render in-app)."""
     now = timezone.now()
     qs = (
         Deposit.objects.filter(
@@ -177,10 +178,15 @@ def _reusable_pending(user, amount) -> Optional[Deposit]:
         if deposit.expires_at and deposit.expires_at <= now:
             continue
         payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
+        mode = str(payload.get('mode') or '').strip()
         qr = payload.get('qr') if isinstance(payload.get('qr'), dict) else {}
-        has_qr = bool(qr.get('qr_image') or qr.get('qr_message') or deposit.process_id)
-        has_checkout = bool((deposit.payment_url or '').strip())
-        if has_qr or has_checkout:
+        has_qr_payload = bool(
+            qr.get('qr_message') or qr.get('qrMessage') or qr.get('has_image')
+        )
+        is_direct = mode == MODE_DIRECT_QR or (
+            has_qr_payload and not (deposit.payment_url or '').strip()
+        )
+        if is_direct and (has_qr_payload or deposit.process_id):
             return deposit
     return None
 
@@ -226,7 +232,7 @@ def _public_with_live_qr(deposit: Deposit, qr: Dict[str, str]) -> Dict[str, Any]
 
 
 def _is_direct_qr_unavailable(exc: PayBridgeError) -> bool:
-    """True when merchant plan / permission blocks Direct-QR — fall back to hosted."""
+    """True only when merchant plan/permission clearly blocks Direct-QR."""
     err_obj = ''
     if isinstance(exc.response_data, dict):
         nested = exc.response_data.get('error')
@@ -245,7 +251,6 @@ def _is_direct_qr_unavailable(exc: PayBridgeError) -> bool:
             err_obj,
         )
     ).lower()
-    status = int(getattr(exc, 'status_code', 0) or 0)
     markers = (
         'pro plan',
         'upgrade',
@@ -256,14 +261,13 @@ def _is_direct_qr_unavailable(exc: PayBridgeError) -> bool:
         'plan does not',
         'requires pro',
         'growth or higher',
-        'forbidden',
         'insufficient_scope',
-        'scope',
     )
     if any(m in text for m in markers):
         return True
-    # Explicit permission denials on the QR endpoint (not invalid API key).
-    if status == 403:
+    # Only treat 403 as plan-block when the body mentions plan/scope/QR.
+    status = int(getattr(exc, 'status_code', 0) or 0)
+    if status == 403 and any(m in text for m in ('plan', 'scope', 'qr', 'forbidden')):
         return True
     return False
 
@@ -320,19 +324,20 @@ def create_paybridge_deposit(
     if allow_reuse and source != Deposit.SOURCE_API:
         existing = _reusable_pending(user, amount)
         if existing:
-            payload = existing.provider_payload if isinstance(existing.provider_payload, dict) else {}
-            mode = str(payload.get('mode') or '').strip()
-            if mode == MODE_DIRECT_QR or (
-                not existing.payment_url and existing.process_id
-            ):
+            try:
+                return existing, refresh_paybridge_qr(existing)
+            except Exception:
+                logger.exception(
+                    'Could not refresh reusable PayBridgeNP QR deposit=%s; creating a new session',
+                    existing.pk,
+                )
+                # Mark the stale session expired so we do not keep reusing a QR-less hosted row.
                 try:
-                    return existing, refresh_paybridge_qr(existing)
+                    existing.status = Deposit.STATUS_EXPIRED
+                    existing.failure_reason = 'Superseded by a new PayBridgeNP QR session'
+                    existing.save(update_fields=['status', 'failure_reason', 'updated_at'])
                 except Exception:
-                    logger.exception(
-                        'Could not refresh reusable PayBridgeNP QR deposit=%s',
-                        existing.pk,
-                    )
-            return existing, public_deposit_dict(existing, include_qr=True)
+                    pass
 
     order_id = new_order_id()
     client = PayBridgeNPAPI()

@@ -504,9 +504,10 @@ class _WebViewScreenState extends State<WebViewScreen>
             return NavigationDecision.navigate;
           }
 
-          // PayBridgeNP hosted checkout / return pages stay in-app.
+          // PayBridgeNP cannot be embedded (X-Frame-Options). Open in the system browser.
           if (_isPayBridgeHost(uri)) {
-            return NavigationDecision.navigate;
+            await _openExternal(uri);
+            return NavigationDecision.prevent;
           }
 
           if (_shouldOpenExternally(uri)) {
@@ -656,7 +657,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     return host == AppConfig.host || host.endsWith('.${AppConfig.host}');
   }
 
-  /// Keep PayBridgeNP checkout / API pages inside the app WebView (no Chrome).
+  /// PayBridgeNP hosts must open externally — they refuse iframe/WebView embeds.
   bool _isPayBridgeHost(Uri uri) {
     final scheme = uri.scheme.toLowerCase();
     if (scheme != 'http' && scheme != 'https') return false;
@@ -718,6 +719,15 @@ class _WebViewScreenState extends State<WebViewScreen>
 })();
 ''');
         });
+        return;
+      }
+
+      if (type == 'open_url' || type == 'open_external' || type == 'external_url') {
+        final url = decoded['url']?.toString() ?? '';
+        final uri = Uri.tryParse(url);
+        if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+          await _openExternal(uri);
+        }
         return;
       }
 

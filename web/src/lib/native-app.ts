@@ -208,3 +208,27 @@ export async function waitForNativeFileBridge(timeoutMs = 2500): Promise<boolean
   }
   return hasNativeFileBridge();
 }
+
+/** Ask Flutter (or the OS) to open a URL outside the in-app WebView. */
+export function openExternalUrl(url: string): boolean {
+  const href = (url || "").trim();
+  if (!href || typeof window === "undefined") return false;
+
+  if (window.MySewaBridge?.postMessage) {
+    try {
+      window.MySewaBridge.postMessage(
+        JSON.stringify({ type: "open_url", url: href }),
+      );
+      return true;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  try {
+    const opened = window.open(href, "_blank", "noopener,noreferrer");
+    return Boolean(opened);
+  } catch {
+    return false;
+  }
+}

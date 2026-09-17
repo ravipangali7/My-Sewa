@@ -28,7 +28,7 @@ import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { enabledPaymentAccounts } from "@/lib/payment-accounts";
 import { toDataURL } from "@/lib/qrcode";
-import { isMySewaNativeApp } from "@/lib/native-app";
+import { isMySewaNativeApp, openExternalUrl } from "@/lib/native-app";
 import type { DepositDestinations, PaymentMethod } from "@/lib/types";
 
 const DEPOSIT_PAYMENT_METHODS: PaymentMethod[] = ["bank", "khalti", "esewa"];
@@ -298,10 +298,14 @@ function LoadWallet() {
     },
     onSuccess: (res) => {
       const depositId = Number(res.data?.id || 0);
-      const mode = String(res.mode || (res.qr_image || res.qr_message ? "direct_qr" : "hosted"));
       const paymentUrl = res.checkout_url || res.payment_url || "";
       const qrImage = resolveQrImage(res.qr_image || "", res.qr_message || "");
-      if (!depositId || (mode === "direct_qr" ? !qrImage && !res.qr_message : !paymentUrl)) {
+      const mode = String(
+        res.mode ||
+          (qrImage || res.qr_message ? "direct_qr" : paymentUrl ? "hosted" : ""),
+      );
+      // Prefer in-app Fonepay QR. Hosted checkout cannot be embedded (X-Frame-Options).
+      if (!depositId || (!qrImage && !res.qr_message && !paymentUrl)) {
         toast.error(t("load.checkoutFailed"));
         return;
       }
@@ -312,7 +316,7 @@ function LoadWallet() {
         orderId: res.data?.purchase_order_identifier || "",
         sessionId: res.session_id || res.data?.process_id || "",
         amount: String(res.data?.amount || checkoutAmount),
-        mode,
+        mode: qrImage || res.qr_message ? "direct_qr" : mode,
         qrImage,
         qrMessage: res.qr_message || "",
         eventsUrl: res.events_url || "",
@@ -448,9 +452,9 @@ function LoadWallet() {
     (liveCheckout?.status === "pending" ||
       liveCheckout?.status === "processing" ||
       !liveCheckout?.status);
-  const showInAppQr =
-    Boolean(paybridgeDeposit?.qrImage) &&
-    (paybridgeDeposit?.mode === "direct_qr" || !paybridgeDeposit?.paymentUrl);
+  const showInAppQr = Boolean(paybridgeDeposit?.qrImage) && !checkoutPaid;
+  const showHostedFallback =
+    !showInAppQr && Boolean(paybridgeDeposit?.paymentUrl) && !checkoutPaid;
 
   return (
     <UserShell
@@ -917,7 +921,7 @@ function LoadWallet() {
               </p>
             ) : null}
 
-            {showInAppQr && !checkoutPaid ? (
+            {showInAppQr ? (
               <div className="space-y-3 rounded-2xl border border-border/70 bg-surface p-4">
                 <div className="text-center">
                   <p className="text-[15px] font-semibold">{t("load.checkoutQrTitle")}</p>
@@ -970,20 +974,12 @@ function LoadWallet() {
               </div>
             ) : null}
 
-            {!showInAppQr && paybridgeDeposit?.paymentUrl && !checkoutPaid ? (
-              <div className="space-y-3">
-                <p className="text-center text-[13px] text-muted-foreground">
-                  {t("load.checkoutHostedFallback")}
+            {showHostedFallback ? (
+              <div className="space-y-3 rounded-2xl border border-border/70 bg-muted/30 p-4 text-center">
+                <p className="text-[15px] font-semibold">{t("load.checkoutTitle")}</p>
+                <p className="text-[13px] text-muted-foreground">
+                  {t("load.checkoutHostedNoEmbed")}
                 </p>
-                <div className="overflow-hidden rounded-xl border border-border">
-                  <iframe
-                    title={t("load.checkoutTitle")}
-                    src={paybridgeDeposit.paymentUrl}
-                    className="h-[min(52vh,420px)] w-full bg-white"
-                    allow="payment *"
-                    referrerPolicy="no-referrer-when-downgrade"
-                  />
-                </div>
               </div>
             ) : null}
 
@@ -1004,21 +1000,18 @@ function LoadWallet() {
             ) : null}
             <p className="text-[12px] text-muted-foreground">{t("load.checkoutVerifyNote")}</p>
             <div className="flex flex-col gap-2">
-              {!showInAppQr && paybridgeDeposit?.paymentUrl && !checkoutPaid ? (
+              {showHostedFallback ? (
                 <Button
                   type="button"
                   className="h-11 w-full rounded-xl"
                   onClick={() => {
-                    // Prefer staying in the Flutter WebView; only use a new tab on desktop web.
-                    if (isMySewaNativeApp()) {
-                      window.location.assign(paybridgeDeposit.paymentUrl);
-                      return;
+                    const url = paybridgeDeposit?.paymentUrl || "";
+                    if (!url) return;
+                    // Never navigate the Flutter WebView to PayBridge (X-Frame /
+                    // cleartext / connection errors). Always open externally.
+                    if (!openExternalUrl(url) && !isMySewaNativeApp()) {
+                      window.open(url, "_blank", "noopener,noreferrer");
                     }
-                    window.open(
-                      paybridgeDeposit.paymentUrl,
-                      "_blank",
-                      "noopener,noreferrer",
-                    );
                   }}
                 >
                   {t("load.checkoutOpenPay")}

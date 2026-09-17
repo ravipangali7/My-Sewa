@@ -846,6 +846,8 @@ export const messages = {
     "load.checkoutQrRefreshFailed": "Could not refresh QR. Try again.",
     "load.checkoutHostedFallback":
       "Complete payment below without leaving MySewa. If the page does not load, use Open checkout.",
+    "load.checkoutHostedNoEmbed":
+      "PayBridgeNP checkout cannot be shown inside the app. Tap Open checkout to pay in your browser — then return here and tap Check payment status. Your wallet is credited only after PayBridgeNP confirms payment.",
     "load.checkoutQrBuilding": "Creating payment…",
     "load.checkoutOpenPay": "Open PayBridgeNP Checkout",
     "load.checkoutNewAmount": "Enter a different amount",
@@ -2220,6 +2222,8 @@ export const messages = {
     "load.checkoutQrRefreshFailed": "QR रिफ्रेस गर्न सकिएन। फेरि प्रयास गर्नुहोस्।",
     "load.checkoutHostedFallback":
       "MySewa नछोडी तल भुक्तानी पूरा गर्नुहोस्। पेज नखुलेमा Checkout खोल्नुहोस् प्रयोग गर्नुहोस्।",
+    "load.checkoutHostedNoEmbed":
+      "PayBridgeNP Checkout एपभित्र देखाउन मिल्दैन। Checkout खोल्नुहोस् थिचेर ब्राउजरमा तिर्नुहोस् — त्यसपछि फर्किएर भुक्तानी स्थिति जाँच गर्नुहोस्। वालेट PayBridgeNP ले पुष्टि गरेपछि मात्र क्रेडिट हुन्छ।",
     "load.checkoutQrBuilding": "भुक्तानी सिर्जना हुँदै…",
     "load.checkoutOpenPay": "PayBridgeNP Checkout खोल्नुहोस्",
     "load.checkoutNewAmount": "अर्को रकम लेख्नुहोस्",
