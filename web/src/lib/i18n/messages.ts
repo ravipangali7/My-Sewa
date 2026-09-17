@@ -853,6 +853,8 @@ export const messages = {
     "load.checkoutNewAmount": "Enter a different amount",
     "load.checkoutRedirecting": "Creating payment…",
     "load.checkoutFailed": "Could not start PayBridgeNP checkout.",
+    "load.checkoutQrRequired":
+      "PayBridgeNP did not return a Fonepay QR. Direct-QR is required for Deposit — hosted checkout is not used in the app.",
     "load.checkoutMinError": "Minimum PayBridgeNP deposit is Rs. 10.",
     "load.checkoutProvider": "PayBridgeNP",
     "load.checkoutProviderHimal": "Himal Pay",
@@ -2229,6 +2231,8 @@ export const messages = {
     "load.checkoutNewAmount": "अर्को रकम लेख्नुहोस्",
     "load.checkoutRedirecting": "भुक्तानी सिर्जना हुँदै…",
     "load.checkoutFailed": "PayBridgeNP Checkout सुरु गर्न सकिएन।",
+    "load.checkoutQrRequired":
+      "PayBridgeNP ले Fonepay QR फर्काएन। Deposit का लागि Direct-QR आवश्यक छ — एपमा hosted checkout प्रयोग हुँदैन।",
     "load.checkoutMinError": "PayBridgeNP को न्यूनतम जम्मा रु. १० हो।",
     "load.checkoutProvider": "PayBridgeNP",
     "load.checkoutProviderHimal": "Himal Pay",

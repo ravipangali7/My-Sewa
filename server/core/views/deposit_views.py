@@ -417,7 +417,7 @@ def _paybridge_verify_response(request, outcome, deposit):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def paybridge_initiate(request):
-    """Create a PayBridgeNP Direct-QR (preferred) or hosted checkout deposit."""
+    """Create a PayBridgeNP Direct-QR deposit for in-app Fonepay display."""
     blocked = require_feature_enabled('deposits')
     if blocked:
         return blocked
@@ -432,7 +432,11 @@ def paybridge_initiate(request):
 
     amount = request.data.get('amount')
     try:
-        deposit, public = pb.create_paybridge_deposit(request.user, amount)
+        deposit, public = pb.create_paybridge_deposit(
+            request.user,
+            amount,
+            require_direct_qr=True,
+        )
     except PayBridgeError as exc:
         return _paybridge_error(exc)
     except Exception as exc:
