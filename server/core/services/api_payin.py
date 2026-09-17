@@ -380,7 +380,6 @@ def execute_api_payin(request) -> Response:
                     client_reference=reference,
                     initiated_by=partner,
                     allow_reuse=False,
-                    require_direct_qr=True,
                 )
             except WalletFrozenError:
                 raise

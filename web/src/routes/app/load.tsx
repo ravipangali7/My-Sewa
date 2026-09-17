@@ -28,6 +28,7 @@ import { activityIdForKind, useReceiptDownload } from "@/lib/receipt-download";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { enabledPaymentAccounts } from "@/lib/payment-accounts";
 import { toDataURL } from "@/lib/qrcode";
+import { isMySewaNativeApp, openExternalUrl } from "@/lib/native-app";
 import type { DepositDestinations, PaymentMethod } from "@/lib/types";
 
 const DEPOSIT_PAYMENT_METHODS: PaymentMethod[] = ["bank", "khalti", "esewa"];
@@ -297,20 +298,26 @@ function LoadWallet() {
     },
     onSuccess: (res) => {
       const depositId = Number(res.data?.id || 0);
+      const paymentUrl = res.checkout_url || res.payment_url || "";
       const qrImage = resolveQrImage(res.qr_image || "", res.qr_message || "");
-      if (!depositId || (!qrImage && !res.qr_message)) {
-        toast.error(t("load.checkoutQrRequired"));
+      const mode = String(
+        res.mode ||
+          (qrImage || res.qr_message ? "direct_qr" : paymentUrl ? "hosted" : ""),
+      );
+      // Prefer in-app Fonepay QR. Hosted checkout cannot be embedded (X-Frame-Options).
+      if (!depositId || (!qrImage && !res.qr_message && !paymentUrl)) {
+        toast.error(t("load.checkoutFailed"));
         return;
       }
       checkoutPaidToast.current = false;
       setPaybridgeDeposit({
         depositId,
-        paymentUrl: "",
+        paymentUrl,
         orderId: res.data?.purchase_order_identifier || "",
         sessionId: res.session_id || res.data?.process_id || "",
         amount: String(res.data?.amount || checkoutAmount),
-        mode: "direct_qr",
-        qrImage: qrImage || resolveQrImage("", res.qr_message || ""),
+        mode: qrImage || res.qr_message ? "direct_qr" : mode,
+        qrImage,
         qrMessage: res.qr_message || "",
         eventsUrl: res.events_url || "",
         expiresAt: res.expires_at || null,
@@ -446,6 +453,8 @@ function LoadWallet() {
       liveCheckout?.status === "processing" ||
       !liveCheckout?.status);
   const showInAppQr = Boolean(paybridgeDeposit?.qrImage) && !checkoutPaid;
+  const showHostedFallback =
+    !showInAppQr && Boolean(paybridgeDeposit?.paymentUrl) && !checkoutPaid;
 
   return (
     <UserShell
@@ -965,6 +974,15 @@ function LoadWallet() {
               </div>
             ) : null}
 
+            {showHostedFallback ? (
+              <div className="space-y-3 rounded-2xl border border-border/70 bg-muted/30 p-4 text-center">
+                <p className="text-[15px] font-semibold">{t("load.checkoutTitle")}</p>
+                <p className="text-[13px] text-muted-foreground">
+                  {t("load.checkoutHostedNoEmbed")}
+                </p>
+              </div>
+            ) : null}
+
             {checkoutWaiting && !showInAppQr ? (
               <p className="text-center text-[13px] text-muted-foreground">
                 {t("load.checkoutPending")}
@@ -982,6 +1000,23 @@ function LoadWallet() {
             ) : null}
             <p className="text-[12px] text-muted-foreground">{t("load.checkoutVerifyNote")}</p>
             <div className="flex flex-col gap-2">
+              {showHostedFallback ? (
+                <Button
+                  type="button"
+                  className="h-11 w-full rounded-xl"
+                  onClick={() => {
+                    const url = paybridgeDeposit?.paymentUrl || "";
+                    if (!url) return;
+                    // Never navigate the Flutter WebView to PayBridge (X-Frame /
+                    // cleartext / connection errors). Always open externally.
+                    if (!openExternalUrl(url) && !isMySewaNativeApp()) {
+                      window.open(url, "_blank", "noopener,noreferrer");
+                    }
+                  }}
+                >
+                  {t("load.checkoutOpenPay")}
+                </Button>
+              ) : null}
               {!checkoutPaid ? (
                 <Button
                   type="button"

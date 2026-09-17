@@ -3,9 +3,9 @@ PayBridgeNP wallet deposit settlement.
 
 Flow:
   1. Create Deposit(provider=paybridgenp, status=pending) with internal order ID.
-  2. POST /v1/qr/fonepay (Direct-QR) so the Fonepay QR renders in-app Deposit sheet.
-     App Deposit always requires Direct-QR (no hosted checkout / external browser).
-  3. User pays by scanning the in-app QR.
+  2. Prefer POST /v1/qr/fonepay (Direct-QR) so the Fonepay QR renders in-app.
+     Fall back to POST /v1/checkout (hosted) when Direct-QR is unavailable.
+  3. User pays via in-app QR (or hosted page fallback).
   4. Webhook payment.succeeded (signed) OR return/verify via GET session + GET payment.
   5. On success: status=approved → existing deposit signal credits wallet once.
 
@@ -281,17 +281,19 @@ def create_paybridge_deposit(
     initiated_by=None,
     allow_reuse: bool = True,
     metadata_extra: Optional[Dict[str, Any]] = None,
-    require_direct_qr: bool = False,
 ) -> Tuple[Deposit, Dict[str, Any]]:
     """
     Create pending Deposit and PayBridgeNP payment session.
 
-    Always prefers Direct-QR (in-app Fonepay QR). Hosted checkout is only used
-    when Direct-QR is unavailable for the merchant plan AND require_direct_qr
-    is False (e.g. some API payin clients). App Deposit always passes
-    require_direct_qr=True so a real QR is returned for on-page display.
+    Prefers Direct-QR (in-app Fonepay QR). Falls back to hosted checkout URL
+    when Direct-QR is unavailable for the merchant.
 
+    Returns (deposit, public_payload) where public_payload includes qr_image /
+    events_url for Direct-QR, or checkout_url for hosted fallback.
     Does not credit wallet.
+
+    For API payin, pass source=Deposit.SOURCE_API, client_reference, initiated_by,
+    and allow_reuse=False (idempotency is handled by the Payin API layer).
     """
     from .app_config import get_app_config, validate_amount_bounds
 
@@ -323,14 +325,13 @@ def create_paybridge_deposit(
         existing = _reusable_pending(user, amount)
         if existing:
             try:
-                public = refresh_paybridge_qr(existing)
-                if public.get('qr_image') or public.get('qr_message'):
-                    return existing, public
+                return existing, refresh_paybridge_qr(existing)
             except Exception:
                 logger.exception(
                     'Could not refresh reusable PayBridgeNP QR deposit=%s; creating a new session',
                     existing.pk,
                 )
+                # Mark the stale session expired so we do not keep reusing a QR-less hosted row.
                 try:
                     existing.status = Deposit.STATUS_EXPIRED
                     existing.failure_reason = 'Superseded by a new PayBridgeNP QR session'
@@ -378,6 +379,8 @@ def create_paybridge_deposit(
     )
     metadata['depositId'] = str(deposit.pk)
 
+    session: Dict[str, Any]
+    mode = MODE_DIRECT_QR
     try:
         session = client.create_fonepay_qr(
             amount_paisa=paisa,
@@ -386,26 +389,16 @@ def create_paybridge_deposit(
             idempotency_key=f'qr-{order_id}',
         )
     except PayBridgeError as qr_exc:
-        # App Deposit must never fall back to hosted checkout (cannot embed QR).
-        if require_direct_qr or not _is_direct_qr_unavailable(qr_exc):
+        if not _is_direct_qr_unavailable(qr_exc):
             deposit.status = Deposit.STATUS_FAILED
-            deposit.failure_reason = (
-                str(getattr(qr_exc, 'message', '') or 'PayBridgeNP QR could not be created')
-            )[:500]
+            deposit.failure_reason = 'PayBridgeNP QR could not be created'
             deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
-            if require_direct_qr and _is_direct_qr_unavailable(qr_exc):
-                raise PayBridgeError(
-                    'PayBridgeNP Direct-QR is required for in-app Deposit. '
-                    'Enable Direct-QR / Fonepay QR on your PayBridgeNP plan, '
-                    'or check the API key permissions. Hosted checkout is not used in the app.',
-                    status_code=int(getattr(qr_exc, 'status_code', 0) or 502),
-                    response_data=getattr(qr_exc, 'response_data', None),
-                ) from qr_exc
             raise
         logger.warning(
             'PayBridgeNP Direct-QR unavailable (%s); falling back to hosted checkout',
             getattr(qr_exc, 'message', qr_exc),
         )
+        mode = MODE_HOSTED
         return_base = (client.configured_return_url or '').strip() or default_backend_return_url()
         return_url = append_query(return_base, order=order_id)
         cancel_url = append_query(return_base, order=order_id, status='cancelled')
@@ -424,27 +417,6 @@ def create_paybridge_deposit(
             deposit.failure_reason = 'PayBridgeNP checkout could not be created'
             deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
             raise
-        session_id = str(session.get('id') or '').strip()
-        deposit.process_id = session_id or None
-        deposit.expires_at = _parse_expires_at(session.get('expires_at') or session.get('expiresAt'))
-        deposit.status = Deposit.STATUS_PROCESSING
-        checkout_url = str(session.get('checkout_url') or '').strip()
-        deposit.payment_url = checkout_url
-        deposit.provider_payload = sanitize_provider_payload({
-            'mode': MODE_HOSTED,
-            'checkout': session,
-        })
-        try:
-            deposit.save(update_fields=[
-                'process_id', 'payment_url', 'expires_at', 'status',
-                'provider_payload', 'updated_at',
-            ])
-        except IntegrityError:
-            other = Deposit.objects.filter(process_id=session_id).first()
-            if other:
-                return other, public_deposit_dict(other, include_qr=True)
-            raise PayBridgeError('Could not save PayBridgeNP deposit.', status_code=502)
-        return deposit, public_deposit_dict(deposit, include_qr=True)
     except Exception:
         deposit.status = Deposit.STATUS_FAILED
         deposit.failure_reason = 'PayBridgeNP QR could not be created'
@@ -455,21 +427,30 @@ def create_paybridge_deposit(
     deposit.process_id = session_id or None
     deposit.expires_at = _parse_expires_at(session.get('expires_at') or session.get('expiresAt'))
     deposit.status = Deposit.STATUS_PROCESSING
-    qr = _qr_fields(session)
-    if not (qr.get('qr_image') or qr.get('qr_message')):
-        deposit.status = Deposit.STATUS_FAILED
-        deposit.failure_reason = 'PayBridgeNP did not return a Fonepay QR image'
-        deposit.save(update_fields=[
-            'process_id', 'expires_at', 'status', 'failure_reason', 'updated_at',
-        ])
-        raise PayBridgeError(
-            'PayBridgeNP did not return a Fonepay QR. Try again or check Direct-QR access.',
-            status_code=502,
-            response_data=session,
-        )
 
-    deposit.payment_url = ''
-    deposit.provider_payload = _store_qr_payload(session, qr)
+    if mode == MODE_DIRECT_QR:
+        qr = _qr_fields(session)
+        deposit.payment_url = ''
+        deposit.provider_payload = _store_qr_payload(session, qr)
+        try:
+            deposit.save(update_fields=[
+                'process_id', 'payment_url', 'expires_at', 'status',
+                'provider_payload', 'updated_at',
+            ])
+        except IntegrityError:
+            other = Deposit.objects.filter(process_id=session_id).first()
+            if other:
+                return other, public_deposit_dict(other, include_qr=True)
+            raise PayBridgeError('Could not save PayBridgeNP deposit.', status_code=502)
+        return deposit, _public_with_live_qr(deposit, qr)
+
+    checkout_url = str(session.get('checkout_url') or '').strip()
+    deposit.payment_url = checkout_url
+    deposit.provider_payload = sanitize_provider_payload({
+        'mode': MODE_HOSTED,
+        'checkout': session,
+    })
+
     try:
         deposit.save(update_fields=[
             'process_id', 'payment_url', 'expires_at', 'status',
@@ -478,12 +459,10 @@ def create_paybridge_deposit(
     except IntegrityError:
         other = Deposit.objects.filter(process_id=session_id).first()
         if other:
-            try:
-                return other, refresh_paybridge_qr(other)
-            except Exception:
-                return other, _public_with_live_qr(other, qr)
+            return other, public_deposit_dict(other, include_qr=True)
         raise PayBridgeError('Could not save PayBridgeNP deposit.', status_code=502)
-    return deposit, _public_with_live_qr(deposit, qr)
+
+    return deposit, public_deposit_dict(deposit, include_qr=True)
 
 
 def refresh_paybridge_qr(deposit: Deposit) -> Dict[str, Any]:
