@@ -480,8 +480,8 @@ def documentation_payload(request=None) -> dict:
     payin_flow = [
         'Enable API access (is_api_user) and Payin permission (can_api_payin) for the API user in Admin → API Users.',
         'POST /api/v1/payin/ with receiver (MySewa phone), amount, and a unique reference.',
-        'MySewa creates a pending Deposit and starts PayBridgeNP checkout (Direct-QR or hosted URL).',
-        'Return checkout_url / qr_image to your customer so they can pay (eSewa, Khalti, Fonepay).',
+        'MySewa creates a pending Deposit and starts PayBridgeNP hosted checkout (never HimalPay).',
+        'Open checkout_url / payment_url (PayBridgeNP hosted page) so the customer can pay (eSewa, Khalti, Fonepay).',
         'PayBridgeNP sends a signed webhook to MySewa. MySewa verifies the signature and payment, then credits the receiver wallet once.',
         'Poll GET /api/v1/payin/status/?reference=… until status is SUCCESS, FAILED, CANCELLED, EXPIRED, or REFUNDED.',
     ]
@@ -576,7 +576,7 @@ def documentation_payload(request=None) -> dict:
             'status PENDING means checkout is ready — not yet paid. SUCCESS means wallet was credited.',
             'Wallet credit happens only after verified PayBridgeNP payment.succeeded (webhook) or server verify.',
             'Replaying the same reference returns the original checkout payload with refreshed live status fields.',
-            'mode may be hosted (checkout_url) or direct_qr (qr_image / events_url).',
+            'API Payin always returns PayBridgeNP hosted checkout_url / payment_url (provider=paybridgenp). HimalPay is never used.',
         ],
     }
     payin_status_section = {

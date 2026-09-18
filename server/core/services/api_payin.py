@@ -60,8 +60,18 @@ def _amount_out(amount) -> int | str:
 def _success_payload(deposit: Deposit, reference: str, public: dict | None = None) -> dict:
     pub = public if isinstance(public, dict) else public_deposit_dict(deposit, include_qr=True)
     checkout_url = str(pub.get('checkout_url') or pub.get('payment_url') or deposit.payment_url or '').strip()
+    # Never leak a HimalPay / N-Cash URL to API clients (games openers).
+    if 'himalpay' in checkout_url.lower() or 'ncash' in checkout_url.lower():
+        logger.error(
+            'Payin payload refused HimalPay URL deposit=%s url=%s',
+            deposit.pk,
+            checkout_url[:120],
+        )
+        checkout_url = ''
     qr_image = str(pub.get('qr_image') or '').strip()
-    mode = str(pub.get('mode') or '').strip()
+    mode = str(pub.get('mode') or '').strip() or (
+        'hosted' if checkout_url else ('direct_qr' if qr_image else '')
+    )
     payload = {
         'success': True,
         'message': 'Payin checkout ready' if _api_status(deposit) == 'PENDING' else 'Payin status',
@@ -73,7 +83,8 @@ def _success_payload(deposit: Deposit, reference: str, public: dict | None = Non
         'amount': _amount_out(deposit.amount),
         'currency': deposit.currency or 'NPR',
         'status': _api_status(deposit),
-        'provider': deposit.provider,
+        # Games must always see PayBridgeNP — never HimalPay checkout.
+        'provider': Deposit.PROVIDER_PAYBRIDGENP,
         'mode': mode,
         'checkout_url': checkout_url,
         'payment_url': checkout_url,
@@ -380,7 +391,24 @@ def execute_api_payin(request) -> Response:
                     client_reference=reference,
                     initiated_by=partner,
                     allow_reuse=False,
+                    prefer_hosted=True,
                 )
+                checkout_url = str(
+                    public.get('checkout_url')
+                    or public.get('payment_url')
+                    or deposit.payment_url
+                    or ''
+                ).strip()
+                if not checkout_url:
+                    raise PayBridgeError(
+                        'PayBridgeNP did not return a checkout URL for API payin.',
+                        status_code=502,
+                    )
+                if 'himalpay' in checkout_url.lower() or 'ncash' in checkout_url.lower():
+                    raise PayBridgeError(
+                        'Refusing HimalPay checkout URL — Payin uses PayBridgeNP only.',
+                        status_code=502,
+                    )
             except WalletFrozenError:
                 raise
             except PayBridgeError as exc:

@@ -75,12 +75,21 @@ class ApiPayinTests(TestCase):
         self.assertTrue(body['success'])
         self.assertEqual(body['status'], 'PENDING')
         self.assertEqual(body['reference'], 'PAYIN-1')
+        self.assertEqual(body['provider'], 'paybridgenp')
+        self.assertEqual(body['mode'], 'hosted')
+        payment_url = body.get('payment_url') or body.get('checkout_url') or ''
+        self.assertTrue(payment_url, 'API Payin must return an openable PayBridgeNP payment URL')
+        self.assertNotIn('himalpay', payment_url.lower())
+        self.assertNotIn('ncash', payment_url.lower())
         self.assertTrue(body['transaction_id'].startswith('MS-PB-'))
         deposit = Deposit.objects.get(pk=body['deposit_id'])
+        self.assertEqual(deposit.provider, Deposit.PROVIDER_PAYBRIDGENP)
         self.assertEqual(deposit.source, Deposit.SOURCE_API)
         self.assertEqual(deposit.client_reference, 'PAYIN-1')
         self.assertEqual(deposit.initiated_by_id, self.partner.pk)
         self.assertEqual(deposit.user_id, self.receiver.pk)
+        self.assertTrue((deposit.payment_url or '').strip())
+        self.assertNotIn('himalpay', (deposit.payment_url or '').lower())
         self.assertEqual(Wallet.objects.get(user=self.receiver).balance, Decimal('0.00'))
         self.assertTrue(ApiPayinLog.objects.filter(user=self.partner, reference='PAYIN-1').exists())
 
@@ -236,6 +245,42 @@ class ApiPayinTests(TestCase):
         self.assertEqual(r2.status_code, 200, r2.content)
         self.assertEqual(Wallet.objects.get(user=self.receiver).balance, Decimal('300.00'))
 
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {
+            'deposits_enabled': True,
+            'min_deposit': 10,
+            'max_deposit': 100000,
+        },
+        'integrations': {},
+    })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
+    def test_payin_never_calls_himalpay_checkout(self, mock_checkout, _cfg):
+        """Game Payin must mint PayBridgeNP hosted checkout — not HimalPay."""
+        mock_checkout.return_value = {
+            'id': 'cs_paybridge_game_1',
+            'checkout_url': 'https://checkout.paybridgenp.com/checkout/cs_paybridge_game_1',
+            'flow': 'hosted',
+            'expires_at': None,
+        }
+        self._auth()
+        with patch('core.services.checkout_deposit.create_checkout_session') as mock_hp:
+            res = self.client.post(
+                self.payin_url,
+                {'receiver': self.receiver.phone, 'amount': 250, 'reference': 'PAYIN-PB-ONLY'},
+                format='json',
+            )
+            self.assertEqual(res.status_code, 201, res.content)
+            mock_hp.assert_not_called()
+        body = res.json()
+        self.assertEqual(body['provider'], 'paybridgenp')
+        self.assertEqual(body['payment_url'], 'https://checkout.paybridgenp.com/checkout/cs_paybridge_game_1')
+        self.assertEqual(body['checkout_url'], body['payment_url'])
+        self.assertNotIn('himalpay', body['payment_url'].lower())
+        mock_checkout.assert_called_once()
+        deposit = Deposit.objects.get(pk=body['deposit_id'])
+        self.assertEqual(deposit.provider, Deposit.PROVIDER_PAYBRIDGENP)
+        self.assertEqual(deposit.payment_url, body['payment_url'])
+
     def test_docs_include_payin(self):
         from .services.api_docs import documentation_payload
 
@@ -244,3 +289,7 @@ class ApiPayinTests(TestCase):
         self.assertIn('payin', ids)
         self.assertIn('payin-status', ids)
         self.assertEqual(doc['docs_version'], '1.3')
+        payin = next(s for s in doc['api_sections'] if s['id'] == 'payin')
+        self.assertEqual(payin['success_response']['provider'], 'paybridgenp')
+        self.assertIn('paybridgenp.com', payin['success_response']['checkout_url'])
+        self.assertNotIn('himalpay', payin['success_response']['checkout_url'].lower())

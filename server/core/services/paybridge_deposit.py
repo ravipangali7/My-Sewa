@@ -3,9 +3,10 @@ PayBridgeNP wallet deposit settlement.
 
 Flow:
   1. Create Deposit(provider=paybridgenp, status=pending) with internal order ID.
-  2. Prefer POST /v1/qr/fonepay (Direct-QR) so the Fonepay QR renders in-app.
-     Fall back to POST /v1/checkout (hosted) when Direct-QR is unavailable.
-  3. User pays via in-app QR (or hosted page fallback).
+  2. App: prefer POST /v1/qr/fonepay (Direct-QR); fall back to POST /v1/checkout.
+     API Payin: always POST /v1/checkout (hosted) so games get a PayBridgeNP URL.
+     Never uses HimalPay checkout.
+  3. User pays via in-app QR (app) or PayBridgeNP hosted page (API / hosted fallback).
   4. Webhook payment.succeeded (signed) OR return/verify via GET session + GET payment.
   5. On success: status=approved → existing deposit signal credits wallet once.
 
@@ -272,6 +273,50 @@ def _is_direct_qr_unavailable(exc: PayBridgeError) -> bool:
     return False
 
 
+def _is_himalpay_url(url: str) -> bool:
+    text = (url or '').strip().lower()
+    return 'himalpay' in text or 'ncash' in text
+
+
+def _assert_paybridge_checkout_url(url: str) -> str:
+    """Ensure API/app never returns a HimalPay checkout URL from PayBridge flow."""
+    checkout_url = (url or '').strip()
+    if not checkout_url:
+        raise PayBridgeError(
+            'PayBridgeNP did not return a checkout URL.',
+            status_code=502,
+        )
+    if _is_himalpay_url(checkout_url):
+        raise PayBridgeError(
+            'Refusing HimalPay checkout URL — Payin must use PayBridgeNP only.',
+            status_code=502,
+        )
+    return checkout_url
+
+
+def _create_hosted_checkout_session(
+    client: PayBridgeNPAPI,
+    *,
+    deposit: Deposit,
+    paisa: int,
+    order_id: str,
+    metadata: Dict[str, Any],
+    customer: Dict[str, str],
+) -> Dict[str, Any]:
+    return_base = (client.configured_return_url or '').strip() or default_backend_return_url()
+    return_url = append_query(return_base, order=order_id)
+    cancel_url = append_query(return_base, order=order_id, status='cancelled')
+    return client.create_checkout(
+        amount_paisa=paisa,
+        return_url=return_url,
+        cancel_url=cancel_url,
+        metadata=metadata,
+        description=f'MySewa Wallet Deposit #{deposit.pk}',
+        customer=customer,
+        idempotency_key=f'checkout-{order_id}',
+    )
+
+
 def create_paybridge_deposit(
     user,
     amount,
@@ -281,19 +326,18 @@ def create_paybridge_deposit(
     initiated_by=None,
     allow_reuse: bool = True,
     metadata_extra: Optional[Dict[str, Any]] = None,
+    prefer_hosted: bool = False,
 ) -> Tuple[Deposit, Dict[str, Any]]:
     """
     Create pending Deposit and PayBridgeNP payment session.
 
-    Prefers Direct-QR (in-app Fonepay QR). Falls back to hosted checkout URL
-    when Direct-QR is unavailable for the merchant.
+    App deposits prefer Direct-QR (in-app Fonepay QR), then hosted PayBridgeNP
+    checkout if Direct-QR is unavailable.
 
-    Returns (deposit, public_payload) where public_payload includes qr_image /
-    events_url for Direct-QR, or checkout_url for hosted fallback.
-    Does not credit wallet.
+    API Payin must pass prefer_hosted=True so games always receive a
+    PayBridgeNP checkout_url (never HimalPay, never an empty payment URL).
 
-    For API payin, pass source=Deposit.SOURCE_API, client_reference, initiated_by,
-    and allow_reuse=False (idempotency is handled by the Payin API layer).
+    Does not credit wallet. Never uses HimalPay checkout.
     """
     from .app_config import get_app_config, validate_amount_bounds
 
@@ -321,7 +365,10 @@ def create_paybridge_deposit(
     if err:
         raise PayBridgeError(err, status_code=400)
 
-    if allow_reuse and source != Deposit.SOURCE_API:
+    # API payin always needs an openable PayBridgeNP hosted URL for games.
+    use_hosted = bool(prefer_hosted) or source == Deposit.SOURCE_API
+
+    if allow_reuse and source != Deposit.SOURCE_API and not use_hosted:
         existing = _reusable_pending(user, amount)
         if existing:
             try:
@@ -331,7 +378,6 @@ def create_paybridge_deposit(
                     'Could not refresh reusable PayBridgeNP QR deposit=%s; creating a new session',
                     existing.pk,
                 )
-                # Mark the stale session expired so we do not keep reusing a QR-less hosted row.
                 try:
                     existing.status = Deposit.STATUS_EXPIRED
                     existing.failure_reason = 'Superseded by a new PayBridgeNP QR session'
@@ -380,48 +426,61 @@ def create_paybridge_deposit(
     metadata['depositId'] = str(deposit.pk)
 
     session: Dict[str, Any]
-    mode = MODE_DIRECT_QR
-    try:
-        session = client.create_fonepay_qr(
-            amount_paisa=paisa,
-            customer=customer,
-            metadata=metadata,
-            idempotency_key=f'qr-{order_id}',
-        )
-    except PayBridgeError as qr_exc:
-        if not _is_direct_qr_unavailable(qr_exc):
-            deposit.status = Deposit.STATUS_FAILED
-            deposit.failure_reason = 'PayBridgeNP QR could not be created'
-            deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
-            raise
-        logger.warning(
-            'PayBridgeNP Direct-QR unavailable (%s); falling back to hosted checkout',
-            getattr(qr_exc, 'message', qr_exc),
-        )
-        mode = MODE_HOSTED
-        return_base = (client.configured_return_url or '').strip() or default_backend_return_url()
-        return_url = append_query(return_base, order=order_id)
-        cancel_url = append_query(return_base, order=order_id, status='cancelled')
+    mode = MODE_HOSTED if use_hosted else MODE_DIRECT_QR
+
+    if use_hosted:
         try:
-            session = client.create_checkout(
-                amount_paisa=paisa,
-                return_url=return_url,
-                cancel_url=cancel_url,
+            session = _create_hosted_checkout_session(
+                client,
+                deposit=deposit,
+                paisa=paisa,
+                order_id=order_id,
                 metadata=metadata,
-                description=f'MySewa Wallet Deposit #{deposit.pk}',
                 customer=customer,
-                idempotency_key=f'checkout-{order_id}',
             )
         except Exception:
             deposit.status = Deposit.STATUS_FAILED
             deposit.failure_reason = 'PayBridgeNP checkout could not be created'
             deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
             raise
-    except Exception:
-        deposit.status = Deposit.STATUS_FAILED
-        deposit.failure_reason = 'PayBridgeNP QR could not be created'
-        deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
-        raise
+    else:
+        try:
+            session = client.create_fonepay_qr(
+                amount_paisa=paisa,
+                customer=customer,
+                metadata=metadata,
+                idempotency_key=f'qr-{order_id}',
+            )
+        except PayBridgeError as qr_exc:
+            if not _is_direct_qr_unavailable(qr_exc):
+                deposit.status = Deposit.STATUS_FAILED
+                deposit.failure_reason = 'PayBridgeNP QR could not be created'
+                deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
+                raise
+            logger.warning(
+                'PayBridgeNP Direct-QR unavailable (%s); falling back to hosted checkout',
+                getattr(qr_exc, 'message', qr_exc),
+            )
+            mode = MODE_HOSTED
+            try:
+                session = _create_hosted_checkout_session(
+                    client,
+                    deposit=deposit,
+                    paisa=paisa,
+                    order_id=order_id,
+                    metadata=metadata,
+                    customer=customer,
+                )
+            except Exception:
+                deposit.status = Deposit.STATUS_FAILED
+                deposit.failure_reason = 'PayBridgeNP checkout could not be created'
+                deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
+                raise
+        except Exception:
+            deposit.status = Deposit.STATUS_FAILED
+            deposit.failure_reason = 'PayBridgeNP QR could not be created'
+            deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
+            raise
 
     session_id = str(session.get('id') or '').strip()
     deposit.process_id = session_id or None
@@ -444,7 +503,7 @@ def create_paybridge_deposit(
             raise PayBridgeError('Could not save PayBridgeNP deposit.', status_code=502)
         return deposit, _public_with_live_qr(deposit, qr)
 
-    checkout_url = str(session.get('checkout_url') or '').strip()
+    checkout_url = _assert_paybridge_checkout_url(str(session.get('checkout_url') or ''))
     deposit.payment_url = checkout_url
     deposit.provider_payload = sanitize_provider_payload({
         'mode': MODE_HOSTED,

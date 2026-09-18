@@ -188,7 +188,7 @@ class BankTransferView(BankApiView):
 
 
 class PayinView(BankApiView):
-    """POST /api/v1/payin/ — start PayBridgeNP wallet load for a receiver."""
+    """POST /api/v1/payin/ — start PayBridgeNP hosted checkout wallet load for a receiver."""
 
     def post(self, request):
         denied = _require_api_user(request.user)
