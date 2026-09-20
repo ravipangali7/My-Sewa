@@ -482,7 +482,7 @@ def documentation_payload(request=None) -> dict:
         'POST /api/v1/payin/ with receiver (MySewa phone), amount, and a unique reference.',
         'MySewa creates a pending Deposit and starts PayBridgeNP hosted checkout (never HimalPay).',
         'Open checkout_url / payment_url (PayBridgeNP hosted page) so the customer can pay (eSewa, Khalti, Fonepay).',
-        'PayBridgeNP sends a signed webhook to MySewa. MySewa verifies the signature and payment, then credits the receiver wallet once.',
+        'PayBridgeNP sends a signed webhook to MySewa. MySewa verifies the signature and payment, credits the receiver wallet once, then POSTs the result to the API user\'s saved Webhook URL (Admin → API Users).',
         'Poll GET /api/v1/payin/status/?reference=… until status is SUCCESS, FAILED, CANCELLED, EXPIRED, or REFUNDED.',
     ]
     payin_section = {
@@ -577,6 +577,7 @@ def documentation_payload(request=None) -> dict:
             'Wallet credit happens only after verified PayBridgeNP payment.succeeded (webhook) or server verify.',
             'Replaying the same reference returns the original checkout payload with refreshed live status fields.',
             'API Payin always returns PayBridgeNP hosted checkout_url / payment_url (provider=paybridgenp). HimalPay is never used.',
+            'Configure a Webhook URL on the API user (Admin → API Users). After verified payment.succeeded, MySewa POSTs status, amount, reference, and order/transaction ids to that URL once (idempotent).',
         ],
     }
     payin_status_section = {

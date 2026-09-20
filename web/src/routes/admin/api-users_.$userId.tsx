@@ -1,12 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Copy, Eye, EyeOff, RefreshCw } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { BackButton } from "@/components/BackButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
@@ -44,6 +46,7 @@ function AdminApiUserDetailPage() {
   const queryClient = useQueryClient();
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState("");
 
   const userQuery = useQuery({
     queryKey: ["admin", "api-users", id],
@@ -58,16 +61,28 @@ function AdminApiUserDetailPage() {
     ...adminLiveQueryOptions(),
   });
 
+  useEffect(() => {
+    if (userQuery.data) {
+      setWebhookUrl(userQuery.data.api_webhook_url || "");
+    }
+  }, [userQuery.data?.id, userQuery.data?.api_webhook_url]);
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["admin", "api-users"] });
   };
 
   const accessMutation = useMutation({
-    mutationFn: (payload: { is_api_user?: boolean; can_api_payin?: boolean }) =>
-      apiClient.adminSetApiUserAccess(id, payload),
+    mutationFn: (payload: {
+      is_api_user?: boolean;
+      can_api_payin?: boolean;
+      api_webhook_url?: string;
+    }) => apiClient.adminSetApiUserAccess(id, payload),
     onSuccess: (res) => {
       toast.success(res.message || "API access updated");
       setRevealedKey(null);
+      if (res.data?.api_webhook_url !== undefined) {
+        setWebhookUrl(res.data.api_webhook_url || "");
+      }
       invalidate();
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Update failed"),
@@ -176,6 +191,50 @@ function AdminApiUserDetailPage() {
                   </Badge>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-surface p-4 sm:p-5 space-y-3">
+            <h2 className="text-sm font-semibold">Payin webhook URL</h2>
+            <p className="text-xs text-muted-foreground">
+              After PayBridgeNP confirms payment and MySewa credits the receiver wallet, MySewa
+              POSTs the result to this URL for this API user. Mapped from the deposit&apos;s
+              initiating API key — not from a client redirect.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="api_webhook_url">Webhook URL</Label>
+              <Input
+                id="api_webhook_url"
+                type="url"
+                placeholder="https://your-game.example/webhooks/mysewa-payin"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                className="font-mono text-sm"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                disabled={accessMutation.isPending}
+                onClick={() =>
+                  accessMutation.mutate({ api_webhook_url: webhookUrl.trim() })
+                }
+              >
+                Save webhook URL
+              </Button>
+              {webhookUrl ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={accessMutation.isPending}
+                  onClick={() => {
+                    setWebhookUrl("");
+                    accessMutation.mutate({ api_webhook_url: "" });
+                  }}
+                >
+                  Clear
+                </Button>
+              ) : null}
             </div>
           </div>
 

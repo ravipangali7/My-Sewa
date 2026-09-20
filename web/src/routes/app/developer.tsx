@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronRight, Copy, Download, Eye, EyeOff, RefreshCw, Search } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { BackButton } from "@/components/BackButton";
@@ -47,6 +47,7 @@ function DeveloperApiPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [showKey, setShowKey] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState("");
   const [downloading, setDownloading] = useState<"markdown" | "html" | "pdf" | null>(null);
   const allowed = canUseFundTransferApi(user);
 
@@ -58,6 +59,10 @@ function DeveloperApiPage() {
   const data = profileQuery.data;
   const docs = data?.documentation;
 
+  useEffect(() => {
+    if (data) setWebhookUrl(data.api_webhook_url || "");
+  }, [data?.api_webhook_url]);
+
   const regenMutation = useMutation({
     mutationFn: () => apiClient.developerRegenerateKey(),
     onSuccess: (res) => {
@@ -66,6 +71,17 @@ function DeveloperApiPage() {
       queryClient.setQueryData(["developer", "profile"], res);
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : t("developer.regenFailed")),
+  });
+
+  const webhookMutation = useMutation({
+    mutationFn: (url: string) => apiClient.developerUpdateWebhook(url),
+    onSuccess: (res) => {
+      toast.success(res.message || t("developer.webhookSaved"));
+      setWebhookUrl(res.api_webhook_url || "");
+      queryClient.setQueryData(["developer", "profile"], res);
+    },
+    onError: (err) =>
+      toast.error(err instanceof ApiError ? err.message : t("developer.webhookSaveFailed")),
   });
 
   const download = async (format: "markdown" | "html" | "pdf") => {
@@ -158,6 +174,44 @@ function DeveloperApiPage() {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
+              <h2 className="text-sm font-semibold">{t("developer.webhookTitle")}</h2>
+              <p className="text-xs text-muted-foreground">{t("developer.webhookHelp")}</p>
+              <div className="space-y-2">
+                <Label htmlFor="developer_webhook_url">{t("developer.webhookTitle")}</Label>
+                <Input
+                  id="developer_webhook_url"
+                  type="url"
+                  className="font-mono text-xs"
+                  placeholder={t("developer.webhookPlaceholder")}
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  disabled={webhookMutation.isPending}
+                  onClick={() => webhookMutation.mutate(webhookUrl.trim())}
+                >
+                  {t("developer.webhookSave")}
+                </Button>
+                {webhookUrl ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={webhookMutation.isPending}
+                    onClick={() => {
+                      setWebhookUrl("");
+                      webhookMutation.mutate("");
+                    }}
+                  >
+                    {t("developer.webhookClear")}
+                  </Button>
+                ) : null}
               </div>
             </section>
 

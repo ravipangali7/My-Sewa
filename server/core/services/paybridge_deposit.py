@@ -751,9 +751,13 @@ def verify_deposit(deposit: Deposit) -> Tuple[str, Deposit]:
 
     try:
         with transaction.atomic():
-            locked = Deposit.objects.select_for_update().select_related('user').get(pk=deposit.pk)
+            locked = Deposit.objects.select_for_update().select_related(
+                'user', 'initiated_by',
+            ).get(pk=deposit.pk)
             outcome, locked = settle_from_payment(locked, payment)
-            return outcome, locked
+        from .api_payin_webhook import notify_developer_after_settle
+        notify_developer_after_settle(outcome, locked)
+        return outcome, locked
     except WalletFrozenError as exc:
         raise PayBridgeError(exc.message or WALLET_FROZEN_MESSAGE, status_code=403) from exc
 
@@ -813,8 +817,13 @@ def handle_webhook_event(event: Dict[str, Any]) -> Tuple[str, Optional[Deposit]]
             return ORDER_MISMATCH, None
         try:
             with transaction.atomic():
-                locked = Deposit.objects.select_for_update().select_related('user').get(pk=deposit.pk)
-                return settle_from_payment(locked, payment)
+                locked = Deposit.objects.select_for_update().select_related(
+                    'user', 'initiated_by',
+                ).get(pk=deposit.pk)
+                outcome, locked = settle_from_payment(locked, payment)
+            from .api_payin_webhook import notify_developer_after_settle
+            notify_developer_after_settle(outcome, locked)
+            return outcome, locked
         except WalletFrozenError as exc:
             raise PayBridgeError(exc.message or WALLET_FROZEN_MESSAGE, status_code=403) from exc
 

@@ -85,6 +85,8 @@ def _developer_payload(request):
         'api_key_created_at': user.api_key_created_at,
         'api_key_updated_at': user.api_key_updated_at,
         'api_last_used_at': user.api_last_used_at,
+        'api_webhook_url': str(getattr(user, 'api_webhook_url', '') or ''),
+        'can_api_payin': bool(getattr(user, 'can_api_payin', False)),
         'endpoint': fund_transfer_url(request),
         'documentation': docs,
     }
@@ -213,13 +215,48 @@ class PayinStatusView(BankApiView):
         return execute_api_payin_status(request)
 
 
-@api_view(['GET'])
+@api_view(['GET', 'PATCH'])
 @authentication_classes([TokenAuthentication, SessionAuthentication])
 @permission_classes([IsAuthenticated])
 def developer_profile(request):
     denied = _require_api_user(request.user)
     if denied:
         return denied
+    if request.method == 'PATCH':
+        from ..services.api_payin_webhook import validate_webhook_url
+        if 'api_webhook_url' not in request.data:
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'errors': {'api_webhook_url': 'Provide api_webhook_url.'},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        cleaned = str(request.data.get('api_webhook_url') or '').strip()
+        ok, err = validate_webhook_url(cleaned)
+        if not ok:
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'errors': {'api_webhook_url': err},
+                    'message': err,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        request.user.api_webhook_url = cleaned
+        request.user.save(update_fields=['api_webhook_url'])
+        try:
+            log_security_event(
+                user=request.user,
+                action='api_webhook_url_updated',
+                request=request,
+                details={'actor': 'self', 'has_webhook_url': bool(cleaned)},
+            )
+        except Exception:
+            pass
+        payload = _developer_payload(request)
+        payload['message'] = 'Webhook URL updated'
+        return Response(payload)
     return Response(_developer_payload(request))
 
 

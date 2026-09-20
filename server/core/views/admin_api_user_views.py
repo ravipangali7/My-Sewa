@@ -27,6 +27,7 @@ def _api_user_payload(user, request, *, reveal_key=False):
     data = AdminUserSerializer(user, context={'request': request}).data
     data['is_api_user'] = bool(user.is_api_user)
     data['can_api_payin'] = bool(getattr(user, 'can_api_payin', False))
+    data['api_webhook_url'] = str(getattr(user, 'api_webhook_url', '') or '')
     data['api_key_masked'] = mask_api_key(user.api_key)
     data['has_api_key'] = bool(user.api_key)
     data['api_key_created_at'] = user.api_key_created_at
@@ -81,12 +82,13 @@ def admin_api_user_detail(request, user_id):
     was_api_user = bool(user.is_api_user)
     enable = request.data.get('is_api_user')
     payin = request.data.get('can_api_payin', None)
-    if enable is None and payin is None:
+    webhook_url = request.data.get('api_webhook_url', None)
+    if enable is None and payin is None and webhook_url is None:
         return Response(
             {
                 'error': 'Validation failed',
                 'errors': {
-                    'is_api_user': 'Provide is_api_user and/or can_api_payin.',
+                    'is_api_user': 'Provide is_api_user, can_api_payin, and/or api_webhook_url.',
                 },
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -122,20 +124,53 @@ def admin_api_user_detail(request, user_id):
     if payin is not None:
         user.can_api_payin = bool(payin)
         update_fields.append('can_api_payin')
-        user.save(update_fields=update_fields)
-        try:
-            log_security_event(
-                user=request.user,
-                action='api_payin_access_updated',
-                request=request,
-                details={
-                    'target_id': user.pk,
-                    'target_phone': user.phone,
-                    'can_api_payin': user.can_api_payin,
+
+    if webhook_url is not None:
+        from ..services.api_payin_webhook import validate_webhook_url
+        cleaned = str(webhook_url or '').strip()
+        ok, err = validate_webhook_url(cleaned)
+        if not ok:
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'errors': {'api_webhook_url': err},
+                    'message': err,
                 },
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception:
-            pass
+        user.api_webhook_url = cleaned
+        update_fields.append('api_webhook_url')
+
+    if update_fields:
+        user.save(update_fields=update_fields)
+        if 'can_api_payin' in update_fields:
+            try:
+                log_security_event(
+                    user=request.user,
+                    action='api_payin_access_updated',
+                    request=request,
+                    details={
+                        'target_id': user.pk,
+                        'target_phone': user.phone,
+                        'can_api_payin': user.can_api_payin,
+                    },
+                )
+            except Exception:
+                pass
+        if 'api_webhook_url' in update_fields:
+            try:
+                log_security_event(
+                    user=request.user,
+                    action='api_webhook_url_updated',
+                    request=request,
+                    details={
+                        'target_id': user.pk,
+                        'target_phone': user.phone,
+                        'has_webhook_url': bool(user.api_webhook_url),
+                    },
+                )
+            except Exception:
+                pass
 
     user.refresh_from_db()
     return Response({

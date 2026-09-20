@@ -451,6 +451,7 @@ def _ensure_api_fund_transfer():
     user_model = apps.get_model('core', 'CustomUser')
     needed_user = (
         'is_api_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
+        'can_api_payin', 'api_webhook_url',
     )
     missing_user = [name for name in needed_user if name not in user_cols]
     if missing_user:
@@ -896,6 +897,16 @@ class CustomUser(AbstractUser):
         null=True,
         blank=True,
         help_text="When this API key last authenticated successfully.",
+    )
+    api_webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default='',
+        help_text=(
+            "Developer callback URL for Payin (PayBridgeNP) results. "
+            "MySewa POSTs the verified payment outcome here after wallet credit. "
+            "Mapped via deposit.initiated_by — never taken from client redirect alone."
+        ),
     )
 
     # Use phone as the authentication field
@@ -1623,6 +1634,22 @@ class Deposit(models.Model):
         blank=True,
         related_name='initiated_deposits',
         help_text='API user that initiated this payin (wallet credit still goes to user).',
+    )
+    developer_webhook_delivered_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text='When the developer Payin webhook was delivered successfully (idempotent).',
+    )
+    developer_webhook_attempts = models.PositiveIntegerField(
+        default=0,
+        help_text='Number of developer webhook delivery attempts.',
+    )
+    developer_webhook_last_error = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Last developer webhook delivery error (truncated).',
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -3640,4 +3667,48 @@ class ApiPayinLog(models.Model):
         indexes = [
             models.Index(fields=['user', '-created_at'], name='core_apipayinlog_user_idx'),
             models.Index(fields=['status', '-created_at'], name='core_apipayinlog_status_idx'),
+        ]
+
+
+class ApiPayinWebhookLog(models.Model):
+    """Delivery attempts of Payin results to a developer's saved webhook URL."""
+
+    STATUS_SUCCESS = 'success'
+    STATUS_FAILED = 'failed'
+    STATUS_SKIPPED = 'skipped'
+    STATUS_CHOICES = [
+        (STATUS_SUCCESS, 'Success'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_SKIPPED, 'Skipped'),
+    ]
+
+    deposit = models.ForeignKey(
+        'Deposit',
+        on_delete=models.CASCADE,
+        related_name='developer_webhook_logs',
+    )
+    developer = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='api_payin_webhook_logs',
+        help_text='API user (initiated_by) that owns the webhook URL.',
+    )
+    url = models.URLField(max_length=500)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, db_index=True)
+    http_status = models.PositiveIntegerField(null=True, blank=True)
+    request_payload = models.JSONField(default=dict, blank=True)
+    response_body = models.TextField(blank=True, default='')
+    error_message = models.CharField(max_length=255, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return f'payin webhook deposit={self.deposit_id} {self.status}'
+
+    class Meta:
+        verbose_name = 'API Payin Webhook Log'
+        verbose_name_plural = 'API Payin Webhook Logs'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['developer', '-created_at'], name='core_apipayinwh_dev_idx'),
+            models.Index(fields=['deposit', '-created_at'], name='core_apipayinwh_dep_idx'),
         ]

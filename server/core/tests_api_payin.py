@@ -281,6 +281,107 @@ class ApiPayinTests(TestCase):
         self.assertEqual(deposit.provider, Deposit.PROVIDER_PAYBRIDGENP)
         self.assertEqual(deposit.payment_url, body['payment_url'])
 
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.api_payin_webhook.requests.post')
+    def test_developer_webhook_delivered_once(self, mock_post, _cfg):
+        """PayBridge success → credit wallet → POST developer webhook once (idempotent)."""
+        mock_resp = mock_post.return_value
+        mock_resp.status_code = 200
+        mock_resp.text = '{"ok":true}'
+
+        self.partner.api_webhook_url = 'https://game.example/webhooks/mysewa-payin'
+        self.partner.save(update_fields=['api_webhook_url'])
+
+        self._auth()
+        created = self.client.post(
+            self.payin_url,
+            {'receiver': self.receiver.phone, 'amount': 400, 'reference': 'WH-DEV-1'},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        deposit = Deposit.objects.get(pk=created.json()['deposit_id'])
+        self.assertEqual(deposit.initiated_by_id, self.partner.pk)
+
+        payment = {
+            'id': 'pay_dev_webhook_1',
+            'status': 'success',
+            'amount': 40000,
+            'currency': 'NPR',
+            'metadata': {
+                'orderId': deposit.purchase_order_identifier,
+                'depositId': str(deposit.pk),
+                'apiUserId': str(self.partner.pk),
+            },
+        }
+        event = {'type': 'payment.succeeded', 'data': payment}
+        body = json.dumps(event)
+        sig = _sign(body, 'whsec_unit_test')
+        webhook = reverse('webhooks_paybridgenp')
+
+        r1 = self.client.post(
+            webhook,
+            data=body,
+            content_type='application/json',
+            HTTP_X_PAYBRIDGENP_SIGNATURE=sig,
+        )
+        self.assertEqual(r1.status_code, 200, r1.content)
+        deposit.refresh_from_db()
+        self.assertEqual(deposit.status, Deposit.STATUS_APPROVED)
+        self.assertIsNotNone(deposit.developer_webhook_delivered_at)
+        self.assertEqual(Wallet.objects.get(user=self.receiver).balance, Decimal('400.00'))
+        self.assertEqual(mock_post.call_count, 1)
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], 'https://game.example/webhooks/mysewa-payin')
+        payload = kwargs['json']
+        self.assertEqual(payload['status'], 'SUCCESS')
+        self.assertEqual(payload['reference'], 'WH-DEV-1')
+        self.assertEqual(payload['amount'], 400)
+        self.assertEqual(payload['transaction_id'], deposit.purchase_order_identifier)
+        self.assertTrue(payload['success'])
+
+        from .models import ApiPayinWebhookLog
+        self.assertEqual(
+            ApiPayinWebhookLog.objects.filter(
+                deposit=deposit, status=ApiPayinWebhookLog.STATUS_SUCCESS,
+            ).count(),
+            1,
+        )
+
+        # Duplicate PayBridge webhook: no double credit, no second developer callback.
+        r2 = self.client.post(
+            webhook,
+            data=body,
+            content_type='application/json',
+            HTTP_X_PAYBRIDGENP_SIGNATURE=sig,
+        )
+        self.assertEqual(r2.status_code, 200, r2.content)
+        self.assertEqual(Wallet.objects.get(user=self.receiver).balance, Decimal('400.00'))
+        self.assertEqual(mock_post.call_count, 1)
+
+    def test_admin_can_save_webhook_url(self):
+        admin = User.objects.create_user(phone='9800000199', password='pass12345')
+        admin.is_staff = True
+        admin.is_superuser = True
+        admin.save()
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        url = reverse('admin_api_user_detail', kwargs={'user_id': self.partner.pk})
+        res = client.patch(
+            url,
+            {'api_webhook_url': 'https://lucky777.example/hooks/payin'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.api_webhook_url, 'https://lucky777.example/hooks/payin')
+        self.assertEqual(res.json()['data']['api_webhook_url'], self.partner.api_webhook_url)
+
+        bad = client.patch(url, {'api_webhook_url': 'not-a-url'}, format='json')
+        self.assertEqual(bad.status_code, 400)
+
     def test_docs_include_payin(self):
         from .services.api_docs import documentation_payload
 

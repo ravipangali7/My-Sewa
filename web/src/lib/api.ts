@@ -1324,7 +1324,7 @@ export const apiClient = {
     api<import("./types").AdminApiUser>(`/api/admin/api-users/${id}/`),
   adminSetApiUserAccess: (
     id: number,
-    payload: { is_api_user?: boolean; can_api_payin?: boolean },
+    payload: { is_api_user?: boolean; can_api_payin?: boolean; api_webhook_url?: string },
   ) =>
     api<{ message: string; data: import("./types").AdminApiUser }>(`/api/admin/api-users/${id}/`, {
       method: "PATCH",
@@ -1352,6 +1352,11 @@ export const apiClient = {
       }>;
     }>(`/api/admin/api-users/${id}/logs/`),
   developerProfile: () => api<import("./types").DeveloperApiProfile>("/api/developer/"),
+  developerUpdateWebhook: (api_webhook_url: string) =>
+    api<import("./types").DeveloperApiProfile>("/api/developer/", {
+      method: "PATCH",
+      body: { api_webhook_url },
+    }),
   developerRegenerateKey: () =>
     api<import("./types").DeveloperApiProfile>("/api/developer/regenerate-key/", {
       method: "POST",
