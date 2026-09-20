@@ -1075,6 +1075,7 @@ export interface AdminApiUser extends AdminUser {
   api_key?: string;
   can_api_payin?: boolean;
   api_webhook_url?: string;
+  api_return_url?: string;
 }
 
 export interface AdminApiUserLog {
@@ -1128,6 +1129,7 @@ export interface DeveloperApiProfile {
   api_key_updated_at: string | null;
   api_last_used_at: string | null;
   api_webhook_url?: string;
+  api_return_url?: string;
   can_api_payin?: boolean;
   endpoint: string;
   documentation: DeveloperApiDocumentation;

@@ -47,6 +47,7 @@ function AdminApiUserDetailPage() {
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState("");
+  const [returnUrl, setReturnUrl] = useState("");
 
   const userQuery = useQuery({
     queryKey: ["admin", "api-users", id],
@@ -64,8 +65,9 @@ function AdminApiUserDetailPage() {
   useEffect(() => {
     if (userQuery.data) {
       setWebhookUrl(userQuery.data.api_webhook_url || "");
+      setReturnUrl(userQuery.data.api_return_url || "");
     }
-  }, [userQuery.data?.id, userQuery.data?.api_webhook_url]);
+  }, [userQuery.data?.id, userQuery.data?.api_webhook_url, userQuery.data?.api_return_url]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["admin", "api-users"] });
@@ -76,12 +78,16 @@ function AdminApiUserDetailPage() {
       is_api_user?: boolean;
       can_api_payin?: boolean;
       api_webhook_url?: string;
+      api_return_url?: string;
     }) => apiClient.adminSetApiUserAccess(id, payload),
     onSuccess: (res) => {
       toast.success(res.message || "API access updated");
       setRevealedKey(null);
       if (res.data?.api_webhook_url !== undefined) {
         setWebhookUrl(res.data.api_webhook_url || "");
+      }
+      if (res.data?.api_return_url !== undefined) {
+        setReturnUrl(res.data.api_return_url || "");
       }
       invalidate();
     },
@@ -198,8 +204,8 @@ function AdminApiUserDetailPage() {
             <h2 className="text-sm font-semibold">Payin webhook URL</h2>
             <p className="text-xs text-muted-foreground">
               After PayBridgeNP confirms payment and MySewa credits the receiver wallet, MySewa
-              POSTs the result to this URL for this API user. Mapped from the deposit&apos;s
-              initiating API key — not from a client redirect.
+              POSTs the result to this URL for this API user (server-to-server). The player browser
+              is never opened on this URL — use Return URL below for that.
             </p>
             <div className="space-y-2">
               <Label htmlFor="api_webhook_url">Webhook URL</Label>
@@ -230,6 +236,49 @@ function AdminApiUserDetailPage() {
                   onClick={() => {
                     setWebhookUrl("");
                     accessMutation.mutate({ api_webhook_url: "" });
+                  }}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-surface p-4 sm:p-5 space-y-3">
+            <h2 className="text-sm font-semibold">Payin return URL (player browser)</h2>
+            <p className="text-xs text-muted-foreground">
+              Optional. After a successful Payin, MySewa redirects the player browser here (game
+              page / deep link). Do not put the webhook API URL here — that only returns JSON.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="api_return_url">Return URL</Label>
+              <Input
+                id="api_return_url"
+                type="url"
+                placeholder="https://your-game.example/deposit/success"
+                value={returnUrl}
+                onChange={(e) => setReturnUrl(e.target.value)}
+                className="font-mono text-sm"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                disabled={accessMutation.isPending}
+                onClick={() =>
+                  accessMutation.mutate({ api_return_url: returnUrl.trim() })
+                }
+              >
+                Save return URL
+              </Button>
+              {returnUrl ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={accessMutation.isPending}
+                  onClick={() => {
+                    setReturnUrl("");
+                    accessMutation.mutate({ api_return_url: "" });
                   }}
                 >
                   Clear

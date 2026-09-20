@@ -1324,7 +1324,12 @@ export const apiClient = {
     api<import("./types").AdminApiUser>(`/api/admin/api-users/${id}/`),
   adminSetApiUserAccess: (
     id: number,
-    payload: { is_api_user?: boolean; can_api_payin?: boolean; api_webhook_url?: string },
+    payload: {
+      is_api_user?: boolean;
+      can_api_payin?: boolean;
+      api_webhook_url?: string;
+      api_return_url?: string;
+    },
   ) =>
     api<{ message: string; data: import("./types").AdminApiUser }>(`/api/admin/api-users/${id}/`, {
       method: "PATCH",

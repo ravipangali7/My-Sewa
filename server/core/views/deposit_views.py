@@ -580,10 +580,10 @@ def paybridge_return(request):
 
     API Payin deposits (e.g. Lucky777):
       1. Verify using return-url payment_id/session_id when present.
-      2. POST result to the API user's saved webhook URL (server-to-server).
-      3. Redirect the browser to that same webhook URL with success query
-         params so the game flow continues (no MySewa login).
-      4. If no webhook URL is configured, show the public success HTML page.
+      2. POST result to the API user's saved webhook URL (server-to-server only).
+      3. Optionally redirect the browser to api_return_url / payin return_url
+         (a game page — never the webhook API).
+      4. Otherwise show the public Payment Successful HTML page.
     """
     order = (
         request.query_params.get('order')
@@ -641,6 +641,7 @@ def paybridge_return(request):
                     deposit.pk,
                 )
 
+            # Browser return is separate from webhook (never open the webhook API).
             partner_url = pb.developer_payin_browser_return_url(deposit)
             if partner_url:
                 return HttpResponseRedirect(partner_url)

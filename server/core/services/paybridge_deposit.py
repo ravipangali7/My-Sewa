@@ -327,6 +327,7 @@ def create_paybridge_deposit(
     allow_reuse: bool = True,
     metadata_extra: Optional[Dict[str, Any]] = None,
     prefer_hosted: bool = False,
+    partner_return_url: str = '',
 ) -> Tuple[Deposit, Dict[str, Any]]:
     """
     Create pending Deposit and PayBridgeNP payment session.
@@ -490,7 +491,11 @@ def create_paybridge_deposit(
     if mode == MODE_DIRECT_QR:
         qr = _qr_fields(session)
         deposit.payment_url = ''
-        deposit.provider_payload = _store_qr_payload(session, qr)
+        qr_payload = _store_qr_payload(session, qr)
+        partner = (partner_return_url or '').strip()
+        if partner:
+            qr_payload['partner_return_url'] = partner[:500]
+        deposit.provider_payload = qr_payload
         try:
             deposit.save(update_fields=[
                 'process_id', 'payment_url', 'expires_at', 'status',
@@ -505,10 +510,14 @@ def create_paybridge_deposit(
 
     checkout_url = _assert_paybridge_checkout_url(str(session.get('checkout_url') or ''))
     deposit.payment_url = checkout_url
-    deposit.provider_payload = sanitize_provider_payload({
+    hosted_payload: Dict[str, Any] = {
         'mode': MODE_HOSTED,
         'checkout': session,
-    })
+    }
+    partner = (partner_return_url or '').strip()
+    if partner:
+        hosted_payload['partner_return_url'] = partner[:500]
+    deposit.provider_payload = sanitize_provider_payload(hosted_payload)
 
     try:
         deposit.save(update_fields=[
@@ -554,7 +563,7 @@ def _mark_approved(deposit: Deposit, verified: Decimal, payload: Dict) -> Deposi
     deposit.status = Deposit.STATUS_APPROVED
     deposit.verification_status = VERIFY_VERIFIED
     deposit.verified_amount = verified
-    deposit.provider_payload = sanitize_provider_payload(payload)
+    deposit.provider_payload = _merge_partner_return_url(deposit, payload)
     deposit.failure_reason = ''
     deposit.completed_at = timezone.now()
     payment = payload.get('payment') if isinstance(payload.get('payment'), dict) else {}
@@ -791,41 +800,46 @@ def verify_deposit(
 
 def developer_payin_browser_return_url(deposit: Deposit) -> str:
     """
-    Browser redirect target for API Payin after verified payment.
+    Optional player browser redirect after verified API Payin.
 
-    Uses the API user's saved api_webhook_url with success query params so game
-    partners (e.g. Lucky777) receive the player back in their flow. Server-side
-    POST delivery remains separate via deliver_developer_payin_webhook.
+    Never uses api_webhook_url (that is server-to-server POST only). Prefer:
+      1. partner_return_url stored on the deposit (from payin request return_url)
+      2. API user's api_return_url (game/app page configured in Admin)
     """
     if deposit is None or deposit.source != Deposit.SOURCE_API:
         return ''
-    developer = getattr(deposit, 'initiated_by', None)
-    if developer is None and getattr(deposit, 'initiated_by_id', None):
-        try:
-            deposit = (
-                Deposit.objects.select_related('initiated_by', 'user')
-                .filter(pk=deposit.pk)
-                .first()
-            ) or deposit
-            developer = getattr(deposit, 'initiated_by', None)
-        except Exception:
-            developer = None
-    if developer is None:
+    if deposit.status != Deposit.STATUS_APPROVED:
         return ''
-    base = str(getattr(developer, 'api_webhook_url', '') or '').strip()
+
+    payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
+    base = str(payload.get('partner_return_url') or '').strip()
+
+    if not base:
+        developer = getattr(deposit, 'initiated_by', None)
+        if developer is None and getattr(deposit, 'initiated_by_id', None):
+            try:
+                deposit = (
+                    Deposit.objects.select_related('initiated_by', 'user')
+                    .filter(pk=deposit.pk)
+                    .first()
+                ) or deposit
+                developer = getattr(deposit, 'initiated_by', None)
+            except Exception:
+                developer = None
+        if developer is not None:
+            base = str(getattr(developer, 'api_return_url', '') or '').strip()
+
     if not base:
         return ''
 
-    status_map = {
-        Deposit.STATUS_APPROVED: 'SUCCESS',
-        Deposit.STATUS_PENDING: 'PENDING',
-        Deposit.STATUS_PROCESSING: 'PENDING',
-        Deposit.STATUS_FAILED: 'FAILED',
-        Deposit.STATUS_REJECTED: 'FAILED',
-        Deposit.STATUS_CANCELLED: 'CANCELLED',
-        Deposit.STATUS_EXPIRED: 'EXPIRED',
-        Deposit.STATUS_REFUNDED: 'REFUNDED',
-    }
+    # Never send the browser to the webhook API endpoint.
+    webhook = ''
+    developer = getattr(deposit, 'initiated_by', None)
+    if developer is not None:
+        webhook = str(getattr(developer, 'api_webhook_url', '') or '').strip()
+    if webhook and base.rstrip('/') == webhook.rstrip('/'):
+        return ''
+
     payment_id = (
         (deposit.transaction_id or '')
         if str(deposit.transaction_id or '').startswith('pay_')
@@ -838,9 +852,9 @@ def developer_payin_browser_return_url(deposit: Deposit) -> str:
     )
     return append_query(
         base,
-        event='payin.succeeded' if deposit.status == Deposit.STATUS_APPROVED else 'payin.status',
-        success='true' if deposit.status == Deposit.STATUS_APPROVED else 'false',
-        status=status_map.get(deposit.status, str(deposit.status or '').upper() or 'PENDING'),
+        event='payin.succeeded',
+        success='true',
+        status='SUCCESS',
         transaction_id=deposit.purchase_order_identifier or str(deposit.pk),
         order_id=deposit.purchase_order_identifier or '',
         reference=deposit.client_reference or '',
@@ -850,6 +864,20 @@ def developer_payin_browser_return_url(deposit: Deposit) -> str:
         amount=str(amount_out),
         currency=deposit.currency or 'NPR',
     )
+
+
+def _merge_partner_return_url(deposit: Deposit, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep partner_return_url across provider_payload rewrites on settle."""
+    cleaned = sanitize_provider_payload(payload)
+    if not isinstance(cleaned, dict):
+        cleaned = {}
+    existing = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
+    partner = str(
+        existing.get('partner_return_url') or cleaned.get('partner_return_url') or ''
+    ).strip()
+    if partner:
+        cleaned['partner_return_url'] = partner[:500]
+    return cleaned
 
 
 def lookup_paybridge_deposit(

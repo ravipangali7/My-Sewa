@@ -28,6 +28,7 @@ def _api_user_payload(user, request, *, reveal_key=False):
     data['is_api_user'] = bool(user.is_api_user)
     data['can_api_payin'] = bool(getattr(user, 'can_api_payin', False))
     data['api_webhook_url'] = str(getattr(user, 'api_webhook_url', '') or '')
+    data['api_return_url'] = str(getattr(user, 'api_return_url', '') or '')
     data['api_key_masked'] = mask_api_key(user.api_key)
     data['has_api_key'] = bool(user.api_key)
     data['api_key_created_at'] = user.api_key_created_at
@@ -83,12 +84,16 @@ def admin_api_user_detail(request, user_id):
     enable = request.data.get('is_api_user')
     payin = request.data.get('can_api_payin', None)
     webhook_url = request.data.get('api_webhook_url', None)
-    if enable is None and payin is None and webhook_url is None:
+    return_url = request.data.get('api_return_url', None)
+    if enable is None and payin is None and webhook_url is None and return_url is None:
         return Response(
             {
                 'error': 'Validation failed',
                 'errors': {
-                    'is_api_user': 'Provide is_api_user, can_api_payin, and/or api_webhook_url.',
+                    'is_api_user': (
+                        'Provide is_api_user, can_api_payin, api_webhook_url, '
+                        'and/or api_return_url.'
+                    ),
                 },
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -140,6 +145,36 @@ def admin_api_user_detail(request, user_id):
             )
         user.api_webhook_url = cleaned
         update_fields.append('api_webhook_url')
+
+    if return_url is not None:
+        from ..services.api_payin_webhook import validate_webhook_url
+        cleaned_return = str(return_url or '').strip()
+        ok, err = validate_webhook_url(cleaned_return)
+        if not ok:
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'errors': {'api_return_url': err},
+                    'message': err,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        webhook_saved = str(getattr(user, 'api_webhook_url', '') or '').strip().rstrip('/')
+        if cleaned_return and webhook_saved and cleaned_return.rstrip('/') == webhook_saved:
+            return Response(
+                {
+                    'error': 'Validation failed',
+                    'errors': {
+                        'api_return_url': (
+                            'Return URL must be a player-facing game page, not the webhook URL.'
+                        ),
+                    },
+                    'message': 'Return URL must be a player-facing game page, not the webhook URL.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.api_return_url = cleaned_return
+        update_fields.append('api_return_url')
 
     if update_fields:
         user.save(update_fields=update_fields)

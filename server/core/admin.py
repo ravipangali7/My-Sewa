@@ -93,14 +93,14 @@ class CustomUserAdmin(admin.ModelAdmin):
     # (PATCH pending submission, then Approve / Reject).
     readonly_fields = (
         'date_joined', 'last_login', 'kyc_status', 'citizenship_number',
-        'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at', 'api_webhook_url',
+        'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at', 'api_webhook_url', 'api_return_url',
         'login_biometric_enabled', 'transaction_pin_biometric_enabled',
     )
     fields = (
         'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name', 'avatar',
         'date_of_birth', 'account_status', 'kyc_status', 'citizenship_number',
         'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer', 'can_api_payin',
-        'is_api_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at', 'api_webhook_url',
+        'is_api_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at', 'api_webhook_url', 'api_return_url',
         'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
         'is_active', 'is_staff',
         'login_biometric_enabled', 'transaction_pin_biometric_enabled',

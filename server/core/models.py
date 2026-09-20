@@ -451,7 +451,7 @@ def _ensure_api_fund_transfer():
     user_model = apps.get_model('core', 'CustomUser')
     needed_user = (
         'is_api_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
-        'can_api_payin', 'api_webhook_url',
+        'can_api_payin', 'api_webhook_url', 'api_return_url',
     )
     missing_user = [name for name in needed_user if name not in user_cols]
     if missing_user:
@@ -905,7 +905,18 @@ class CustomUser(AbstractUser):
         help_text=(
             "Developer callback URL for Payin (PayBridgeNP) results. "
             "MySewa POSTs the verified payment outcome here after wallet credit. "
-            "Mapped via deposit.initiated_by — never taken from client redirect alone."
+            "Mapped via deposit.initiated_by — never taken from client redirect alone. "
+            "This is server-to-server only; the player browser is never sent here."
+        ),
+    )
+    api_return_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default='',
+        help_text=(
+            "Optional player browser return URL after a successful API Payin. "
+            "Use a game/app page (not the webhook API). Leave empty to show "
+            "MySewa's Payment Successful page."
         ),
     )
 

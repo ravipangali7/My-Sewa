@@ -191,6 +191,9 @@ def execute_api_payin(request) -> Response:
     ).strip()
     amount_raw = raw.get('amount')
     idem_key = f'{PAYIN_IDEMPOTENCY_PREFIX}{reference}' if reference else ''
+    partner_return_url = str(
+        raw.get('return_url') or raw.get('success_url') or raw.get('redirect_url') or ''
+    ).strip()
 
     def fail(error, message, code, http_status, extra=None):
         _write_audit(
@@ -295,6 +298,26 @@ def execute_api_payin(request) -> Response:
             status.HTTP_400_BAD_REQUEST,
         )
 
+    if partner_return_url:
+        from .api_payin_webhook import validate_webhook_url
+        ok, err = validate_webhook_url(partner_return_url)
+        if not ok:
+            return fail(
+                'Invalid return_url',
+                err or 'return_url must be a valid https URL (game page, not required).',
+                'invalid_return_url',
+                status.HTTP_400_BAD_REQUEST,
+            )
+        # Never accept the webhook API endpoint as a browser return target.
+        saved_webhook = str(getattr(partner, 'api_webhook_url', '') or '').strip().rstrip('/')
+        if saved_webhook and partner_return_url.rstrip('/') == saved_webhook:
+            return fail(
+                'Invalid return_url',
+                'return_url must be a player-facing game page, not the webhook URL.',
+                'invalid_return_url',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
     payment = get_app_config().get('payment') or {}
     bounds_err = validate_amount_bounds(
         amount,
@@ -392,6 +415,7 @@ def execute_api_payin(request) -> Response:
                     initiated_by=partner,
                     allow_reuse=False,
                     prefer_hosted=True,
+                    partner_return_url=partner_return_url,
                 )
                 checkout_url = str(
                     public.get('checkout_url')

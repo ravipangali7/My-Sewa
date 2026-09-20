@@ -86,6 +86,7 @@ def _developer_payload(request):
         'api_key_updated_at': user.api_key_updated_at,
         'api_last_used_at': user.api_last_used_at,
         'api_webhook_url': str(getattr(user, 'api_webhook_url', '') or ''),
+        'api_return_url': str(getattr(user, 'api_return_url', '') or ''),
         'can_api_payin': bool(getattr(user, 'can_api_payin', False)),
         'endpoint': fund_transfer_url(request),
         'documentation': docs,
