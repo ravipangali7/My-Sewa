@@ -163,23 +163,6 @@ def _customer_for(user) -> Dict[str, str]:
     return details
 
 
-def _customer_for_hosted_checkout(user) -> Optional[Dict[str, str]]:
-    """
-    Hosted checkout customer payload for PayBridgeNP.
-
-    PayBridgeNP docs: `customer` is optional and is used to pre-fill the hosted
-    page. Sending phone/email causes those values to appear to the payer
-    (and can trigger PayBridgeNP ID phone-match). Omit phone/email so the
-    checkout does not display personal contact details. Name alone is kept
-    for a non-contact label; Direct-QR still uses full `_customer_for`.
-    """
-    full = _customer_for(user)
-    name = str(full.get('name') or '').strip()
-    if not name:
-        return None
-    return {'name': name[:100]}
-
-
 def _reusable_pending(user, amount) -> Optional[Deposit]:
     """Reuse only unexpired Direct-QR sessions (never hosted — hosted cannot render in-app)."""
     now = timezone.now()
@@ -318,24 +301,18 @@ def _create_hosted_checkout_session(
     paisa: int,
     order_id: str,
     metadata: Dict[str, Any],
-    customer: Optional[Dict[str, str]] = None,
+    customer: Dict[str, str],
 ) -> Dict[str, Any]:
     return_base = (client.configured_return_url or '').strip() or default_backend_return_url()
     return_url = append_query(return_base, order=order_id)
     cancel_url = append_query(return_base, order=order_id, status='cancelled')
-    # Never forward phone/email onto hosted checkout — PayBridgeNP pre-fills/displays them.
-    hosted_customer = None
-    if isinstance(customer, dict):
-        name = str(customer.get('name') or '').strip()
-        if name:
-            hosted_customer = {'name': name[:100]}
     return client.create_checkout(
         amount_paisa=paisa,
         return_url=return_url,
         cancel_url=cancel_url,
         metadata=metadata,
         description=f'MySewa Wallet Deposit #{deposit.pk}',
-        customer=hosted_customer,
+        customer=customer,
         idempotency_key=f'checkout-{order_id}',
     )
 
@@ -410,9 +387,7 @@ def create_paybridge_deposit(
 
     order_id = new_order_id()
     client = PayBridgeNPAPI()
-    # Direct-QR needs name+email; hosted checkout must not pre-fill phone/email (payer UI).
     customer = _customer_for(user)
-    hosted_customer = _customer_for_hosted_checkout(user)
     metadata = {
         'orderId': order_id,
         'userId': str(user.pk),
@@ -461,7 +436,7 @@ def create_paybridge_deposit(
                 paisa=paisa,
                 order_id=order_id,
                 metadata=metadata,
-                customer=hosted_customer,
+                customer=customer,
             )
         except Exception:
             deposit.status = Deposit.STATUS_FAILED
@@ -494,7 +469,7 @@ def create_paybridge_deposit(
                     paisa=paisa,
                     order_id=order_id,
                     metadata=metadata,
-                    customer=hosted_customer,
+                    customer=customer,
                 )
             except Exception:
                 deposit.status = Deposit.STATUS_FAILED

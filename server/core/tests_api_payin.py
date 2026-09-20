@@ -382,39 +382,6 @@ class ApiPayinTests(TestCase):
         bad = client.patch(url, {'api_webhook_url': 'not-a-url'}, format='json')
         self.assertEqual(bad.status_code, 400)
 
-    @patch('core.services.app_config.get_app_config', return_value={
-        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
-        'integrations': {},
-    })
-    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
-    def test_hosted_checkout_omits_customer_phone_email(self, mock_checkout, _cfg):
-        """Hosted checkout must not pre-fill payer phone/email on PayBridgeNP UI."""
-        self.receiver.first_name = 'Lucky'
-        self.receiver.last_name = '777'
-        self.receiver.email = 'mysewa7@gmail.com'
-        self.receiver.save(update_fields=['first_name', 'last_name', 'email'])
-        mock_checkout.return_value = {
-            'id': 'cs_privacy_1',
-            'checkout_url': 'https://checkout.paybridgenp.com/checkout/cs_privacy_1',
-            'flow': 'hosted',
-            'expires_at': None,
-        }
-        self._auth()
-        res = self.client.post(
-            self.payin_url,
-            {'receiver': self.receiver.phone, 'amount': 100, 'reference': 'PAYIN-PRIVACY-1'},
-            format='json',
-        )
-        self.assertEqual(res.status_code, 201, res.content)
-        self.assertTrue(res.json().get('payment_url') or res.json().get('checkout_url'))
-        mock_checkout.assert_called_once()
-        kwargs = mock_checkout.call_args.kwargs
-        customer = kwargs.get('customer')
-        self.assertIsInstance(customer, dict)
-        self.assertIn('name', customer)
-        self.assertNotIn('phone', customer)
-        self.assertNotIn('email', customer)
-
     def test_docs_include_payin(self):
         from .services.api_docs import documentation_payload
 
