@@ -878,6 +878,124 @@ def frontend_result_url(*, order: str = '', deposit_id: int = 0, error: str = ''
     return append_query(base, **params) if params else base
 
 
+def api_payin_public_return_response(
+    deposit: Optional[Deposit] = None,
+    *,
+    error: str = '',
+    refresh_url: str = '',
+):
+    """
+    Public HTML result for Payin API (e.g. Lucky777) return from PayBridgeNP.
+
+    Does not require MySewa login. App deposits continue to use frontend_result_url.
+    """
+    from django.http import HttpResponse
+    from django.utils.html import escape
+
+    if deposit is not None:
+        try:
+            deposit.refresh_from_db()
+        except Exception:
+            pass
+
+    status_value = ''
+    amount = ''
+    order_id = ''
+    reference = ''
+    if deposit is not None:
+        status_value = str(deposit.status or '')
+        amount = str(deposit.amount or '')
+        order_id = str(deposit.purchase_order_identifier or '')
+        reference = str(deposit.client_reference or '')
+
+    if error == 'not_found' or deposit is None:
+        headline = 'Payment not found'
+        detail = 'This payment session could not be found. You can return to the game and check status there.'
+        tone = '#b45309'
+        auto_refresh = False
+    elif status_value == Deposit.STATUS_APPROVED:
+        headline = 'Payment Successful'
+        detail = (
+            'Your payment was verified and the MySewa wallet was credited. '
+            'You can return to Lucky777 / your game — no MySewa login is required.'
+        )
+        tone = '#15803d'
+        auto_refresh = False
+    elif status_value in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+        headline = 'Payment pending'
+        detail = 'We are confirming your payment. This page will refresh automatically.'
+        tone = '#a16207'
+        auto_refresh = True
+    elif status_value in (
+        Deposit.STATUS_FAILED,
+        Deposit.STATUS_CANCELLED,
+        Deposit.STATUS_EXPIRED,
+        Deposit.STATUS_REJECTED,
+        Deposit.STATUS_REFUNDED,
+    ):
+        headline = 'Payment not completed'
+        reason = str(getattr(deposit, 'failure_reason', '') or '').strip()
+        detail = reason or 'The payment was not successful. You can return to the game and try again.'
+        tone = '#b91c1c'
+        auto_refresh = False
+    else:
+        headline = 'Payment status'
+        detail = 'Return to the game to see the latest status.'
+        tone = '#334155'
+        auto_refresh = False
+
+    refresh_meta = (
+        f'<meta http-equiv="refresh" content="4;url={escape(refresh_url)}">'
+        if auto_refresh and refresh_url
+        else ''
+    )
+    rows = []
+    if amount:
+        rows.append(f'<p><span>Amount</span><strong>NPR {escape(amount)}</strong></p>')
+    if order_id:
+        rows.append(f'<p><span>Order</span><strong>{escape(order_id)}</strong></p>')
+    if reference:
+        rows.append(f'<p><span>Reference</span><strong>{escape(reference)}</strong></p>')
+    if status_value:
+        rows.append(f'<p><span>Status</span><strong>{escape(status_value)}</strong></p>')
+    details_html = '\n'.join(rows)
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{escape(headline)} — MySewa Payin</title>
+  {refresh_meta}
+  <style>
+    body {{ margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background:#f8fafc; color:#0f172a; }}
+    .wrap {{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }}
+    .card {{ width:100%; max-width:420px; background:#fff; border:1px solid #e2e8f0;
+      border-radius:16px; padding:28px 24px; box-shadow:0 8px 24px rgba(15,23,42,.06); }}
+    h1 {{ margin:0 0 8px; font-size:1.35rem; color:{tone}; }}
+    .lead {{ margin:0 0 18px; color:#475569; line-height:1.45; font-size:.95rem; }}
+    .meta p {{ display:flex; justify-content:space-between; gap:12px; margin:0;
+      padding:10px 0; border-top:1px solid #f1f5f9; font-size:.9rem; }}
+    .meta span {{ color:#64748b; }}
+    .meta strong {{ text-align:right; word-break:break-all; }}
+    .hint {{ margin:18px 0 0; font-size:.8rem; color:#94a3b8; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>{escape(headline)}</h1>
+      <p class="lead">{escape(detail)}</p>
+      <div class="meta">{details_html}</div>
+      <p class="hint">You can close this page and return to the game.</p>
+    </div>
+  </div>
+</body>
+</html>"""
+    return HttpResponse(html, content_type='text/html; charset=utf-8')
+
+
 def process_raw_webhook(raw_body: str, signature_header: str) -> Tuple[str, Optional[Deposit]]:
     creds = get_paybridgenp_credentials()
     event = verify_webhook_signature(raw_body, signature_header, creds.get('webhook_secret') or '')

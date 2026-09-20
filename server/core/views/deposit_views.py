@@ -575,6 +575,10 @@ def paybridge_return(request):
     """
     Customer return_url. Identifies deposit from our `order` query param,
     then verifies via PayBridgeNP API. Never trusts redirect status/amount.
+
+    App deposits redirect to the authenticated MySewa frontend page.
+    API Payin deposits (e.g. Lucky777) get a public success/status page so
+    the payer is never forced through MySewa login.
     """
     order = (
         request.query_params.get('order')
@@ -594,7 +598,8 @@ def paybridge_return(request):
         payment_id=payment_id,
     )
     if deposit is None:
-        return HttpResponseRedirect(pb.frontend_result_url(order=order, error='not_found'))
+        # Prefer a public page over /app/paybridge-return (which requires login).
+        return pb.api_payin_public_return_response(error='not_found')
 
     try:
         pb.verify_deposit(deposit)
@@ -603,8 +608,20 @@ def paybridge_return(request):
     except Exception:
         logger.exception('paybridge_return verify failed deposit=%s', deposit.pk)
 
+    try:
+        deposit.refresh_from_db()
+    except Exception:
+        pass
+
+    if deposit.source == Deposit.SOURCE_API:
+        refresh = request.build_absolute_uri()
+        return pb.api_payin_public_return_response(deposit, refresh_url=refresh)
+
     return HttpResponseRedirect(
-        pb.frontend_result_url(order=deposit.purchase_order_identifier or order, deposit_id=deposit.pk)
+        pb.frontend_result_url(
+            order=deposit.purchase_order_identifier or order,
+            deposit_id=deposit.pk,
+        )
     )
 
 

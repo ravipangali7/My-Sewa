@@ -394,3 +394,121 @@ class ApiPayinTests(TestCase):
         self.assertEqual(payin['success_response']['provider'], 'paybridgenp')
         self.assertIn('paybridgenp.com', payin['success_response']['checkout_url'])
         self.assertNotIn('himalpay', payin['success_response']['checkout_url'].lower())
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    def test_api_payin_return_shows_success_without_login_redirect(self, _cfg):
+        """
+        Lucky777 / API Payin: after QR success + settle, return_url must show
+        Payment Successful as public HTML — never redirect to /app/paybridge-return
+        (UserShell would bounce unauthenticated payers to MySewa login).
+        """
+        self._auth()
+        created = self.client.post(
+            self.payin_url,
+            {'receiver': self.receiver.phone, 'amount': 350, 'reference': 'LUCKY-RET-1'},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        deposit = Deposit.objects.get(pk=created.json()['deposit_id'])
+        order_id = deposit.purchase_order_identifier
+
+        payment = {
+            'id': 'pay_lucky_return_1',
+            'status': 'success',
+            'amount': 35000,
+            'currency': 'NPR',
+            'metadata': {'orderId': order_id, 'depositId': str(deposit.pk)},
+        }
+        event = {'type': 'payment.succeeded', 'data': payment}
+        body = json.dumps(event)
+        sig = _sign(body, 'whsec_unit_test')
+        wh = self.client.post(
+            reverse('webhooks_paybridgenp'),
+            data=body,
+            content_type='application/json',
+            HTTP_X_PAYBRIDGENP_SIGNATURE=sig,
+        )
+        self.assertEqual(wh.status_code, 200, wh.content)
+        deposit.refresh_from_db()
+        self.assertEqual(deposit.status, Deposit.STATUS_APPROVED)
+
+        # Unauthenticated browser return (game player has no MySewa session).
+        bare = APIClient()
+        ret = bare.get(
+            reverse('deposit_paybridge_return'),
+            {'order': order_id},
+        )
+        self.assertEqual(ret.status_code, 200, ret.content)
+        self.assertNotIn(ret.status_code, (301, 302, 303, 307, 308))
+        html = ret.content.decode('utf-8')
+        self.assertIn('Payment Successful', html)
+        self.assertIn(order_id, html)
+        self.assertNotIn('/app/paybridge-return', html)
+        location = ret.get('Location') or ''
+        self.assertNotIn('/app/paybridge-return', location)
+        self.assertNotIn('login', location.lower())
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    def test_api_payin_return_pending_stays_public(self, _cfg):
+        self._auth()
+        created = self.client.post(
+            self.payin_url,
+            {'receiver': self.receiver.phone, 'amount': 150, 'reference': 'LUCKY-RET-PEND'},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        deposit = Deposit.objects.get(pk=created.json()['deposit_id'])
+
+        bare = APIClient()
+        ret = bare.get(
+            reverse('deposit_paybridge_return'),
+            {'order': deposit.purchase_order_identifier},
+        )
+        self.assertEqual(ret.status_code, 200, ret.content)
+        html = ret.content.decode('utf-8')
+        self.assertIn('Payment pending', html)
+        self.assertNotIn('/app/paybridge-return', html)
+
+    @override_settings(FRONTEND_URL='https://app.mysewa.test')
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    def test_app_deposit_return_still_redirects_to_frontend(self, _cfg):
+        """In-app MySewa deposits keep the existing /app/paybridge-return URL."""
+        from .services.paybridge_deposit import create_paybridge_deposit
+
+        deposit, _ = create_paybridge_deposit(
+            self.receiver,
+            Decimal('100.00'),
+            source=Deposit.SOURCE_APP,
+            prefer_hosted=True,
+            allow_reuse=False,
+        )
+        self.assertEqual(deposit.source, Deposit.SOURCE_APP)
+
+        bare = APIClient()
+        ret = bare.get(
+            reverse('deposit_paybridge_return'),
+            {'order': deposit.purchase_order_identifier},
+        )
+        self.assertIn(ret.status_code, (301, 302, 303, 307, 308))
+        location = ret['Location']
+        self.assertIn('/app/paybridge-return', location)
+        self.assertIn(deposit.purchase_order_identifier, location)
+
+    def test_return_not_found_is_public_html(self):
+        bare = APIClient()
+        ret = bare.get(
+            reverse('deposit_paybridge_return'),
+            {'order': 'MS-PB-DOES-NOT-EXIST'},
+        )
+        self.assertEqual(ret.status_code, 200)
+        self.assertIn('Payment not found', ret.content.decode('utf-8'))
+        self.assertNotIn('/app/paybridge-return', ret.get('Location') or '')
