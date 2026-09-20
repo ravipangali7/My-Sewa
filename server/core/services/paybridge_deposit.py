@@ -708,24 +708,46 @@ def settle_from_payment(deposit: Deposit, payment: Dict[str, Any]) -> Tuple[str,
     return PENDING_PAYMENT, deposit
 
 
-def verify_deposit(deposit: Deposit) -> Tuple[str, Deposit]:
-    """Fetch session/payment from PayBridgeNP and settle. Idempotent."""
+def verify_deposit(
+    deposit: Deposit,
+    *,
+    payment_id: str = '',
+    session_id: str = '',
+) -> Tuple[str, Deposit]:
+    """
+    Fetch session/payment from PayBridgeNP and settle. Idempotent.
+
+    Optional payment_id / session_id overrides come from the customer return_url
+    query string (PayBridgeNP appends them). Prefer those over stale deposit fields
+    so return-path settle works before the signed webhook arrives.
+    """
     if deposit.provider != PROVIDER:
         raise PayBridgeError('Not a PayBridgeNP deposit', status_code=400)
 
     client = PayBridgeNPAPI()
-    session_id = (deposit.process_id or '').strip()
-    payment_id = (deposit.transaction_id or '').strip()
+    override_payment = (payment_id or '').strip()
+    override_session = (session_id or '').strip()
+    stored_payment = (deposit.transaction_id or '').strip()
+    stored_session = (deposit.process_id or '').strip()
+
+    # Prefer return-URL payment id, then stored pay_*, then session lookup.
+    resolved_payment = ''
+    if override_payment.startswith('pay_'):
+        resolved_payment = override_payment
+    elif stored_payment.startswith('pay_'):
+        resolved_payment = stored_payment
+
+    resolved_session = override_session or stored_session
     payment: Dict[str, Any] = {}
 
-    if payment_id.startswith('pay_'):
-        payment = client.get_payment(payment_id)
-    elif session_id:
-        session = client.get_session(session_id)
+    if resolved_payment.startswith('pay_'):
+        payment = client.get_payment(resolved_payment)
+    elif resolved_session:
+        session = client.get_session(resolved_session)
         session_status = str(session.get('status') or '').strip().lower()
-        payment_id = str(session.get('paymentId') or session.get('payment_id') or '').strip()
-        if payment_id:
-            payment = client.get_payment(payment_id)
+        resolved_payment = str(session.get('paymentId') or session.get('payment_id') or '').strip()
+        if resolved_payment:
+            payment = client.get_payment(resolved_payment)
         else:
             # Map session-only terminal states
             if session_status == 'expired':
@@ -745,6 +767,11 @@ def verify_deposit(deposit: Deposit) -> Tuple[str, Deposit]:
                     locked = Deposit.objects.select_for_update().get(pk=deposit.pk)
                     _apply_failure(locked, Deposit.STATUS_FAILED, 'failed', {'session': session})
                     return FAILED_PAYMENT, locked
+            # Already credited (e.g. webhook beat return) — still surface for notify/redirect.
+            if deposit.status == Deposit.STATUS_APPROVED:
+                from .api_payin_webhook import notify_developer_after_settle
+                notify_developer_after_settle(ALREADY_PROCESSED, deposit)
+                return ALREADY_PROCESSED, deposit
             return PENDING_PAYMENT, deposit
     else:
         raise PayBridgeError('Deposit has no PayBridgeNP session id', status_code=400)
@@ -760,6 +787,69 @@ def verify_deposit(deposit: Deposit) -> Tuple[str, Deposit]:
         return outcome, locked
     except WalletFrozenError as exc:
         raise PayBridgeError(exc.message or WALLET_FROZEN_MESSAGE, status_code=403) from exc
+
+
+def developer_payin_browser_return_url(deposit: Deposit) -> str:
+    """
+    Browser redirect target for API Payin after verified payment.
+
+    Uses the API user's saved api_webhook_url with success query params so game
+    partners (e.g. Lucky777) receive the player back in their flow. Server-side
+    POST delivery remains separate via deliver_developer_payin_webhook.
+    """
+    if deposit is None or deposit.source != Deposit.SOURCE_API:
+        return ''
+    developer = getattr(deposit, 'initiated_by', None)
+    if developer is None and getattr(deposit, 'initiated_by_id', None):
+        try:
+            deposit = (
+                Deposit.objects.select_related('initiated_by', 'user')
+                .filter(pk=deposit.pk)
+                .first()
+            ) or deposit
+            developer = getattr(deposit, 'initiated_by', None)
+        except Exception:
+            developer = None
+    if developer is None:
+        return ''
+    base = str(getattr(developer, 'api_webhook_url', '') or '').strip()
+    if not base:
+        return ''
+
+    status_map = {
+        Deposit.STATUS_APPROVED: 'SUCCESS',
+        Deposit.STATUS_PENDING: 'PENDING',
+        Deposit.STATUS_PROCESSING: 'PENDING',
+        Deposit.STATUS_FAILED: 'FAILED',
+        Deposit.STATUS_REJECTED: 'FAILED',
+        Deposit.STATUS_CANCELLED: 'CANCELLED',
+        Deposit.STATUS_EXPIRED: 'EXPIRED',
+        Deposit.STATUS_REFUNDED: 'REFUNDED',
+    }
+    payment_id = (
+        (deposit.transaction_id or '')
+        if str(deposit.transaction_id or '').startswith('pay_')
+        else ''
+    )
+    amount = deposit.amount
+    amount_out = (
+        int(amount) if isinstance(amount, Decimal) and amount == amount.to_integral_value()
+        else str(amount or '')
+    )
+    return append_query(
+        base,
+        event='payin.succeeded' if deposit.status == Deposit.STATUS_APPROVED else 'payin.status',
+        success='true' if deposit.status == Deposit.STATUS_APPROVED else 'false',
+        status=status_map.get(deposit.status, str(deposit.status or '').upper() or 'PENDING'),
+        transaction_id=deposit.purchase_order_identifier or str(deposit.pk),
+        order_id=deposit.purchase_order_identifier or '',
+        reference=deposit.client_reference or '',
+        deposit_id=str(deposit.pk),
+        payment_id=payment_id,
+        session_id=deposit.process_id or '',
+        amount=str(amount_out),
+        currency=deposit.currency or 'NPR',
+    )
 
 
 def lookup_paybridge_deposit(

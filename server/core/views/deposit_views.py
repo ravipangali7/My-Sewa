@@ -577,8 +577,13 @@ def paybridge_return(request):
     then verifies via PayBridgeNP API. Never trusts redirect status/amount.
 
     App deposits redirect to the authenticated MySewa frontend page.
-    API Payin deposits (e.g. Lucky777) get a public success/status page so
-    the payer is never forced through MySewa login.
+
+    API Payin deposits (e.g. Lucky777):
+      1. Verify using return-url payment_id/session_id when present.
+      2. POST result to the API user's saved webhook URL (server-to-server).
+      3. Redirect the browser to that same webhook URL with success query
+         params so the game flow continues (no MySewa login).
+      4. If no webhook URL is configured, show the public success HTML page.
     """
     order = (
         request.query_params.get('order')
@@ -602,18 +607,44 @@ def paybridge_return(request):
         return pb.api_payin_public_return_response(error='not_found')
 
     try:
-        pb.verify_deposit(deposit)
+        pb.verify_deposit(
+            deposit,
+            payment_id=payment_id,
+            session_id=session_id,
+        )
     except PayBridgeError:
         pass
     except Exception:
         logger.exception('paybridge_return verify failed deposit=%s', deposit.pk)
 
     try:
-        deposit.refresh_from_db()
+        deposit = (
+            Deposit.objects.select_related('initiated_by', 'user')
+            .filter(pk=deposit.pk)
+            .first()
+        ) or deposit
     except Exception:
-        pass
+        try:
+            deposit.refresh_from_db()
+        except Exception:
+            pass
 
     if deposit.source == Deposit.SOURCE_API:
+        # Safety net: always attempt developer callback when approved on return.
+        if deposit.status == Deposit.STATUS_APPROVED:
+            try:
+                from ..services.api_payin_webhook import deliver_developer_payin_webhook
+                deliver_developer_payin_webhook(deposit)
+            except Exception:
+                logger.exception(
+                    'paybridge_return developer webhook failed deposit=%s',
+                    deposit.pk,
+                )
+
+            partner_url = pb.developer_payin_browser_return_url(deposit)
+            if partner_url:
+                return HttpResponseRedirect(partner_url)
+
         refresh = request.build_absolute_uri()
         return pb.api_payin_public_return_response(deposit, refresh_url=refresh)
 

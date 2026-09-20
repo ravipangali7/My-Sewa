@@ -402,8 +402,9 @@ class ApiPayinTests(TestCase):
     def test_api_payin_return_shows_success_without_login_redirect(self, _cfg):
         """
         Lucky777 / API Payin: after QR success + settle, return_url must show
-        Payment Successful as public HTML — never redirect to /app/paybridge-return
-        (UserShell would bounce unauthenticated payers to MySewa login).
+        Payment Successful as public HTML when no partner webhook URL is set —
+        never redirect to /app/paybridge-return (UserShell would bounce
+        unauthenticated payers to MySewa login).
         """
         self._auth()
         created = self.client.post(
@@ -450,6 +451,137 @@ class ApiPayinTests(TestCase):
         location = ret.get('Location') or ''
         self.assertNotIn('/app/paybridge-return', location)
         self.assertNotIn('login', location.lower())
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.api_payin_webhook.requests.post')
+    def test_api_payin_return_posts_webhook_and_redirects_to_partner(self, mock_post, _cfg):
+        """
+        After PayBridge success, MySewa must POST to Lucky777's saved webhook URL
+        and redirect the browser there (keep player in the game flow).
+        """
+        mock_resp = mock_post.return_value
+        mock_resp.status_code = 200
+        mock_resp.text = '{"ok":true}'
+
+        self.partner.api_webhook_url = 'https://lucky777.example/hooks/mysewa-payin'
+        self.partner.save(update_fields=['api_webhook_url'])
+
+        self._auth()
+        created = self.client.post(
+            self.payin_url,
+            {'receiver': self.receiver.phone, 'amount': 100, 'reference': 'LUCKY-REDIR-1'},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        deposit = Deposit.objects.get(pk=created.json()['deposit_id'])
+        order_id = deposit.purchase_order_identifier
+
+        payment = {
+            'id': 'pay_lucky_redir_1',
+            'status': 'success',
+            'amount': 10000,
+            'currency': 'NPR',
+            'metadata': {'orderId': order_id, 'depositId': str(deposit.pk)},
+        }
+        event = {'type': 'payment.succeeded', 'data': payment}
+        body = json.dumps(event)
+        sig = _sign(body, 'whsec_unit_test')
+        wh = self.client.post(
+            reverse('webhooks_paybridgenp'),
+            data=body,
+            content_type='application/json',
+            HTTP_X_PAYBRIDGENP_SIGNATURE=sig,
+        )
+        self.assertEqual(wh.status_code, 200, wh.content)
+        deposit.refresh_from_db()
+        self.assertEqual(deposit.status, Deposit.STATUS_APPROVED)
+        self.assertIsNotNone(deposit.developer_webhook_delivered_at)
+        webhook_posts_after_settle = mock_post.call_count
+        self.assertGreaterEqual(webhook_posts_after_settle, 1)
+
+        bare = APIClient()
+        ret = bare.get(
+            reverse('deposit_paybridge_return'),
+            {
+                'order': order_id,
+                'session_id': deposit.process_id or 'cs_test',
+                'status': 'success',
+                'payment_id': 'pay_lucky_redir_1',
+            },
+        )
+        self.assertIn(ret.status_code, (301, 302, 303, 307, 308), ret.content)
+        location = ret['Location']
+        self.assertTrue(
+            location.startswith('https://lucky777.example/hooks/mysewa-payin'),
+            location,
+        )
+        self.assertIn('status=SUCCESS', location)
+        self.assertIn(order_id, location)
+        self.assertIn('LUCKY-REDIR-1', location)
+        self.assertIn('success=true', location)
+        self.assertNotIn('/app/paybridge-return', location)
+        # Idempotent: return path may retry POST, but must not leave MySewa success page.
+        self.assertGreaterEqual(mock_post.call_count, webhook_posts_after_settle)
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.api_payin_webhook.requests.post')
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.get_payment')
+    def test_return_uses_payment_id_query_to_settle_and_notify(self, mock_get_payment, mock_post, _cfg):
+        """Return URL payment_id must settle + webhook even before PayBridge webhook arrives."""
+        mock_resp = mock_post.return_value
+        mock_resp.status_code = 200
+        mock_resp.text = '{"ok":true}'
+
+        self.partner.api_webhook_url = 'https://lucky777.example/callback'
+        self.partner.save(update_fields=['api_webhook_url'])
+
+        self._auth()
+        created = self.client.post(
+            self.payin_url,
+            {'receiver': self.receiver.phone, 'amount': 100, 'reference': 'LUCKY-PAYID-1'},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        deposit = Deposit.objects.get(pk=created.json()['deposit_id'])
+        order_id = deposit.purchase_order_identifier
+        # Simulate hosted checkout: session stored, payment id only on return URL.
+        deposit.transaction_id = deposit.process_id or 'cs_pending'
+        deposit.save(update_fields=['transaction_id'])
+
+        mock_get_payment.return_value = {
+            'id': 'pay_from_return_url',
+            'status': 'success',
+            'amount': 10000,
+            'currency': 'NPR',
+            'metadata': {'orderId': order_id, 'depositId': str(deposit.pk)},
+        }
+
+        bare = APIClient()
+        ret = bare.get(
+            reverse('deposit_paybridge_return'),
+            {
+                'order': order_id,
+                'session_id': deposit.process_id or '',
+                'status': 'success',
+                'payment_id': 'pay_from_return_url',
+            },
+        )
+        self.assertIn(ret.status_code, (301, 302, 303, 307, 308), ret.content)
+        deposit.refresh_from_db()
+        self.assertEqual(deposit.status, Deposit.STATUS_APPROVED)
+        self.assertEqual(deposit.transaction_id, 'pay_from_return_url')
+        self.assertEqual(Wallet.objects.get(user=self.receiver).balance, Decimal('100.00'))
+        self.assertTrue(mock_get_payment.called)
+        self.assertTrue(mock_post.called)
+        self.assertEqual(mock_post.call_args[0][0], 'https://lucky777.example/callback')
+        self.assertIn('https://lucky777.example/callback', ret['Location'])
+        self.assertIn('status=SUCCESS', ret['Location'])
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
