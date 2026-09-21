@@ -332,11 +332,10 @@ def create_paybridge_deposit(
     """
     Create pending Deposit and PayBridgeNP payment session.
 
-    App deposits prefer Direct-QR (in-app Fonepay QR), then hosted PayBridgeNP
-    checkout if Direct-QR is unavailable.
-
-    API Payin must pass prefer_hosted=True so games always receive a
-    PayBridgeNP checkout_url (never HimalPay, never an empty payment URL).
+    Intended for API Payin (source=api, prefer_hosted=True) so games always
+    receive a PayBridgeNP checkout_url (never HimalPay, never an empty URL).
+    MySewa app wallet load no longer creates PayBridge deposits — users use
+    manual deposit only. Direct-QR paths remain for legacy/tests if needed.
 
     Does not credit wallet. Never uses HimalPay checkout.
     """

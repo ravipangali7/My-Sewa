@@ -1,5 +1,9 @@
 """
-Deposit views: manual wallet load + Himal Pay Checkout + PayBridgeNP payin.
+Deposit views: manual wallet load + Himal Pay Checkout + PayBridgeNP (API payin only).
+
+PayBridgeNP initiate/refresh are disabled for the MySewa app. Games and partners
+create PayBridge deposits only via POST /api/v1/payin/. Return, webhook, verify,
+and status endpoints remain for settlement of API (and any legacy app) deposits.
 """
 from django.http import HttpResponseRedirect
 from rest_framework import status
@@ -414,97 +418,30 @@ def _paybridge_verify_response(request, outcome, deposit):
     )
 
 
+def _paybridge_app_disabled_response():
+    """PayBridgeNP wallet load is available only through the Payin API."""
+    return Response(
+        {
+            'error': 'PayBridgeNP deposits are only available via the Payin API.',
+            'message': 'PayBridgeNP deposits are only available via the Payin API.',
+            'code': 'paybridge_api_only',
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def paybridge_initiate(request):
-    """Create a PayBridgeNP Direct-QR (preferred) or hosted checkout deposit."""
-    blocked = require_feature_enabled('deposits')
-    if blocked:
-        return blocked
-
-    pending = require_account_approved(request.user)
-    if pending:
-        return pending
-
-    frozen = require_wallet_not_frozen(request.user)
-    if frozen:
-        return frozen
-
-    amount = request.data.get('amount')
-    try:
-        deposit, public = pb.create_paybridge_deposit(request.user, amount)
-    except PayBridgeError as exc:
-        return _paybridge_error(exc)
-    except Exception as exc:
-        logger.exception('paybridge_initiate failed')
-        return Response(
-            {
-                'error': str(exc) or 'Could not start PayBridgeNP checkout.',
-                'message': str(exc) or 'Could not start PayBridgeNP checkout.',
-                'code': 'paybridge_initiate_failed',
-            },
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
-
-    checkout_url = str(public.get('checkout_url') or public.get('payment_url') or '').strip()
-    return Response(
-        {
-            'message': 'PayBridgeNP checkout ready',
-            'payment_url': checkout_url,
-            'checkout_url': checkout_url,
-            'mode': public.get('mode') or '',
-            'qr_image': public.get('qr_image') or '',
-            'qr_message': public.get('qr_message') or '',
-            'events_url': public.get('events_url') or '',
-            'expires_at': public.get('expires_at'),
-            'session_id': public.get('session_id') or '',
-            'data': DepositSerializer(deposit, context={'request': request}).data,
-        },
-        status=status.HTTP_201_CREATED,
-    )
+    """Disabled for MySewa app users — use POST /api/v1/payin/ instead."""
+    return _paybridge_app_disabled_response()
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def paybridge_refresh_qr(request):
-    """Refresh the in-app Fonepay QR display window for a pending Direct-QR deposit."""
-    blocked = require_feature_enabled('deposits')
-    if blocked:
-        return blocked
-
-    deposit_id = request.data.get('deposit_id') or request.data.get('id')
-    try:
-        deposit = Deposit.objects.get(
-            pk=deposit_id,
-            user=request.user,
-            provider=Deposit.PROVIDER_PAYBRIDGENP,
-        )
-    except (Deposit.DoesNotExist, TypeError, ValueError):
-        return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    try:
-        public = pb.refresh_paybridge_qr(deposit)
-    except PayBridgeError as exc:
-        return _paybridge_error(exc)
-    except Exception as exc:
-        logger.exception('paybridge_refresh_qr failed deposit=%s', deposit_id)
-        return Response(
-            {
-                'error': str(exc) or 'Could not refresh QR.',
-                'message': str(exc) or 'Could not refresh QR.',
-                'code': 'paybridge_refresh_failed',
-            },
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
-
-    return Response(
-        {
-            'message': 'QR refreshed',
-            **public,
-            'data': DepositSerializer(deposit, context={'request': request}).data,
-        },
-        status=status.HTTP_200_OK,
-    )
+    """Disabled for MySewa app users — PayBridgeNP is API Payin only."""
+    return _paybridge_app_disabled_response()
 
 
 @api_view(['POST'])

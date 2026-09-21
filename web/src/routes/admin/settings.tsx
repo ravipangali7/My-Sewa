@@ -1744,7 +1744,7 @@ function SettingsPage() {
 
               <SettingsPanel
                 title="PayBridgeNP"
-                description="Live hosted checkout for the user Deposit tab (eSewa, Khalti, Fonepay). API key and webhook secret are stored server-side in Settings (or env) and are never sent to the app, APK, or public APIs."
+                description="Payin API only (POST /api/v1/payin/) for game/partner wallet loads via hosted checkout (eSewa, Khalti, Fonepay). Not shown in the MySewa app Load Wallet screen — users use manual deposit. API key and webhook secret are stored server-side and never sent to the app, APK, or public APIs."
                 onSave={savePayBridge}
                 saving={saving}
               >
@@ -1888,8 +1888,8 @@ function SettingsPage() {
                     />
                     <p className="text-xs text-muted-foreground">
                       Optional. Defaults to BACKEND_ORIGIN/api/deposit/paybridge/return/?order=…
-                      (server verifies, then redirects to /app/paybridge-return). Wallet credit
-                      still requires the signed webhook.
+                      (server verifies, then redirects partners to their return URL or a public
+                      result page). Wallet credit still requires the signed webhook.
                     </p>
                   </div>
                 </div>
