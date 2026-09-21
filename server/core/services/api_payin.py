@@ -106,6 +106,15 @@ def _success_payload(deposit: Deposit, reference: str, public: dict | None = Non
     qr_message = str(pub.get('qr_message') or '').strip()
     if qr_message:
         payload['qr_message'] = qr_message
+    customer = pub.get('customer') if isinstance(pub.get('customer'), dict) else None
+    if customer:
+        cleaned = {
+            key: str(customer.get(key) or '').strip()
+            for key in ('name', 'email', 'phone')
+            if str(customer.get(key) or '').strip()
+        }
+        if cleaned:
+            payload['customer'] = cleaned
     return payload
 
 
@@ -637,11 +646,37 @@ def execute_api_payin_status(request) -> Response:
         )
 
     if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+        public = None
+        payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
+        mode = str(payload.get('mode') or '').strip()
+        is_direct_qr = mode == 'direct_qr' or (
+            isinstance(payload.get('qr'), dict) and not (deposit.payment_url or '').strip()
+        )
+        if is_direct_qr:
+            try:
+                from .paybridge_deposit import refresh_paybridge_qr
+                public = refresh_paybridge_qr(deposit)
+                deposit.refresh_from_db()
+            except Exception:
+                logger.exception(
+                    'API payin status QR refresh failed deposit=%s', deposit.pk,
+                )
         try:
             verify_deposit(deposit)
             deposit.refresh_from_db()
         except Exception:
             logger.exception('API payin status soft-verify failed deposit=%s', deposit.pk)
+
+        # After settle, omit stale QR; while pending, prefer refreshed QR payload.
+        if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+            return Response(
+                _success_payload(
+                    deposit,
+                    deposit.client_reference or reference,
+                    public,
+                ),
+                status=status.HTTP_200_OK,
+            )
 
     return Response(
         _success_payload(deposit, deposit.client_reference or reference),

@@ -128,6 +128,8 @@ class ApiPayinTests(TestCase):
         # Wallet credit target unchanged.
         deposit = Deposit.objects.get(pk=res.json()['deposit_id'])
         self.assertEqual(deposit.user_id, self.receiver.pk)
+        self.assertEqual(res.json()['customer']['name'], 'Lucky 777 Player')
+        self.assertEqual(res.json()['customer']['email'], 'player@lucky777.test')
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
@@ -188,6 +190,94 @@ class ApiPayinTests(TestCase):
         )
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.json().get('code'), 'invalid_mode')
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_fonepay_qr')
+    @patch('core.services.api_payin_webhook.requests.post')
+    def test_direct_qr_customer_and_webhook_credits_receiver(self, mock_post, mock_qr, _cfg):
+        """Full flow: customer overrides + Direct-QR + webhook credits receiver wallet."""
+        mock_resp = mock_post.return_value
+        mock_resp.status_code = 200
+        mock_resp.text = '{"ok":true}'
+        mock_qr.return_value = {
+            'id': 'cs_flow_qr_1',
+            'amount': 10000,
+            'currency': 'NPR',
+            'provider': 'fonepay',
+            'status': 'initiated',
+            'qr_message': 'FLOW-QR',
+            'qr_image': 'data:image/png;base64,flow',
+            'events_url': 'https://api.paybridgenp.com/v1/qr/cs_flow_qr_1/events',
+            'expires_at': None,
+        }
+
+        self.partner.api_webhook_url = 'https://lucky777.example/hooks/payin'
+        self.partner.save(update_fields=['api_webhook_url'])
+
+        self._auth()
+        created = self.client.post(
+            self.payin_url,
+            {
+                'receiver': self.receiver.phone,
+                'amount': 100,
+                'reference': 'PAYIN-FLOW-1',
+                'mode': 'direct_qr',
+                'customer_name': 'Lucky777 Player',
+                'customer_email': 'p@lucky777.test',
+                'customer_phone': '9811111111',
+            },
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        body = created.json()
+        self.assertEqual(body['mode'], 'direct_qr')
+        self.assertEqual(body['qr_image'], 'data:image/png;base64,flow')
+        self.assertEqual(body['customer']['name'], 'Lucky777 Player')
+        self.assertEqual(body['customer']['email'], 'p@lucky777.test')
+        self.assertEqual(body['customer']['phone'], '9811111111')
+        self.assertEqual(body['receiver'], self.receiver.phone)
+
+        qr_kwargs = mock_qr.call_args.kwargs
+        self.assertEqual(qr_kwargs['customer']['name'], 'Lucky777 Player')
+        self.assertEqual(qr_kwargs['customer']['phone'], '9811111111')
+
+        deposit = Deposit.objects.get(pk=body['deposit_id'])
+        self.assertEqual(deposit.user_id, self.receiver.pk)
+        self.assertEqual(deposit.initiated_by_id, self.partner.pk)
+        partner_bal_before = Wallet.objects.get(user=self.partner).balance
+
+        payment = {
+            'id': 'pay_flow_qr_1',
+            'status': 'success',
+            'amount': 10000,
+            'currency': 'NPR',
+            'metadata': {
+                'orderId': deposit.purchase_order_identifier,
+                'depositId': str(deposit.pk),
+            },
+        }
+        event = {'type': 'payment.succeeded', 'data': payment}
+        event_body = json.dumps(event)
+        sig = _sign(event_body, 'whsec_unit_test')
+        wh = self.client.post(
+            reverse('webhooks_paybridgenp'),
+            data=event_body,
+            content_type='application/json',
+            HTTP_X_PAYBRIDGENP_SIGNATURE=sig,
+        )
+        self.assertEqual(wh.status_code, 200, wh.content)
+        deposit.refresh_from_db()
+        self.assertEqual(deposit.status, Deposit.STATUS_APPROVED)
+        self.assertEqual(Wallet.objects.get(user=self.receiver).balance, Decimal('100.00'))
+        # API partner is not credited — only receiver wallet.
+        self.assertEqual(Wallet.objects.get(user=self.partner).balance, partner_bal_before)
+        self.assertTrue(mock_post.called)
+        self.assertEqual(mock_post.call_args[0][0], 'https://lucky777.example/hooks/payin')
+        self.assertEqual(mock_post.call_args.kwargs['json']['status'], 'SUCCESS')
+        self.assertEqual(mock_post.call_args.kwargs['json']['reference'], 'PAYIN-FLOW-1')
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
@@ -485,7 +575,7 @@ class ApiPayinTests(TestCase):
         ids = {s['id'] for s in doc.get('api_sections') or []}
         self.assertIn('payin', ids)
         self.assertIn('payin-status', ids)
-        self.assertEqual(doc['docs_version'], '1.4')
+        self.assertEqual(doc['docs_version'], '1.5')
         payin = next(s for s in doc['api_sections'] if s['id'] == 'payin')
         self.assertEqual(payin['success_response']['provider'], 'paybridgenp')
         self.assertIn('paybridgenp.com', payin['success_response']['checkout_url'])

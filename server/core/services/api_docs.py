@@ -9,7 +9,7 @@ from django.conf import settings
 from .api_docs_html import render_html_documentation
 from .api_docs_pdf import render_pdf_documentation
 
-DOCS_VERSION = '1.4'
+DOCS_VERSION = '1.5'
 
 
 def _json_block(payload) -> str:

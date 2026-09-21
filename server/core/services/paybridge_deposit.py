@@ -116,6 +116,15 @@ def public_deposit_dict(deposit: Deposit, *, include_qr: bool = False) -> Dict[s
         'failure_reason': deposit.failure_reason or '',
         'verification_status': deposit.verification_status,
     }
+    customer = payload.get('customer') if isinstance(payload.get('customer'), dict) else {}
+    if customer:
+        cleaned_customer = {
+            key: str(customer.get(key) or '').strip()
+            for key in ('name', 'email', 'phone')
+            if str(customer.get(key) or '').strip()
+        }
+        if cleaned_customer:
+            out['customer'] = cleaned_customer
     if include_qr:
         out['qr_image'] = str(qr.get('qr_image') or qr.get('qrImage') or '').strip()
         out['qr_message'] = str(qr.get('qr_message') or qr.get('qrMessage') or '').strip()
@@ -223,9 +232,14 @@ def _qr_fields(session: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-def _store_qr_payload(session: Dict[str, Any], qr: Dict[str, str]) -> Dict[str, Any]:
+def _store_qr_payload(
+    session: Dict[str, Any],
+    qr: Dict[str, str],
+    *,
+    customer: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """Persist QR metadata without the large base64 image (returned to client only)."""
-    return sanitize_provider_payload({
+    data: Dict[str, Any] = {
         'mode': MODE_DIRECT_QR,
         'qr': {
             'qr_message': qr.get('qr_message') or '',
@@ -238,7 +252,16 @@ def _store_qr_payload(session: Dict[str, Any], qr: Dict[str, str]) -> Dict[str, 
                 if key in session
             },
         },
-    })
+    }
+    if customer:
+        cleaned = {
+            key: str(customer.get(key) or '').strip()[:120]
+            for key in ('name', 'email', 'phone')
+            if str(customer.get(key) or '').strip()
+        }
+        if cleaned:
+            data['customer'] = cleaned
+    return sanitize_provider_payload(data)
 
 
 def _public_with_live_qr(deposit: Deposit, qr: Dict[str, str]) -> Dict[str, Any]:
@@ -509,7 +532,7 @@ def create_paybridge_deposit(
     if mode == MODE_DIRECT_QR:
         qr = _qr_fields(session)
         deposit.payment_url = ''
-        qr_payload = _store_qr_payload(session, qr)
+        qr_payload = _store_qr_payload(session, qr, customer=customer)
         partner = (partner_return_url or '').strip()
         if partner:
             qr_payload['partner_return_url'] = partner[:500]
@@ -531,6 +554,11 @@ def create_paybridge_deposit(
     hosted_payload: Dict[str, Any] = {
         'mode': MODE_HOSTED,
         'checkout': session,
+        'customer': {
+            key: str(customer.get(key) or '').strip()[:120]
+            for key in ('name', 'email', 'phone')
+            if str(customer.get(key) or '').strip()
+        },
     }
     partner = (partner_return_url or '').strip()
     if partner:
@@ -568,7 +596,13 @@ def refresh_paybridge_qr(deposit: Deposit) -> Dict[str, Any]:
     session = client.refresh_fonepay_qr(session_id)
     qr = _qr_fields(session)
     deposit.expires_at = _parse_expires_at(session.get('expires_at') or session.get('expiresAt'))
-    deposit.provider_payload = _store_qr_payload(session, qr)
+    existing_customer = payload.get('customer') if isinstance(payload.get('customer'), dict) else None
+    deposit.provider_payload = _store_qr_payload(session, qr, customer=existing_customer)
+    # Preserve partner return URL across QR refresh.
+    if str(payload.get('partner_return_url') or '').strip():
+        merged = dict(deposit.provider_payload or {})
+        merged['partner_return_url'] = str(payload.get('partner_return_url')).strip()[:500]
+        deposit.provider_payload = merged
     deposit.save(update_fields=['expires_at', 'provider_payload', 'updated_at'])
     return _public_with_live_qr(deposit, qr)
 
@@ -885,7 +919,7 @@ def developer_payin_browser_return_url(deposit: Deposit) -> str:
 
 
 def _merge_partner_return_url(deposit: Deposit, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Keep partner_return_url across provider_payload rewrites on settle."""
+    """Keep partner_return_url and customer snapshot across provider_payload rewrites on settle."""
     cleaned = sanitize_provider_payload(payload)
     if not isinstance(cleaned, dict):
         cleaned = {}
@@ -895,6 +929,13 @@ def _merge_partner_return_url(deposit: Deposit, payload: Dict[str, Any]) -> Dict
     ).strip()
     if partner:
         cleaned['partner_return_url'] = partner[:500]
+    existing_customer = existing.get('customer') if isinstance(existing.get('customer'), dict) else {}
+    if existing_customer and 'customer' not in cleaned:
+        cleaned['customer'] = {
+            key: str(existing_customer.get(key) or '').strip()[:120]
+            for key in ('name', 'email', 'phone')
+            if str(existing_customer.get(key) or '').strip()
+        }
     return cleaned
 
 
