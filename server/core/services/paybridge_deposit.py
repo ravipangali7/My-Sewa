@@ -139,7 +139,13 @@ def _parse_expires_at(value):
         return None
 
 
-def _customer_for(user) -> Dict[str, str]:
+def _customer_for(user, overrides: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """
+    Build PayBridgeNP customer object from the receiver user.
+
+    Optional overrides (name/email/phone) let API Payin partners control the
+    checkout display without changing the wallet credit target.
+    """
     name = ' '.join(
         part for part in (
             getattr(user, 'first_name', '') or '',
@@ -160,6 +166,18 @@ def _customer_for(user) -> Dict[str, str]:
     }
     if phone:
         details['phone'] = phone[:30]
+
+    if overrides and isinstance(overrides, dict):
+        for key in ('name', 'email', 'phone'):
+            value = str(overrides.get(key) or '').strip()
+            if not value:
+                continue
+            if key == 'name':
+                details['name'] = value[:100]
+            elif key == 'email':
+                details['email'] = value[:120]
+            else:
+                details['phone'] = value[:30]
     return details
 
 
@@ -328,14 +346,15 @@ def create_paybridge_deposit(
     metadata_extra: Optional[Dict[str, Any]] = None,
     prefer_hosted: bool = False,
     partner_return_url: str = '',
+    customer_override: Optional[Dict[str, str]] = None,
 ) -> Tuple[Deposit, Dict[str, Any]]:
     """
     Create pending Deposit and PayBridgeNP payment session.
 
-    Intended for API Payin (source=api, prefer_hosted=True) so games always
-    receive a PayBridgeNP checkout_url (never HimalPay, never an empty URL).
-    MySewa app wallet load no longer creates PayBridge deposits — users use
-    manual deposit only. Direct-QR paths remain for legacy/tests if needed.
+    API Payin defaults to hosted checkout (prefer_hosted=True) so games get an
+    openable checkout_url. Pass prefer_hosted=False for Direct-QR (qr_image).
+    Optional customer_override controls PayBridge checkout display fields only;
+    wallet credit still goes to ``user``.
 
     Does not credit wallet. Never uses HimalPay checkout.
     """
@@ -365,8 +384,8 @@ def create_paybridge_deposit(
     if err:
         raise PayBridgeError(err, status_code=400)
 
-    # API payin always needs an openable PayBridgeNP hosted URL for games.
-    use_hosted = bool(prefer_hosted) or source == Deposit.SOURCE_API
+    # Hosted when requested. API callers that want Direct-QR pass prefer_hosted=False.
+    use_hosted = bool(prefer_hosted)
 
     if allow_reuse and source != Deposit.SOURCE_API and not use_hosted:
         existing = _reusable_pending(user, amount)
@@ -387,7 +406,7 @@ def create_paybridge_deposit(
 
     order_id = new_order_id()
     client = PayBridgeNPAPI()
-    customer = _customer_for(user)
+    customer = _customer_for(user, customer_override)
     metadata = {
         'orderId': order_id,
         'userId': str(user.pk),

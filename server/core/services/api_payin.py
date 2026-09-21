@@ -195,6 +195,35 @@ def execute_api_payin(request) -> Response:
         raw.get('return_url') or raw.get('success_url') or raw.get('redirect_url') or ''
     ).strip()
 
+    # Optional checkout display overrides (do not change wallet credit target).
+    customer_override: dict = {}
+    nested = raw.get('customer') if isinstance(raw.get('customer'), dict) else {}
+    name_override = str(
+        raw.get('customer_name') or nested.get('name') or ''
+    ).strip()
+    email_override = str(
+        raw.get('customer_email') or nested.get('email') or ''
+    ).strip()
+    phone_override = str(
+        raw.get('customer_phone') or nested.get('phone') or ''
+    ).strip()
+    if name_override:
+        customer_override['name'] = name_override
+    if email_override:
+        customer_override['email'] = email_override
+    if phone_override:
+        customer_override['phone'] = phone_override
+
+    # Default hosted (backward compatible). Opt-in Direct-QR: mode=direct_qr.
+    mode_raw = str(raw.get('mode') or raw.get('flow') or 'hosted').strip().lower() or 'hosted'
+    prefer_direct_qr = mode_raw in (
+        'direct_qr', 'direct-qr', 'qr', 'fonepay_qr', 'fonepay-qr',
+    )
+    prefer_hosted = not prefer_direct_qr
+    _valid_modes = {
+        'hosted', 'checkout', 'direct_qr', 'direct-qr', 'qr', 'fonepay_qr', 'fonepay-qr',
+    }
+
     def fail(error, message, code, http_status, extra=None):
         _write_audit(
             user=partner,
@@ -295,6 +324,14 @@ def execute_api_payin(request) -> Response:
             'Invalid amount',
             'Amount must be greater than zero.',
             'invalid_amount',
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    if mode_raw not in _valid_modes:
+        return fail(
+            'Invalid mode',
+            'mode must be "hosted" (default) or "direct_qr".',
+            'invalid_mode',
             status.HTTP_400_BAD_REQUEST,
         )
 
@@ -414,8 +451,9 @@ def execute_api_payin(request) -> Response:
                     client_reference=reference,
                     initiated_by=partner,
                     allow_reuse=False,
-                    prefer_hosted=True,
+                    prefer_hosted=prefer_hosted,
                     partner_return_url=partner_return_url,
+                    customer_override=customer_override or None,
                 )
                 checkout_url = str(
                     public.get('checkout_url')
@@ -423,16 +461,33 @@ def execute_api_payin(request) -> Response:
                     or deposit.payment_url
                     or ''
                 ).strip()
-                if not checkout_url:
-                    raise PayBridgeError(
-                        'PayBridgeNP did not return a checkout URL for API payin.',
-                        status_code=502,
-                    )
-                if 'himalpay' in checkout_url.lower() or 'ncash' in checkout_url.lower():
-                    raise PayBridgeError(
-                        'Refusing HimalPay checkout URL — Payin uses PayBridgeNP only.',
-                        status_code=502,
-                    )
+                qr_image = str(public.get('qr_image') or '').strip()
+                qr_message = str(public.get('qr_message') or '').strip()
+                if prefer_hosted:
+                    if not checkout_url:
+                        raise PayBridgeError(
+                            'PayBridgeNP did not return a checkout URL for API payin.',
+                            status_code=502,
+                        )
+                    if 'himalpay' in checkout_url.lower() or 'ncash' in checkout_url.lower():
+                        raise PayBridgeError(
+                            'Refusing HimalPay checkout URL — Payin uses PayBridgeNP only.',
+                            status_code=502,
+                        )
+                else:
+                    # Direct-QR: require scannable QR payload (may fall back to hosted).
+                    if not qr_image and not qr_message and not checkout_url:
+                        raise PayBridgeError(
+                            'PayBridgeNP did not return a Fonepay QR for API payin.',
+                            status_code=502,
+                        )
+                    if checkout_url and (
+                        'himalpay' in checkout_url.lower() or 'ncash' in checkout_url.lower()
+                    ):
+                        raise PayBridgeError(
+                            'Refusing HimalPay checkout URL — Payin uses PayBridgeNP only.',
+                            status_code=502,
+                        )
             except WalletFrozenError:
                 raise
             except PayBridgeError as exc:

@@ -97,6 +97,102 @@ class ApiPayinTests(TestCase):
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
         'integrations': {},
     })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
+    def test_payin_customer_overrides_passed_to_paybridge(self, mock_checkout, _cfg):
+        mock_checkout.return_value = {
+            'id': 'cs_customer_override',
+            'checkout_url': 'https://checkout.paybridgenp.com/checkout/cs_customer_override',
+            'flow': 'hosted',
+            'expires_at': None,
+        }
+        self._auth()
+        res = self.client.post(
+            self.payin_url,
+            {
+                'receiver': self.receiver.phone,
+                'amount': 100,
+                'reference': 'PAYIN-CUST-1',
+                'customer_name': 'Lucky 777 Player',
+                'customer_email': 'player@lucky777.test',
+                'customer_phone': '9800112233',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['mode'], 'hosted')
+        mock_checkout.assert_called_once()
+        kwargs = mock_checkout.call_args.kwargs
+        self.assertEqual(kwargs['customer']['name'], 'Lucky 777 Player')
+        self.assertEqual(kwargs['customer']['email'], 'player@lucky777.test')
+        self.assertEqual(kwargs['customer']['phone'], '9800112233')
+        # Wallet credit target unchanged.
+        deposit = Deposit.objects.get(pk=res.json()['deposit_id'])
+        self.assertEqual(deposit.user_id, self.receiver.pk)
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_fonepay_qr')
+    def test_payin_direct_qr_mode_returns_qr_image(self, mock_qr, _cfg):
+        mock_qr.return_value = {
+            'id': 'cs_direct_qr_1',
+            'amount': 10000,
+            'currency': 'NPR',
+            'provider': 'fonepay',
+            'status': 'initiated',
+            'qr_message': 'REAL-QR-MSG',
+            'qr_image': 'data:image/png;base64,abc',
+            'events_url': 'https://api.paybridgenp.com/v1/qr/cs_direct_qr_1/events',
+            'expires_at': None,
+        }
+        self._auth()
+        res = self.client.post(
+            self.payin_url,
+            {
+                'receiver': self.receiver.phone,
+                'amount': 100,
+                'reference': 'PAYIN-QR-1',
+                'mode': 'direct_qr',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        body = res.json()
+        self.assertEqual(body['mode'], 'direct_qr')
+        self.assertEqual(body['qr_image'], 'data:image/png;base64,abc')
+        self.assertEqual(body['qr_message'], 'REAL-QR-MSG')
+        self.assertTrue(body.get('events_url'))
+        # Hosted URL not required for Direct-QR.
+        self.assertFalse(body.get('checkout_url') or body.get('payment_url'))
+        mock_qr.assert_called_once()
+        deposit = Deposit.objects.get(pk=body['deposit_id'])
+        self.assertEqual(deposit.source, Deposit.SOURCE_API)
+        self.assertFalse((deposit.payment_url or '').strip())
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    def test_payin_invalid_mode_rejected(self, _cfg):
+        self._auth()
+        res = self.client.post(
+            self.payin_url,
+            {
+                'receiver': self.receiver.phone,
+                'amount': 100,
+                'reference': 'PAYIN-BAD-MODE',
+                'mode': 'himalpay',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json().get('code'), 'invalid_mode')
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
     def test_payin_idempotent_replay(self, _cfg):
         self._auth()
         first = self.client.post(
@@ -389,7 +485,7 @@ class ApiPayinTests(TestCase):
         ids = {s['id'] for s in doc.get('api_sections') or []}
         self.assertIn('payin', ids)
         self.assertIn('payin-status', ids)
-        self.assertEqual(doc['docs_version'], '1.3')
+        self.assertEqual(doc['docs_version'], '1.4')
         payin = next(s for s in doc['api_sections'] if s['id'] == 'payin')
         self.assertEqual(payin['success_response']['provider'], 'paybridgenp')
         self.assertIn('paybridgenp.com', payin['success_response']['checkout_url'])
