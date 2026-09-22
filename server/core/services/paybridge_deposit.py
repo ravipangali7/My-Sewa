@@ -516,7 +516,12 @@ def create_paybridge_deposit(
                 idempotency_key=f'qr-{order_id}',
             )
         except PayBridgeError as qr_exc:
-            if not _is_direct_qr_unavailable(qr_exc):
+            # API Payin Direct-QR must stay on MySewa's QR page URL — never fall
+            # back to PayBridge hosted checkout (method picker / redirect URL).
+            allow_hosted_fallback = (
+                source != Deposit.SOURCE_API and _is_direct_qr_unavailable(qr_exc)
+            )
+            if not allow_hosted_fallback:
                 deposit.status = Deposit.STATUS_FAILED
                 deposit.failure_reason = 'PayBridgeNP QR could not be created'
                 deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])

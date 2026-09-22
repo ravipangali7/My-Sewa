@@ -518,10 +518,16 @@ def execute_api_payin(request) -> Response:
                             status_code=502,
                         )
                 else:
-                    # Direct-QR: require scannable QR payload (may fall back to hosted).
-                    if not qr_image and not qr_message and not checkout_url:
+                    # Direct-QR: require scannable QR + MySewa QR page URL (never PayBridge picker).
+                    if not qr_image and not qr_message:
                         raise PayBridgeError(
                             'PayBridgeNP did not return a Fonepay QR for API payin.',
+                            status_code=502,
+                        )
+                    if '/api/deposit/paybridge/qr/' not in checkout_url:
+                        raise PayBridgeError(
+                            'Payin Direct-QR must return MySewa QR page URL '
+                            '(/api/deposit/paybridge/qr/), not a PayBridge hosted checkout link.',
                             status_code=502,
                         )
                     if checkout_url and (
@@ -529,6 +535,11 @@ def execute_api_payin(request) -> Response:
                     ):
                         raise PayBridgeError(
                             'Refusing HimalPay checkout URL — Payin uses PayBridgeNP only.',
+                            status_code=502,
+                        )
+                    if 'checkout.paybridgenp.com' in checkout_url.lower():
+                        raise PayBridgeError(
+                            'Refusing PayBridge hosted checkout URL for Direct-QR Payin.',
                             status_code=502,
                         )
             except WalletFrozenError:

@@ -80,6 +80,8 @@ class ApiPayinTests(TestCase):
         payment_url = body.get('payment_url') or body.get('checkout_url') or ''
         self.assertTrue(payment_url, 'API Payin must return an openable MySewa QR page URL')
         self.assertIn('/api/deposit/paybridge/qr/', payment_url)
+        self.assertIn('order=', payment_url)
+        self.assertNotIn('checkout.paybridgenp.com', payment_url.lower())
         self.assertNotIn('himalpay', payment_url.lower())
         self.assertNotIn('ncash', payment_url.lower())
         self.assertTrue(body.get('qr_image'), 'Default Direct-QR must include qr_image')
@@ -92,6 +94,8 @@ class ApiPayinTests(TestCase):
         self.assertEqual(deposit.user_id, self.receiver.pk)
         self.assertTrue((deposit.payment_url or '').strip())
         self.assertIn('/api/deposit/paybridge/qr/', deposit.payment_url)
+        self.assertIn(deposit.purchase_order_identifier, deposit.payment_url)
+        self.assertNotIn('checkout.paybridgenp.com', (deposit.payment_url or '').lower())
         self.assertNotIn('himalpay', (deposit.payment_url or '').lower())
         self.assertEqual(Wallet.objects.get(user=self.receiver).balance, Decimal('0.00'))
         self.assertTrue(ApiPayinLog.objects.filter(user=self.partner, reference='PAYIN-1').exists())
@@ -175,10 +179,14 @@ class ApiPayinTests(TestCase):
         # Openable MySewa QR page URL (not PayBridge picker).
         payment_url = body.get('checkout_url') or body.get('payment_url') or ''
         self.assertIn('/api/deposit/paybridge/qr/', payment_url)
+        self.assertIn('order=', payment_url)
+        self.assertNotIn('checkout.paybridgenp.com', payment_url.lower())
         mock_qr.assert_called_once()
         deposit = Deposit.objects.get(pk=body['deposit_id'])
         self.assertEqual(deposit.source, Deposit.SOURCE_API)
         self.assertIn('/api/deposit/paybridge/qr/', deposit.payment_url or '')
+        self.assertIn(deposit.purchase_order_identifier, deposit.payment_url or '')
+        self.assertNotIn('checkout.paybridgenp.com', (deposit.payment_url or '').lower())
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
@@ -927,6 +935,75 @@ class ApiPayinTests(TestCase):
         self.assertIn('/app/paybridge-return', location)
         self.assertIn(deposit.purchase_order_identifier, location)
 
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_fonepay_qr')
+    def test_default_payin_calls_direct_qr_not_hosted_checkout(self, mock_qr, mock_checkout, _cfg):
+        """Default Payin (no mode) must mint Direct-QR, never PayBridge hosted checkout."""
+        mock_qr.return_value = {
+            'id': 'cs_default_qr_1',
+            'amount': 10000,
+            'currency': 'NPR',
+            'provider': 'fonepay',
+            'status': 'initiated',
+            'qr_message': 'DEFAULT-QR',
+            'qr_image': 'data:image/png;base64,default',
+            'events_url': 'https://api.paybridgenp.com/v1/qr/cs_default_qr_1/events',
+            'expires_at': None,
+        }
+        self._auth()
+        res = self.client.post(
+            self.payin_url,
+            {'receiver': self.receiver.phone, 'amount': 100, 'reference': 'PAYIN-DEFAULT-QR'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        body = res.json()
+        self.assertEqual(body['mode'], 'direct_qr')
+        mock_qr.assert_called_once()
+        mock_checkout.assert_not_called()
+        payment_url = body.get('payment_url') or ''
+        self.assertRegex(
+            payment_url,
+            r'/api/deposit/paybridge/qr/\?order=MS-PB-[0-9a-f]+',
+        )
+        self.assertNotIn('checkout.paybridgenp.com', payment_url.lower())
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_fonepay_qr')
+    def test_api_direct_qr_does_not_fallback_to_hosted_url(self, mock_qr, mock_checkout, _cfg):
+        """API Direct-QR failures must not return a PayBridge hosted payment_url."""
+        from core.services.paybridgenp import PayBridgeError
+
+        mock_qr.side_effect = PayBridgeError(
+            'Direct-QR not available on your plan',
+            status_code=403,
+            response_data={'error': {'message': 'Direct-QR not available on your plan'}},
+        )
+        self._auth()
+        res = self.client.post(
+            self.payin_url,
+            {
+                'receiver': self.receiver.phone,
+                'amount': 100,
+                'reference': 'PAYIN-NO-FALLBACK',
+                'mode': 'direct_qr',
+            },
+            format='json',
+        )
+        self.assertGreaterEqual(res.status_code, 400, res.content)
+        mock_checkout.assert_not_called()
+        body = res.json() if res.content else {}
+        payment_url = str(body.get('payment_url') or body.get('checkout_url') or '')
+        self.assertNotIn('checkout.paybridgenp.com', payment_url.lower())
+
     def test_return_not_found_is_public_html(self):
         bare = APIClient()
         ret = bare.get(
@@ -954,6 +1031,8 @@ class ApiPayinTests(TestCase):
         self.assertEqual(body['mode'], 'direct_qr')
         payment_url = body.get('payment_url') or ''
         self.assertIn('/api/deposit/paybridge/qr/', payment_url)
+        self.assertNotIn('checkout.paybridgenp.com', payment_url.lower())
+        self.assertNotIn('Pay with Fonepay', payment_url)
         deposit = Deposit.objects.get(pk=body['deposit_id'])
 
         bare = APIClient()
