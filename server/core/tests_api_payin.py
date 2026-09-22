@@ -125,6 +125,9 @@ class ApiPayinTests(TestCase):
         self.assertEqual(kwargs['customer']['name'], 'Lucky 777 Player')
         self.assertEqual(kwargs['customer']['email'], 'player@lucky777.test')
         self.assertEqual(kwargs['customer']['phone'], '9800112233')
+        # Hosted Payin skips the method picker and opens Fonepay QR directly.
+        self.assertEqual(kwargs.get('provider'), 'fonepay')
+        self.assertEqual(kwargs.get('flow'), 'redirect')
         # Wallet credit target unchanged.
         deposit = Deposit.objects.get(pk=res.json()['deposit_id'])
         self.assertEqual(deposit.user_id, self.receiver.pk)
@@ -466,6 +469,40 @@ class ApiPayinTests(TestCase):
         deposit = Deposit.objects.get(pk=body['deposit_id'])
         self.assertEqual(deposit.provider, Deposit.PROVIDER_PAYBRIDGENP)
         self.assertEqual(deposit.payment_url, body['payment_url'])
+        kwargs = mock_checkout.call_args.kwargs
+        self.assertEqual(kwargs.get('provider'), 'fonepay')
+        self.assertEqual(kwargs.get('flow'), 'redirect')
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
+    def test_payin_hosted_picker_opt_in_still_works(self, mock_checkout, _cfg):
+        """checkout_flow=hosted keeps the PayBridge method picker (manual click)."""
+        mock_checkout.return_value = {
+            'id': 'cs_picker_1',
+            'checkout_url': 'https://checkout.paybridgenp.com/checkout/cs_picker_1',
+            'flow': 'hosted',
+            'provider': 'fonepay',
+            'expires_at': None,
+        }
+        self._auth()
+        res = self.client.post(
+            self.payin_url,
+            {
+                'receiver': self.receiver.phone,
+                'amount': 100,
+                'reference': 'PAYIN-PICKER-1',
+                'checkout_flow': 'hosted',
+                'provider': 'fonepay',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        kwargs = mock_checkout.call_args.kwargs
+        self.assertEqual(kwargs.get('flow'), 'hosted')
+        self.assertEqual(kwargs.get('provider'), 'fonepay')
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
@@ -575,7 +612,7 @@ class ApiPayinTests(TestCase):
         ids = {s['id'] for s in doc.get('api_sections') or []}
         self.assertIn('payin', ids)
         self.assertIn('payin-status', ids)
-        self.assertEqual(doc['docs_version'], '1.5')
+        self.assertEqual(doc['docs_version'], '1.6')
         payin = next(s for s in doc['api_sections'] if s['id'] == 'payin')
         self.assertEqual(payin['success_response']['provider'], 'paybridgenp')
         self.assertIn('paybridgenp.com', payin['success_response']['checkout_url'])

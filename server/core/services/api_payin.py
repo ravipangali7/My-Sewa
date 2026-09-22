@@ -233,6 +233,14 @@ def execute_api_payin(request) -> Response:
         'hosted', 'checkout', 'direct_qr', 'direct-qr', 'qr', 'fonepay_qr', 'fonepay-qr',
     }
 
+    # Hosted checkout defaults: skip PayBridge method picker → open Fonepay QR.
+    checkout_provider = str(raw.get('provider') or 'fonepay').strip().lower() or 'fonepay'
+    checkout_flow_raw = str(raw.get('checkout_flow') or '').strip().lower()
+    if prefer_hosted:
+        checkout_flow = checkout_flow_raw or 'redirect'
+    else:
+        checkout_flow = 'hosted'  # unused for Direct-QR
+
     def fail(error, message, code, http_status, extra=None):
         _write_audit(
             user=partner,
@@ -343,6 +351,29 @@ def execute_api_payin(request) -> Response:
             'invalid_mode',
             status.HTTP_400_BAD_REQUEST,
         )
+
+    if prefer_hosted:
+        if checkout_provider not in ('esewa', 'khalti', 'fonepay'):
+            return fail(
+                'Invalid provider',
+                'provider must be fonepay, esewa, or khalti.',
+                'invalid_provider',
+                status.HTTP_400_BAD_REQUEST,
+            )
+        if checkout_flow not in ('hosted', 'redirect'):
+            return fail(
+                'Invalid checkout_flow',
+                'checkout_flow must be "redirect" (default, opens provider QR/page) or "hosted" (method picker).',
+                'invalid_checkout_flow',
+                status.HTTP_400_BAD_REQUEST,
+            )
+        if checkout_flow == 'redirect' and not checkout_provider:
+            return fail(
+                'Invalid provider',
+                'provider is required when checkout_flow is redirect.',
+                'invalid_provider',
+                status.HTTP_400_BAD_REQUEST,
+            )
 
     if partner_return_url:
         from .api_payin_webhook import validate_webhook_url
@@ -463,6 +494,8 @@ def execute_api_payin(request) -> Response:
                     prefer_hosted=prefer_hosted,
                     partner_return_url=partner_return_url,
                     customer_override=customer_override or None,
+                    checkout_provider=checkout_provider,
+                    checkout_flow=checkout_flow if prefer_hosted else 'redirect',
                 )
                 checkout_url = str(
                     public.get('checkout_url')

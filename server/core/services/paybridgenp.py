@@ -247,19 +247,51 @@ class PayBridgeNPAPI:
         description: str = '',
         customer: Optional[Dict[str, str]] = None,
         idempotency_key: str = '',
+        provider: str = '',
+        flow: str = 'hosted',
     ) -> Dict[str, Any]:
+        """
+        Create a PayBridgeNP checkout session.
+
+        Docs: POST /v1/checkout
+          - flow=hosted (default): hosted picker; provider pre-selected when set.
+          - flow=redirect: skip picker and open the provider immediately
+            (requires provider). Use provider=fonepay to land on the Fonepay QR
+            without an extra "Pay with Fonepay" click.
+        """
         if amount_paisa < MIN_PAISA:
             raise PayBridgeError('Minimum PayBridgeNP deposit is Rs. 10.00.', status_code=400)
         if amount_paisa > MAX_PAISA:
             raise PayBridgeError('Amount exceeds PayBridgeNP maximum.', status_code=400)
 
+        provider_clean = str(provider or '').strip().lower()
+        flow_clean = str(flow or 'hosted').strip().lower() or 'hosted'
+        if flow_clean not in ('hosted', 'redirect'):
+            raise PayBridgeError('flow must be "hosted" or "redirect".', status_code=400)
+        if provider_clean and provider_clean not in ('esewa', 'khalti', 'fonepay'):
+            raise PayBridgeError(
+                'provider must be esewa, khalti, or fonepay.',
+                status_code=400,
+            )
+        if flow_clean == 'redirect' and not provider_clean:
+            raise PayBridgeError(
+                'provider is required when flow is "redirect".',
+                status_code=400,
+            )
+
         if self.bypass_api:
             order = (metadata or {}).get('orderId') or 'bypass'
             return {
                 'id': f'cs_bypass_{order}',
-                'checkout_url': append_query(return_url, session_id=f'cs_bypass_{order}', status='success'),
-                'flow': 'hosted',
-                'provider': None,
+                'checkout_url': append_query(
+                    return_url,
+                    session_id=f'cs_bypass_{order}',
+                    status='success',
+                    provider=provider_clean or '',
+                    flow=flow_clean,
+                ),
+                'flow': flow_clean,
+                'provider': provider_clean or None,
                 'expires_at': None,
                 'livemode': False,
             }
@@ -268,8 +300,10 @@ class PayBridgeNPAPI:
             'amount': int(amount_paisa),
             'currency': 'NPR',
             'returnUrl': return_url,
-            'flow': 'hosted',
+            'flow': flow_clean,
         }
+        if provider_clean:
+            body['provider'] = provider_clean
         if cancel_url:
             body['cancelUrl'] = cancel_url
         if description:

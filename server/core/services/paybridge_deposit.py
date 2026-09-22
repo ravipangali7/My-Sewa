@@ -343,7 +343,16 @@ def _create_hosted_checkout_session(
     order_id: str,
     metadata: Dict[str, Any],
     customer: Dict[str, str],
+    provider: str = 'fonepay',
+    flow: str = 'redirect',
 ) -> Dict[str, Any]:
+    """
+    Create hosted/redirect checkout.
+
+    Defaults to provider=fonepay + flow=redirect so opening checkout_url lands
+    on the Fonepay QR immediately (no extra "Pay with Fonepay" click on the
+    PayBridge picker). Pass flow=hosted to keep the multi-provider picker.
+    """
     return_base = (client.configured_return_url or '').strip() or default_backend_return_url()
     return_url = append_query(return_base, order=order_id)
     cancel_url = append_query(return_base, order=order_id, status='cancelled')
@@ -355,6 +364,8 @@ def _create_hosted_checkout_session(
         description=f'MySewa Wallet Deposit #{deposit.pk}',
         customer=customer,
         idempotency_key=f'checkout-{order_id}',
+        provider=provider,
+        flow=flow,
     )
 
 
@@ -370,13 +381,17 @@ def create_paybridge_deposit(
     prefer_hosted: bool = False,
     partner_return_url: str = '',
     customer_override: Optional[Dict[str, str]] = None,
+    checkout_provider: str = 'fonepay',
+    checkout_flow: str = 'redirect',
 ) -> Tuple[Deposit, Dict[str, Any]]:
     """
     Create pending Deposit and PayBridgeNP payment session.
 
-    API Payin defaults to hosted checkout (prefer_hosted=True) so games get an
-    openable checkout_url. Pass prefer_hosted=False for Direct-QR (qr_image).
-    Optional customer_override controls PayBridge checkout display fields only;
+    API Payin defaults to prefer_hosted=True so games get an openable
+    checkout_url. Hosted sessions default to provider=fonepay + flow=redirect
+    so opening the URL lands on the Fonepay QR (no method-picker click).
+    Pass prefer_hosted=False for in-app Direct-QR (qr_image).
+    Optional customer_override controls PayBridge display fields only;
     wallet credit still goes to ``user``.
 
     Does not credit wallet. Never uses HimalPay checkout.
@@ -479,6 +494,8 @@ def create_paybridge_deposit(
                 order_id=order_id,
                 metadata=metadata,
                 customer=customer,
+                provider=checkout_provider,
+                flow=checkout_flow,
             )
         except Exception:
             deposit.status = Deposit.STATUS_FAILED
@@ -512,6 +529,8 @@ def create_paybridge_deposit(
                     order_id=order_id,
                     metadata=metadata,
                     customer=customer,
+                    provider=checkout_provider,
+                    flow=checkout_flow,
                 )
             except Exception:
                 deposit.status = Deposit.STATUS_FAILED
@@ -554,6 +573,8 @@ def create_paybridge_deposit(
     hosted_payload: Dict[str, Any] = {
         'mode': MODE_HOSTED,
         'checkout': session,
+        'checkout_provider': str(session.get('provider') or checkout_provider or '').strip(),
+        'checkout_flow': str(session.get('flow') or checkout_flow or '').strip(),
         'customer': {
             key: str(customer.get(key) or '').strip()[:120]
             for key in ('name', 'email', 'phone')

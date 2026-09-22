@@ -9,7 +9,7 @@ from django.conf import settings
 from .api_docs_html import render_html_documentation
 from .api_docs_pdf import render_pdf_documentation
 
-DOCS_VERSION = '1.5'
+DOCS_VERSION = '1.6'
 
 
 def _json_block(payload) -> str:
@@ -480,7 +480,9 @@ def documentation_payload(request=None) -> dict:
     payin_flow = [
         'Enable API access (is_api_user) and Payin permission (can_api_payin) for the API user in Admin → API Users.',
         'POST /api/v1/payin/ with receiver (MySewa phone), amount, and a unique reference.',
-        'Default mode is hosted: MySewa starts PayBridgeNP hosted checkout (never HimalPay). '
+        'MySewa creates a pending Deposit and starts PayBridgeNP checkout (never HimalPay). '
+        'Default hosted sessions use provider=fonepay and flow=redirect so opening checkout_url '
+        'lands on the Fonepay QR immediately (no extra method-picker click). '
         'Optional mode=direct_qr returns a Fonepay QR image for in-app display.',
         'Optional customer_name / customer_email / customer_phone override the PayBridge checkout '
         'display only; wallet credit still goes to receiver.',
@@ -532,10 +534,28 @@ def documentation_payload(request=None) -> dict:
                 'required': False,
                 'type': 'string',
                 'description': (
-                    'Payment presentation. Default "hosted" (PayBridge checkout page). '
-                    'Pass "direct_qr" for an in-app Fonepay QR (qr_image) without the method picker.'
+                    'Payment presentation. Default "hosted" opens PayBridge checkout_url '
+                    '(Fonepay QR via flow=redirect). Pass "direct_qr" for an in-app Fonepay QR image.'
                 ),
                 'example': 'hosted',
+            },
+            'provider': {
+                'required': False,
+                'type': 'string',
+                'description': (
+                    'PayBridge provider for hosted mode. Default "fonepay". '
+                    'Also accepts esewa or khalti.'
+                ),
+                'example': 'fonepay',
+            },
+            'checkout_flow': {
+                'required': False,
+                'type': 'string',
+                'description': (
+                    'Hosted session behavior. Default "redirect" skips the method picker and '
+                    'opens the provider (Fonepay QR) immediately. Pass "hosted" to keep the picker.'
+                ),
+                'example': 'redirect',
             },
             'customer_name': {
                 'required': False,
