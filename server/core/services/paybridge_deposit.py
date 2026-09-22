@@ -32,7 +32,6 @@ from .paybridgenp import (
     append_query,
     default_backend_return_url,
     default_frontend_return_url,
-    default_qr_page_url,
     get_paybridgenp_credentials,
     is_paybridgenp_configured,
     verify_webhook_signature,
@@ -349,15 +348,14 @@ def _create_hosted_checkout_session(
     order_id: str,
     metadata: Dict[str, Any],
     customer: Dict[str, str],
-    provider: str = 'fonepay',
-    flow: str = 'redirect',
+    provider: str = '',
+    flow: str = 'hosted',
 ) -> Dict[str, Any]:
     """
     Create hosted/redirect checkout.
 
-    Defaults to provider=fonepay + flow=redirect so opening checkout_url lands
-    on the Fonepay QR immediately (no extra "Pay with Fonepay" click on the
-    PayBridge picker). Pass flow=hosted to keep the multi-provider picker.
+    Defaults to flow=hosted (PayBridge method picker). Pass flow=redirect with
+    a provider (e.g. fonepay) to skip the picker and open that provider.
     """
     return_base = (client.configured_return_url or '').strip() or default_backend_return_url()
     return_url = append_query(return_base, order=order_id)
@@ -387,17 +385,16 @@ def create_paybridge_deposit(
     prefer_hosted: bool = False,
     partner_return_url: str = '',
     customer_override: Optional[Dict[str, str]] = None,
-    checkout_provider: str = 'fonepay',
-    checkout_flow: str = 'redirect',
+    checkout_provider: str = '',
+    checkout_flow: str = 'hosted',
 ) -> Tuple[Deposit, Dict[str, Any]]:
     """
     Create pending Deposit and PayBridgeNP payment session.
 
-    API Payin defaults to Direct-QR (prefer_hosted=False): returns qr_image and
-    payment_url pointing at MySewa's live QR page. Pass prefer_hosted=True for
-    PayBridge checkout_url. Hosted sessions default to provider=fonepay +
-    flow=redirect. Optional customer_override controls PayBridge display fields
-    only; wallet credit still goes to ``user``.
+    API Payin defaults to hosted checkout (prefer_hosted=True): returns
+    PayBridge checkout_url with the method picker. Pass prefer_hosted=False for
+    in-app Direct-QR (qr_image). Optional customer_override controls PayBridge
+    display fields only; wallet credit still goes to ``user``.
 
     Does not credit wallet. Never uses HimalPay checkout.
     """
@@ -516,12 +513,7 @@ def create_paybridge_deposit(
                 idempotency_key=f'qr-{order_id}',
             )
         except PayBridgeError as qr_exc:
-            # API Payin Direct-QR must stay on MySewa's QR page URL — never fall
-            # back to PayBridge hosted checkout (method picker / redirect URL).
-            allow_hosted_fallback = (
-                source != Deposit.SOURCE_API and _is_direct_qr_unavailable(qr_exc)
-            )
-            if not allow_hosted_fallback:
+            if not _is_direct_qr_unavailable(qr_exc):
                 deposit.status = Deposit.STATUS_FAILED
                 deposit.failure_reason = 'PayBridgeNP QR could not be created'
                 deposit.save(update_fields=['status', 'failure_reason', 'updated_at'])
@@ -560,8 +552,8 @@ def create_paybridge_deposit(
 
     if mode == MODE_DIRECT_QR:
         qr = _qr_fields(session)
-        # Openable URL for games: MySewa page that auto-shows the live Fonepay QR.
-        deposit.payment_url = default_qr_page_url(order_id)
+        # In-app Direct-QR: no hosted checkout URL (games renders qr_image).
+        deposit.payment_url = ''
         qr_payload = _store_qr_payload(session, qr, customer=customer)
         partner = (partner_return_url or '').strip()
         if partner:

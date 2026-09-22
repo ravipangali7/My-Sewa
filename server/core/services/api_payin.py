@@ -223,22 +223,22 @@ def execute_api_payin(request) -> Response:
     if phone_override:
         customer_override['phone'] = phone_override
 
-    # Default Direct-QR: payment_url opens MySewa's live Fonepay QR page.
-    # Opt-in hosted: mode=hosted (PayBridge checkout_url / method picker or redirect).
-    mode_raw = str(raw.get('mode') or raw.get('flow') or 'direct_qr').strip().lower() or 'direct_qr'
+    # Default hosted (backward compatible). Opt-in Direct-QR: mode=direct_qr.
+    mode_raw = str(raw.get('mode') or raw.get('flow') or 'hosted').strip().lower() or 'hosted'
     prefer_direct_qr = mode_raw in (
         'direct_qr', 'direct-qr', 'qr', 'fonepay_qr', 'fonepay-qr',
     )
-    prefer_hosted = mode_raw in ('hosted', 'checkout')
+    prefer_hosted = not prefer_direct_qr
     _valid_modes = {
         'hosted', 'checkout', 'direct_qr', 'direct-qr', 'qr', 'fonepay_qr', 'fonepay-qr',
     }
 
-    # Hosted checkout defaults: skip PayBridge method picker → open Fonepay QR.
-    checkout_provider = str(raw.get('provider') or 'fonepay').strip().lower() or 'fonepay'
+    # Hosted checkout defaults to PayBridge method picker (manual "Pay with Fonepay").
+    # Opt-in: checkout_flow=redirect + provider=fonepay skips the picker.
+    checkout_provider = str(raw.get('provider') or '').strip().lower()
     checkout_flow_raw = str(raw.get('checkout_flow') or '').strip().lower()
     if prefer_hosted:
-        checkout_flow = checkout_flow_raw or 'redirect'
+        checkout_flow = checkout_flow_raw or 'hosted'
     else:
         checkout_flow = 'hosted'  # unused for Direct-QR
 
@@ -348,13 +348,13 @@ def execute_api_payin(request) -> Response:
     if mode_raw not in _valid_modes:
         return fail(
             'Invalid mode',
-            'mode must be "direct_qr" (default) or "hosted".',
+            'mode must be "hosted" (default) or "direct_qr".',
             'invalid_mode',
             status.HTTP_400_BAD_REQUEST,
         )
 
     if prefer_hosted:
-        if checkout_provider not in ('esewa', 'khalti', 'fonepay'):
+        if checkout_provider and checkout_provider not in ('esewa', 'khalti', 'fonepay'):
             return fail(
                 'Invalid provider',
                 'provider must be fonepay, esewa, or khalti.',
@@ -364,7 +364,7 @@ def execute_api_payin(request) -> Response:
         if checkout_flow not in ('hosted', 'redirect'):
             return fail(
                 'Invalid checkout_flow',
-                'checkout_flow must be "redirect" (default, opens provider QR/page) or "hosted" (method picker).',
+                'checkout_flow must be "hosted" (default, method picker) or "redirect".',
                 'invalid_checkout_flow',
                 status.HTTP_400_BAD_REQUEST,
             )
@@ -496,7 +496,7 @@ def execute_api_payin(request) -> Response:
                     partner_return_url=partner_return_url,
                     customer_override=customer_override or None,
                     checkout_provider=checkout_provider,
-                    checkout_flow=checkout_flow if prefer_hosted else 'redirect',
+                    checkout_flow=checkout_flow if prefer_hosted else 'hosted',
                 )
                 checkout_url = str(
                     public.get('checkout_url')
@@ -517,17 +517,16 @@ def execute_api_payin(request) -> Response:
                             'Refusing HimalPay checkout URL — Payin uses PayBridgeNP only.',
                             status_code=502,
                         )
-                else:
-                    # Direct-QR: require scannable QR + MySewa QR page URL (never PayBridge picker).
-                    if not qr_image and not qr_message:
+                    if '/api/deposit/paybridge/qr/' in checkout_url:
                         raise PayBridgeError(
-                            'PayBridgeNP did not return a Fonepay QR for API payin.',
+                            'Refusing MySewa Direct-QR page URL for hosted Payin.',
                             status_code=502,
                         )
-                    if '/api/deposit/paybridge/qr/' not in checkout_url:
+                else:
+                    # Direct-QR: require scannable QR payload (no hosted URL required).
+                    if not qr_image and not qr_message and not checkout_url:
                         raise PayBridgeError(
-                            'Payin Direct-QR must return MySewa QR page URL '
-                            '(/api/deposit/paybridge/qr/), not a PayBridge hosted checkout link.',
+                            'PayBridgeNP did not return a Fonepay QR for API payin.',
                             status_code=502,
                         )
                     if checkout_url and (
@@ -535,11 +534,6 @@ def execute_api_payin(request) -> Response:
                     ):
                         raise PayBridgeError(
                             'Refusing HimalPay checkout URL — Payin uses PayBridgeNP only.',
-                            status_code=502,
-                        )
-                    if 'checkout.paybridgenp.com' in checkout_url.lower():
-                        raise PayBridgeError(
-                            'Refusing PayBridge hosted checkout URL for Direct-QR Payin.',
                             status_code=502,
                         )
             except WalletFrozenError:
