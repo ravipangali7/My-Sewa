@@ -154,6 +154,10 @@ def _customer_for(user, overrides: Optional[Dict[str, str]] = None) -> Dict[str,
 
     Optional overrides (name/email/phone) let API Payin partners control the
     checkout display without changing the wallet credit target.
+
+    Fallbacks (MySewa-prefixed name / synthesized email) run only after
+    overrides are applied, so a partner-supplied phone/name is not mixed with
+    stale receiver-derived placeholders.
     """
     name = ' '.join(
         part for part in (
@@ -163,18 +167,6 @@ def _customer_for(user, overrides: Optional[Dict[str, str]] = None) -> Dict[str,
     ).strip()
     phone = (getattr(user, 'phone', None) or '').strip()
     email = (getattr(user, 'email', None) or '').strip()
-    if not name:
-        name = f'MySewa {phone}' if phone else 'MySewa User'
-    if not email:
-        # Direct-QR requires email; synthesize a stable receipt address from phone.
-        local = ''.join(ch for ch in phone if ch.isalnum()) or f'user{getattr(user, "pk", 0)}'
-        email = f'{local}@users.mysewa.local'
-    details: Dict[str, str] = {
-        'name': name[:100],
-        'email': email[:120],
-    }
-    if phone:
-        details['phone'] = phone[:30]
 
     if overrides and isinstance(overrides, dict):
         for key in ('name', 'email', 'phone'):
@@ -182,11 +174,26 @@ def _customer_for(user, overrides: Optional[Dict[str, str]] = None) -> Dict[str,
             if not value:
                 continue
             if key == 'name':
-                details['name'] = value[:100]
+                name = value[:100]
             elif key == 'email':
-                details['email'] = value[:120]
+                email = value[:120]
             else:
-                details['phone'] = value[:30]
+                phone = value[:30]
+
+    if not name:
+        name = f'MySewa {phone}' if phone else 'MySewa User'
+    if not email:
+        # Direct-QR requires email; synthesize a stable receipt address from the
+        # final phone (override when present, otherwise receiver).
+        local = ''.join(ch for ch in phone if ch.isalnum()) or f'user{getattr(user, "pk", 0)}'
+        email = f'{local}@users.mysewa.local'
+
+    details: Dict[str, str] = {
+        'name': name[:100],
+        'email': email[:120],
+    }
+    if phone:
+        details['phone'] = phone[:30]
     return details
 
 

@@ -107,6 +107,12 @@ class ApiPayinTests(TestCase):
             'flow': 'hosted',
             'expires_at': None,
         }
+        # Receiver profile would otherwise look "MySewa-branded" on checkout.
+        self.receiver.first_name = ''
+        self.receiver.last_name = ''
+        self.receiver.email = ''
+        self.receiver.save(update_fields=['first_name', 'last_name', 'email'])
+
         self._auth()
         res = self.client.post(
             self.payin_url,
@@ -121,7 +127,9 @@ class ApiPayinTests(TestCase):
             format='json',
         )
         self.assertEqual(res.status_code, 201, res.content)
-        self.assertEqual(res.json()['mode'], 'hosted')
+        body = res.json()
+        self.assertEqual(body['mode'], 'hosted')
+        self.assertEqual(body['receiver'], self.receiver.phone)
         mock_checkout.assert_called_once()
         kwargs = mock_checkout.call_args.kwargs
         self.assertEqual(kwargs['customer']['name'], 'Lucky 777 Player')
@@ -130,11 +138,96 @@ class ApiPayinTests(TestCase):
         # Default hosted Payin shows the PayBridge method picker.
         self.assertEqual(kwargs.get('flow'), 'hosted')
         self.assertFalse(kwargs.get('provider'))
-        # Wallet credit target unchanged.
+        # Wallet credit target unchanged — receiver, not customer phone.
+        deposit = Deposit.objects.get(pk=body['deposit_id'])
+        self.assertEqual(deposit.user_id, self.receiver.pk)
+        self.assertEqual(deposit.user.phone, self.receiver.phone)
+        self.assertNotEqual(deposit.user.phone, '9800112233')
+        self.assertEqual(body['customer']['name'], 'Lucky 777 Player')
+        self.assertEqual(body['customer']['email'], 'player@lucky777.test')
+        self.assertEqual(body['customer']['phone'], '9800112233')
+        self.assertNotIn('/api/deposit/paybridge/qr/', body.get('payment_url') or '')
+        self.assertIn('checkout.paybridgenp.com', (body.get('payment_url') or '').lower())
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
+    def test_payin_customer_phone_override_does_not_keep_receiver_mysewa_email(
+        self, mock_checkout, _cfg,
+    ):
+        """Partial customer overrides must not leave receiver MySewa email on checkout."""
+        mock_checkout.return_value = {
+            'id': 'cs_partial_customer',
+            'checkout_url': 'https://checkout.paybridgenp.com/checkout/cs_partial_customer',
+            'flow': 'hosted',
+            'expires_at': None,
+        }
+        self.receiver.first_name = ''
+        self.receiver.last_name = ''
+        self.receiver.email = ''
+        self.receiver.save(update_fields=['first_name', 'last_name', 'email'])
+
+        self._auth()
+        res = self.client.post(
+            self.payin_url,
+            {
+                'receiver': self.receiver.phone,
+                'amount': 100,
+                'reference': 'PAYIN-CUST-PARTIAL',
+                'customer_name': 'Lucky Player',
+                'customer_phone': '9800998877',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        kwargs = mock_checkout.call_args.kwargs
+        customer = kwargs['customer']
+        self.assertEqual(customer['name'], 'Lucky Player')
+        self.assertEqual(customer['phone'], '9800998877')
+        # Synthesized email follows player phone, not receiver MySewa phone.
+        self.assertIn('9800998877', customer['email'])
+        self.assertNotIn(self.receiver.phone, customer['email'])
         deposit = Deposit.objects.get(pk=res.json()['deposit_id'])
         self.assertEqual(deposit.user_id, self.receiver.pk)
-        self.assertEqual(res.json()['customer']['name'], 'Lucky 777 Player')
-        self.assertEqual(res.json()['customer']['email'], 'player@lucky777.test')
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
+    def test_payin_without_customer_keeps_receiver_fallback(self, mock_checkout, _cfg):
+        """Missing customer_* keeps prior receiver-based checkout fallback."""
+        mock_checkout.return_value = {
+            'id': 'cs_fallback_customer',
+            'checkout_url': 'https://checkout.paybridgenp.com/checkout/cs_fallback_customer',
+            'flow': 'hosted',
+            'expires_at': None,
+        }
+        self.receiver.first_name = ''
+        self.receiver.last_name = ''
+        self.receiver.email = ''
+        self.receiver.save(update_fields=['first_name', 'last_name', 'email'])
+
+        self._auth()
+        res = self.client.post(
+            self.payin_url,
+            {
+                'receiver': self.receiver.phone,
+                'amount': 100,
+                'reference': 'PAYIN-CUST-FALLBACK',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        customer = mock_checkout.call_args.kwargs['customer']
+        self.assertIn('MySewa', customer['name'])
+        self.assertEqual(customer['phone'], self.receiver.phone)
+        self.assertIn(self.receiver.phone, customer['email'].replace('@users.mysewa.local', ''))
+        deposit = Deposit.objects.get(pk=res.json()['deposit_id'])
+        self.assertEqual(deposit.user_id, self.receiver.pk)
+        self.assertEqual(res.json()['mode'], 'hosted')
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},

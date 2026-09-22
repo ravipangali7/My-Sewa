@@ -205,16 +205,24 @@ def execute_api_payin(request) -> Response:
     ).strip()
 
     # Optional checkout display overrides (do not change wallet credit target).
+    # Accept flat customer_* fields and nested customer.{name,email,phone}.
     customer_override: dict = {}
     nested = raw.get('customer') if isinstance(raw.get('customer'), dict) else {}
     name_override = str(
-        raw.get('customer_name') or nested.get('name') or ''
+        raw.get('customer_name')
+        or nested.get('name')
+        or ''
     ).strip()
     email_override = str(
-        raw.get('customer_email') or nested.get('email') or ''
+        raw.get('customer_email')
+        or nested.get('email')
+        or ''
     ).strip()
     phone_override = str(
-        raw.get('customer_phone') or nested.get('phone') or ''
+        raw.get('customer_phone')
+        or nested.get('phone')
+        or nested.get('mobile')
+        or ''
     ).strip()
     if name_override:
         customer_override['name'] = name_override
