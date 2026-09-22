@@ -505,6 +505,76 @@ def paybridge_status(request, deposit_id):
     )
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+@authentication_classes([])
+def paybridge_qr_page(request):
+    """
+    Public MySewa page that shows the live Fonepay Direct-QR immediately.
+
+    Used as deposit.payment_url / checkout_url for API Payin Direct-QR so games
+    never land on PayBridge's method-picker page.
+    """
+    order = (
+        request.query_params.get('order')
+        or request.query_params.get('order_id')
+        or ''
+    )
+    session_id = (
+        request.query_params.get('session_id')
+        or request.query_params.get('process_id')
+        or ''
+    )
+    deposit = pb.lookup_paybridge_deposit(
+        order_id=order,
+        session_id=session_id,
+    )
+    if deposit is None:
+        return pb.api_payin_qr_page_response(error='not_found')
+
+    qr_image = ''
+    qr_message = ''
+    if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+        try:
+            public = pb.refresh_paybridge_qr(deposit)
+            deposit.refresh_from_db()
+            qr_image = str(public.get('qr_image') or '').strip()
+            qr_message = str(public.get('qr_message') or '').strip()
+        except PayBridgeError:
+            pub = pb.public_deposit_dict(deposit, include_qr=True)
+            qr_image = str(pub.get('qr_image') or '').strip()
+            qr_message = str(pub.get('qr_message') or '').strip()
+        except Exception:
+            logger.exception('paybridge_qr_page refresh failed deposit=%s', deposit.pk)
+            pub = pb.public_deposit_dict(deposit, include_qr=True)
+            qr_image = str(pub.get('qr_image') or '').strip()
+            qr_message = str(pub.get('qr_message') or '').strip()
+
+        try:
+            pb.verify_deposit(deposit)
+            deposit.refresh_from_db()
+        except Exception:
+            pass
+
+        if deposit.status == Deposit.STATUS_APPROVED and deposit.source == Deposit.SOURCE_API:
+            try:
+                from ..services.api_payin_webhook import deliver_developer_payin_webhook
+                deliver_developer_payin_webhook(deposit)
+            except Exception:
+                logger.exception(
+                    'paybridge_qr_page developer webhook failed deposit=%s',
+                    deposit.pk,
+                )
+
+    refresh = request.build_absolute_uri()
+    return pb.api_payin_qr_page_response(
+        deposit,
+        qr_image=qr_image,
+        qr_message=qr_message,
+        refresh_url=refresh,
+    )
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 @authentication_classes([])

@@ -99,6 +99,25 @@ def default_backend_return_url() -> str:
     return f'{origin}/api/deposit/paybridge/return/'
 
 
+def default_qr_page_url(order_id: str = '') -> str:
+    """
+    MySewa-hosted page that displays the live Fonepay Direct-QR.
+
+    Games open this URL instead of PayBridge's method-picker page so the QR
+    appears immediately without an extra "Pay with Fonepay" click.
+    """
+    origin = (getattr(settings, 'BACKEND_ORIGIN', '') or '').rstrip('/')
+    if not origin:
+        backend = (getattr(settings, 'BACKEND_URL', '') or '').rstrip('/')
+        if backend.endswith('/database'):
+            origin = backend[: -len('/database')]
+        else:
+            origin = backend
+    base = f'{origin}/api/deposit/paybridge/qr/'
+    order_id = (order_id or '').strip()
+    return append_query(base, order=order_id) if order_id else base
+
+
 def default_frontend_return_url() -> str:
     front = (getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
     return f'{front}/app/paybridge-return'

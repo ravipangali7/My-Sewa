@@ -76,11 +76,13 @@ class ApiPayinTests(TestCase):
         self.assertEqual(body['status'], 'PENDING')
         self.assertEqual(body['reference'], 'PAYIN-1')
         self.assertEqual(body['provider'], 'paybridgenp')
-        self.assertEqual(body['mode'], 'hosted')
+        self.assertEqual(body['mode'], 'direct_qr')
         payment_url = body.get('payment_url') or body.get('checkout_url') or ''
-        self.assertTrue(payment_url, 'API Payin must return an openable PayBridgeNP payment URL')
+        self.assertTrue(payment_url, 'API Payin must return an openable MySewa QR page URL')
+        self.assertIn('/api/deposit/paybridge/qr/', payment_url)
         self.assertNotIn('himalpay', payment_url.lower())
         self.assertNotIn('ncash', payment_url.lower())
+        self.assertTrue(body.get('qr_image'), 'Default Direct-QR must include qr_image')
         self.assertTrue(body['transaction_id'].startswith('MS-PB-'))
         deposit = Deposit.objects.get(pk=body['deposit_id'])
         self.assertEqual(deposit.provider, Deposit.PROVIDER_PAYBRIDGENP)
@@ -89,6 +91,7 @@ class ApiPayinTests(TestCase):
         self.assertEqual(deposit.initiated_by_id, self.partner.pk)
         self.assertEqual(deposit.user_id, self.receiver.pk)
         self.assertTrue((deposit.payment_url or '').strip())
+        self.assertIn('/api/deposit/paybridge/qr/', deposit.payment_url)
         self.assertNotIn('himalpay', (deposit.payment_url or '').lower())
         self.assertEqual(Wallet.objects.get(user=self.receiver).balance, Decimal('0.00'))
         self.assertTrue(ApiPayinLog.objects.filter(user=self.partner, reference='PAYIN-1').exists())
@@ -112,6 +115,7 @@ class ApiPayinTests(TestCase):
                 'receiver': self.receiver.phone,
                 'amount': 100,
                 'reference': 'PAYIN-CUST-1',
+                'mode': 'hosted',
                 'customer_name': 'Lucky 777 Player',
                 'customer_email': 'player@lucky777.test',
                 'customer_phone': '9800112233',
@@ -168,12 +172,13 @@ class ApiPayinTests(TestCase):
         self.assertEqual(body['qr_image'], 'data:image/png;base64,abc')
         self.assertEqual(body['qr_message'], 'REAL-QR-MSG')
         self.assertTrue(body.get('events_url'))
-        # Hosted URL not required for Direct-QR.
-        self.assertFalse(body.get('checkout_url') or body.get('payment_url'))
+        # Openable MySewa QR page URL (not PayBridge picker).
+        payment_url = body.get('checkout_url') or body.get('payment_url') or ''
+        self.assertIn('/api/deposit/paybridge/qr/', payment_url)
         mock_qr.assert_called_once()
         deposit = Deposit.objects.get(pk=body['deposit_id'])
         self.assertEqual(deposit.source, Deposit.SOURCE_API)
-        self.assertFalse((deposit.payment_url or '').strip())
+        self.assertIn('/api/deposit/paybridge/qr/', deposit.payment_url or '')
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
@@ -455,7 +460,12 @@ class ApiPayinTests(TestCase):
         with patch('core.services.checkout_deposit.create_checkout_session') as mock_hp:
             res = self.client.post(
                 self.payin_url,
-                {'receiver': self.receiver.phone, 'amount': 250, 'reference': 'PAYIN-PB-ONLY'},
+                {
+                    'receiver': self.receiver.phone,
+                    'amount': 250,
+                    'reference': 'PAYIN-PB-ONLY',
+                    'mode': 'hosted',
+                },
                 format='json',
             )
             self.assertEqual(res.status_code, 201, res.content)
@@ -494,6 +504,7 @@ class ApiPayinTests(TestCase):
                 'receiver': self.receiver.phone,
                 'amount': 100,
                 'reference': 'PAYIN-PICKER-1',
+                'mode': 'hosted',
                 'checkout_flow': 'hosted',
                 'provider': 'fonepay',
             },
@@ -615,7 +626,9 @@ class ApiPayinTests(TestCase):
         self.assertEqual(doc['docs_version'], '1.6')
         payin = next(s for s in doc['api_sections'] if s['id'] == 'payin')
         self.assertEqual(payin['success_response']['provider'], 'paybridgenp')
-        self.assertIn('paybridgenp.com', payin['success_response']['checkout_url'])
+        self.assertEqual(payin['success_response']['mode'], 'direct_qr')
+        self.assertIn('/api/deposit/paybridge/qr/', payin['success_response']['checkout_url'])
+        self.assertIn('qr_image', payin['success_response'])
         self.assertNotIn('himalpay', payin['success_response']['checkout_url'].lower())
 
     @patch('core.services.app_config.get_app_config', return_value={
@@ -923,3 +936,43 @@ class ApiPayinTests(TestCase):
         self.assertEqual(ret.status_code, 200)
         self.assertIn('Payment not found', ret.content.decode('utf-8'))
         self.assertNotIn('/app/paybridge-return', ret.get('Location') or '')
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    def test_default_payin_opens_mysewa_qr_page(self, _cfg):
+        """Default Payin payment_url is the MySewa QR page that auto-shows Fonepay QR."""
+        self._auth()
+        created = self.client.post(
+            self.payin_url,
+            {'receiver': self.receiver.phone, 'amount': 100, 'reference': 'PAYIN-QR-PAGE-1'},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        body = created.json()
+        self.assertEqual(body['mode'], 'direct_qr')
+        payment_url = body.get('payment_url') or ''
+        self.assertIn('/api/deposit/paybridge/qr/', payment_url)
+        deposit = Deposit.objects.get(pk=body['deposit_id'])
+
+        bare = APIClient()
+        page = bare.get(
+            reverse('deposit_paybridge_qr'),
+            {'order': deposit.purchase_order_identifier},
+        )
+        self.assertEqual(page.status_code, 200)
+        html = page.content.decode('utf-8')
+        self.assertIn('Scan to pay', html)
+        self.assertIn('Fonepay', html)
+        self.assertIn('<img', html)
+        self.assertNotIn('Pay with Fonepay', html)
+
+    def test_qr_page_not_found_is_public_html(self):
+        bare = APIClient()
+        page = bare.get(
+            reverse('deposit_paybridge_qr'),
+            {'order': 'MS-PB-DOES-NOT-EXIST'},
+        )
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('Payment not found', page.content.decode('utf-8'))

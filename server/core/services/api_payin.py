@@ -223,12 +223,13 @@ def execute_api_payin(request) -> Response:
     if phone_override:
         customer_override['phone'] = phone_override
 
-    # Default hosted (backward compatible). Opt-in Direct-QR: mode=direct_qr.
-    mode_raw = str(raw.get('mode') or raw.get('flow') or 'hosted').strip().lower() or 'hosted'
+    # Default Direct-QR: payment_url opens MySewa's live Fonepay QR page.
+    # Opt-in hosted: mode=hosted (PayBridge checkout_url / method picker or redirect).
+    mode_raw = str(raw.get('mode') or raw.get('flow') or 'direct_qr').strip().lower() or 'direct_qr'
     prefer_direct_qr = mode_raw in (
         'direct_qr', 'direct-qr', 'qr', 'fonepay_qr', 'fonepay-qr',
     )
-    prefer_hosted = not prefer_direct_qr
+    prefer_hosted = mode_raw in ('hosted', 'checkout')
     _valid_modes = {
         'hosted', 'checkout', 'direct_qr', 'direct-qr', 'qr', 'fonepay_qr', 'fonepay-qr',
     }
@@ -347,7 +348,7 @@ def execute_api_payin(request) -> Response:
     if mode_raw not in _valid_modes:
         return fail(
             'Invalid mode',
-            'mode must be "hosted" (default) or "direct_qr".',
+            'mode must be "direct_qr" (default) or "hosted".',
             'invalid_mode',
             status.HTTP_400_BAD_REQUEST,
         )
@@ -682,8 +683,13 @@ def execute_api_payin_status(request) -> Response:
         public = None
         payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
         mode = str(payload.get('mode') or '').strip()
+        payment_url = (deposit.payment_url or '').strip()
         is_direct_qr = mode == 'direct_qr' or (
-            isinstance(payload.get('qr'), dict) and not (deposit.payment_url or '').strip()
+            isinstance(payload.get('qr'), dict)
+            and (
+                not payment_url
+                or '/api/deposit/paybridge/qr/' in payment_url
+            )
         )
         if is_direct_qr:
             try:

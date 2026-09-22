@@ -207,6 +207,11 @@ urlpatterns = [
         name='deposit_paybridge_return',
     ),
     path(
+        'api/deposit/paybridge/qr/',
+        deposit_views.paybridge_qr_page,
+        name='deposit_paybridge_qr',
+    ),
+    path(
         'api/deposit/paybridge/webhook/',
         deposit_views.paybridge_webhook,
         name='deposit_paybridge_webhook',

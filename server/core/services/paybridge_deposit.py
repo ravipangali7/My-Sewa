@@ -32,6 +32,7 @@ from .paybridgenp import (
     append_query,
     default_backend_return_url,
     default_frontend_return_url,
+    default_qr_page_url,
     get_paybridgenp_credentials,
     is_paybridgenp_configured,
     verify_webhook_signature,
@@ -211,8 +212,13 @@ def _reusable_pending(user, amount) -> Optional[Deposit]:
         has_qr_payload = bool(
             qr.get('qr_message') or qr.get('qrMessage') or qr.get('has_image')
         )
+        payment_url = (deposit.payment_url or '').strip()
         is_direct = mode == MODE_DIRECT_QR or (
-            has_qr_payload and not (deposit.payment_url or '').strip()
+            has_qr_payload
+            and (
+                not payment_url
+                or '/api/deposit/paybridge/qr/' in payment_url
+            )
         )
         if is_direct and (has_qr_payload or deposit.process_id):
             return deposit
@@ -387,12 +393,11 @@ def create_paybridge_deposit(
     """
     Create pending Deposit and PayBridgeNP payment session.
 
-    API Payin defaults to prefer_hosted=True so games get an openable
-    checkout_url. Hosted sessions default to provider=fonepay + flow=redirect
-    so opening the URL lands on the Fonepay QR (no method-picker click).
-    Pass prefer_hosted=False for in-app Direct-QR (qr_image).
-    Optional customer_override controls PayBridge display fields only;
-    wallet credit still goes to ``user``.
+    API Payin defaults to Direct-QR (prefer_hosted=False): returns qr_image and
+    payment_url pointing at MySewa's live QR page. Pass prefer_hosted=True for
+    PayBridge checkout_url. Hosted sessions default to provider=fonepay +
+    flow=redirect. Optional customer_override controls PayBridge display fields
+    only; wallet credit still goes to ``user``.
 
     Does not credit wallet. Never uses HimalPay checkout.
     """
@@ -550,7 +555,8 @@ def create_paybridge_deposit(
 
     if mode == MODE_DIRECT_QR:
         qr = _qr_fields(session)
-        deposit.payment_url = ''
+        # Openable URL for games: MySewa page that auto-shows the live Fonepay QR.
+        deposit.payment_url = default_qr_page_url(order_id)
         qr_payload = _store_qr_payload(session, qr, customer=customer)
         partner = (partner_return_url or '').strip()
         if partner:
@@ -1187,6 +1193,136 @@ def api_payin_public_return_response(
       <p class="lead">{escape(detail)}</p>
       <div class="meta">{details_html}</div>
       <p class="hint">You can close this page and return to the game.</p>
+    </div>
+  </div>
+</body>
+</html>"""
+    return HttpResponse(html, content_type='text/html; charset=utf-8')
+
+
+def api_payin_qr_page_response(
+    deposit: Optional[Deposit] = None,
+    *,
+    error: str = '',
+    qr_image: str = '',
+    qr_message: str = '',
+    refresh_url: str = '',
+):
+    """
+    Public HTML page that shows the live Fonepay Direct-QR immediately.
+
+    Used as deposit.payment_url / checkout_url for API Payin so games never
+    land on PayBridge's method-picker page.
+    """
+    from django.http import HttpResponse
+    from django.utils.html import escape
+
+    if deposit is not None:
+        try:
+            deposit.refresh_from_db()
+        except Exception:
+            pass
+
+    status_value = str(deposit.status or '') if deposit is not None else ''
+    amount = str(deposit.amount or '') if deposit is not None else ''
+    order_id = str(deposit.purchase_order_identifier or '') if deposit is not None else ''
+    reference = str(deposit.client_reference or '') if deposit is not None else ''
+
+    if error == 'not_found' or deposit is None:
+        headline = 'Payment not found'
+        detail = 'This payment session could not be found.'
+        tone = '#b45309'
+        auto_refresh = False
+        show_qr = False
+    elif status_value == Deposit.STATUS_APPROVED:
+        headline = 'Payment Successful'
+        detail = 'Your payment was verified and the wallet was credited.'
+        tone = '#15803d'
+        auto_refresh = False
+        show_qr = False
+    elif status_value in (
+        Deposit.STATUS_FAILED,
+        Deposit.STATUS_CANCELLED,
+        Deposit.STATUS_EXPIRED,
+        Deposit.STATUS_REJECTED,
+        Deposit.STATUS_REFUNDED,
+    ):
+        headline = 'Payment not completed'
+        reason = str(getattr(deposit, 'failure_reason', '') or '').strip()
+        detail = reason or 'The payment was not successful. You can try again from the game.'
+        tone = '#b91c1c'
+        auto_refresh = False
+        show_qr = False
+    else:
+        headline = 'Scan to pay'
+        detail = 'Scan this Fonepay QR with any supported banking app. The page refreshes automatically.'
+        tone = '#0f172a'
+        auto_refresh = True
+        show_qr = True
+
+    if show_qr and not (qr_image or qr_message):
+        headline = 'Preparing QR…'
+        detail = 'Generating your Fonepay QR. This page will refresh automatically.'
+        tone = '#a16207'
+
+    refresh_meta = (
+        f'<meta http-equiv="refresh" content="4;url={escape(refresh_url)}">'
+        if auto_refresh and refresh_url
+        else ''
+    )
+
+    qr_block = ''
+    if show_qr and qr_image:
+        safe_src = escape(qr_image)
+        qr_block = f'<div class="qr"><img src="{safe_src}" alt="Fonepay QR"/></div>'
+    elif show_qr and qr_message:
+        qr_block = f'<pre class="qr-msg">{escape(qr_message)}</pre>'
+
+    rows = []
+    if amount:
+        rows.append(f'<p><span>Amount</span><strong>NPR {escape(amount)}</strong></p>')
+    if order_id:
+        rows.append(f'<p><span>Order</span><strong>{escape(order_id)}</strong></p>')
+    if reference:
+        rows.append(f'<p><span>Reference</span><strong>{escape(reference)}</strong></p>')
+    if status_value:
+        rows.append(f'<p><span>Status</span><strong>{escape(status_value)}</strong></p>')
+    details_html = '\n'.join(rows)
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{escape(headline)} — MySewa Payin</title>
+  {refresh_meta}
+  <style>
+    body {{ margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background:#f8fafc; color:#0f172a; }}
+    .wrap {{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }}
+    .card {{ width:100%; max-width:420px; background:#fff; border:1px solid #e2e8f0;
+      border-radius:16px; padding:28px 24px; box-shadow:0 8px 24px rgba(15,23,42,.06); }}
+    h1 {{ margin:0 0 8px; font-size:1.35rem; color:{tone}; }}
+    .lead {{ margin:0 0 18px; color:#475569; line-height:1.45; font-size:.95rem; }}
+    .qr {{ display:flex; justify-content:center; margin:8px 0 18px; }}
+    .qr img {{ width:min(280px,100%); height:auto; border-radius:12px; border:1px solid #e2e8f0; }}
+    .qr-msg {{ white-space:pre-wrap; word-break:break-all; font-size:.75rem; background:#f1f5f9;
+      padding:12px; border-radius:8px; overflow:auto; }}
+    .meta p {{ display:flex; justify-content:space-between; gap:12px; margin:0;
+      padding:10px 0; border-top:1px solid #f1f5f9; font-size:.9rem; }}
+    .meta span {{ color:#64748b; }}
+    .meta strong {{ text-align:right; word-break:break-all; }}
+    .hint {{ margin:18px 0 0; font-size:.8rem; color:#94a3b8; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>{escape(headline)}</h1>
+      <p class="lead">{escape(detail)}</p>
+      {qr_block}
+      <div class="meta">{details_html}</div>
+      <p class="hint">Secured via PayBridgeNP Fonepay · MySewa</p>
     </div>
   </div>
 </body>
