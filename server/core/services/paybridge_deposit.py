@@ -1197,6 +1197,388 @@ def api_payin_public_return_response(
     return HttpResponse(html, content_type='text/html; charset=utf-8')
 
 
+_DEVANAGARI_DIGITS = str.maketrans('0123456789', '०१२३४५६७८९')
+
+_QR_PAGE_INACTIVE = (
+    Deposit.STATUS_FAILED,
+    Deposit.STATUS_CANCELLED,
+    Deposit.STATUS_EXPIRED,
+    Deposit.STATUS_REJECTED,
+    Deposit.STATUS_REFUNDED,
+)
+
+# Fonepay, eSewa, and Khalti are the providers this PayBridge QR flow already supports.
+_QR_PAGE_METHODS = """
+<section class="methods" aria-label="भुक्तानी माध्यमहरू">
+  <h2>भुक्तानी माध्यमहरू:</h2>
+  <div class="method-row">
+    <figure class="method">
+      <div class="chip"><div class="mark fonepay" aria-hidden="true"><span>fone</span><span>pay</span></div></div>
+      <figcaption>Fonepay</figcaption>
+    </figure>
+    <figure class="method">
+      <div class="chip"><div class="mark esewa" aria-hidden="true"><span>e</span></div></div>
+      <figcaption>eSewa</figcaption>
+    </figure>
+    <figure class="method">
+      <div class="chip"><div class="mark khalti" aria-hidden="true"><span>K</span></div></div>
+      <figcaption>Khalti</figcaption>
+    </figure>
+  </div>
+</section>
+"""
+
+_QR_PAGE_INSTRUCTIONS = """
+<section class="instructions">
+  <div class="ins-head">
+    <h2>Payment Instructions | भुक्तानी सम्बन्धी सूचना</h2>
+    <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="2.5" y="5" width="19" height="14" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M3 9.5h18" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M6.5 15h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <ul>
+    <li>
+      <span class="en">Pay only the amount shown on the QR Code.</span>
+      <span class="np">QR Code मा देखाइएको रकम मात्र भुक्तानी गर्नुहोस्।</span>
+    </li>
+    <li>
+      <span class="en">This QR Code is valid for one payment only.</span>
+      <span class="np">यो QR Code एकपटकको भुक्तानीका लागि मात्र मान्य हुनेछ।</span>
+    </li>
+    <li>
+      <span class="en">After successful payment, the QR Code will be automatically deactivated.</span>
+      <span class="np">भुक्तानी सफल भएपछि QR Code स्वतः निष्क्रिय हुनेछ।</span>
+    </li>
+    <li>
+      <span class="en">For another payment, please generate a new QR Code.</span>
+      <span class="np">पुनः भुक्तानी गर्न नयाँ QR Code Generate गर्नुहोस्।</span>
+    </li>
+    <li>
+      <span class="en">Please do not make duplicate payments.</span>
+      <span class="np">एउटै QR Code मा दोहोर्याएर भुक्तानी नगर्नुहोस्।</span>
+    </li>
+    <li>
+      <span class="en">Thank you for your patience and cooperation.</span>
+      <span class="np">तपाईंको धैर्यता र सहयोगका लागि धन्यवाद।</span>
+    </li>
+    <li>
+      <span class="en">Please keep this page open until your payment is confirmed.</span>
+      <span class="np">कृपया भुक्तानी पुष्टि नभएसम्म यो पृष्ठ खुला राख्नुहोस्।</span>
+    </li>
+  </ul>
+</section>
+"""
+
+_QR_PAGE_CSS = """
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  background: #0c1730;
+  color: #18181b;
+  font-family: "Noto Sans Devanagari", "Nirmala UI", "Mukta", "Segoe UI", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+.wrap {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: max(14px, env(safe-area-inset-top)) 12px max(22px, env(safe-area-inset-bottom));
+}
+.card {
+  width: 100%;
+  max-width: 440px;
+  background: #fff;
+  border: 1.5px solid #e7b3ac;
+  border-radius: 22px;
+  padding: 22px 18px 16px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+}
+h1 {
+  margin: 0 0 10px;
+  text-align: center;
+  font-size: clamp(1.28rem, 5.1vw, 1.7rem);
+  font-weight: 700;
+  line-height: 1.35;
+  color: #111;
+}
+.lead {
+  margin: 0 auto 8px;
+  text-align: center;
+  font-size: 0.98rem;
+  line-height: 1.55;
+  color: #27272a;
+}
+.qr { display: flex; justify-content: center; margin: 8px 0 2px; }
+.qr img {
+  width: min(100%, 320px);
+  height: auto;
+  display: block;
+  background: #fff;
+}
+.qr.placeholder {
+  width: min(100%, 320px);
+  min-height: 240px;
+  margin: 12px auto 4px;
+  border: 1px dashed #d4d4d8;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px;
+  color: #52525b;
+  font-weight: 600;
+}
+.amount {
+  margin: 16px 0 0;
+  text-align: center;
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: #111;
+}
+.extra {
+  margin: 4px 0 0;
+  text-align: center;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: #52525b;
+  overflow-wrap: anywhere;
+}
+.extra strong { color: #18181b; font-weight: 700; }
+.wait {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 0.82rem;
+  color: #71717a;
+}
+.methods, .instructions {
+  margin-top: 16px;
+  border: 1px solid #e6e6e6;
+  border-radius: 16px;
+  padding: 12px 12px 10px;
+}
+.methods h2, .instructions h2 {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #111;
+}
+.instructions h2 { font-size: 0.92rem; }
+.method-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.method { margin: 0; text-align: center; }
+.chip {
+  height: 48px;
+  border: 1px solid #ececec;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+}
+.method figcaption {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: #3f3f46;
+}
+.mark { margin: 0 auto; }
+.mark.fonepay {
+  display: inline-flex;
+  align-items: center;
+  background: #e10600;
+  color: #fff;
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.mark.fonepay span:last-child {
+  margin-left: 2px;
+  background: #fff;
+  color: #e10600;
+  border-radius: 3px;
+  padding: 1px 3px;
+}
+.mark.esewa, .mark.khalti {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 20px;
+  line-height: 1;
+}
+.mark.esewa { border-radius: 50%; background: #60bb46; font-family: Georgia, serif; }
+.mark.khalti { border-radius: 8px; background: #5c2d91; font-family: Arial, Helvetica, sans-serif; }
+.ins-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.card-icon { width: 26px; height: 26px; flex: none; color: #18181b; }
+.instructions ul { margin: 0; padding: 0 0 2px 1.15rem; }
+.instructions li { margin: 0 0 11px; font-size: 0.86rem; line-height: 1.45; }
+.instructions .en { display: block; font-weight: 700; color: #18181b; }
+.instructions .np { display: block; color: #3f3f46; }
+.badge {
+  width: 68px;
+  height: 68px;
+  margin: 6px auto 12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.badge.ok { background: #dcfce7; color: #15803d; }
+.badge.bad { background: #fee2e2; color: #b91c1c; }
+.detail {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #3f3f46;
+}
+.btn {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  border: 0;
+  border-radius: 12px;
+  background: #111827;
+  color: #fff;
+  text-align: center;
+  text-decoration: none;
+  font: inherit;
+  font-weight: 700;
+  font-size: 1rem;
+  padding: 13px 16px;
+  cursor: pointer;
+}
+.btn-note {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #52525b;
+}
+@media (min-width: 720px) {
+  .wrap { align-items: center; padding: 28px 16px; }
+}
+"""
+
+
+def _format_display_amount(amount) -> str:
+    """Format a deposit amount for the QR page. Never a fixed sample value."""
+    if amount is None or amount == '':
+        return ''
+    try:
+        quantized = Decimal(str(amount)).quantize(Decimal('0.01'))
+    except Exception:
+        return str(amount).strip()
+    return f'{quantized:,.2f}'.translate(_DEVANAGARI_DIGITS)
+
+
+def _safe_qr_src(value: str) -> str:
+    """Accept only an image the payment API already returned."""
+    src = (value or '').strip()
+    if not src or len(src) > 2_000_000:
+        return ''
+    lower = src.lower()
+    if lower.startswith('data:image/') or lower.startswith('https://') or lower.startswith('http://'):
+        return src
+    return ''
+
+
+def _inactive_restart_url(deposit: Optional[Deposit]) -> str:
+    """
+    Where the player can start a different payment after this QR is dead.
+
+    Uses the return URL stored when the order was created. Never marks the
+    visit as a successful payment, and never points at the webhook endpoint.
+    """
+    if deposit is None:
+        return ''
+    payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
+    base = str(payload.get('partner_return_url') or '').strip()
+    webhook = ''
+    developer = getattr(deposit, 'initiated_by', None)
+    if developer is not None:
+        webhook = str(getattr(developer, 'api_webhook_url', '') or '').strip()
+    if not base.lower().startswith(('https://', 'http://')):
+        return ''
+    if webhook and base.rstrip('/') == webhook.rstrip('/'):
+        return ''
+    return append_query(
+        base,
+        event='payin.qr_expired',
+        success='false',
+        status='EXPIRED',
+        order_id=str(deposit.purchase_order_identifier or ''),
+        reference=str(deposit.client_reference or ''),
+        deposit_id=str(deposit.pk or ''),
+    )
+
+
+def _qr_page_amount_line(currency: str, amount_display: str) -> str:
+    from django.utils.html import escape
+
+    if not amount_display:
+        return ''
+    return (
+        f'<p class="amount">रकम: {escape(currency or "NPR")} {escape(amount_display)}</p>'
+    )
+
+
+def _qr_page_order_lines(order_id: str, reference: str) -> str:
+    from django.utils.html import escape
+
+    lines = []
+    if order_id:
+        lines.append(f'<p class="extra"><strong>अर्डर:</strong> {escape(order_id)}</p>')
+    if reference and reference != order_id:
+        lines.append(f'<p class="extra"><strong>सन्दर्भ:</strong> {escape(reference)}</p>')
+    return ''.join(lines)
+
+
+def _new_qr_action_html(deposit: Optional[Deposit], refresh_url: str, *, can_refresh: bool) -> str:
+    from django.utils.html import escape
+
+    if can_refresh and refresh_url:
+        return (
+            f'<a class="btn" href="{escape(refresh_url)}">Generate New QR</a>'
+            '<p class="btn-note">यो यही बाँकी भुक्तानीको नयाँ QR हो। अर्को भुक्तानीका लागि नयाँ अर्डर चाहिन्छ।</p>'
+        )
+    restart = _inactive_restart_url(deposit)
+    if restart:
+        return (
+            f'<a class="btn" href="{escape(restart)}">Generate New QR</a>'
+            '<p class="btn-note">यो QR फेरि प्रयोग गर्न मिल्दैन। नयाँ भुक्तानी सुरु गर्न यहाँ जानुहोस्।</p>'
+        )
+    return (
+        '<button type="button" class="btn" id="generate-new-qr">Generate New QR</button>'
+        '<p class="btn-note">यो QR Code निष्क्रिय छ। पुनः भुक्तानी गर्न सेवामा फर्केर नयाँ QR Code Generate गर्नुहोस्।</p>'
+        '<script>document.getElementById("generate-new-qr").addEventListener("click",function(){'
+        'if(window.opener){window.close();return;}if(history.length>1){history.back();}'
+        '});</script>'
+    )
+
+
 def api_payin_qr_page_response(
     deposit: Optional[Deposit] = None,
     *,
@@ -1208,8 +1590,8 @@ def api_payin_qr_page_response(
     """
     Public HTML page that shows the live Fonepay Direct-QR immediately.
 
-    Used as deposit.payment_url / checkout_url for API Payin so games never
-    land on PayBridge's method-picker page.
+    Renders qr_image from the payment API only. qr_message is the provider
+    payload and is never written into the page or into a new QR.
     """
     from django.http import HttpResponse
     from django.utils.html import escape
@@ -1221,109 +1603,141 @@ def api_payin_qr_page_response(
             pass
 
     status_value = str(deposit.status or '') if deposit is not None else ''
-    amount = str(deposit.amount or '') if deposit is not None else ''
     order_id = str(deposit.purchase_order_identifier or '') if deposit is not None else ''
     reference = str(deposit.client_reference or '') if deposit is not None else ''
+    currency = str(getattr(deposit, 'currency', '') or 'NPR').strip() or 'NPR'
+    raw_amount = ''
+    if deposit is not None:
+        if status_value == Deposit.STATUS_APPROVED and deposit.verified_amount is not None:
+            raw_amount = deposit.verified_amount
+        else:
+            raw_amount = deposit.amount
+    amount_display = _format_display_amount(raw_amount)
+    safe_src = _safe_qr_src(qr_image)
 
     if error == 'not_found' or deposit is None:
-        headline = 'Payment not found'
-        detail = 'This payment session could not be found.'
-        tone = '#b45309'
+        state = 'missing'
         auto_refresh = False
         show_qr = False
     elif status_value == Deposit.STATUS_APPROVED:
-        headline = 'Payment Successful'
-        detail = 'Your payment was verified and the wallet was credited.'
-        tone = '#15803d'
+        state = 'success'
         auto_refresh = False
         show_qr = False
-    elif status_value in (
-        Deposit.STATUS_FAILED,
-        Deposit.STATUS_CANCELLED,
-        Deposit.STATUS_EXPIRED,
-        Deposit.STATUS_REJECTED,
-        Deposit.STATUS_REFUNDED,
-    ):
-        headline = 'Payment not completed'
-        reason = str(getattr(deposit, 'failure_reason', '') or '').strip()
-        detail = reason or 'The payment was not successful. You can try again from the game.'
-        tone = '#b91c1c'
+    elif status_value in _QR_PAGE_INACTIVE:
+        state = 'inactive'
         auto_refresh = False
         show_qr = False
     else:
-        headline = 'Scan to pay'
-        detail = 'Scan this Fonepay QR with any supported banking app. The page refreshes automatically.'
-        tone = '#0f172a'
+        state = 'pending'
         auto_refresh = True
-        show_qr = True
-
-    if show_qr and not (qr_image or qr_message):
-        headline = 'Preparing QR…'
-        detail = 'Generating your Fonepay QR. This page will refresh automatically.'
-        tone = '#a16207'
+        # Only the API image is scannable. Never draw a QR from qr_message.
+        show_qr = bool(safe_src)
+        if qr_message and not safe_src:
+            show_qr = False
 
     refresh_meta = (
         f'<meta http-equiv="refresh" content="4;url={escape(refresh_url)}">'
         if auto_refresh and refresh_url
         else ''
     )
+    amount_html = _qr_page_amount_line(currency, amount_display)
+    order_html = _qr_page_order_lines(order_id, reference)
 
-    qr_block = ''
-    if show_qr and qr_image:
-        safe_src = escape(qr_image)
-        qr_block = f'<div class="qr"><img src="{safe_src}" alt="Fonepay QR"/></div>'
-    elif show_qr and qr_message:
-        qr_block = f'<pre class="qr-msg">{escape(qr_message)}</pre>'
+    if state == 'missing':
+        title = 'Payment not found'
+        body = (
+            '<div class="badge bad" aria-hidden="true">'
+            '<svg viewBox="0 0 24 24" width="34" height="34"><circle cx="12" cy="12" r="9" fill="none" '
+            'stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5v5.2" fill="none" '
+            'stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
+            '<circle cx="12" cy="16.2" r="1" fill="currentColor"/></svg></div>'
+            '<h1>Payment not found</h1>'
+            '<p class="lead">यो भुक्तानी फेला परेन।</p>'
+            '<p class="detail">This payment session could not be found.</p>'
+        )
+    elif state == 'success':
+        title = 'Payment Successful'
+        body = (
+            '<div class="badge ok" aria-hidden="true">'
+            '<svg viewBox="0 0 24 24" width="34" height="34"><path d="M6 12.5l4 4 8-9" fill="none" '
+            'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
+            '<h1>भुक्तानी सफल भयो</h1>'
+            '<p class="lead">Payment Successful</p>'
+            + amount_html
+            + order_html
+            + '<p class="detail">भुक्तानी सफल भएपछि QR Code स्वतः निष्क्रिय हुनेछ। '
+            'यही QR वा अर्डरबाट फेरि भुक्तानी गर्न मिल्दैन।</p>'
+            '<p class="detail">This payment is confirmed. The QR code is deactivated and cannot be used again.</p>'
+        )
+    elif state == 'inactive':
+        title = 'QR Code निष्क्रिय भयो'
+        reason = str(getattr(deposit, 'failure_reason', '') or '').strip()
+        if reason.lower() in ('', 'expired', 'failed', 'cancelled', 'refunded', 'rejected'):
+            reason_html = ''
+        else:
+            reason_html = f'<p class="detail">{escape(reason)}</p>'
+        if status_value == Deposit.STATUS_REFUNDED:
+            lead = 'यो भुक्तानी फिर्ता भएको छ।'
+            detail = 'This payment was refunded. The QR code can no longer be used.'
+        elif status_value == Deposit.STATUS_CANCELLED:
+            lead = 'यो भुक्तानी रद्द भएको छ।'
+            detail = 'This payment was cancelled. Generate a new QR for another payment.'
+        else:
+            lead = 'यो QR Code निष्क्रिय भएको छ।'
+            detail = 'This QR code has expired and cannot be used for another payment.'
+        body = (
+            '<div class="badge bad" aria-hidden="true">'
+            '<svg viewBox="0 0 24 24" width="34" height="34"><circle cx="12" cy="12" r="9" fill="none" '
+            'stroke="currentColor" stroke-width="1.8"/><path d="M8 8l8 8M16 8l-8 8" fill="none" '
+            'stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>'
+            '<h1>QR Code निष्क्रिय भयो</h1>'
+            f'<p class="lead">{lead}</p>'
+            f'<p class="detail">{detail}</p>'
+            + amount_html
+            + order_html
+            + reason_html
+            + '<p class="detail">एउटै QR Code मा दोहोर्याएर भुक्तानी नगर्नुहोस्।</p>'
+            + _new_qr_action_html(deposit, refresh_url, can_refresh=False)
+        )
+    else:
+        title = 'भुक्तानी गर्न स्क्यान गर्नुहोस्'
+        if show_qr:
+            qr_block = (
+                f'<div class="qr"><img src="{escape(safe_src)}" alt="Payment QR"/></div>'
+            )
+            action = ''
+        else:
+            qr_block = '<div class="qr placeholder" role="status">QR तयार हुँदैछ…</div>'
+            action = _new_qr_action_html(deposit, refresh_url, can_refresh=True)
+        body = (
+            '<h1>भुक्तानी गर्न स्क्यान गर्नुहोस्</h1>'
+            '<p class="lead">कुनै पनि समर्थित बैंकिङ वा भुक्तानी एप मार्फत यो QR स्क्यान गर्नुहोस्। '
+            'यो QR Fonepay र अन्य समर्थित सेवाहरूसँग मिल्दो छ।</p>'
+            + qr_block
+            + amount_html
+            + order_html
+            + '<p class="wait" role="status">भुक्तानी पुष्टि हुन बाँकी छ</p>'
+            + _QR_PAGE_METHODS
+            + _QR_PAGE_INSTRUCTIONS
+            + action
+        )
 
-    rows = []
-    if amount:
-        rows.append(f'<p><span>Amount</span><strong>NPR {escape(amount)}</strong></p>')
-    if order_id:
-        rows.append(f'<p><span>Order</span><strong>{escape(order_id)}</strong></p>')
-    if reference:
-        rows.append(f'<p><span>Reference</span><strong>{escape(reference)}</strong></p>')
-    if status_value:
-        rows.append(f'<p><span>Status</span><strong>{escape(status_value)}</strong></p>')
-    details_html = '\n'.join(rows)
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>{escape(headline)} — MySewa Payin</title>
-  {refresh_meta}
-  <style>
-    body {{ margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      background:#f8fafc; color:#0f172a; }}
-    .wrap {{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }}
-    .card {{ width:100%; max-width:420px; background:#fff; border:1px solid #e2e8f0;
-      border-radius:16px; padding:28px 24px; box-shadow:0 8px 24px rgba(15,23,42,.06); }}
-    h1 {{ margin:0 0 8px; font-size:1.35rem; color:{tone}; }}
-    .lead {{ margin:0 0 18px; color:#475569; line-height:1.45; font-size:.95rem; }}
-    .qr {{ display:flex; justify-content:center; margin:8px 0 18px; }}
-    .qr img {{ width:min(280px,100%); height:auto; border-radius:12px; border:1px solid #e2e8f0; }}
-    .qr-msg {{ white-space:pre-wrap; word-break:break-all; font-size:.75rem; background:#f1f5f9;
-      padding:12px; border-radius:8px; overflow:auto; }}
-    .meta p {{ display:flex; justify-content:space-between; gap:12px; margin:0;
-      padding:10px 0; border-top:1px solid #f1f5f9; font-size:.9rem; }}
-    .meta span {{ color:#64748b; }}
-    .meta strong {{ text-align:right; word-break:break-all; }}
-    .hint {{ margin:18px 0 0; font-size:.8rem; color:#94a3b8; }}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <h1>{escape(headline)}</h1>
-      <p class="lead">{escape(detail)}</p>
-      {qr_block}
-      <div class="meta">{details_html}</div>
-      <p class="hint">Secured via PayBridgeNP Fonepay · MySewa</p>
-    </div>
-  </div>
-</body>
-</html>"""
+    html = (
+        '<!DOCTYPE html>\n'
+        '<html lang="ne">\n<head>\n'
+        '<meta charset="utf-8"/>\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>\n'
+        f'<title>{escape(title)} — MySewa</title>\n'
+        '<link rel="preconnect" href="https://fonts.googleapis.com"/>\n'
+        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>\n'
+        '<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700;800&amp;display=swap" rel="stylesheet"/>\n'
+        + refresh_meta
+        + '\n<style>\n'
+        + _QR_PAGE_CSS
+        + '\n</style>\n</head>\n<body>\n<div class="wrap">\n<article class="card">\n'
+        + body
+        + '\n</article>\n</div>\n</body>\n</html>'
+    )
     return HttpResponse(html, content_type='text/html; charset=utf-8')
 
 

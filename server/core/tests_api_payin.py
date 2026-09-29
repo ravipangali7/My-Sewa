@@ -1003,3 +1003,103 @@ class ApiPayinTests(TestCase):
         )
         self.assertEqual(page.status_code, 200)
         self.assertIn('Payment not found', page.content.decode('utf-8'))
+
+    def _qr_page_deposit(self, **overrides):
+        fields = dict(
+            user=self.receiver,
+            amount=Decimal('47.50'),
+            currency='NPR',
+            status=Deposit.STATUS_PENDING,
+            provider=Deposit.PROVIDER_PAYBRIDGENP,
+            purchase_order_identifier='MS-PB-PAGE-47',
+            process_id='cs_page_qr_47',
+            bank_name='PayBridgeNP',
+            source=Deposit.SOURCE_API,
+            client_reference='PAGE-REF-47',
+            provider_payload={'mode': 'direct_qr', 'qr': {'has_image': True}},
+        )
+        fields.update(overrides)
+        return Deposit.objects.create(**fields)
+
+    @patch('core.services.paybridge_deposit.PayBridgeNPAPI.refresh_fonepay_qr')
+    def test_qr_page_renders_api_image_and_live_amount(self, mock_refresh):
+        mock_refresh.return_value = {
+            'id': 'cs_page_qr_47',
+            'qr_image': 'data:image/png;base64,LIVEQR',
+            'qr_message': 'LIVE-PAYLOAD-DO-NOT-PRINT',
+            'expires_at': None,
+            'status': 'initiated',
+        }
+        self._qr_page_deposit()
+        page = APIClient().get(
+            reverse('deposit_paybridge_qr'),
+            {'order': 'MS-PB-PAGE-47'},
+        )
+        html = page.content.decode('utf-8')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('भुक्तानी गर्न स्क्यान गर्नुहोस्', html)
+        self.assertIn('data:image/png;base64,LIVEQR', html)
+        self.assertIn('NPR ४७.५०', html)
+        self.assertIn('MS-PB-PAGE-47', html)
+        self.assertIn('PAGE-REF-47', html)
+        self.assertIn('Pay only the amount shown on the QR Code.', html)
+        self.assertIn('Fonepay', html)
+        self.assertIn('eSewa', html)
+        self.assertIn('Khalti', html)
+        self.assertNotIn('Moru', html)
+        self.assertNotIn('LIVE-PAYLOAD-DO-NOT-PRINT', html)
+        self.assertNotIn('30.00', html)
+        self.assertNotIn('३०.००', html)
+        self.assertNotIn('१०.००', html)
+        mock_refresh.assert_called_once()
+
+    def test_qr_page_success_hides_qr(self):
+        from core.services.paybridge_deposit import api_payin_qr_page_response
+
+        deposit = self._qr_page_deposit()
+        deposit.status = Deposit.STATUS_APPROVED
+        deposit.verified_amount = Decimal('47.50')
+
+        def _keep_memory(self, using=None, fields=None):
+            return None
+
+        with patch.object(Deposit, 'refresh_from_db', _keep_memory):
+            page = api_payin_qr_page_response(
+                deposit,
+                qr_image='data:image/png;base64,SHOULD_NOT_SHOW',
+                qr_message='PAID-PAYLOAD',
+                refresh_url='https://example.test/qr?order=MS-PB-PAGE-47',
+            )
+        html = page.content.decode('utf-8')
+        self.assertIn('Payment Successful', html)
+        self.assertIn('भुक्तानी सफल भयो', html)
+        self.assertIn('NPR ४७.५०', html)
+        self.assertNotIn('SHOULD_NOT_SHOW', html)
+        self.assertNotIn('PAID-PAYLOAD', html)
+        self.assertNotIn('http-equiv="refresh"', html)
+        self.assertNotIn('Generate New QR', html)
+
+    def test_qr_page_expired_offers_new_qr_without_reusing_image(self):
+        from core.services.paybridge_deposit import api_payin_qr_page_response
+
+        deposit = self._qr_page_deposit(
+            status=Deposit.STATUS_EXPIRED,
+            provider_payload={'partner_return_url': 'https://game.example/pay'},
+            purchase_order_identifier='MS-PB-PAGE-EXPIRED',
+            process_id='cs_page_qr_expired',
+        )
+        page = api_payin_qr_page_response(
+            deposit,
+            qr_image='data:image/png;base64,DEADQR',
+            qr_message='DEAD-PAYLOAD',
+            refresh_url='https://example.test/qr?order=MS-PB-PAGE-EXPIRED',
+        )
+        html = page.content.decode('utf-8')
+        self.assertIn('QR Code निष्क्रिय भयो', html)
+        self.assertIn('Generate New QR', html)
+        self.assertIn('https://game.example/pay', html)
+        self.assertIn('success=false', html)
+        self.assertNotIn('DEADQR', html)
+        self.assertNotIn('DEAD-PAYLOAD', html)
+        self.assertNotIn('http-equiv="refresh"', html)
+        self.assertNotIn('example.test/qr', html)
