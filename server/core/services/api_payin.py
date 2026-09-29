@@ -25,6 +25,7 @@ from .app_config import (
     validate_amount_bounds,
 )
 from .paybridge_deposit import create_paybridge_deposit, public_deposit_dict, verify_deposit
+from .paybridgenp import default_qr_page_url
 from .paybridgenp import PayBridgeError, is_paybridgenp_configured
 from .security import client_ip, client_user_agent
 from .wallet_guard import WalletFrozenError
@@ -72,6 +73,16 @@ def _success_payload(deposit: Deposit, reference: str, public: dict | None = Non
     mode = str(pub.get('mode') or '').strip() or (
         'hosted' if checkout_url else ('direct_qr' if qr_image else '')
     )
+    # Direct-QR is shown on MySewa. Never hand the browser a PayBridge checkout URL
+    # when this payment already has a Fonepay QR image.
+    if mode == 'direct_qr' or qr_image:
+        lowered = checkout_url.lower()
+        if (
+            not checkout_url
+            or 'checkout.paybridgenp.com' in lowered
+            or ('/checkout/' in lowered and 'paybridgenp.com' in lowered)
+        ):
+            checkout_url = default_qr_page_url(deposit.purchase_order_identifier or '')
     payload = {
         'success': True,
         'message': 'Payin checkout ready' if _api_status(deposit) == 'PENDING' else 'Payin status',
@@ -223,8 +234,9 @@ def execute_api_payin(request) -> Response:
     if phone_override:
         customer_override['phone'] = phone_override
 
-    # Default hosted (backward compatible). Opt-in Direct-QR: mode=direct_qr.
-    mode_raw = str(raw.get('mode') or raw.get('flow') or 'hosted').strip().lower() or 'hosted'
+    # Default Direct-QR on MySewa's own page. Opt in to PayBridge's hosted
+    # checkout only with mode=hosted.
+    mode_raw = str(raw.get('mode') or raw.get('flow') or 'direct_qr').strip().lower() or 'direct_qr'
     prefer_direct_qr = mode_raw in (
         'direct_qr', 'direct-qr', 'qr', 'fonepay_qr', 'fonepay-qr',
     )
@@ -348,7 +360,7 @@ def execute_api_payin(request) -> Response:
     if mode_raw not in _valid_modes:
         return fail(
             'Invalid mode',
-            'mode must be "hosted" (default) or "direct_qr".',
+            'mode must be "direct_qr" (default) or "hosted".',
             'invalid_mode',
             status.HTTP_400_BAD_REQUEST,
         )

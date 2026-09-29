@@ -3,10 +3,11 @@ PayBridgeNP wallet deposit settlement.
 
 Flow:
   1. Create Deposit(provider=paybridgenp, status=pending) with internal order ID.
-  2. App: prefer POST /v1/qr/fonepay (Direct-QR); fall back to POST /v1/checkout.
-     API Payin: always POST /v1/checkout (hosted) so games get a PayBridgeNP URL.
+  2. App and default API Payin: POST /v1/qr/fonepay (Direct-QR).
+     The browser opens MySewa's /api/deposit/paybridge/qr/ page, which renders
+     PayBridge's qr_image. Hosted checkout is only used when mode=hosted.
      Never uses HimalPay checkout.
-  3. User pays via in-app QR (app) or PayBridgeNP hosted page (API / hosted fallback).
+  3. User pays by scanning that Fonepay QR (or the hosted page when explicitly requested).
   4. Webhook payment.succeeded (signed) OR return/verify via GET session + GET payment.
   5. On success: status=approved → existing deposit signal credits wallet once.
 
@@ -32,6 +33,7 @@ from .paybridgenp import (
     append_query,
     default_backend_return_url,
     default_frontend_return_url,
+    default_qr_page_url,
     get_paybridgenp_credentials,
     is_paybridgenp_configured,
     verify_webhook_signature,
@@ -552,8 +554,8 @@ def create_paybridge_deposit(
 
     if mode == MODE_DIRECT_QR:
         qr = _qr_fields(session)
-        # In-app Direct-QR: no hosted checkout URL (games renders qr_image).
-        deposit.payment_url = ''
+        # Browser stays on MySewa. PayBridge's checkout URL is not the page address.
+        deposit.payment_url = default_qr_page_url(order_id)
         qr_payload = _store_qr_payload(session, qr, customer=customer)
         partner = (partner_return_url or '').strip()
         if partner:

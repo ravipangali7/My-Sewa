@@ -468,9 +468,9 @@ def documentation_payload(request=None) -> dict:
         'currency': 'NPR',
         'status': 'PENDING',
         'provider': 'paybridgenp',
-        'mode': 'hosted',
-        'checkout_url': 'https://checkout.paybridgenp.com/cs_xxx',
-        'payment_url': 'https://checkout.paybridgenp.com/cs_xxx',
+        'mode': 'direct_qr',
+        'checkout_url': 'https://mysewaserver.sewabyapar.com/api/deposit/paybridge/qr/?order=MS-PB-a1b2c3d4e5f6',
+        'payment_url': 'https://mysewaserver.sewabyapar.com/api/deposit/paybridge/qr/?order=MS-PB-a1b2c3d4e5f6',
         'session_id': 'cs_xxx',
         'payment_id': '',
         'expires_at': '2026-09-17T12:00:00+05:45',
@@ -480,14 +480,14 @@ def documentation_payload(request=None) -> dict:
     payin_flow = [
         'Enable API access (is_api_user) and Payin permission (can_api_payin) for the API user in Admin → API Users.',
         'POST /api/v1/payin/ with receiver (MySewa phone), amount, and a unique reference.',
-        'MySewa creates a pending Deposit and starts PayBridgeNP hosted checkout (never HimalPay). '
-        'Default mode=hosted returns checkout_url / payment_url for the PayBridge method picker '
-        '(customer clicks "Pay with Fonepay" to open the Fonepay QR). '
-        'Optional mode=direct_qr returns a Fonepay QR image for in-app display.',
+        'MySewa creates a pending Deposit and a PayBridgeNP Fonepay QR (never HimalPay). '
+        'Default mode=direct_qr returns checkout_url / payment_url on the MySewa domain '
+        '(/api/deposit/paybridge/qr/?order=…) plus qr_image. Open that MySewa URL; do not open PayBridge checkout. '
+        'Optional mode=hosted returns PayBridge\'s method-picker URL.',
         'Optional customer_name / customer_email / customer_phone override the PayBridge checkout '
         'display only; wallet credit still goes to receiver.',
-        'For hosted: open checkout_url / payment_url so the customer can pay (eSewa, Khalti, Fonepay). '
-        'For direct_qr: show qr_image in your app.',
+        'Open checkout_url / payment_url. For direct_qr that URL is MySewa\'s QR page and qr_image is the Fonepay code. '
+        'For mode=hosted, the URL is PayBridge\'s checkout page.',
         'PayBridgeNP sends a signed webhook to MySewa. MySewa verifies the signature and payment, credits the receiver wallet once, then POSTs the result to the API user\'s saved Webhook URL (Admin → API Users).',
         'Poll GET /api/v1/payin/status/?reference=… until status is SUCCESS, FAILED, CANCELLED, EXPIRED, or REFUNDED.',
     ]
@@ -534,10 +534,10 @@ def documentation_payload(request=None) -> dict:
                 'required': False,
                 'type': 'string',
                 'description': (
-                    'Payment presentation. Default "hosted" opens PayBridge checkout_url '
-                    '(method picker). Pass "direct_qr" for an in-app Fonepay QR image.'
+                    'Payment presentation. Default "direct_qr" opens MySewa\'s QR page '
+                    'with the Fonepay image. Pass "hosted" for PayBridge\'s method picker.'
                 ),
-                'example': 'hosted',
+                'example': 'direct_qr',
             },
             'provider': {
                 'required': False,
@@ -639,7 +639,7 @@ def documentation_payload(request=None) -> dict:
             'status PENDING means checkout is ready — not yet paid. SUCCESS means wallet was credited.',
             'Wallet credit happens only after verified PayBridgeNP payment.succeeded (webhook) or server verify.',
             'Replaying the same reference returns the original checkout payload with refreshed live status fields.',
-            'Default mode=hosted returns PayBridgeNP checkout_url / payment_url (method picker). Optional mode=direct_qr returns qr_image. HimalPay is never used.',
+            'Default mode=direct_qr returns a MySewa /api/deposit/paybridge/qr/ URL and qr_image. Optional mode=hosted returns PayBridge checkout. HimalPay is never used.',
             'customer_* fields only affect PayBridge checkout display; receiver still receives the wallet credit.',
             'Configure a Webhook URL on the API user (Admin → API Users). After verified payment.succeeded, MySewa POSTs status, amount, reference, and order/transaction ids to that URL once (idempotent).',
         ],

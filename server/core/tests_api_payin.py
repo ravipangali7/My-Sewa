@@ -76,10 +76,11 @@ class ApiPayinTests(TestCase):
         self.assertEqual(body['status'], 'PENDING')
         self.assertEqual(body['reference'], 'PAYIN-1')
         self.assertEqual(body['provider'], 'paybridgenp')
-        self.assertEqual(body['mode'], 'hosted')
+        self.assertEqual(body['mode'], 'direct_qr')
         payment_url = body.get('payment_url') or body.get('checkout_url') or ''
-        self.assertTrue(payment_url, 'API Payin must return an openable PayBridgeNP payment URL')
-        self.assertNotIn('/api/deposit/paybridge/qr/', payment_url)
+        self.assertIn('/api/deposit/paybridge/qr/', payment_url)
+        self.assertIn('order=', payment_url)
+        self.assertNotIn('checkout.paybridgenp.com', payment_url)
         self.assertNotIn('himalpay', payment_url.lower())
         self.assertNotIn('ncash', payment_url.lower())
         self.assertTrue(body['transaction_id'].startswith('MS-PB-'))
@@ -89,8 +90,8 @@ class ApiPayinTests(TestCase):
         self.assertEqual(deposit.client_reference, 'PAYIN-1')
         self.assertEqual(deposit.initiated_by_id, self.partner.pk)
         self.assertEqual(deposit.user_id, self.receiver.pk)
-        self.assertTrue((deposit.payment_url or '').strip())
-        self.assertNotIn('/api/deposit/paybridge/qr/', deposit.payment_url or '')
+        self.assertIn('/api/deposit/paybridge/qr/', deposit.payment_url or '')
+        self.assertNotIn('checkout.paybridgenp.com', deposit.payment_url or '')
         self.assertNotIn('himalpay', (deposit.payment_url or '').lower())
         self.assertEqual(Wallet.objects.get(user=self.receiver).balance, Decimal('0.00'))
         self.assertTrue(ApiPayinLog.objects.filter(user=self.partner, reference='PAYIN-1').exists())
@@ -99,12 +100,12 @@ class ApiPayinTests(TestCase):
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
         'integrations': {},
     })
-    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
-    def test_payin_customer_overrides_passed_to_paybridge(self, mock_checkout, _cfg):
-        mock_checkout.return_value = {
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.create_fonepay_qr')
+    def test_payin_customer_overrides_passed_to_paybridge(self, mock_qr, _cfg):
+        mock_qr.return_value = {
             'id': 'cs_customer_override',
-            'checkout_url': 'https://checkout.paybridgenp.com/checkout/cs_customer_override',
-            'flow': 'hosted',
+            'qr_image': 'data:image/png;base64,cust',
+            'qr_message': 'CUST-QR',
             'expires_at': None,
         }
         self._auth()
@@ -121,15 +122,15 @@ class ApiPayinTests(TestCase):
             format='json',
         )
         self.assertEqual(res.status_code, 201, res.content)
-        self.assertEqual(res.json()['mode'], 'hosted')
-        mock_checkout.assert_called_once()
-        kwargs = mock_checkout.call_args.kwargs
+        body = res.json()
+        self.assertEqual(body['mode'], 'direct_qr')
+        self.assertIn('/api/deposit/paybridge/qr/', body.get('payment_url') or '')
+        self.assertNotIn('checkout.paybridgenp.com', body.get('payment_url') or '')
+        mock_qr.assert_called_once()
+        kwargs = mock_qr.call_args.kwargs
         self.assertEqual(kwargs['customer']['name'], 'Lucky 777 Player')
         self.assertEqual(kwargs['customer']['email'], 'player@lucky777.test')
         self.assertEqual(kwargs['customer']['phone'], '9800112233')
-        # Default hosted Payin shows the PayBridge method picker.
-        self.assertEqual(kwargs.get('flow'), 'hosted')
-        self.assertFalse(kwargs.get('provider'))
         # Wallet credit target unchanged.
         deposit = Deposit.objects.get(pk=res.json()['deposit_id'])
         self.assertEqual(deposit.user_id, self.receiver.pk)
@@ -170,13 +171,14 @@ class ApiPayinTests(TestCase):
         self.assertEqual(body['qr_image'], 'data:image/png;base64,abc')
         self.assertEqual(body['qr_message'], 'REAL-QR-MSG')
         self.assertTrue(body.get('events_url'))
-        # Hosted URL not required for Direct-QR.
-        self.assertFalse(body.get('checkout_url') or body.get('payment_url'))
+        self.assertIn('/api/deposit/paybridge/qr/', body.get('payment_url') or '')
+        self.assertEqual(body.get('checkout_url'), body.get('payment_url'))
+        self.assertNotIn('checkout.paybridgenp.com', body.get('payment_url') or '')
         mock_qr.assert_called_once()
         deposit = Deposit.objects.get(pk=body['deposit_id'])
         self.assertEqual(deposit.source, Deposit.SOURCE_API)
-        self.assertFalse((deposit.payment_url or '').strip())
-        self.assertNotIn('/api/deposit/paybridge/qr/', deposit.payment_url or '')
+        self.assertIn('/api/deposit/paybridge/qr/', deposit.payment_url or '')
+        self.assertIn(deposit.purchase_order_identifier, deposit.payment_url or '')
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
@@ -447,13 +449,7 @@ class ApiPayinTests(TestCase):
     })
     @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
     def test_payin_never_calls_himalpay_checkout(self, mock_checkout, _cfg):
-        """Game Payin must mint PayBridgeNP hosted checkout — not HimalPay."""
-        mock_checkout.return_value = {
-            'id': 'cs_paybridge_game_1',
-            'checkout_url': 'https://checkout.paybridgenp.com/checkout/cs_paybridge_game_1',
-            'flow': 'hosted',
-            'expires_at': None,
-        }
+        """Default Payin opens MySewa's QR page — never HimalPay or PayBridge checkout."""
         self._auth()
         with patch('core.services.checkout_deposit.create_checkout_session') as mock_hp:
             res = self.client.post(
@@ -469,18 +465,16 @@ class ApiPayinTests(TestCase):
             mock_hp.assert_not_called()
         body = res.json()
         self.assertEqual(body['provider'], 'paybridgenp')
-        self.assertEqual(body['mode'], 'hosted')
-        self.assertEqual(body['payment_url'], 'https://checkout.paybridgenp.com/checkout/cs_paybridge_game_1')
+        self.assertEqual(body['mode'], 'direct_qr')
+        self.assertIn('/api/deposit/paybridge/qr/', body['payment_url'])
         self.assertEqual(body['checkout_url'], body['payment_url'])
-        self.assertNotIn('/api/deposit/paybridge/qr/', body['payment_url'])
+        self.assertNotIn('checkout.paybridgenp.com', body['payment_url'])
         self.assertNotIn('himalpay', body['payment_url'].lower())
-        mock_checkout.assert_called_once()
+        mock_checkout.assert_not_called()
         deposit = Deposit.objects.get(pk=body['deposit_id'])
         self.assertEqual(deposit.provider, Deposit.PROVIDER_PAYBRIDGENP)
         self.assertEqual(deposit.payment_url, body['payment_url'])
-        kwargs = mock_checkout.call_args.kwargs
-        self.assertEqual(kwargs.get('flow'), 'hosted')
-        self.assertFalse(kwargs.get('provider'))
+        self.assertTrue(body.get('qr_image'))
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
@@ -503,6 +497,7 @@ class ApiPayinTests(TestCase):
                 'receiver': self.receiver.phone,
                 'amount': 100,
                 'reference': 'PAYIN-PICKER-1',
+                'mode': 'hosted',
                 'checkout_flow': 'hosted',
                 'provider': 'fonepay',
             },
@@ -626,9 +621,9 @@ class ApiPayinTests(TestCase):
         self.assertEqual(doc['docs_version'], '1.6')
         payin = next(s for s in doc['api_sections'] if s['id'] == 'payin')
         self.assertEqual(payin['success_response']['provider'], 'paybridgenp')
-        self.assertEqual(payin['success_response']['mode'], 'hosted')
-        self.assertIn('paybridgenp.com', payin['success_response']['checkout_url'])
-        self.assertNotIn('/api/deposit/paybridge/qr/', payin['success_response']['checkout_url'])
+        self.assertEqual(payin['success_response']['mode'], 'direct_qr')
+        self.assertIn('/api/deposit/paybridge/qr/', payin['success_response']['checkout_url'])
+        self.assertNotIn('checkout.paybridgenp.com', payin['success_response']['checkout_url'])
         self.assertNotIn('himalpay', payin['success_response']['checkout_url'].lower())
 
     @patch('core.services.app_config.get_app_config', return_value={
@@ -933,34 +928,30 @@ class ApiPayinTests(TestCase):
     })
     @patch('core.services.paybridgenp.PayBridgeNPAPI.create_checkout')
     @patch('core.services.paybridgenp.PayBridgeNPAPI.create_fonepay_qr')
-    def test_default_payin_uses_hosted_checkout_not_direct_qr(self, mock_qr, mock_checkout, _cfg):
-        """Default Payin must mint PayBridge hosted checkout (method picker), not Direct-QR."""
-        mock_checkout.return_value = {
-            'id': 'cs_default_hosted_1',
-            'checkout_url': 'https://checkout.paybridgenp.com/checkout/cs_default_hosted_1',
-            'flow': 'hosted',
+    def test_default_payin_opens_mysewa_qr_page(self, mock_qr, mock_checkout, _cfg):
+        """Default Payin opens MySewa's QR page with PayBridge's Fonepay image."""
+        mock_qr.return_value = {
+            'id': 'cs_default_qr_1',
+            'qr_image': 'data:image/png;base64,LIVE',
+            'qr_message': 'LIVE-QR',
             'expires_at': None,
         }
         self._auth()
         res = self.client.post(
             self.payin_url,
-            {'receiver': self.receiver.phone, 'amount': 100, 'reference': 'PAYIN-DEFAULT-HOSTED'},
+            {'receiver': self.receiver.phone, 'amount': 100, 'reference': 'PAYIN-DEFAULT-QR'},
             format='json',
         )
         self.assertEqual(res.status_code, 201, res.content)
         body = res.json()
-        self.assertEqual(body['mode'], 'hosted')
-        mock_checkout.assert_called_once()
-        mock_qr.assert_not_called()
-        kwargs = mock_checkout.call_args.kwargs
-        self.assertEqual(kwargs.get('flow'), 'hosted')
-        self.assertFalse(kwargs.get('provider'))
+        self.assertEqual(body['mode'], 'direct_qr')
+        mock_qr.assert_called_once()
+        mock_checkout.assert_not_called()
         payment_url = body.get('payment_url') or ''
-        self.assertEqual(
-            payment_url,
-            'https://checkout.paybridgenp.com/checkout/cs_default_hosted_1',
-        )
-        self.assertNotIn('/api/deposit/paybridge/qr/', payment_url)
+        self.assertIn('/api/deposit/paybridge/qr/', payment_url)
+        self.assertIn('order=', payment_url)
+        self.assertNotIn('checkout.paybridgenp.com', payment_url)
+        self.assertEqual(body.get('qr_image'), 'data:image/png;base64,LIVE')
 
     def test_return_not_found_is_public_html(self):
         bare = APIClient()
@@ -977,7 +968,7 @@ class ApiPayinTests(TestCase):
         'integrations': {},
     })
     def test_default_payin_opens_hosted_checkout_url(self, _cfg):
-        """Default Payin payment_url is PayBridge hosted checkout, not MySewa QR page."""
+        """Default Payin payment_url is MySewa's QR page, not PayBridge checkout."""
         self._auth()
         created = self.client.post(
             self.payin_url,
@@ -986,14 +977,14 @@ class ApiPayinTests(TestCase):
         )
         self.assertEqual(created.status_code, 201, created.content)
         body = created.json()
-        self.assertEqual(body['mode'], 'hosted')
+        self.assertEqual(body['mode'], 'direct_qr')
         payment_url = body.get('payment_url') or ''
-        self.assertTrue(payment_url)
-        self.assertNotIn('/api/deposit/paybridge/qr/', payment_url)
+        self.assertIn('/api/deposit/paybridge/qr/', payment_url)
+        self.assertIn('order=', payment_url)
+        self.assertNotIn('checkout.paybridgenp.com', payment_url)
         deposit = Deposit.objects.get(pk=body['deposit_id'])
-        self.assertNotIn('/api/deposit/paybridge/qr/', deposit.payment_url or '')
-        # Bypass checkout_url is derived from return_url, not the QR page.
-        self.assertIn('session_id=', payment_url)
+        self.assertIn('/api/deposit/paybridge/qr/', deposit.payment_url or '')
+        self.assertTrue(body.get('qr_image'))
 
     def test_qr_page_not_found_is_public_html(self):
         bare = APIClient()
@@ -1037,6 +1028,8 @@ class ApiPayinTests(TestCase):
         )
         html = page.content.decode('utf-8')
         self.assertEqual(page.status_code, 200)
+        self.assertFalse(page.get('Location'))
+        self.assertNotIn('checkout.paybridgenp.com', html)
         self.assertIn('भुक्तानी गर्न स्क्यान गर्नुहोस्', html)
         self.assertIn('data:image/png;base64,LIVEQR', html)
         self.assertIn('NPR ४७.५०', html)
