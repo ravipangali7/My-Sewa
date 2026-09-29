@@ -1229,45 +1229,68 @@ _QR_PAGE_METHODS = """
 """
 
 _QR_PAGE_INSTRUCTIONS = """
-<section class="instructions">
-  <div class="ins-head">
-    <h2>Payment Instructions | भुक्तानी सम्बन्धी सूचना</h2>
-    <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="2.5" y="5" width="19" height="14" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <path d="M3 9.5h18" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <path d="M6.5 15h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+<section class="instructions" aria-label="Payment Instructions">
+  <div class="ins-banner">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M3 9.5h18" fill="none" stroke="currentColor" stroke-width="1.7"/>
     </svg>
+    <h2>Payment Instructions | भुक्तानी सम्बन्धी सूचना</h2>
   </div>
-  <ul>
-    <li>
-      <span class="en">Pay only the amount shown on the QR Code.</span>
-      <span class="np">QR Code मा देखाइएको रकम मात्र भुक्तानी गर्नुहोस्।</span>
-    </li>
-    <li>
-      <span class="en">This QR Code is valid for one payment only.</span>
-      <span class="np">यो QR Code एकपटकको भुक्तानीका लागि मात्र मान्य हुनेछ।</span>
-    </li>
-    <li>
-      <span class="en">After successful payment, the QR Code will be automatically deactivated.</span>
-      <span class="np">भुक्तानी सफल भएपछि QR Code स्वतः निष्क्रिय हुनेछ।</span>
-    </li>
-    <li>
-      <span class="en">For another payment, please generate a new QR Code.</span>
-      <span class="np">पुनः भुक्तानी गर्न नयाँ QR Code Generate गर्नुहोस्।</span>
-    </li>
-    <li>
-      <span class="en">Please do not make duplicate payments.</span>
-      <span class="np">एउटै QR Code मा दोहोर्याएर भुक्तानी नगर्नुहोस्।</span>
-    </li>
-    <li>
-      <span class="en">Thank you for your patience and cooperation.</span>
-      <span class="np">तपाईंको धैर्यता र सहयोगका लागि धन्यवाद।</span>
-    </li>
-    <li>
+  <div class="notice" role="note">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3.5l9 16H3l9-16z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M12 9.5v4.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <circle cx="12" cy="16.6" r="0.9" fill="currentColor"/>
+    </svg>
+    <p>
       <span class="en">Please keep this page open until your payment is confirmed.</span>
       <span class="np">कृपया भुक्तानी पुष्टि नभएसम्म यो पृष्ठ खुला राख्नुहोस्।</span>
+    </p>
+  </div>
+  <ol class="steps">
+    <li>
+      <span class="num">1</span>
+      <p>
+        <span class="en">Pay only the amount shown on the QR Code.</span>
+        <span class="np">QR Code मा देखाइएको रकम मात्र भुक्तानी गर्नुहोस्।</span>
+      </p>
     </li>
-  </ul>
+    <li>
+      <span class="num">2</span>
+      <p>
+        <span class="en">This QR Code is valid for one payment only.</span>
+        <span class="np">यो QR Code एकपटकको भुक्तानीका लागि मात्र मान्य हुनेछ।</span>
+      </p>
+    </li>
+    <li>
+      <span class="num">3</span>
+      <p>
+        <span class="en">After successful payment, the QR Code will be automatically deactivated.</span>
+        <span class="np">भुक्तानी सफल भएपछि QR Code स्वतः निष्क्रिय हुनेछ।</span>
+      </p>
+    </li>
+    <li>
+      <span class="num">4</span>
+      <p>
+        <span class="en">For another payment, please generate a new QR Code.</span>
+        <span class="np">पुनः भुक्तानी गर्न नयाँ QR Code Generate गर्नुहोस्।</span>
+      </p>
+    </li>
+    <li>
+      <span class="num">5</span>
+      <p>
+        <span class="en">Please do not make duplicate payments.</span>
+        <span class="np">एउटै QR Code मा दोहोर्याएर भुक्तानी नगर्नुहोस्।</span>
+      </p>
+    </li>
+  </ol>
+  <div class="thanks">
+    <p>
+      <span class="en">Thank you for your patience and cooperation.</span>
+      <span class="np">तपाईंको धैर्यता र सहयोगका लागि धन्यवाद।</span>
+    </p>
+  </div>
 </section>
 """
 
@@ -1313,10 +1336,11 @@ h1 {
 }
 .qr { display: flex; justify-content: center; margin: 8px 0 2px; }
 .qr img {
-  width: min(100%, 320px);
+  width: min(100%, 300px);
   height: auto;
   display: block;
   background: #fff;
+  padding: 8px;
 }
 .qr.placeholder {
   width: min(100%, 320px);
@@ -1349,26 +1373,19 @@ h1 {
   overflow-wrap: anywhere;
 }
 .extra strong { color: #18181b; font-weight: 700; }
-.wait {
-  margin: 8px 0 0;
-  text-align: center;
-  font-size: 0.82rem;
-  color: #71717a;
-}
-.methods, .instructions {
+.methods {
   margin-top: 16px;
   border: 1px solid #e6e6e6;
   border-radius: 16px;
   padding: 12px 12px 10px;
 }
-.methods h2, .instructions h2 {
+.methods h2 {
   margin: 0;
   font-size: 1.02rem;
   font-weight: 700;
   line-height: 1.35;
   color: #111;
 }
-.instructions h2 { font-size: 0.92rem; }
 .method-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1424,18 +1441,77 @@ h1 {
 }
 .mark.esewa { border-radius: 50%; background: #60bb46; font-family: Georgia, serif; }
 .mark.khalti { border-radius: 8px; background: #5c2d91; font-family: Arial, Helvetica, sans-serif; }
-.ins-head {
+.instructions { margin-top: 18px; }
+.ins-banner {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 10px;
-  margin-bottom: 8px;
+  background: #1d4ed8;
+  color: #fff;
+  border-radius: 6px;
+  padding: 11px 14px;
 }
-.card-icon { width: 26px; height: 26px; flex: none; color: #18181b; }
-.instructions ul { margin: 0; padding: 0 0 2px 1.15rem; }
-.instructions li { margin: 0 0 11px; font-size: 0.86rem; line-height: 1.45; }
-.instructions .en { display: block; font-weight: 700; color: #18181b; }
-.instructions .np { display: block; color: #3f3f46; }
+.ins-banner svg { width: 22px; height: 22px; flex: none; color: #f5c542; }
+.ins-banner h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: left;
+}
+.notice, .thanks {
+  margin-top: 12px;
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.notice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: #fff6db;
+  border: 1px solid #f3d7a1;
+  border-left: 4px solid #e39b12;
+  color: #9a6412;
+}
+.notice svg { width: 18px; height: 18px; flex: none; margin-top: 2px; }
+.notice p, .thanks p, .steps p { margin: 0; }
+.notice .en, .thanks .en, .steps .en { display: block; font-weight: 700; }
+.notice .np, .thanks .np, .steps .np {
+  display: block;
+  font-weight: 500;
+  margin-top: 2px;
+}
+.steps {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.steps li {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 8px;
+  align-items: start;
+  background: #f7f7f8;
+  border: 1px solid #e7e7ea;
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+.steps .num { font-weight: 700; color: #3f3f46; font-size: 0.95rem; line-height: 1.4; }
+.steps .en { color: #18181b; font-size: 0.92rem; line-height: 1.4; }
+.steps .np { color: #52525b; font-size: 0.84rem; line-height: 1.45; }
+.thanks {
+  background: #eefbf3;
+  border: 1px solid #b7ebc9;
+  border-left: 4px solid #22a55a;
+  color: #17803f;
+  text-align: center;
+}
 .badge {
   width: 68px;
   height: 68px;
@@ -1479,6 +1555,7 @@ h1 {
 }
 @media (min-width: 720px) {
   .wrap { align-items: center; padding: 28px 16px; }
+  .card { max-width: 520px; padding: 28px 22px 20px; }
 }
 """
 
@@ -1716,7 +1793,6 @@ def api_payin_qr_page_response(
             + qr_block
             + amount_html
             + order_html
-            + '<p class="wait" role="status">भुक्तानी पुष्टि हुन बाँकी छ</p>'
             + _QR_PAGE_METHODS
             + _QR_PAGE_INSTRUCTIONS
             + action
