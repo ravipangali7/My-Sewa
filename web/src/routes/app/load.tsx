@@ -570,8 +570,8 @@ function LoadWallet() {
                             : d.transaction_id
                               ? `${t("common.txnId")}: ${d.transaction_id}`
                               : t("common.noNote")}
-                        {d.purchase_order_identifier
-                          ? ` · ${d.purchase_order_identifier}`
+                        {d.client_reference
+                          ? ` · ${t("load.referenceId")}: ${d.client_reference}`
                           : d.deposit_date
                             ? ` · ${formatDate(d.deposit_date)}`
                             : ""}

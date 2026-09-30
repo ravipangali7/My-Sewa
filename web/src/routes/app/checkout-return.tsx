@@ -142,9 +142,9 @@ function CheckoutReturnPage() {
               <span className="text-muted-foreground">{t("common.status")}</span>
               <StatusChip status={deposit.status} />
             </div>
-            {deposit.purchase_order_identifier ? (
+            {deposit.client_reference ? (
               <p className="break-all text-[13px] text-muted-foreground">
-                {t("load.checkoutOrder")}: {deposit.purchase_order_identifier}
+                {t("load.referenceId")}: {deposit.client_reference}
               </p>
             ) : null}
             {deposit.process_id ? (

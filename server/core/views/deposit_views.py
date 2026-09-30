@@ -5,7 +5,10 @@ PayBridgeNP initiate/refresh are disabled for the MySewa app. Games and partners
 create PayBridge deposits only via POST /api/v1/payin/. Return, webhook, verify,
 and status endpoints remain for settlement of API (and any legacy app) deposits.
 """
+import threading
+
 from django.core.cache import cache
+from django.db import connection
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 from rest_framework import status
@@ -564,20 +567,50 @@ def _paybridge_result_url(request, deposit, order: str = '') -> str:
     )
 
 
+def _schedule_payin_webhook(deposit_id: int) -> None:
+    """Send the partner callback without holding the browser response.
+
+    The settlement is already committed on a normal request, so the callback
+    runs after the redirect is sent. TestCase keeps the whole test in one
+    transaction that a worker thread cannot see, so that path delivers inline.
+    """
+    def _deliver():
+        from ..services.api_payin_webhook import deliver_developer_payin_webhook
+        row = Deposit.objects.filter(pk=deposit_id).first()
+        if row is None or row.developer_webhook_delivered_at:
+            return
+        deliver_developer_payin_webhook(row, timeout=3)
+
+    if connection.in_atomic_block:
+        try:
+            _deliver()
+        except Exception:
+            logger.exception('payin webhook failed deposit=%s', deposit_id)
+        return
+
+    def _run():
+        from django.db import close_old_connections
+        close_old_connections()
+        try:
+            _deliver()
+        except Exception:
+            logger.exception('payin webhook failed deposit=%s', deposit_id)
+        finally:
+            close_old_connections()
+
+    threading.Thread(
+        target=_run,
+        name=f'payin-webhook-{deposit_id}',
+        daemon=True,
+    ).start()
+
+
 def _notify_api_payin_if_approved(deposit) -> None:
     if deposit.status != Deposit.STATUS_APPROVED or deposit.source != Deposit.SOURCE_API:
         return
-    try:
-        from ..services.api_payin_webhook import deliver_developer_payin_webhook
-        # The partner callback must not hold the browser. A slow webhook URL
-        # used to sit on this redirect; the PayBridge webhook already delivers
-        # the same event with the full timeout.
-        deliver_developer_payin_webhook(deposit, timeout=3)
-    except Exception:
-        logger.exception(
-            'paybridge_qr_page developer webhook failed deposit=%s',
-            deposit.pk,
-        )
+    if getattr(deposit, 'developer_webhook_delivered_at', None):
+        return
+    _schedule_payin_webhook(deposit.pk)
 
 
 def _load_page_qr_image(deposit, seconds_left: int) -> str:
@@ -795,14 +828,7 @@ def paybridge_return(request):
     if deposit.source == Deposit.SOURCE_API:
         # Safety net: always attempt developer callback when approved on return.
         if deposit.status == Deposit.STATUS_APPROVED:
-            try:
-                from ..services.api_payin_webhook import deliver_developer_payin_webhook
-                deliver_developer_payin_webhook(deposit, timeout=3)
-            except Exception:
-                logger.exception(
-                    'paybridge_return developer webhook failed deposit=%s',
-                    deposit.pk,
-                )
+            _notify_api_payin_if_approved(deposit)
 
             # Browser return is separate from webhook (never open the webhook API).
             partner_url = pb.developer_payin_browser_return_url(deposit)

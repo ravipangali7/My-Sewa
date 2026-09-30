@@ -1149,12 +1149,10 @@ def api_payin_public_return_response(
 
     status_value = ''
     amount = ''
-    order_id = ''
     reference = ''
     if deposit is not None:
         status_value = str(deposit.status or '')
         amount = str(deposit.amount or '')
-        order_id = str(deposit.purchase_order_identifier or '')
         reference = str(deposit.client_reference or '')
 
     if error == 'not_found' or deposit is None:
@@ -1212,10 +1210,8 @@ def api_payin_public_return_response(
     rows = []
     if amount:
         rows.append(f'<p><span>Amount</span><strong>NPR {escape(amount)}</strong></p>')
-    if order_id:
-        rows.append(f'<p><span>Order</span><strong>{escape(order_id)}</strong></p>')
     if reference:
-        rows.append(f'<p><span>Reference</span><strong>{escape(reference)}</strong></p>')
+        rows.append(f'<p><span>Reference ID</span><strong>{escape(reference)}</strong></p>')
     if status_value:
         rows.append(f'<p><span>Status</span><strong>{escape(status_value)}</strong></p>')
     details_html = '\n'.join(rows)
@@ -1797,12 +1793,12 @@ def _qr_page_amount_line(currency: str, amount_display: str) -> str:
 def _qr_page_order_lines(order_id: str, reference: str) -> str:
     from django.utils.html import escape
 
-    lines = []
-    if order_id:
-        lines.append(f'<p class="extra"><strong>अर्डर:</strong> {escape(order_id)}</p>')
-    if reference and reference != order_id:
-        lines.append(f'<p class="extra"><strong>सन्दर्भ:</strong> {escape(reference)}</p>')
-    return ''.join(lines)
+    # The internal order id stays in the URL and the database. The page shows
+    # only the customer's reference.
+    del order_id
+    if not reference:
+        return ''
+    return f'<p class="extra"><strong>Reference ID:</strong> {escape(reference)}</p>'
 
 
 def _new_qr_action_html(deposit: Optional[Deposit], refresh_url: str, *, can_refresh: bool) -> str:

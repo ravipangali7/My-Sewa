@@ -1295,7 +1295,7 @@ class DepositSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'user', 'user_id', 'phone', 'first_name', 'last_name',
             'amount', 'currency', 'status', 'status_display',
-            'provider', 'purchase_order_identifier', 'process_id',
+            'provider', 'purchase_order_identifier', 'client_reference', 'process_id',
             'payment_url', 'expires_at', 'completed_at',
             'verification_status', 'verified_amount', 'failure_reason',
             'transaction_id', 'deposit_date', 'bank_name',
@@ -1305,7 +1305,7 @@ class DepositSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             'id', 'user', 'status', 'rejection_reason',
-            'provider', 'purchase_order_identifier', 'process_id',
+            'provider', 'purchase_order_identifier', 'client_reference', 'process_id',
             'payment_url', 'expires_at', 'completed_at',
             'verification_status', 'verified_amount', 'failure_reason',
             'currency',

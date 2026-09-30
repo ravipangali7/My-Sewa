@@ -677,7 +677,9 @@ class ApiPayinTests(TestCase):
         self.assertNotIn(ret.status_code, (301, 302, 303, 307, 308))
         html = ret.content.decode('utf-8')
         self.assertIn('Payment Successful', html)
-        self.assertIn(order_id, html)
+        self.assertIn('Reference ID', html)
+        self.assertIn('LUCKY-RET-1', html)
+        self.assertNotIn(order_id, html)
         self.assertNotIn('/app/paybridge-return', html)
         location = ret.get('Location') or ''
         self.assertNotIn('/app/paybridge-return', location)
@@ -722,9 +724,51 @@ class ApiPayinTests(TestCase):
 
         ret = APIClient().get(reverse('deposit_paybridge_return'), {'order': order_id})
         self.assertEqual(ret.status_code, 200, ret.content)
-        self.assertIn('Payment Successful', ret.content.decode('utf-8'))
+        html = ret.content.decode('utf-8')
+        self.assertIn('Payment Successful', html)
+        self.assertIn('Reference ID', html)
+        self.assertIn('LUCKY-FAST-RETURN', html)
+        self.assertNotIn(order_id, html)
         mock_session.assert_not_called()
         mock_payment.assert_not_called()
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.get_payment')
+    @patch('core.services.notifications.notify_deposit_approved')
+    def test_settling_return_does_not_wait_for_approval_email(self, mock_notify, mock_get_payment, _cfg):
+        """Approval email uses a 30s SMTP timeout and must not hold the return."""
+        mock_notify.side_effect = lambda *args, **kwargs: time.sleep(30)
+        self._auth()
+        created = self.client.post(
+            self.payin_url,
+            {'receiver': self.receiver.phone, 'amount': 100, 'reference': 'LUCKY-NO-WAIT'},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        deposit = Deposit.objects.get(pk=created.json()['deposit_id'])
+        order_id = deposit.purchase_order_identifier
+        mock_get_payment.return_value = {
+            'id': 'pay_no_wait',
+            'status': 'success',
+            'amount': 10000,
+            'currency': 'NPR',
+            'metadata': {'orderId': order_id, 'depositId': str(deposit.pk)},
+        }
+        started = time.monotonic()
+        ret = APIClient().get(
+            reverse('deposit_paybridge_return'),
+            {'order': order_id, 'payment_id': 'pay_no_wait'},
+        )
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 3, 'return waited on the approval email')
+        self.assertEqual(ret.status_code, 200, ret.content)
+        deposit.refresh_from_db()
+        self.assertEqual(deposit.status, Deposit.STATUS_APPROVED)
+        self.assertEqual(Wallet.objects.get(user=self.receiver).balance, Decimal('100.00'))
+        mock_notify.assert_not_called()
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
@@ -936,6 +980,8 @@ class ApiPayinTests(TestCase):
         html = ret.content.decode('utf-8')
         self.assertIn('Please wait', html)
         self.assertIn('Your transaction is being processed...', html)
+        self.assertIn('Reference ID', html)
+        self.assertIn('LUCKY-RET-PEND', html)
         self.assertNotIn('http-equiv="refresh"', html)
         self.assertNotIn('/app/paybridge-return', html)
 
@@ -1078,8 +1124,10 @@ class ApiPayinTests(TestCase):
         self.assertIn('भुक्तानी गर्न स्क्यान गर्नुहोस्', html)
         self.assertIn('data:image/png;base64,LIVEQR', html)
         self.assertIn('NPR ४७.५०', html)
-        self.assertIn('MS-PB-PAGE-47', html)
+        self.assertIn('Reference ID:', html)
         self.assertIn('PAGE-REF-47', html)
+        self.assertNotIn('अर्डर:', html)
+        self.assertNotIn('<span>Order</span>', html)
         self.assertIn('Pay only the amount shown on the QR Code.', html)
         self.assertIn('Fonepay', html)
         self.assertIn('eSewa', html)

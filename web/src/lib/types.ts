@@ -511,6 +511,7 @@ export interface Deposit {
   status_display: string;
   provider?: DepositProvider;
   purchase_order_identifier?: string | null;
+  client_reference?: string | null;
   process_id?: string | null;
   payment_url?: string;
   checkout_details?: {

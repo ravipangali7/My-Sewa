@@ -863,6 +863,7 @@ export const messages = {
     "load.checkoutPending": "Waiting for payment…",
     "load.checkoutNotPaid": "Payment was not completed",
     "load.checkoutOrder": "Order ID",
+    "load.referenceId": "Reference ID",
     "load.checkoutTxn": "PayBridgeNP session ID",
     "load.checkoutVerifyNote":
       "Wallet credit is confirmed by PayBridgeNP on our server — not by this screen alone.",
@@ -2247,6 +2248,7 @@ export const messages = {
     "load.checkoutPending": "भुक्तानीको प्रतीक्षा…",
     "load.checkoutNotPaid": "भुक्तानी पूरा भएन",
     "load.checkoutOrder": "अर्डर आईडी",
+    "load.referenceId": "रेफरेन्स आईडी",
     "load.checkoutTxn": "PayBridgeNP सेसन आईडी",
     "load.checkoutVerifyNote":
       "वालेट क्रेडिट हाम्रो सर्भरमा PayBridgeNP पुष्टिबाट हुन्छ — यो स्क्रिनबाट मात्र होइन।",
