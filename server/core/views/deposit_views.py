@@ -5,10 +5,9 @@ PayBridgeNP initiate/refresh are disabled for the MySewa app. Games and partners
 create PayBridge deposits only via POST /api/v1/payin/. Return, webhook, verify,
 and status endpoints remain for settlement of API (and any legacy app) deposits.
 """
-import threading
+import time
 
 from django.core.cache import cache
-from django.db import connection
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 from rest_framework import status
@@ -568,41 +567,9 @@ def _paybridge_result_url(request, deposit, order: str = '') -> str:
 
 
 def _schedule_payin_webhook(deposit_id: int) -> None:
-    """Send the partner callback without holding the browser response.
-
-    The settlement is already committed on a normal request, so the callback
-    runs after the redirect is sent. TestCase keeps the whole test in one
-    transaction that a worker thread cannot see, so that path delivers inline.
-    """
-    def _deliver():
-        from ..services.api_payin_webhook import deliver_developer_payin_webhook
-        row = Deposit.objects.filter(pk=deposit_id).first()
-        if row is None or row.developer_webhook_delivered_at:
-            return
-        deliver_developer_payin_webhook(row, timeout=3)
-
-    if connection.in_atomic_block:
-        try:
-            _deliver()
-        except Exception:
-            logger.exception('payin webhook failed deposit=%s', deposit_id)
-        return
-
-    def _run():
-        from django.db import close_old_connections
-        close_old_connections()
-        try:
-            _deliver()
-        except Exception:
-            logger.exception('payin webhook failed deposit=%s', deposit_id)
-        finally:
-            close_old_connections()
-
-    threading.Thread(
-        target=_run,
-        name=f'payin-webhook-{deposit_id}',
-        daemon=True,
-    ).start()
+    """Send the partner callback without holding the browser response."""
+    from ..services.api_payin_webhook import schedule_developer_payin_webhook
+    schedule_developer_payin_webhook(deposit_id)
 
 
 def _notify_api_payin_if_approved(deposit) -> None:
@@ -787,19 +754,26 @@ def paybridge_return(request):
         or ''
     )
     payment_id = request.query_params.get('payment_id') or ''
+    started = time.perf_counter()
 
     deposit = pb.lookup_paybridge_deposit(
         order_id=order,
         session_id=session_id,
         payment_id=payment_id,
     )
+    logger.info(
+        '[PAYMENT_RETURN] database lookup: %.0f ms',
+        (time.perf_counter() - started) * 1000,
+    )
     if deposit is None:
         # Prefer a public page over /app/paybridge-return (which requires login).
         return pb.api_payin_public_return_response(error='not_found')
 
     # Already settled by the webhook or the QR status check. Do not call
-    # PayBridge again — that 60s request was cut off at the 30s worker limit.
+    # PayBridge again — that request uses a 60s client timeout and a slow
+    # provider response held the browser for the full wait (~40s).
     if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+        verify_started = time.perf_counter()
         try:
             pb.verify_deposit(
                 deposit,
@@ -812,6 +786,12 @@ def paybridge_return(request):
             pass
         except Exception:
             logger.exception('paybridge_return verify failed deposit=%s', deposit.pk)
+        logger.info(
+            '[PAYMENT_RETURN] payment verification: %.0f ms',
+            (time.perf_counter() - verify_started) * 1000,
+        )
+    else:
+        logger.info('[PAYMENT_RETURN] payment verification: skipped, already %s', deposit.status)
 
     try:
         deposit = (
@@ -833,6 +813,10 @@ def paybridge_return(request):
             # Browser return is separate from webhook (never open the webhook API).
             partner_url = pb.developer_payin_browser_return_url(deposit)
             if partner_url:
+                logger.info(
+                    '[PAYMENT_RETURN] response ready: %.0f ms',
+                    (time.perf_counter() - started) * 1000,
+                )
                 return HttpResponseRedirect(partner_url)
 
         refresh = request.build_absolute_uri()
@@ -842,6 +826,10 @@ def paybridge_return(request):
                 request.build_absolute_uri(reverse('deposit_paybridge_qr_status')),
                 order=deposit.purchase_order_identifier or order,
             )
+        logger.info(
+            '[PAYMENT_RETURN] response ready: %.0f ms',
+            (time.perf_counter() - started) * 1000,
+        )
         return pb.api_payin_public_return_response(
             deposit,
             refresh_url=refresh,

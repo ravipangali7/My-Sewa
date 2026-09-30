@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
@@ -697,40 +698,33 @@ def execute_api_payin_status(request) -> Response:
         )
 
     if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
-        public = None
-        payload = deposit.provider_payload if isinstance(deposit.provider_payload, dict) else {}
-        mode = str(payload.get('mode') or '').strip()
-        payment_url = (deposit.payment_url or '').strip()
-        is_direct_qr = mode == 'direct_qr' or (
-            isinstance(payload.get('qr'), dict)
-            and (
-                not payment_url
-                or '/api/deposit/paybridge/qr/' in payment_url
-            )
-        )
-        if is_direct_qr:
-            try:
-                from .paybridge_deposit import refresh_paybridge_qr
-                public = refresh_paybridge_qr(deposit)
-                deposit.refresh_from_db()
-            except Exception:
-                logger.exception(
-                    'API payin status QR refresh failed deposit=%s', deposit.pk,
-                )
+        # One short status read. The default PayBridge client timeout is 60s;
+        # a provider that answers at ~40s held this whole request that long.
+        # Do not refresh the QR here — that was a second unbounded PayBridge call.
+        from .paybridge_deposit import QR_PAGE_UPSTREAM_TIMEOUT
+        started = time.perf_counter()
         try:
-            verify_deposit(deposit)
+            verify_deposit(
+                deposit,
+                upstream_timeout=QR_PAGE_UPSTREAM_TIMEOUT,
+                notify=False,
+            )
             deposit.refresh_from_db()
         except Exception:
             logger.exception('API payin status soft-verify failed deposit=%s', deposit.pk)
+        logger.info(
+            '[PAYMENT_RETURN] payin status verify deposit=%s status=%s: %.0f ms',
+            deposit.pk,
+            deposit.status,
+            (time.perf_counter() - started) * 1000,
+        )
+        if deposit.status == Deposit.STATUS_APPROVED:
+            from .api_payin_webhook import schedule_developer_payin_webhook
+            schedule_developer_payin_webhook(deposit.pk)
 
-        # After settle, omit stale QR; while pending, prefer refreshed QR payload.
         if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
             return Response(
-                _success_payload(
-                    deposit,
-                    deposit.client_reference or reference,
-                    public,
-                ),
+                _success_payload(deposit, deposit.client_reference or reference),
                 status=status.HTTP_200_OK,
             )
 

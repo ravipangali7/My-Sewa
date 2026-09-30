@@ -370,6 +370,52 @@ class ApiPayinTests(TestCase):
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
         'integrations': {},
+    })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.refresh_fonepay_qr')
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.get_payment')
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.get_session')
+    def test_status_uses_short_provider_timeout_not_the_60s_default(
+        self, mock_session, mock_payment, mock_refresh, _cfg,
+    ):
+        """A PayBridge reply at 40s must not hold GET /payin/status for 40s.
+
+        The client default timeout is 60s. This endpoint used to call PayBridge
+        with that default, so a provider response at 40s blocked the caller
+        for 40.00s. Status may make one short read only, and must not refresh
+        the QR on the same request.
+        """
+        from core.services.paybridge_deposit import QR_PAGE_UPSTREAM_TIMEOUT
+
+        mock_session.return_value = {
+            'id': 'cs_status_timeout',
+            'status': 'pending',
+            'paymentId': None,
+        }
+        self._auth()
+        created = self.client.post(
+            self.payin_url,
+            {'receiver': self.receiver.phone, 'amount': 100, 'reference': 'STAT-TIMEOUT'},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        mock_session.reset_mock()
+        mock_payment.reset_mock()
+        mock_refresh.reset_mock()
+
+        started = time.perf_counter()
+        status_res = self.client.get(self.status_url, {'reference': 'STAT-TIMEOUT'})
+        elapsed = time.perf_counter() - started
+        self.assertEqual(status_res.status_code, 200, status_res.content)
+        self.assertLess(elapsed, 3)
+        self.assertEqual(status_res.json()['status'], 'PENDING')
+        mock_refresh.assert_not_called()
+        mock_payment.assert_not_called()
+        self.assertTrue(mock_session.called)
+        self.assertEqual(mock_session.call_args.kwargs.get('timeout'), QR_PAGE_UPSTREAM_TIMEOUT)
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
         'transactions': {'min_transfer': 10, 'max_transfer': 100000},
     })
     def test_payout_fund_transfer_still_works(self, _cfg):

@@ -306,6 +306,46 @@ def deliver_developer_payin_webhook(
     }
 
 
+def schedule_developer_payin_webhook(deposit_id: int, *, timeout: int = 3) -> None:
+    """POST the partner callback without holding the browser or status response.
+
+    TestCase wraps the test in a transaction a worker thread cannot see, so
+    that path delivers inline. A normal request has already committed.
+    """
+    import threading
+
+    from django.db import connection
+
+    def _deliver():
+        row = Deposit.objects.filter(pk=deposit_id).first()
+        if row is None or row.developer_webhook_delivered_at:
+            return
+        deliver_developer_payin_webhook(row, timeout=timeout)
+
+    if connection.in_atomic_block:
+        try:
+            _deliver()
+        except Exception:
+            logger.exception('payin webhook failed deposit=%s', deposit_id)
+        return
+
+    def _run():
+        from django.db import close_old_connections
+        close_old_connections()
+        try:
+            _deliver()
+        except Exception:
+            logger.exception('payin webhook failed deposit=%s', deposit_id)
+        finally:
+            close_old_connections()
+
+    threading.Thread(
+        target=_run,
+        name=f'payin-webhook-{deposit_id}',
+        daemon=True,
+    ).start()
+
+
 def notify_developer_after_settle(outcome: str, deposit: Optional[Deposit]) -> None:
     """
     After PayBridgeNP settle (or idempotent already_processed), notify the developer.
