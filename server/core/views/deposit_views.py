@@ -468,7 +468,10 @@ def paybridge_verify(request):
     if deposit is None:
         return Response({'error': 'Deposit not found'}, status=status.HTTP_404_NOT_FOUND)
     try:
-        outcome, deposit = pb.verify_deposit(deposit)
+        outcome, deposit = pb.verify_deposit(
+            deposit,
+            upstream_timeout=pb.QR_PAGE_UPSTREAM_TIMEOUT,
+        )
     except PayBridgeError as exc:
         return _paybridge_error(exc)
     return _paybridge_verify_response(request, outcome, deposit)
@@ -490,7 +493,10 @@ def paybridge_status(request, deposit_id):
     # Soft poll provider while still open (does not trust client).
     if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
         try:
-            _, deposit = pb.verify_deposit(deposit)
+            _, deposit = pb.verify_deposit(
+                deposit,
+                upstream_timeout=pb.QR_PAGE_UPSTREAM_TIMEOUT,
+            )
         except PayBridgeError:
             pass
         except Exception:
@@ -563,7 +569,10 @@ def _notify_api_payin_if_approved(deposit) -> None:
         return
     try:
         from ..services.api_payin_webhook import deliver_developer_payin_webhook
-        deliver_developer_payin_webhook(deposit)
+        # The partner callback must not hold the browser. A slow webhook URL
+        # used to sit on this redirect; the PayBridge webhook already delivers
+        # the same event with the full timeout.
+        deliver_developer_payin_webhook(deposit, timeout=3)
     except Exception:
         logger.exception(
             'paybridge_qr_page developer webhook failed deposit=%s',
@@ -657,7 +666,6 @@ def paybridge_qr_status(request):
         pass
 
     if deposit.status == Deposit.STATUS_APPROVED:
-        _notify_api_payin_if_approved(deposit)
         return Response({
             'state': 'approved',
             'redirect_url': _paybridge_result_url(request, deposit, order),
@@ -684,7 +692,11 @@ def paybridge_qr_status(request):
         got_lock = True
     if got_lock:
         try:
-            pb.verify_deposit(deposit, upstream_timeout=pb.QR_PAGE_UPSTREAM_TIMEOUT)
+            pb.verify_deposit(
+                deposit,
+                upstream_timeout=pb.QR_PAGE_UPSTREAM_TIMEOUT,
+                notify=False,
+            )
             deposit.refresh_from_db()
         except Exception:
             logger.exception('paybridge_qr_status verify failed deposit=%s', deposit.pk)
@@ -695,7 +707,6 @@ def paybridge_qr_status(request):
                 pass
 
     if deposit.status == Deposit.STATUS_APPROVED:
-        _notify_api_payin_if_approved(deposit)
         return Response({
             'state': 'approved',
             'redirect_url': _paybridge_result_url(request, deposit, order),
@@ -753,16 +764,21 @@ def paybridge_return(request):
         # Prefer a public page over /app/paybridge-return (which requires login).
         return pb.api_payin_public_return_response(error='not_found')
 
-    try:
-        pb.verify_deposit(
-            deposit,
-            payment_id=payment_id,
-            session_id=session_id,
-        )
-    except PayBridgeError:
-        pass
-    except Exception:
-        logger.exception('paybridge_return verify failed deposit=%s', deposit.pk)
+    # Already settled by the webhook or the QR status check. Do not call
+    # PayBridge again — that 60s request was cut off at the 30s worker limit.
+    if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+        try:
+            pb.verify_deposit(
+                deposit,
+                payment_id=payment_id,
+                session_id=session_id,
+                upstream_timeout=pb.QR_PAGE_UPSTREAM_TIMEOUT,
+                notify=False,
+            )
+        except PayBridgeError:
+            pass
+        except Exception:
+            logger.exception('paybridge_return verify failed deposit=%s', deposit.pk)
 
     try:
         deposit = (
@@ -781,7 +797,7 @@ def paybridge_return(request):
         if deposit.status == Deposit.STATUS_APPROVED:
             try:
                 from ..services.api_payin_webhook import deliver_developer_payin_webhook
-                deliver_developer_payin_webhook(deposit)
+                deliver_developer_payin_webhook(deposit, timeout=3)
             except Exception:
                 logger.exception(
                     'paybridge_return developer webhook failed deposit=%s',
@@ -794,7 +810,17 @@ def paybridge_return(request):
                 return HttpResponseRedirect(partner_url)
 
         refresh = request.build_absolute_uri()
-        return pb.api_payin_public_return_response(deposit, refresh_url=refresh)
+        status_url = ''
+        if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+            status_url = pb.append_query(
+                request.build_absolute_uri(reverse('deposit_paybridge_qr_status')),
+                order=deposit.purchase_order_identifier or order,
+            )
+        return pb.api_payin_public_return_response(
+            deposit,
+            refresh_url=refresh,
+            status_url=status_url,
+        )
 
     return HttpResponseRedirect(
         pb.frontend_result_url(

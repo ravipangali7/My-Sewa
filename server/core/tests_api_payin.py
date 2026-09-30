@@ -687,6 +687,49 @@ class ApiPayinTests(TestCase):
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
         'integrations': {},
     })
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.get_payment')
+    @patch('core.services.paybridgenp.PayBridgeNPAPI.get_session')
+    def test_settled_return_skips_another_provider_check(self, mock_session, mock_payment, _cfg):
+        """Once the webhook has settled the deposit, the browser return must not call PayBridge again."""
+        self._auth()
+        created = self.client.post(
+            self.payin_url,
+            {'receiver': self.receiver.phone, 'amount': 100, 'reference': 'LUCKY-FAST-RETURN'},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        deposit = Deposit.objects.get(pk=created.json()['deposit_id'])
+        order_id = deposit.purchase_order_identifier
+        payment = {
+            'id': 'pay_fast_return_1',
+            'status': 'success',
+            'amount': 10000,
+            'currency': 'NPR',
+            'metadata': {'orderId': order_id, 'depositId': str(deposit.pk)},
+        }
+        body = json.dumps({'type': 'payment.succeeded', 'data': payment})
+        wh = self.client.post(
+            reverse('webhooks_paybridgenp'),
+            data=body,
+            content_type='application/json',
+            HTTP_X_PAYBRIDGENP_SIGNATURE=_sign(body, 'whsec_unit_test'),
+        )
+        self.assertEqual(wh.status_code, 200, wh.content)
+        deposit.refresh_from_db()
+        self.assertEqual(deposit.status, Deposit.STATUS_APPROVED)
+        mock_session.reset_mock()
+        mock_payment.reset_mock()
+
+        ret = APIClient().get(reverse('deposit_paybridge_return'), {'order': order_id})
+        self.assertEqual(ret.status_code, 200, ret.content)
+        self.assertIn('Payment Successful', ret.content.decode('utf-8'))
+        mock_session.assert_not_called()
+        mock_payment.assert_not_called()
+
+    @patch('core.services.app_config.get_app_config', return_value={
+        'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
+        'integrations': {},
+    })
     @patch('core.services.api_payin_webhook.requests.post')
     def test_api_payin_return_posts_webhook_without_browser_to_webhook(self, mock_post, _cfg):
         """
@@ -891,7 +934,9 @@ class ApiPayinTests(TestCase):
         )
         self.assertEqual(ret.status_code, 200, ret.content)
         html = ret.content.decode('utf-8')
-        self.assertIn('Payment pending', html)
+        self.assertIn('Please wait', html)
+        self.assertIn('Your transaction is being processed...', html)
+        self.assertNotIn('http-equiv="refresh"', html)
         self.assertNotIn('/app/paybridge-return', html)
 
     @override_settings(FRONTEND_URL='https://app.mysewa.test')

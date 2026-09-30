@@ -127,6 +127,7 @@ def deliver_developer_payin_webhook(
     deposit: Deposit,
     *,
     force: bool = False,
+    timeout: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     POST the Payin result to deposit.initiated_by's saved api_webhook_url.
@@ -223,7 +224,7 @@ def deliver_developer_payin_webhook(
                 'X-MySewa-Deposit-Id': str(deposit.pk),
                 'X-MySewa-Reference': str(payload.get('reference') or ''),
             },
-            timeout=DELIVERY_TIMEOUT_SEC,
+            timeout=DELIVERY_TIMEOUT_SEC if timeout is None else timeout,
         )
         http_status = int(resp.status_code)
         response_text = (resp.text or '')[:MAX_RESPONSE_STORE]

@@ -833,6 +833,7 @@ def verify_deposit(
     payment_id: str = '',
     session_id: str = '',
     upstream_timeout=None,
+    notify: bool = True,
 ) -> Tuple[str, Deposit]:
     """
     Fetch session/payment from PayBridgeNP and settle. Idempotent.
@@ -843,6 +844,15 @@ def verify_deposit(
     """
     if deposit.provider != PROVIDER:
         raise PayBridgeError('Not a PayBridgeNP deposit', status_code=400)
+
+    # The browser return used to call PayBridge again even after the webhook
+    # had already settled the deposit. That request used the 60s client timeout
+    # and the worker was killed at 30s, so the user sat on a stuck navigation.
+    if deposit.status == Deposit.STATUS_APPROVED:
+        if notify:
+            from .api_payin_webhook import notify_developer_after_settle
+            notify_developer_after_settle(ALREADY_PROCESSED, deposit)
+        return ALREADY_PROCESSED, deposit
 
     client = PayBridgeNPAPI()
     override_payment = (payment_id or '').strip()
@@ -889,8 +899,9 @@ def verify_deposit(
                     return FAILED_PAYMENT, locked
             # Already credited (e.g. webhook beat return) — still surface for notify/redirect.
             if deposit.status == Deposit.STATUS_APPROVED:
-                from .api_payin_webhook import notify_developer_after_settle
-                notify_developer_after_settle(ALREADY_PROCESSED, deposit)
+                if notify:
+                    from .api_payin_webhook import notify_developer_after_settle
+                    notify_developer_after_settle(ALREADY_PROCESSED, deposit)
                 return ALREADY_PROCESSED, deposit
             return PENDING_PAYMENT, deposit
     else:
@@ -902,8 +913,9 @@ def verify_deposit(
                 'user', 'initiated_by',
             ).get(pk=deposit.pk)
             outcome, locked = settle_from_payment(locked, payment)
-        from .api_payin_webhook import notify_developer_after_settle
-        notify_developer_after_settle(outcome, locked)
+        if notify:
+            from .api_payin_webhook import notify_developer_after_settle
+            notify_developer_after_settle(outcome, locked)
         return outcome, locked
     except WalletFrozenError as exc:
         raise PayBridgeError(exc.message or WALLET_FROZEN_MESSAGE, status_code=403) from exc
@@ -1119,6 +1131,7 @@ def api_payin_public_return_response(
     *,
     error: str = '',
     refresh_url: str = '',
+    status_url: str = '',
 ):
     """
     Public HTML result for Payin API (e.g. Lucky777) return from PayBridgeNP.
@@ -1158,10 +1171,11 @@ def api_payin_public_return_response(
         tone = '#15803d'
         auto_refresh = False
     elif status_value in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
-        headline = 'Payment pending'
-        detail = 'We are confirming your payment. This page will refresh automatically.'
+        headline = 'Please wait'
+        detail = 'Your transaction is being processed...'
         tone = '#a16207'
-        auto_refresh = True
+        # A full reload here called PayBridge again. The page polls status instead.
+        auto_refresh = False
     elif status_value == Deposit.STATUS_EXPIRED:
         headline = 'Payment Failed – QR Expired'
         detail = 'This QR is no longer valid. Please generate a new QR to pay.'
@@ -1205,6 +1219,23 @@ def api_payin_public_return_response(
     if status_value:
         rows.append(f'<p><span>Status</span><strong>{escape(status_value)}</strong></p>')
     details_html = '\n'.join(rows)
+    spinner_html = ''
+    if status_value in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+        spinner_html = '<div class="spinner" aria-hidden="true"></div>'
+    status_poll = ''
+    if status_url and status_value in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
+        import json
+        status_poll = (
+            '<script>(function(){var url=' + json.dumps(status_url) + ';'
+            'function tick(){fetch(url,{credentials:"same-origin",cache:"no-store"})'
+            '.then(function(r){if(!r.ok)throw new Error("status");return r.json();})'
+            '.then(function(data){if(data&&data.state==="approved"){'
+            'window.location.replace(data.redirect_url||window.location.href);return;}'
+            'if(data&&(data.state==="expired"||data.state==="failed"||data.state==="cancelled"'
+            '||data.state==="rejected"||data.state==="refunded")){window.location.reload();return;}'
+            'setTimeout(tick,4000);}).catch(function(){setTimeout(tick,4000);});}'
+            'setTimeout(tick,4000);})();</script>'
+        )
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1226,17 +1257,22 @@ def api_payin_public_return_response(
     .meta span {{ color:#64748b; }}
     .meta strong {{ text-align:right; word-break:break-all; }}
     .hint {{ margin:18px 0 0; font-size:.8rem; color:#94a3b8; }}
+    .spinner {{ width:28px; height:28px; margin:0 auto 14px; border:3px solid #e2e8f0;
+      border-top-color:#a16207; border-radius:50%; animation:spin .8s linear infinite; }}
+    @keyframes spin {{ to {{ transform:rotate(360deg); }} }}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
+      {spinner_html}
       <h1>{escape(headline)}</h1>
       <p class="lead">{escape(detail)}</p>
       <div class="meta">{details_html}</div>
       <p class="hint">You can close this page and return to the game.</p>
     </div>
   </div>
+  {status_poll}
 </body>
 </html>"""
     return HttpResponse(html, content_type='text/html; charset=utf-8')
@@ -1626,6 +1662,36 @@ h1 {
   line-height: 1.45;
   color: #52525b;
 }
+.wait-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(12, 23, 48, 0.72);
+}
+.wait-overlay.show { display: flex; }
+.wait-card {
+  width: min(100%, 320px);
+  background: #fff;
+  border-radius: 18px;
+  padding: 22px 18px 18px;
+  text-align: center;
+}
+.wait-card h2 { margin: 0; font-size: 1.25rem; }
+.wait-card p { margin: 6px 0 0; color: #52525b; font-size: 0.95rem; }
+.spinner {
+  width: 28px;
+  height: 28px;
+  margin: 0 auto 12px;
+  border: 3px solid #e4e4e7;
+  border-top-color: #111;
+  border-radius: 50%;
+  animation: pay-spin 0.8s linear infinite;
+}
+@keyframes pay-spin { to { transform: rotate(360deg); } }
 @media (min-width: 720px) {
   .wrap { align-items: center; padding: 28px 16px; }
   .card { max-width: 520px; padding: 28px 22px 20px; }
@@ -1783,10 +1849,16 @@ def _qr_status_poll_script(status_url: str) -> str:
 
     url_js = json.dumps(status_url)
     return (
+        '<div class="wait-overlay" id="pay-wait" role="status" aria-live="polite">'
+        '<div class="wait-card"><div class="spinner" aria-hidden="true"></div>'
+        '<h2>Please wait</h2><p>Your transaction is being processed...</p></div></div>'
         '<script>(function(){var url=' + url_js + ';'
+        'function showWait(){var el=document.getElementById("pay-wait");'
+        'if(el)el.className="wait-overlay show";}'
         'function tick(){fetch(url,{credentials:"same-origin",cache:"no-store"})'
         '.then(function(r){if(!r.ok)throw new Error("status");return r.json();})'
-        '.then(function(data){if(data&&data.redirect_url){window.location.replace(data.redirect_url);return;}'
+        '.then(function(data){if(data&&data.redirect_url){showWait();'
+        'window.location.replace(data.redirect_url);return;}'
         'if(data&&(data.state==="expired"||data.state==="failed"||data.state==="inactive"'
         '||data.state==="cancelled"||data.state==="refunded")){window.location.reload();return;}'
         'setTimeout(tick,4000);})'
