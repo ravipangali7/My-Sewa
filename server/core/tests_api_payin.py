@@ -1107,14 +1107,49 @@ class ApiPayinTests(TestCase):
             qr_message='LIVE-PAYLOAD-DO-NOT-PRINT',
             refresh_url='https://example.test/qr?order=MS-PB-PAGE-47',
             seconds_left=120,
+            status_url='https://example.test/api/deposit/paybridge/qr/status/?order=MS-PB-PAGE-47',
         )
         html = page.content.decode('utf-8')
         self.assertIn('02:00', html)
         self.assertIn('id="qr-timer"', html)
         self.assertIn('data-remaining="120"', html)
-        self.assertIn('http-equiv="refresh"', html)
+        self.assertNotIn('http-equiv="refresh"', html)
+        self.assertIn('/api/deposit/paybridge/qr/status/', html)
         self.assertIn('data:image/png;base64,LIVEQR', html)
         self.assertNotIn('LIVE-PAYLOAD-DO-NOT-PRINT', html)
+
+    @patch('core.services.paybridge_deposit.PayBridgeNPAPI.refresh_fonepay_qr')
+    def test_qr_page_uses_cached_image_without_blocking_on_paybridge(self, mock_refresh):
+        from core.services.paybridge_deposit import remember_qr_image
+
+        deposit = self._qr_page_deposit(
+            purchase_order_identifier='MS-PB-PAGE-CACHED',
+            process_id='cs_page_cached',
+        )
+        remember_qr_image(deposit, 'data:image/png;base64,CACHEDQR')
+        page = APIClient().get(
+            reverse('deposit_paybridge_qr'),
+            {'order': 'MS-PB-PAGE-CACHED'},
+        )
+        html = page.content.decode('utf-8')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('data:image/png;base64,CACHEDQR', html)
+        self.assertNotIn('http-equiv="refresh"', html)
+        self.assertIn('/api/deposit/paybridge/qr/status/', html)
+        self.assertIn('02:00', html)
+        mock_refresh.assert_not_called()
+
+    def test_qr_status_reports_pending_without_reloading_the_page(self):
+        self._qr_page_deposit()
+        page = APIClient().get(
+            reverse('deposit_paybridge_qr_status'),
+            {'order': 'MS-PB-PAGE-47'},
+        )
+        self.assertEqual(page.status_code, 200)
+        body = page.json()
+        self.assertEqual(body['state'], 'pending')
+        self.assertGreater(body['seconds_left'], 0)
+        self.assertNotIn('redirect_url', body)
 
     def test_qr_page_countdown_expiry_stops_polling_without_api_error(self):
         from core.services.paybridge_deposit import api_payin_qr_page_response

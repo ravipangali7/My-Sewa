@@ -22,6 +22,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple
 
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -571,8 +572,10 @@ def create_paybridge_deposit(
         except IntegrityError:
             other = Deposit.objects.filter(process_id=session_id).first()
             if other:
+                remember_qr_image(other, qr.get('qr_image') or '')
                 return other, public_deposit_dict(other, include_qr=True)
             raise PayBridgeError('Could not save PayBridgeNP deposit.', status_code=502)
+        remember_qr_image(deposit, qr.get('qr_image') or '')
         return deposit, _public_with_live_qr(deposit, qr)
 
     checkout_url = _assert_paybridge_checkout_url(str(session.get('checkout_url') or ''))
@@ -607,7 +610,33 @@ def create_paybridge_deposit(
     return deposit, public_deposit_dict(deposit, include_qr=True)
 
 
-def refresh_paybridge_qr(deposit: Deposit) -> Dict[str, Any]:
+def _qr_image_cache_key(deposit: Deposit) -> str:
+    order = str(deposit.purchase_order_identifier or '').strip()
+    return f'pb-qr-img:{deposit.pk}:{order}'
+
+
+def remember_qr_image(deposit: Deposit, image: str) -> None:
+    """Keep the provider image for the QR page without writing it into the deposit row."""
+    image = str(image or '').strip()
+    if not image or len(image) > 2_000_000 or getattr(deposit, 'pk', None) is None:
+        return
+    try:
+        cache.set(_qr_image_cache_key(deposit), image, QR_IMAGE_CACHE_SECONDS)
+    except Exception:
+        logger.exception('Could not cache PayBridge QR image deposit=%s', deposit.pk)
+
+
+def remembered_qr_image(deposit: Deposit) -> str:
+    if getattr(deposit, 'pk', None) is None:
+        return ''
+    try:
+        return str(cache.get(_qr_image_cache_key(deposit)) or '').strip()
+    except Exception:
+        logger.exception('Could not read cached PayBridge QR image deposit=%s', deposit.pk)
+        return ''
+
+
+def refresh_paybridge_qr(deposit: Deposit, *, upstream_timeout=None) -> Dict[str, Any]:
     """Refresh the Fonepay QR display window for an in-app Direct-QR deposit."""
     if deposit.provider != PROVIDER:
         raise PayBridgeError('Not a PayBridgeNP deposit', status_code=400)
@@ -621,7 +650,7 @@ def refresh_paybridge_qr(deposit: Deposit) -> Dict[str, Any]:
         raise PayBridgeError('This deposit has no refreshable in-app QR', status_code=400)
 
     client = PayBridgeNPAPI()
-    session = client.refresh_fonepay_qr(session_id)
+    session = client.refresh_fonepay_qr(session_id, timeout=upstream_timeout)
     qr = _qr_fields(session)
     deposit.expires_at = _parse_expires_at(session.get('expires_at') or session.get('expiresAt'))
     existing_customer = payload.get('customer') if isinstance(payload.get('customer'), dict) else None
@@ -632,6 +661,7 @@ def refresh_paybridge_qr(deposit: Deposit) -> Dict[str, Any]:
         merged['partner_return_url'] = str(payload.get('partner_return_url')).strip()[:500]
         deposit.provider_payload = merged
     deposit.save(update_fields=['expires_at', 'provider_payload', 'updated_at'])
+    remember_qr_image(deposit, qr.get('qr_image') or '')
     return _public_with_live_qr(deposit, qr)
 
 
@@ -802,6 +832,7 @@ def verify_deposit(
     *,
     payment_id: str = '',
     session_id: str = '',
+    upstream_timeout=None,
 ) -> Tuple[str, Deposit]:
     """
     Fetch session/payment from PayBridgeNP and settle. Idempotent.
@@ -830,13 +861,13 @@ def verify_deposit(
     payment: Dict[str, Any] = {}
 
     if resolved_payment.startswith('pay_'):
-        payment = client.get_payment(resolved_payment)
+        payment = client.get_payment(resolved_payment, timeout=upstream_timeout)
     elif resolved_session:
-        session = client.get_session(resolved_session)
+        session = client.get_session(resolved_session, timeout=upstream_timeout)
         session_status = str(session.get('status') or '').strip().lower()
         resolved_payment = str(session.get('paymentId') or session.get('payment_id') or '').strip()
         if resolved_payment:
-            payment = client.get_payment(resolved_payment)
+            payment = client.get_payment(resolved_payment, timeout=upstream_timeout)
         else:
             # Map session-only terminal states
             if session_status == 'expired':
@@ -1224,6 +1255,13 @@ _QR_PAGE_INACTIVE = (
 # Customer-facing QR window. The page counts down from this and stops
 # polling when it reaches zero. Payment creation and settlement stay the same.
 QR_COUNTDOWN_SECONDS = 120
+
+# The public QR page used to call PayBridge with the 60s client timeout, then
+# reloaded itself every 4 seconds. Gunicorn's worker timeout is 30s, so the
+# worker was killed mid-request and browsers showed ERR_CONNECTION_ABORTED.
+# Page and status calls use a short connect/read budget instead.
+QR_PAGE_UPSTREAM_TIMEOUT = (3, 5)
+QR_IMAGE_CACHE_SECONDS = 180
 
 # Fonepay, eSewa, and Khalti are the providers this PayBridge QR flow already supports.
 _QR_PAGE_METHODS = """
@@ -1739,6 +1777,32 @@ def _qr_status_icon(kind: str) -> str:
     )
 
 
+def _qr_status_poll_script(status_url: str) -> str:
+    """Poll payment status without reloading the document or calling PayBridge refresh."""
+    import json
+
+    url_js = json.dumps(status_url)
+    return (
+        '<script>(function(){var url=' + url_js + ';'
+        'function tick(){fetch(url,{credentials:"same-origin",cache:"no-store"})'
+        '.then(function(r){if(!r.ok)throw new Error("status");return r.json();})'
+        '.then(function(data){if(data&&data.redirect_url){window.location.replace(data.redirect_url);return;}'
+        'if(data&&(data.state==="expired"||data.state==="failed"||data.state==="inactive"'
+        '||data.state==="cancelled"||data.state==="refunded")){window.location.reload();return;}'
+        'setTimeout(tick,4000);})'
+        '.catch(function(){setTimeout(tick,4000);});}'
+        'setTimeout(tick,4000);})();</script>'
+    )
+
+
+def _qr_image_retry_script() -> str:
+    return (
+        '<script>(function(){try{if(sessionStorage.getItem("mysewa-qr-retry"))return;'
+        'sessionStorage.setItem("mysewa-qr-retry","1");}catch(e){return;}'
+        'setTimeout(function(){window.location.reload();},2000);})();</script>'
+    )
+
+
 def _countdown_html(seconds_left: int) -> str:
     remaining = max(0, int(seconds_left))
     label = _format_countdown(remaining)
@@ -1764,6 +1828,7 @@ def api_payin_qr_page_response(
     qr_message: str = '',
     refresh_url: str = '',
     seconds_left: Optional[int] = None,
+    status_url: str = '',
 ):
     """
     Public HTML page that shows the live Fonepay Direct-QR immediately.
@@ -1800,7 +1865,11 @@ def api_payin_qr_page_response(
     if seconds_left is None and deposit is not None and open_status:
         seconds_left = qr_page_seconds_left(deposit)
 
-    if error == 'not_found' or deposit is None:
+    if error == 'unavailable':
+        state = 'unavailable'
+        auto_refresh = False
+        show_qr = False
+    elif error == 'not_found' or deposit is None:
         state = 'missing'
         auto_refresh = False
         show_qr = False
@@ -1823,15 +1892,30 @@ def api_payin_qr_page_response(
         auto_refresh = True
         show_qr = bool(safe_src)
 
-    refresh_meta = (
-        f'<meta http-equiv="refresh" content="4;url={escape(refresh_url)}">'
-        if auto_refresh and refresh_url
-        else ''
-    )
+    # Do not meta-refresh the document. That re-entered the PayBridge calls
+    # and the browser showed ERR_CONNECTION_ABORTED when the worker was killed.
+    refresh_meta = ''
+    status_poll = _qr_status_poll_script(status_url) if auto_refresh and status_url else ''
     amount_html = _qr_page_amount_line(currency, amount_display)
     order_html = _qr_page_order_lines(order_id, reference)
 
-    if state == 'missing':
+    if state == 'unavailable':
+        title = 'Please try again'
+        retry = ''
+        if refresh_url:
+            retry = f'<p class="detail"><a class="btn" href="{escape(refresh_url)}">Try again</a></p>'
+        body = (
+            '<div class="badge bad" aria-hidden="true">'
+            '<svg viewBox="0 0 24 24" width="34" height="34"><circle cx="12" cy="12" r="9" fill="none" '
+            'stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5v5.2" fill="none" '
+            'stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
+            '<circle cx="12" cy="16.2" r="1" fill="currentColor"/></svg></div>'
+            '<h1>Please try again</h1>'
+            '<p class="lead">यो भुक्तानी पृष्ठ अहिले खुल्न सकेन।</p>'
+            '<p class="detail">The payment page could not be opened just now. Please try again.</p>'
+            + retry
+        )
+    elif state == 'missing':
         title = 'Payment not found'
         body = (
             '<div class="badge bad" aria-hidden="true">'
@@ -1898,7 +1982,7 @@ def api_payin_qr_page_response(
             action = ''
         else:
             qr_block = '<div class="qr placeholder" role="status">QR तयार हुँदैछ…</div>'
-            action = _new_qr_action_html(deposit, refresh_url, can_refresh=True)
+            action = _qr_image_retry_script() + _new_qr_action_html(deposit, refresh_url, can_refresh=True)
         body = (
             '<h1>भुक्तानी गर्न स्क्यान गर्नुहोस्</h1>'
             '<p class="lead">कुनै पनि समर्थित बैंकिङ वा भुक्तानी एप मार्फत यो QR स्क्यान गर्नुहोस्। '
@@ -1910,6 +1994,7 @@ def api_payin_qr_page_response(
             + _QR_PAGE_METHODS
             + _QR_PAGE_INSTRUCTIONS
             + action
+            + status_poll
         )
 
     html = (
@@ -1928,7 +2013,9 @@ def api_payin_qr_page_response(
         + body
         + '\n</article>\n</div>\n</body>\n</html>'
     )
-    return HttpResponse(html, content_type='text/html; charset=utf-8')
+    response = HttpResponse(html, content_type='text/html; charset=utf-8')
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 def process_raw_webhook(raw_body: str, signature_header: str) -> Tuple[str, Optional[Deposit]]:

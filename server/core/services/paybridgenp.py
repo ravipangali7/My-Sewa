@@ -224,6 +224,7 @@ class PayBridgeNPAPI:
         payload: Optional[Dict] = None,
         *,
         idempotency_key: str = '',
+        timeout: Optional[Any] = None,
     ) -> Dict[str, Any]:
         if not self.api_key:
             raise PayBridgeError(
@@ -238,7 +239,7 @@ class PayBridgeNPAPI:
                 url,
                 headers=self._headers(idempotency_key),
                 json=payload if payload is not None else None,
-                timeout=self.timeout,
+                timeout=self.timeout if timeout is None else timeout,
             )
         except requests.RequestException as exc:
             logger.exception('PayBridgeNP network error %s %s', method, path)
@@ -434,7 +435,7 @@ class PayBridgeNPAPI:
             )
         return data
 
-    def refresh_fonepay_qr(self, session_id: str) -> Dict[str, Any]:
+    def refresh_fonepay_qr(self, session_id: str, *, timeout: Optional[Any] = None) -> Dict[str, Any]:
         """Refresh the ~3-minute Fonepay QR display window for an existing session."""
         session_id = (session_id or '').strip()
         if not session_id:
@@ -458,7 +459,7 @@ class PayBridgeNPAPI:
                 'expires_at': None,
                 'livemode': False,
             }
-        data = self._request('POST', QR_REFRESH_PATH.format(id=session_id), {})
+        data = self._request('POST', QR_REFRESH_PATH.format(id=session_id), {}, timeout=timeout)
         if not isinstance(data, dict) or not str(data.get('id') or '').strip():
             raise PayBridgeError(
                 'PayBridgeNP did not return a refreshed QR.',
@@ -467,7 +468,7 @@ class PayBridgeNPAPI:
             )
         return data
 
-    def get_session(self, session_id: str) -> Dict[str, Any]:
+    def get_session(self, session_id: str, *, timeout: Optional[Any] = None) -> Dict[str, Any]:
         session_id = (session_id or '').strip()
         if not session_id:
             raise PayBridgeError('session_id is required', status_code=400)
@@ -479,9 +480,9 @@ class PayBridgeNPAPI:
                 'amount': 0,
                 'currency': 'NPR',
             }
-        return self._request('GET', SESSION_PATH.format(id=session_id))
+        return self._request('GET', SESSION_PATH.format(id=session_id), timeout=timeout)
 
-    def get_payment(self, payment_id: str) -> Dict[str, Any]:
+    def get_payment(self, payment_id: str, *, timeout: Optional[Any] = None) -> Dict[str, Any]:
         payment_id = (payment_id or '').strip()
         if not payment_id:
             raise PayBridgeError('payment_id is required', status_code=400)
@@ -492,7 +493,7 @@ class PayBridgeNPAPI:
                 'amount': 0,
                 'currency': 'NPR',
             }
-        return self._request('GET', PAYMENT_PATH.format(id=payment_id))
+        return self._request('GET', PAYMENT_PATH.format(id=payment_id), timeout=timeout)
 
 
 def to_paisa(amount) -> int:
