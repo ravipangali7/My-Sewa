@@ -1088,7 +1088,7 @@ class ApiPayinTests(TestCase):
             refresh_url='https://example.test/qr?order=MS-PB-PAGE-EXPIRED',
         )
         html = page.content.decode('utf-8')
-        self.assertIn('QR Code निष्क्रिय भयो', html)
+        self.assertIn('Payment Failed – QR Expired', html)
         self.assertIn('Generate New QR', html)
         self.assertIn('https://game.example/pay', html)
         self.assertIn('success=false', html)
@@ -1096,3 +1096,59 @@ class ApiPayinTests(TestCase):
         self.assertNotIn('DEAD-PAYLOAD', html)
         self.assertNotIn('http-equiv="refresh"', html)
         self.assertNotIn('example.test/qr', html)
+
+    def test_qr_page_countdown_starts_at_two_minutes(self):
+        from core.services.paybridge_deposit import api_payin_qr_page_response
+
+        deposit = self._qr_page_deposit()
+        page = api_payin_qr_page_response(
+            deposit,
+            qr_image='data:image/png;base64,LIVEQR',
+            qr_message='LIVE-PAYLOAD-DO-NOT-PRINT',
+            refresh_url='https://example.test/qr?order=MS-PB-PAGE-47',
+            seconds_left=120,
+        )
+        html = page.content.decode('utf-8')
+        self.assertIn('02:00', html)
+        self.assertIn('id="qr-timer"', html)
+        self.assertIn('data-remaining="120"', html)
+        self.assertIn('http-equiv="refresh"', html)
+        self.assertIn('data:image/png;base64,LIVEQR', html)
+        self.assertNotIn('LIVE-PAYLOAD-DO-NOT-PRINT', html)
+
+    def test_qr_page_countdown_expiry_stops_polling_without_api_error(self):
+        from core.services.paybridge_deposit import api_payin_qr_page_response
+
+        deposit = self._qr_page_deposit(
+            failure_reason='PayBridgeError: upstream timeout 502 {"raw":"000201"}',
+        )
+        page = api_payin_qr_page_response(
+            deposit,
+            qr_image='data:image/png;base64,DEADQR',
+            qr_message='DEAD-PAYLOAD',
+            refresh_url='https://example.test/qr?order=MS-PB-PAGE-47',
+            seconds_left=0,
+        )
+        html = page.content.decode('utf-8')
+        self.assertIn('Payment Failed – QR Expired', html)
+        self.assertNotIn('http-equiv="refresh"', html)
+        self.assertNotIn('DEADQR', html)
+        self.assertNotIn('DEAD-PAYLOAD', html)
+        self.assertNotIn('PayBridgeError', html)
+        self.assertNotIn('upstream timeout', html)
+        self.assertNotIn('000201', html)
+
+    @patch('core.services.api_payin_webhook.deliver_developer_payin_webhook')
+    def test_qr_page_redirects_when_payment_is_confirmed(self, mock_hook):
+        deposit = self._qr_page_deposit()
+        Deposit.objects.filter(pk=deposit.pk).update(status=Deposit.STATUS_APPROVED)
+        page = APIClient().get(
+            reverse('deposit_paybridge_qr'),
+            {'order': 'MS-PB-PAGE-47'},
+        )
+        self.assertEqual(page.status_code, 302)
+        location = page['Location']
+        self.assertIn('/api/deposit/paybridge/return/', location)
+        self.assertIn('order=MS-PB-PAGE-47', location)
+        self.assertNotIn('checkout.paybridgenp.com', location)
+        mock_hook.assert_called_once()

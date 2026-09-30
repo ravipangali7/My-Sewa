@@ -16,7 +16,9 @@ Never credit from return-URL query params alone.
 from __future__ import annotations
 
 import logging
+import math
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple
 
@@ -1129,16 +1131,26 @@ def api_payin_public_return_response(
         detail = 'We are confirming your payment. This page will refresh automatically.'
         tone = '#a16207'
         auto_refresh = True
+    elif status_value == Deposit.STATUS_EXPIRED:
+        headline = 'Payment Failed – QR Expired'
+        detail = 'This QR is no longer valid. Please generate a new QR to pay.'
+        tone = '#b91c1c'
+        auto_refresh = False
     elif status_value in (
         Deposit.STATUS_FAILED,
         Deposit.STATUS_CANCELLED,
-        Deposit.STATUS_EXPIRED,
         Deposit.STATUS_REJECTED,
         Deposit.STATUS_REFUNDED,
     ):
-        headline = 'Payment not completed'
-        reason = str(getattr(deposit, 'failure_reason', '') or '').strip()
-        detail = reason or 'The payment was not successful. You can return to the game and try again.'
+        if status_value == Deposit.STATUS_REFUNDED:
+            headline = 'Payment Refunded'
+            detail = 'This payment was refunded. You can return to the game.'
+        elif status_value == Deposit.STATUS_CANCELLED:
+            headline = 'Payment Cancelled'
+            detail = 'This payment was cancelled. You can return to the game and try again.'
+        else:
+            headline = 'Payment Failed'
+            detail = 'The payment was not successful. You can return to the game and try again.'
         tone = '#b91c1c'
         auto_refresh = False
     else:
@@ -1208,6 +1220,10 @@ _QR_PAGE_INACTIVE = (
     Deposit.STATUS_REJECTED,
     Deposit.STATUS_REFUNDED,
 )
+
+# Customer-facing QR window. The page counts down from this and stops
+# polling when it reaches zero. Payment creation and settlement stay the same.
+QR_COUNTDOWN_SECONDS = 120
 
 # Fonepay, eSewa, and Khalti are the providers this PayBridge QR flow already supports.
 _QR_PAGE_METHODS = """
@@ -1365,6 +1381,23 @@ h1 {
   font-weight: 800;
   letter-spacing: 0.01em;
   color: #111;
+}
+.timer-label {
+  margin: 16px 0 0;
+  text-align: center;
+  color: #52525b;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.timer {
+  margin: 2px 0 0;
+  text-align: center;
+  color: #111;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
 }
 .extra {
   margin: 4px 0 0;
@@ -1562,6 +1595,39 @@ h1 {
 """
 
 
+def qr_page_seconds_left(deposit) -> int:
+    """Seconds left on the 02:00 QR countdown, anchored to the deposit."""
+    from django.utils import timezone
+
+    now = timezone.now()
+    created = getattr(deposit, 'created_at', None)
+    deadline = None
+    if created is not None:
+        if timezone.is_naive(created):
+            created = timezone.make_aware(created, timezone.get_current_timezone())
+        deadline = created + timedelta(seconds=QR_COUNTDOWN_SECONDS)
+    expires = getattr(deposit, 'expires_at', None)
+    if expires is not None:
+        if timezone.is_naive(expires):
+            expires = timezone.make_aware(expires, timezone.get_current_timezone())
+        if deadline is None or expires < deadline:
+            deadline = expires
+    if deadline is None:
+        return QR_COUNTDOWN_SECONDS
+    remaining = math.ceil((deadline - now).total_seconds())
+    if remaining < 0:
+        return 0
+    if remaining > QR_COUNTDOWN_SECONDS:
+        return QR_COUNTDOWN_SECONDS
+    return remaining
+
+
+def _format_countdown(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    minutes, secs = divmod(seconds, 60)
+    return f'{minutes:02d}:{secs:02d}'
+
+
 def _format_display_amount(amount) -> str:
     """Format a deposit amount for the QR page. Never a fixed sample value."""
     if amount is None or amount == '':
@@ -1658,6 +1724,38 @@ def _new_qr_action_html(deposit: Optional[Deposit], refresh_url: str, *, can_ref
     )
 
 
+def _qr_status_icon(kind: str) -> str:
+    if kind == 'ok':
+        return (
+            '<div class="badge ok" aria-hidden="true">'
+            '<svg viewBox="0 0 24 24" width="34" height="34"><path d="M6 12.5l4 4 8-9" fill="none" '
+            'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
+        )
+    return (
+        '<div class="badge bad" aria-hidden="true">'
+        '<svg viewBox="0 0 24 24" width="34" height="34"><circle cx="12" cy="12" r="9" fill="none" '
+        'stroke="currentColor" stroke-width="1.8"/><path d="M8 8l8 8M16 8l-8 8" fill="none" '
+        'stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>'
+    )
+
+
+def _countdown_html(seconds_left: int) -> str:
+    remaining = max(0, int(seconds_left))
+    label = _format_countdown(remaining)
+    return (
+        '<p class="timer-label">Time remaining</p>'
+        f'<p class="timer" id="qr-timer" data-remaining="{remaining}" role="timer" '
+        f'aria-live="polite">{label}</p>'
+        '<script>(function(){var el=document.getElementById("qr-timer");if(!el)return;'
+        'var left=parseInt(el.getAttribute("data-remaining")||"0",10);'
+        'if(!isFinite(left)||left<0)left=0;'
+        'function paint(){var m=Math.floor(left/60),s=left%60;'
+        'el.textContent=(m<10?"0":"")+m+":"+(s<10?"0":"")+s;}'
+        'paint();var timer=setInterval(function(){if(left<=1){clearInterval(timer);left=0;paint();'
+        'window.location.reload();return;}left-=1;paint();},1000);})();</script>'
+    )
+
+
 def api_payin_qr_page_response(
     deposit: Optional[Deposit] = None,
     *,
@@ -1665,15 +1763,20 @@ def api_payin_qr_page_response(
     qr_image: str = '',
     qr_message: str = '',
     refresh_url: str = '',
+    seconds_left: Optional[int] = None,
 ):
     """
     Public HTML page that shows the live Fonepay Direct-QR immediately.
 
     Renders qr_image from the payment API only. qr_message is the provider
     payload and is never written into the page or into a new QR.
+    Provider error text is not shown. A finished countdown or a failed
+    payment stops the page refresh.
     """
     from django.http import HttpResponse
     from django.utils.html import escape
+
+    del qr_message  # provider payload; never rendered
 
     if deposit is not None:
         try:
@@ -1693,6 +1796,9 @@ def api_payin_qr_page_response(
             raw_amount = deposit.amount
     amount_display = _format_display_amount(raw_amount)
     safe_src = _safe_qr_src(qr_image)
+    open_status = status_value in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING)
+    if seconds_left is None and deposit is not None and open_status:
+        seconds_left = qr_page_seconds_left(deposit)
 
     if error == 'not_found' or deposit is None:
         state = 'missing'
@@ -1702,6 +1808,12 @@ def api_payin_qr_page_response(
         state = 'success'
         auto_refresh = False
         show_qr = False
+    elif status_value == Deposit.STATUS_EXPIRED or (
+        open_status and seconds_left is not None and int(seconds_left) <= 0
+    ):
+        state = 'expired'
+        auto_refresh = False
+        show_qr = False
     elif status_value in _QR_PAGE_INACTIVE:
         state = 'inactive'
         auto_refresh = False
@@ -1709,10 +1821,7 @@ def api_payin_qr_page_response(
     else:
         state = 'pending'
         auto_refresh = True
-        # Only the API image is scannable. Never draw a QR from qr_message.
         show_qr = bool(safe_src)
-        if qr_message and not safe_src:
-            show_qr = False
 
     refresh_meta = (
         f'<meta http-equiv="refresh" content="4;url={escape(refresh_url)}">'
@@ -1737,10 +1846,8 @@ def api_payin_qr_page_response(
     elif state == 'success':
         title = 'Payment Successful'
         body = (
-            '<div class="badge ok" aria-hidden="true">'
-            '<svg viewBox="0 0 24 24" width="34" height="34"><path d="M6 12.5l4 4 8-9" fill="none" '
-            'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
-            '<h1>भुक्तानी सफल भयो</h1>'
+            _qr_status_icon('ok')
+            + '<h1>भुक्तानी सफल भयो</h1>'
             '<p class="lead">Payment Successful</p>'
             + amount_html
             + order_html
@@ -1748,38 +1855,42 @@ def api_payin_qr_page_response(
             'यही QR वा अर्डरबाट फेरि भुक्तानी गर्न मिल्दैन।</p>'
             '<p class="detail">This payment is confirmed. The QR code is deactivated and cannot be used again.</p>'
         )
+    elif state == 'expired':
+        title = 'Payment Failed – QR Expired'
+        body = (
+            _qr_status_icon('bad')
+            + '<h1>Payment Failed – QR Expired</h1>'
+            '<p class="lead">यो QR को समय सकियो।</p>'
+            '<p class="detail">This QR is no longer valid. Please generate a new QR to pay.</p>'
+            + amount_html
+            + order_html
+            + _new_qr_action_html(deposit, refresh_url, can_refresh=False)
+        )
     elif state == 'inactive':
-        title = 'QR Code निष्क्रिय भयो'
-        reason = str(getattr(deposit, 'failure_reason', '') or '').strip()
-        if reason.lower() in ('', 'expired', 'failed', 'cancelled', 'refunded', 'rejected'):
-            reason_html = ''
-        else:
-            reason_html = f'<p class="detail">{escape(reason)}</p>'
         if status_value == Deposit.STATUS_REFUNDED:
+            title = 'Payment Refunded'
             lead = 'यो भुक्तानी फिर्ता भएको छ।'
             detail = 'This payment was refunded. The QR code can no longer be used.'
         elif status_value == Deposit.STATUS_CANCELLED:
+            title = 'Payment Cancelled'
             lead = 'यो भुक्तानी रद्द भएको छ।'
             detail = 'This payment was cancelled. Generate a new QR for another payment.'
         else:
-            lead = 'यो QR Code निष्क्रिय भएको छ।'
-            detail = 'This QR code has expired and cannot be used for another payment.'
+            title = 'Payment Failed'
+            lead = 'भुक्तानी पूरा हुन सकेन।'
+            detail = 'This payment could not be completed. Please generate a new QR to try again.'
         body = (
-            '<div class="badge bad" aria-hidden="true">'
-            '<svg viewBox="0 0 24 24" width="34" height="34"><circle cx="12" cy="12" r="9" fill="none" '
-            'stroke="currentColor" stroke-width="1.8"/><path d="M8 8l8 8M16 8l-8 8" fill="none" '
-            'stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>'
-            '<h1>QR Code निष्क्रिय भयो</h1>'
+            _qr_status_icon('bad')
+            + f'<h1>{title}</h1>'
             f'<p class="lead">{lead}</p>'
             f'<p class="detail">{detail}</p>'
             + amount_html
             + order_html
-            + reason_html
-            + '<p class="detail">एउटै QR Code मा दोहोर्याएर भुक्तानी नगर्नुहोस्।</p>'
             + _new_qr_action_html(deposit, refresh_url, can_refresh=False)
         )
     else:
         title = 'भुक्तानी गर्न स्क्यान गर्नुहोस्'
+        remaining = QR_COUNTDOWN_SECONDS if seconds_left is None else int(seconds_left)
         if show_qr:
             qr_block = (
                 f'<div class="qr"><img src="{escape(safe_src)}" alt="Payment QR"/></div>'
@@ -1793,6 +1904,7 @@ def api_payin_qr_page_response(
             '<p class="lead">कुनै पनि समर्थित बैंकिङ वा भुक्तानी एप मार्फत यो QR स्क्यान गर्नुहोस्। '
             'यो QR Fonepay र अन्य समर्थित सेवाहरूसँग मिल्दो छ।</p>'
             + qr_block
+            + _countdown_html(remaining)
             + amount_html
             + order_html
             + _QR_PAGE_METHODS

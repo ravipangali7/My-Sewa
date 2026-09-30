@@ -6,6 +6,7 @@ create PayBridge deposits only via POST /api/v1/payin/. Return, webhook, verify,
 and status endpoints remain for settlement of API (and any legacy app) deposits.
 """
 from django.http import HttpResponseRedirect
+from django.urls import reverse
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -534,29 +535,36 @@ def paybridge_qr_page(request):
 
     qr_image = ''
     qr_message = ''
-    if deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING):
-        try:
-            public = pb.refresh_paybridge_qr(deposit)
-            deposit.refresh_from_db()
-            qr_image = str(public.get('qr_image') or '').strip()
-            qr_message = str(public.get('qr_message') or '').strip()
-        except PayBridgeError:
-            pub = pb.public_deposit_dict(deposit, include_qr=True)
-            qr_image = str(pub.get('qr_image') or '').strip()
-            qr_message = str(pub.get('qr_message') or '').strip()
-        except Exception:
-            logger.exception('paybridge_qr_page refresh failed deposit=%s', deposit.pk)
-            pub = pb.public_deposit_dict(deposit, include_qr=True)
-            qr_image = str(pub.get('qr_image') or '').strip()
-            qr_message = str(pub.get('qr_message') or '').strip()
+    seconds_left = None
+    open_status = deposit.status in (Deposit.STATUS_PENDING, Deposit.STATUS_PROCESSING)
+    if open_status:
+        seconds_left = pb.qr_page_seconds_left(deposit)
+        # Keep refreshing the display QR only while the 2-minute window is open.
+        if seconds_left > 0:
+            try:
+                public = pb.refresh_paybridge_qr(deposit)
+                deposit.refresh_from_db()
+                qr_image = str(public.get('qr_image') or '').strip()
+                qr_message = str(public.get('qr_message') or '').strip()
+            except PayBridgeError:
+                pub = pb.public_deposit_dict(deposit, include_qr=True)
+                qr_image = str(pub.get('qr_image') or '').strip()
+                qr_message = str(pub.get('qr_message') or '').strip()
+            except Exception:
+                logger.exception('paybridge_qr_page refresh failed deposit=%s', deposit.pk)
+                pub = pb.public_deposit_dict(deposit, include_qr=True)
+                qr_image = str(pub.get('qr_image') or '').strip()
+                qr_message = str(pub.get('qr_message') or '').strip()
 
         try:
             pb.verify_deposit(deposit)
             deposit.refresh_from_db()
         except Exception:
             pass
+        seconds_left = pb.qr_page_seconds_left(deposit)
 
-        if deposit.status == Deposit.STATUS_APPROVED and deposit.source == Deposit.SOURCE_API:
+    if deposit.status == Deposit.STATUS_APPROVED:
+        if deposit.source == Deposit.SOURCE_API:
             try:
                 from ..services.api_payin_webhook import deliver_developer_payin_webhook
                 deliver_developer_payin_webhook(deposit)
@@ -565,6 +573,12 @@ def paybridge_qr_page(request):
                     'paybridge_qr_page developer webhook failed deposit=%s',
                     deposit.pk,
                 )
+        order_id = deposit.purchase_order_identifier or order
+        target = pb.append_query(
+            request.build_absolute_uri(reverse('deposit_paybridge_return')),
+            order=order_id,
+        )
+        return HttpResponseRedirect(target)
 
     refresh = request.build_absolute_uri()
     return pb.api_payin_qr_page_response(
@@ -572,6 +586,7 @@ def paybridge_qr_page(request):
         qr_image=qr_image,
         qr_message=qr_message,
         refresh_url=refresh,
+        seconds_left=seconds_left,
     )
 
 
