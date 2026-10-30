@@ -22,6 +22,7 @@ from .views import (
     payout_views,
     api_v1_views,
     admin_api_user_views,
+    ggr_views,
 )
 
 urlpatterns = [
@@ -559,4 +560,28 @@ urlpatterns = [
     path('api/admin/statement/before-after/scan/', admin_views.admin_wallet_before_after_scan, name='admin_wallet_before_after_scan'),
     path('api/admin/statement/before-after/<int:issue_id>/', admin_views.admin_wallet_before_after_detail, name='admin_wallet_before_after_detail'),
     path('api/admin/statement/before-after/<int:issue_id>/share/', admin_views.admin_wallet_before_after_share, name='admin_wallet_before_after_share'),
+    # GGR Coin and Payment API endpoints (For is_api_user)
+    path('api/v1/ggr/dashboard/', ggr_views.user_ggr_dashboard, name='user_ggr_dashboard'),
+    path('api/v1/ggr/buy/', ggr_views.user_buy_ggr_coins, name='user_buy_ggr_coins'),
+    path('api/v1/ggr/game-event/', ggr_views.user_game_event, name='user_game_event'),
+    path('api/v1/payment/deposit/', ggr_views.payment_api_deposit, name='payment_api_deposit'),
+    path('api/v1/payment/withdraw/', ggr_views.payment_api_withdraw, name='payment_api_withdraw'),
+
+    # Shareholder and Platform Revenue endpoints
+    path('api/admin/shareholders/dashboard/', ggr_views.admin_shareholder_dashboard, name='admin_shareholder_dashboard'),
+    path('api/admin/shareholders/withdraw/', ggr_views.admin_shareholder_withdraw, name='admin_shareholder_withdraw'),
+    path('api/admin/service-fee-config/', ggr_views.admin_service_fee_config, name='admin_service_fee_config'),
+    path('api/admin/shareholders/settle-monthly-ggr/', ggr_views.admin_settle_monthly_ggr, name='admin_settle_monthly_ggr'),
+    # GGR Coin and Payment API endpoints (For is_api_user)
+    path('api/v1/ggr/dashboard/', ggr_views.user_ggr_dashboard, name='user_ggr_dashboard'),
+    path('api/v1/ggr/buy/', ggr_views.user_buy_ggr_coins, name='user_buy_ggr_coins'),
+    path('api/v1/ggr/game-event/', ggr_views.user_game_event, name='user_game_event'),
+    path('api/v1/payment/deposit/', ggr_views.payment_api_deposit, name='payment_api_deposit'),
+    path('api/v1/payment/withdraw/', ggr_views.payment_api_withdraw, name='payment_api_withdraw'),
+
+    # Shareholder and Platform Revenue endpoints
+    path('api/admin/shareholders/dashboard/', ggr_views.admin_shareholder_dashboard, name='admin_shareholder_dashboard'),
+    path('api/admin/shareholders/withdraw/', ggr_views.admin_shareholder_withdraw, name='admin_shareholder_withdraw'),
+    path('api/admin/service-fee-config/', ggr_views.admin_service_fee_config, name='admin_service_fee_config'),
+    path('api/admin/shareholders/settle-monthly-ggr/', ggr_views.admin_settle_monthly_ggr, name='admin_settle_monthly_ggr'),
 ]

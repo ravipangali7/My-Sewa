@@ -17,6 +17,7 @@ User = get_user_model()
 ROLE_CUSTOMER = 'customer'
 ROLE_USER = 'customer'
 ROLE_DEALER = 'dealer'
+ROLE_SHAREHOLDER = 'shareholder'
 # Legacy constants kept so older imports do not crash. No longer assigned.
 ROLE_AGENT = 'agent'
 ROLE_SUB_AGENT = 'sub_agent'
@@ -28,6 +29,8 @@ def is_admin_actor(user) -> bool:
     if user is None:
         return False
     if getattr(user, 'is_superuser', False):
+        return True
+    if getattr(user, 'role', None) == ROLE_SHAREHOLDER:
         return True
     if getattr(user, 'is_staff', False) and getattr(user, 'role', ROLE_CUSTOMER) not in NETWORK_ROLES:
         return True
@@ -149,7 +152,7 @@ def apply_hierarchy_defaults(user, *, actor=None):
     if role == ROLE_DEALER:
         user.assigned_dealer = None
         return user
-    if role not in (ROLE_CUSTOMER, ROLE_DEALER):
+    if role not in (ROLE_CUSTOMER, ROLE_DEALER, ROLE_SHAREHOLDER):
         user.role = ROLE_CUSTOMER
     return user
 

@@ -1,6 +1,6 @@
 from django.db import connection, models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
-from django.core.validators import FileExtensionValidator, MinValueValidator
+from django.core.validators import FileExtensionValidator, MinValueValidator, MaxValueValidator
 from decimal import Decimal
 import json
 import os
@@ -787,11 +787,13 @@ class CustomUser(AbstractUser):
     ROLE_CUSTOMER = 'customer'
     ROLE_USER = 'customer'
     ROLE_DEALER = 'dealer'
+    ROLE_SHAREHOLDER = 'shareholder'
     ROLE_AGENT = 'agent'  # legacy; migrated to User
     ROLE_SUB_AGENT = 'sub_agent'  # legacy; migrated to User
     ROLE_CHOICES = [
         (ROLE_CUSTOMER, 'User'),
         (ROLE_DEALER, 'Dealer'),
+        (ROLE_SHAREHOLDER, 'Shareholder'),
     ]
     role = models.CharField(
         max_length=20,
@@ -799,6 +801,13 @@ class CustomUser(AbstractUser):
         default=ROLE_CUSTOMER,
         db_index=True,
         help_text="Business role: Admin (staff) → Dealer → User. A User may optionally be assigned to a Dealer.",
+    )
+    share_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))],
+        help_text="Percentage share of platform service fees allocated to this shareholder.",
     )
     assigned_dealer = models.ForeignKey(
         'self',
@@ -951,6 +960,8 @@ class CustomUser(AbstractUser):
         # Automatically set username = phone for compatibility
         if self.phone:
             self.username = self.phone
+        if self.role == self.ROLE_SHAREHOLDER:
+            self.is_staff = True
         # Ensure is_active defaults to True for new users
         if self.pk is None and not hasattr(self, '_is_active_set'):
             self.is_active = True
@@ -3723,3 +3734,261 @@ class ApiPayinWebhookLog(models.Model):
             models.Index(fields=['developer', '-created_at'], name='core_apipayinwh_dev_idx'),
             models.Index(fields=['deposit', '-created_at'], name='core_apipayinwh_dep_idx'),
         ]
+
+
+class PlatformServiceFeeConfig(models.Model):
+    """Platform-wide service fee configuration for GGR coins and Payment API."""
+    ggr_monthly_profit_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('10.00'),
+        validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))],
+        help_text="Percentage fee taken from user's monthly net GGR profit.",
+    )
+    payment_api_deposit_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('1.50'),
+        validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))],
+        help_text="Percentage fee deducted from Payment API deposits (payins).",
+    )
+    payment_api_withdraw_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('2.00'),
+        validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))],
+        help_text="Percentage fee deducted from Payment API withdrawals (payouts).",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Platform Service Fee Config'
+        verbose_name_plural = 'Platform Service Fee Configs'
+
+    @classmethod
+    def get_config(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class ShareholderWallet(models.Model):
+    """Stores shareholder balance coming from platform service fee cuts."""
+    shareholder = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='shareholder_wallet',
+    )
+    balance = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Accumulated withdrawable earnings from GGR and Payment API percentage cuts.",
+    )
+    total_earned = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    total_withdrawn = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Shareholder Wallet ({self.shareholder.phone}) - NPR {self.balance}"
+
+    class Meta:
+        verbose_name = 'Shareholder Wallet'
+        verbose_name_plural = 'Shareholder Wallets'
+
+
+class ShareholderRevenueLog(models.Model):
+    """Audit trail of revenue distributed to shareholders."""
+    SOURCE_GGR = 'ggr_monthly_fee'
+    SOURCE_API_DEPOSIT = 'payment_api_deposit_fee'
+    SOURCE_API_WITHDRAW = 'payment_api_withdraw_fee'
+    SOURCE_CHOICES = [
+        (SOURCE_GGR, 'Monthly GGR Profit Cut'),
+        (SOURCE_API_DEPOSIT, 'Payment API Deposit Fee'),
+        (SOURCE_API_WITHDRAW, 'Payment API Withdraw Fee'),
+    ]
+
+    shareholder = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='revenue_logs',
+    )
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    source = models.CharField(max_length=50, choices=SOURCE_CHOICES, db_index=True)
+    reference = models.CharField(max_length=120, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Shareholder Revenue Log'
+        verbose_name_plural = 'Shareholder Revenue Logs'
+        ordering = ['-created_at']
+
+
+class ShareholderWithdrawal(models.Model):
+    """Withdrawal requests executed by shareholders from their service revenue."""
+    METHOD_BANK = 'bank'
+    METHOD_ESEWA = 'esewa'
+    METHOD_KHALTI = 'khalti'
+    METHOD_CHOICES = [
+        (METHOD_BANK, 'Bank Transfer'),
+        (METHOD_ESEWA, 'eSewa'),
+        (METHOD_KHALTI, 'Khalti'),
+    ]
+
+    STATUS_PENDING = 'pending'
+    STATUS_COMPLETED = 'completed'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_COMPLETED, 'Completed'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    shareholder = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='shareholder_withdrawals',
+    )
+    amount = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('1.00'))],
+    )
+    payout_method = models.CharField(max_length=30, choices=METHOD_CHOICES, db_index=True)
+    account_name = models.CharField(max_length=150)
+    account_number = models.CharField(max_length=80)
+    bank_name = models.CharField(max_length=120, blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_COMPLETED, db_index=True)
+    rejection_reason = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Shareholder Withdrawal'
+        verbose_name_plural = 'Shareholder Withdrawals'
+        ordering = ['-created_at']
+
+
+class GgrWallet(models.Model):
+    """Dedicated GGR Coin wallet for API users."""
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='ggr_wallet',
+    )
+    coin_balance = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="Current GGR coin balance held by this API user.",
+    )
+    total_bought = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    total_won = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    total_lost = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    month_start_balance = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text="GGR coin balance snapshot at beginning of current billing month.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"GGR Wallet ({self.user.phone}) - {self.coin_balance} Coins"
+
+    class Meta:
+        verbose_name = 'GGR Wallet'
+        verbose_name_plural = 'GGR Wallets'
+
+
+class GgrTransaction(models.Model):
+    """Transactions affecting GGR coin balance."""
+    TXN_BUY = 'buy'
+    TXN_PLAYER_WIN = 'player_win'
+    TXN_PLAYER_LOSS = 'player_loss'
+    TXN_MONTHLY_FEE = 'monthly_fee'
+    TXN_ADJUSTMENT = 'adjustment'
+    TXN_CHOICES = [
+        (TXN_BUY, 'Buy GGR Coins'),
+        (TXN_PLAYER_WIN, 'Player Win (+10%)'),
+        (TXN_PLAYER_LOSS, 'Player Loss'),
+        (TXN_MONTHLY_FEE, 'Monthly Platform Cut'),
+        (TXN_ADJUSTMENT, 'Admin Adjustment'),
+    ]
+
+    wallet = models.ForeignKey(
+        GgrWallet,
+        on_delete=models.CASCADE,
+        related_name='transactions',
+    )
+    txn_type = models.CharField(max_length=30, choices=TXN_CHOICES, db_index=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2, help_text="Amount changed (positive or negative).")
+    balance_after = models.DecimalField(max_digits=14, decimal_places=2)
+    reference = models.CharField(max_length=120, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'GGR Transaction'
+        verbose_name_plural = 'GGR Transactions'
+        ordering = ['-created_at']
+
+
+class MonthlyGgrSettlement(models.Model):
+    """Monthly record of net profit and platform service cut for an API user."""
+    STATUS_PENDING = 'pending'
+    STATUS_SETTLED = 'settled'
+    STATUS_SKIPPED = 'skipped'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_SETTLED, 'Settled'),
+        (STATUS_SKIPPED, 'Skipped (No Profit)'),
+    ]
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='monthly_ggr_settlements',
+    )
+    month_key = models.CharField(max_length=10, db_index=True, help_text="Format YYYY-MM")
+    starting_balance = models.DecimalField(max_digits=14, decimal_places=2)
+    ending_balance = models.DecimalField(max_digits=14, decimal_places=2)
+    net_profit = models.DecimalField(max_digits=14, decimal_places=2)
+    fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('10.00'))
+    fee_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_SETTLED, db_index=True)
+    notes = models.CharField(max_length=255, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Monthly GGR Settlement'
+        verbose_name_plural = 'Monthly GGR Settlements'
+        ordering = ['-created_at']
+        unique_together = ('user', 'month_key')

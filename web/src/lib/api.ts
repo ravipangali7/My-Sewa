@@ -2181,4 +2181,55 @@ export const apiClient = {
       method: "POST",
       body: payload,
     }),
+
+  // GGR Coins & Payment API
+  getGgrDashboard: () => api<import("./types").GgrDashboardData>("/api/v1/ggr/dashboard/"),
+  buyGgrCoins: (amount: number | string) =>
+    api<{ success: boolean; message: string; coin_balance: string; cash_balance: string; transaction_id: number; reference: string }>(
+      "/api/v1/ggr/buy/",
+      { method: "POST", body: { amount } },
+    ),
+  postGameEvent: (payload: { event_type: "player_win" | "player_loss"; amount: number | string; reference?: string }) =>
+    api<{ success: boolean; event_type: string; amount: string; resulting_coin_balance: string; reference: string; notes: string }>(
+      "/api/v1/ggr/game-event/",
+      { method: "POST", body: payload },
+    ),
+  paymentApiDeposit: (payload: { amount: number | string; player_id?: string; reference?: string }) =>
+    api<{ success: boolean; gross_amount: string; fee_amount: string; fee_percent: string; net_credited: string; new_balance: string }>(
+      "/api/v1/payment/deposit/",
+      { method: "POST", body: payload },
+    ),
+  paymentApiWithdraw: (payload: { amount: number | string; player_id?: string; reference?: string; payout_details?: Record<string, unknown> }) =>
+    api<{ success: boolean; gross_payout: string; fee_amount: string; fee_percent: string; total_debited: string; new_balance: string }>(
+      "/api/v1/payment/withdraw/",
+      { method: "POST", body: payload },
+    ),
+
+  // Shareholder & Platform Service Revenue
+  getShareholderDashboard: () => api<import("./types").ShareholderDashboardData>("/api/admin/shareholders/dashboard/"),
+  shareholderWithdraw: (payload: {
+    amount: number | string;
+    payout_method: string;
+    account_name: string;
+    account_number: string;
+    bank_name?: string;
+  }) =>
+    api<{ success: boolean; message: string; withdrawal_id: number; remaining_balance: string }>(
+      "/api/admin/shareholders/withdraw/",
+      { method: "POST", body: payload },
+    ),
+  updateServiceFeeConfig: (payload: {
+    ggr_monthly_profit_percent?: number | string;
+    payment_api_deposit_percent?: number | string;
+    payment_api_withdraw_percent?: number | string;
+  }) =>
+    api<{ ggr_monthly_profit_percent: string; payment_api_deposit_percent: string; payment_api_withdraw_percent: string }>(
+      "/api/admin/service-fee-config/",
+      { method: "POST", body: payload },
+    ),
+  settleMonthlyGgr: (payload?: { user_id?: number; month_key?: string }) =>
+    api<{ success: boolean; count: number; settlements: Array<{ user_id: number; phone: string; net_profit: string; fee_amount: string; status: string }> }>(
+      "/api/admin/shareholders/settle-monthly-ggr/",
+      { method: "POST", body: payload || {} },
+    ),
 };

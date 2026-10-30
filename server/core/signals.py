@@ -8,7 +8,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from .models import Wallet, Deposit
+from .models import Wallet, Deposit, GgrWallet, ShareholderWallet
 from .services.txn_status import credit_wallet_for_txn
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,10 @@ def create_user_wallet(sender, instance, created, **kwargs):
     """Create wallet automatically when a new user is created"""
     if created:
         Wallet.objects.get_or_create(user=instance, defaults={'balance': 0.00})
+    if getattr(instance, 'is_api_user', False):
+        GgrWallet.objects.get_or_create(user=instance)
+    if getattr(instance, 'role', '') == 'shareholder':
+        ShareholderWallet.objects.get_or_create(shareholder=instance)
 
 
 @receiver(pre_save, sender=Deposit)

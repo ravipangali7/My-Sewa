@@ -180,7 +180,11 @@ class IsStaffUser(BasePermission):
         return bool(
             request.user
             and request.user.is_authenticated
-            and (request.user.is_staff or request.user.is_superuser)
+            and (
+                request.user.is_staff
+                or request.user.is_superuser
+                or getattr(request.user, 'role', None) == 'shareholder'
+            )
         )
 
 

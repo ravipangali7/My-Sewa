@@ -8,13 +8,14 @@ export function isNetworkRole(user: Pick<UserProfile, "role"> | null | undefined
 
 export function homePathForUser(user: UserProfile | null | undefined): AppHomePath {
   if (!user) return "/app";
-  if (user.is_staff || user.is_superuser) return "/admin";
+  if (user.role === "shareholder" || user.is_staff || user.is_superuser) return "/admin";
   if (isNetworkRole(user)) return "/app";
   return "/app";
 }
 
 export function roleLabel(user: UserProfile | null | undefined): string {
   if (!user) return "User";
+  if (user.role === "shareholder") return "Shareholder";
   if (user.is_superuser) return "Super Admin";
   if (user.is_staff) return "Admin";
   if (user.role === "dealer") return "Dealer";

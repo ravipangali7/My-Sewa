@@ -32,6 +32,7 @@ import { Route as AdminPushRouteImport } from './routes/admin/push'
 import { Route as AdminRemittancesRouteImport } from './routes/admin/remittances'
 import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
+import { Route as AdminShareholdersRouteImport } from './routes/admin/shareholders'
 import { Route as AdminStatementRouteImport } from './routes/admin/statement'
 import { Route as AdminSupportChatRouteImport } from './routes/admin/support-chat'
 import { Route as AdminTopupsRouteImport } from './routes/admin/topups'
@@ -46,6 +47,7 @@ import { Route as AppCommunityElectricityRouteImport } from './routes/app/commun
 import { Route as AppDataTopupRouteImport } from './routes/app/data-topup'
 import { Route as AppDeveloperRouteImport } from './routes/app/developer'
 import { Route as AppElectricityRouteImport } from './routes/app/electricity'
+import { Route as AppGgrRouteImport } from './routes/app/ggr'
 import { Route as AppHistoryRouteImport } from './routes/app/history'
 import { Route as AppInternetRouteImport } from './routes/app/internet'
 import { Route as AppLoadRouteImport } from './routes/app/load'
@@ -211,6 +213,11 @@ const AdminSettingsRoute = AdminSettingsRouteImport.update({
   path: '/admin/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminShareholdersRoute = AdminShareholdersRouteImport.update({
+  id: '/admin/shareholders',
+  path: '/admin/shareholders',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminStatementRoute = AdminStatementRouteImport.update({
   id: '/admin/statement',
   path: '/admin/statement',
@@ -279,6 +286,11 @@ const AppDeveloperRoute = AppDeveloperRouteImport.update({
 const AppElectricityRoute = AppElectricityRouteImport.update({
   id: '/app/electricity',
   path: '/app/electricity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppGgrRoute = AppGgrRouteImport.update({
+  id: '/app/ggr',
+  path: '/app/ggr',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppHistoryRoute = AppHistoryRouteImport.update({
@@ -550,6 +562,7 @@ export interface FileRoutesByFullPath {
   '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/shareholders': typeof AdminShareholdersRoute
   '/admin/statement': typeof AdminStatementRoute
   '/admin/support-chat': typeof AdminSupportChatRoute
   '/admin/topups': typeof AdminTopupsRoute
@@ -563,6 +576,7 @@ export interface FileRoutesByFullPath {
   '/app/data-topup': typeof AppDataTopupRoute
   '/app/developer': typeof AppDeveloperRoute
   '/app/electricity': typeof AppElectricityRoute
+  '/app/ggr': typeof AppGgrRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
@@ -637,6 +651,7 @@ export interface FileRoutesByTo {
   '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/shareholders': typeof AdminShareholdersRoute
   '/admin/statement': typeof AdminStatementRoute
   '/admin/support-chat': typeof AdminSupportChatRoute
   '/admin/topups': typeof AdminTopupsRoute
@@ -650,6 +665,7 @@ export interface FileRoutesByTo {
   '/app/data-topup': typeof AppDataTopupRoute
   '/app/developer': typeof AppDeveloperRoute
   '/app/electricity': typeof AppElectricityRoute
+  '/app/ggr': typeof AppGgrRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
@@ -725,6 +741,7 @@ export interface FileRoutesById {
   '/admin/remittances': typeof AdminRemittancesRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/shareholders': typeof AdminShareholdersRoute
   '/admin/statement': typeof AdminStatementRoute
   '/admin/support-chat': typeof AdminSupportChatRoute
   '/admin/topups': typeof AdminTopupsRoute
@@ -738,6 +755,7 @@ export interface FileRoutesById {
   '/app/data-topup': typeof AppDataTopupRoute
   '/app/developer': typeof AppDeveloperRoute
   '/app/electricity': typeof AppElectricityRoute
+  '/app/ggr': typeof AppGgrRoute
   '/app/history': typeof AppHistoryRoute
   '/app/internet': typeof AppInternetRoute
   '/app/load': typeof AppLoadRoute
@@ -814,6 +832,7 @@ export interface FileRouteTypes {
     | '/admin/remittances'
     | '/admin/reports'
     | '/admin/settings'
+    | '/admin/shareholders'
     | '/admin/statement'
     | '/admin/support-chat'
     | '/admin/topups'
@@ -827,6 +846,7 @@ export interface FileRouteTypes {
     | '/app/data-topup'
     | '/app/developer'
     | '/app/electricity'
+    | '/app/ggr'
     | '/app/history'
     | '/app/internet'
     | '/app/load'
@@ -901,6 +921,7 @@ export interface FileRouteTypes {
     | '/admin/remittances'
     | '/admin/reports'
     | '/admin/settings'
+    | '/admin/shareholders'
     | '/admin/statement'
     | '/admin/support-chat'
     | '/admin/topups'
@@ -914,6 +935,7 @@ export interface FileRouteTypes {
     | '/app/data-topup'
     | '/app/developer'
     | '/app/electricity'
+    | '/app/ggr'
     | '/app/history'
     | '/app/internet'
     | '/app/load'
@@ -988,6 +1010,7 @@ export interface FileRouteTypes {
     | '/admin/remittances'
     | '/admin/reports'
     | '/admin/settings'
+    | '/admin/shareholders'
     | '/admin/statement'
     | '/admin/support-chat'
     | '/admin/topups'
@@ -1001,6 +1024,7 @@ export interface FileRouteTypes {
     | '/app/data-topup'
     | '/app/developer'
     | '/app/electricity'
+    | '/app/ggr'
     | '/app/history'
     | '/app/internet'
     | '/app/load'
@@ -1076,6 +1100,7 @@ export interface RootRouteChildren {
   AdminRemittancesRoute: typeof AdminRemittancesRoute
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
+  AdminShareholdersRoute: typeof AdminShareholdersRoute
   AdminStatementRoute: typeof AdminStatementRoute
   AdminSupportChatRoute: typeof AdminSupportChatRoute
   AdminTopupsRoute: typeof AdminTopupsRoute
@@ -1089,6 +1114,7 @@ export interface RootRouteChildren {
   AppDataTopupRoute: typeof AppDataTopupRoute
   AppDeveloperRoute: typeof AppDeveloperRoute
   AppElectricityRoute: typeof AppElectricityRoute
+  AppGgrRoute: typeof AppGgrRoute
   AppHistoryRoute: typeof AppHistoryRoute
   AppInternetRoute: typeof AppInternetRoute
   AppLoadRoute: typeof AppLoadRoute
@@ -1304,6 +1330,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/shareholders': {
+      id: '/admin/shareholders'
+      path: '/admin/shareholders'
+      fullPath: '/admin/shareholders'
+      preLoaderRoute: typeof AdminShareholdersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/statement': {
       id: '/admin/statement'
       path: '/admin/statement'
@@ -1400,6 +1433,13 @@ declare module '@tanstack/react-router' {
       path: '/app/electricity'
       fullPath: '/app/electricity'
       preLoaderRoute: typeof AppElectricityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/ggr': {
+      id: '/app/ggr'
+      path: '/app/ggr'
+      fullPath: '/app/ggr'
+      preLoaderRoute: typeof AppGgrRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/history': {
@@ -1764,6 +1804,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRemittancesRoute: AdminRemittancesRoute,
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
+  AdminShareholdersRoute: AdminShareholdersRoute,
   AdminStatementRoute: AdminStatementRoute,
   AdminSupportChatRoute: AdminSupportChatRoute,
   AdminTopupsRoute: AdminTopupsRoute,
@@ -1777,6 +1818,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppDataTopupRoute: AppDataTopupRoute,
   AppDeveloperRoute: AppDeveloperRoute,
   AppElectricityRoute: AppElectricityRoute,
+  AppGgrRoute: AppGgrRoute,
   AppHistoryRoute: AppHistoryRoute,
   AppInternetRoute: AppInternetRoute,
   AppLoadRoute: AppLoadRoute,
@@ -1832,3 +1874,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

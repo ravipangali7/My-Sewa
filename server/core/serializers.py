@@ -201,7 +201,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'has_transaction_pin', 'login_biometric_enabled',
             'transaction_pin_biometric_enabled',
             'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
-            'wallet_frozen', 'wallet_status', 'is_api_user',
+            'wallet_frozen', 'wallet_status', 'is_api_user', 'share_percent',
             'date_joined', 'last_login',
         )
         read_only_fields = (
@@ -279,7 +279,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
             'kyc_status', 'citizenship_number',
             'date_joined', 'last_login',
             'wallet_id', 'wallet_balance', 'wallet_frozen', 'wallet_status',
-            'has_transaction_pin', 'is_api_user',
+            'has_transaction_pin', 'is_api_user', 'share_percent',
             'commission_rate', 'tds_rate', 'sub_agent_commission_rate', 'super_admin_rate',
         )
         read_only_fields = (

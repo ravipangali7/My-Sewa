@@ -72,6 +72,7 @@ const NAV = [
   { to: "/admin/statement", label: "Statement", icon: FileSearch },
   { to: "/admin/users", label: "Users", icon: Users },
   { to: "/admin/api-users", label: "API Users", icon: KeyRound },
+  { to: "/admin/shareholders", label: "Shareholder Revenue", icon: Coins },
   { to: "/admin/support-chat", label: "Support Chat", icon: MessageCircle },
   { to: "/admin/dealers", label: "Dealers", icon: Handshake },
   { to: "/admin/hierarchy", label: "Dealer Hierarchy", icon: GitBranch },

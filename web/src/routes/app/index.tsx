@@ -17,6 +17,7 @@ import {
   Zap,
   CirclePlus,
   User,
+  Coins,
 } from "lucide-react";
 import { UserShell } from "@/components/layout/UserShell";
 import { DealerMenuButton } from "@/components/layout/PortalShell";
@@ -396,6 +397,32 @@ function WalletHome() {
           </Link>
 
           {(accountPending || walletBlocked || walletFrozen) ? <AccountPendingBanner /> : null}
+
+          {/* GGR & Payment API Banner for API users */}
+          {user?.is_api_user && (
+            <Link
+              to="/app/ggr"
+              className="relative flex items-center justify-between overflow-hidden rounded-2xl bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-600 p-4 text-white shadow-md transition hover:opacity-95"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
+                  <Coins className="h-6 w-6 text-yellow-100" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-amber-100">
+                    GGR Coin & Payment API
+                  </div>
+                  <div className="text-sm font-medium text-white">
+                    Deposit, Buy GGR Coins & API Services
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 text-xs font-semibold bg-white/20 px-3 py-1.5 rounded-full">
+                <span>Manage</span>
+                <ChevronRight className="h-4 w-4" />
+              </div>
+            </Link>
+          )}
 
           {/* Quick actions */}
           <section className="grid shrink-0 grid-cols-3 gap-2.5">

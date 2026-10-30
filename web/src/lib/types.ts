@@ -44,7 +44,7 @@ export type WalletAdjustmentType = "credit" | "debit";
 /** Account approval status — pending users can log in but cannot transact. */
 export type AccountStatus = "pending" | "approved";
 
-export type UserRole = "customer" | "dealer";
+export type UserRole = "customer" | "dealer" | "shareholder";
 
 export interface RelatedUserBrief {
   id: number;
@@ -147,6 +147,7 @@ export interface UserProfile {
   tds_rate?: string | null;
   sub_agent_commission_rate?: string | null;
   super_admin_rate?: string | null;
+  share_percent?: string | number | null;
   /** Whether a transaction PIN is set (never the raw PIN). */
   has_transaction_pin?: boolean;
   /** Preference only — no biometric templates are stored on the server. */
@@ -2049,4 +2050,109 @@ export interface SupportChatMessage {
   attachment_url?: string | null;
   is_read?: boolean;
   created_at: string;
+}
+
+
+export interface GgrTransactionItem {
+  id: number;
+  txn_type: string;
+  type_label: string;
+  amount: string;
+  balance_after: string;
+  reference: string;
+  notes: string;
+  created_at: string;
+}
+
+export interface MonthlyGgrSettlementItem {
+  id: number;
+  month_key: string;
+  starting_balance: string;
+  ending_balance: string;
+  net_profit: string;
+  fee_percent: string;
+  fee_amount: string;
+  status: string;
+  created_at: string;
+}
+
+export interface GgrDashboardData {
+  user: {
+    id: number;
+    phone: string;
+    first_name: string;
+    is_api_user: boolean;
+  };
+  cash_balance: string;
+  ggr_coin_balance: string;
+  total_bought: string;
+  total_won: string;
+  total_lost: string;
+  net_profit_estimate: string;
+  estimated_monthly_fee: string;
+  service_fees: {
+    ggr_monthly_profit_percent: string;
+    payment_api_deposit_percent: string;
+    payment_api_withdraw_percent: string;
+  };
+  recent_transactions: GgrTransactionItem[];
+  monthly_settlements: MonthlyGgrSettlementItem[];
+}
+
+export interface ShareholderItem {
+  id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  share_percent: string;
+  balance: string;
+  total_earned: string;
+  total_withdrawn: string;
+}
+
+export interface ShareholderRevenueLogItem {
+  id: number;
+  shareholder_phone: string;
+  amount: string;
+  source: string;
+  source_label: string;
+  reference: string;
+  notes: string;
+  created_at: string;
+}
+
+export interface ShareholderWithdrawalItem {
+  id: number;
+  shareholder_phone: string;
+  amount: string;
+  payout_method: string;
+  account_name: string;
+  account_number: string;
+  bank_name: string;
+  status: string;
+  created_at: string;
+}
+
+export interface ShareholderDashboardData {
+  is_shareholder: boolean;
+  my_wallet: {
+    balance: string;
+    total_earned: string;
+    total_withdrawn: string;
+    share_percent: string;
+  };
+  totals: {
+    total_platform_revenue: string;
+    ggr_revenue: string;
+    api_deposit_revenue: string;
+    api_withdraw_revenue: string;
+  };
+  service_fee_config: {
+    ggr_monthly_profit_percent: string;
+    payment_api_deposit_percent: string;
+    payment_api_withdraw_percent: string;
+  };
+  shareholders: ShareholderItem[];
+  recent_logs: ShareholderRevenueLogItem[];
+  recent_withdrawals: ShareholderWithdrawalItem[];
 }
