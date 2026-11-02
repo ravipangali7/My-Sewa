@@ -26,6 +26,8 @@ User = get_user_model()
 def _api_user_payload(user, request, *, reveal_key=False):
     data = AdminUserSerializer(user, context={'request': request}).data
     data['is_api_user'] = bool(user.is_api_user)
+    data['is_ggr_user'] = bool(getattr(user, 'is_ggr_user', False) or getattr(user, 'is_ggr', False))
+    data['is_ggr'] = data['is_ggr_user']
     data['can_api_payin'] = bool(getattr(user, 'can_api_payin', False))
     data['api_webhook_url'] = str(getattr(user, 'api_webhook_url', '') or '')
     data['api_return_url'] = str(getattr(user, 'api_return_url', '') or '')
@@ -85,7 +87,8 @@ def admin_api_user_detail(request, user_id):
     payin = request.data.get('can_api_payin', None)
     webhook_url = request.data.get('api_webhook_url', None)
     return_url = request.data.get('api_return_url', None)
-    if enable is None and payin is None and webhook_url is None and return_url is None:
+    ggr_enable = request.data.get('is_ggr_user') if 'is_ggr_user' in request.data else request.data.get('is_ggr')
+    if enable is None and payin is None and webhook_url is None and return_url is None and ggr_enable is None:
         return Response(
             {
                 'error': 'Validation failed',
@@ -125,6 +128,13 @@ def admin_api_user_detail(request, user_id):
                 )
             except Exception:
                 pass
+
+    if ggr_enable is not None:
+        user.is_ggr_user = bool(ggr_enable)
+        update_fields.append('is_ggr_user')
+        if user.is_ggr_user:
+            from ..services.ggr_service import ensure_ggr_wallet
+            ensure_ggr_wallet(user)
 
     if payin is not None:
         user.can_api_payin = bool(payin)

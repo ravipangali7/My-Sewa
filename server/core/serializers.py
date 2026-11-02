@@ -201,7 +201,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'has_transaction_pin', 'login_biometric_enabled',
             'transaction_pin_biometric_enabled',
             'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
-            'wallet_frozen', 'wallet_status', 'is_api_user', 'share_percent',
+            'wallet_frozen', 'wallet_status', 'is_api_user', 'is_ggr_user', 'is_ggr', 'share_percent',
             'date_joined', 'last_login',
         )
         read_only_fields = (
@@ -210,7 +210,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'assigned_sub_agent_id',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer', 'can_api_payin',
             'kyc_status', 'citizenship_number',
-            'kyc_verified', 'profile_locked', 'is_api_user',
+            'kyc_verified', 'profile_locked', 'is_api_user', 'is_ggr_user', 'is_ggr',
             'has_transaction_pin', 'login_biometric_enabled',
             'transaction_pin_biometric_enabled',
             'date_joined', 'last_login',
@@ -279,7 +279,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
             'kyc_status', 'citizenship_number',
             'date_joined', 'last_login',
             'wallet_id', 'wallet_balance', 'wallet_frozen', 'wallet_status',
-            'has_transaction_pin', 'is_api_user', 'share_percent',
+            'has_transaction_pin', 'is_api_user', 'is_ggr_user', 'is_ggr', 'share_percent',
             'commission_rate', 'tds_rate', 'sub_agent_commission_rate', 'super_admin_rate',
         )
         read_only_fields = (
@@ -391,7 +391,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'is_active', 'is_staff', 'is_superuser', 'account_status',
             'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer', 'can_api_payin',
-            'is_api_user',
+            'is_api_user', 'is_ggr_user', 'is_ggr',
             'commission_rate', 'tds_rate', 'sub_agent_commission_rate', 'super_admin_rate',
             'password', 'password2',
         )
@@ -411,6 +411,8 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'can_remittance_transfer': {'required': False},
             'can_api_payin': {'required': False},
             'is_api_user': {'required': False},
+            'is_ggr_user': {'required': False},
+            'is_ggr': {'required': False},
         }
 
     def validate_phone(self, value):
@@ -555,6 +557,9 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         if instance.is_api_user:
             from .services.api_keys import sync_api_user_key
             sync_api_user_key(instance, previous_is_api_user=was_api_user)
+        if getattr(instance, 'is_ggr_user', False) or getattr(instance, 'is_ggr', False):
+            from .services.ggr_service import ensure_ggr_wallet
+            ensure_ggr_wallet(instance)
 
         instance.save()
         self._save_dealer_rates(instance, rates)

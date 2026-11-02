@@ -60,6 +60,23 @@ def _require_api_access(user):
     return None
 
 
+def _require_ggr_access(user):
+    check = _require_api_access(user)
+    if check:
+        return check
+    if not (getattr(user, 'is_ggr_user', False) or getattr(user, 'is_ggr', False)):
+        return Response(
+            {
+                'error': 'GGR service access required',
+                'message': 'GGR Coin gaming service is not enabled for your account. Please contact an administrator.',
+                'code': 'ggr_disabled',
+                'is_ggr_enabled': False,
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def user_ggr_dashboard(request):
@@ -73,18 +90,32 @@ def user_ggr_dashboard(request):
 
     user = request.user
     user_wallet, _ = Wallet.objects.get_or_create(user=user)
-    ggr_wallet = ensure_ggr_wallet(user)
     fee_config = get_service_fee_config()
+    is_ggr_enabled = bool(getattr(user, 'is_ggr_user', False) or getattr(user, 'is_ggr', False))
 
-    txns = GgrTransaction.objects.filter(wallet=ggr_wallet).order_by('-created_at')[:50]
-    settlements = MonthlyGgrSettlement.objects.filter(user=user).order_by('-created_at')[:12]
+    if is_ggr_enabled:
+        ggr_wallet = ensure_ggr_wallet(user)
+        txns = GgrTransaction.objects.filter(wallet=ggr_wallet).order_by('-created_at')[:50]
+        settlements = MonthlyGgrSettlement.objects.filter(user=user).order_by('-created_at')[:12]
 
-    # Calculate current net profit estimate for user
-    net_profit_estimate = (ggr_wallet.total_won or Decimal('0.00')) - (ggr_wallet.total_lost or Decimal('0.00'))
-    estimated_monthly_fee = max(
-        Decimal('0.00'),
-        round(net_profit_estimate * (fee_config.ggr_monthly_profit_percent / Decimal('100.00')), 2)
-    )
+        net_profit_estimate = (ggr_wallet.total_won or Decimal('0.00')) - (ggr_wallet.total_lost or Decimal('0.00'))
+        estimated_monthly_fee = max(
+            Decimal('0.00'),
+            round(net_profit_estimate * (fee_config.ggr_monthly_profit_percent / Decimal('100.00')), 2)
+        )
+        coin_balance = str(ggr_wallet.coin_balance)
+        total_bought = str(ggr_wallet.total_bought)
+        total_won = str(ggr_wallet.total_won)
+        total_lost = str(ggr_wallet.total_lost)
+    else:
+        txns = []
+        settlements = []
+        net_profit_estimate = Decimal('0.00')
+        estimated_monthly_fee = Decimal('0.00')
+        coin_balance = '0.00'
+        total_bought = '0.00'
+        total_won = '0.00'
+        total_lost = '0.00'
 
     return Response({
         'user': {
@@ -92,12 +123,15 @@ def user_ggr_dashboard(request):
             'phone': user.phone,
             'first_name': user.first_name,
             'is_api_user': user.is_api_user,
+            'is_ggr_user': is_ggr_enabled,
+            'is_ggr': is_ggr_enabled,
         },
+        'is_ggr_enabled': is_ggr_enabled,
         'cash_balance': str(user_wallet.balance),
-        'ggr_coin_balance': str(ggr_wallet.coin_balance),
-        'total_bought': str(ggr_wallet.total_bought),
-        'total_won': str(ggr_wallet.total_won),
-        'total_lost': str(ggr_wallet.total_lost),
+        'ggr_coin_balance': coin_balance,
+        'total_bought': total_bought,
+        'total_won': total_won,
+        'total_lost': total_lost,
         'net_profit_estimate': str(net_profit_estimate),
         'estimated_monthly_fee': str(estimated_monthly_fee),
         'service_fees': {
@@ -142,7 +176,7 @@ def user_buy_ggr_coins(request):
     Buy GGR coins using main wallet cash balance.
     Body: {"amount": 10000}
     """
-    check = _require_api_access(request.user)
+    check = _require_ggr_access(request.user)
     if check:
         return check
 
@@ -179,7 +213,7 @@ def user_game_event(request):
     Record player gameplay outcome:
     Body: {"event_type": "player_win" | "player_loss", "amount": 500, "reference": "GAME123"}
     """
-    check = _require_api_access(request.user)
+    check = _require_ggr_access(request.user)
     if check:
         return check
 
@@ -470,9 +504,9 @@ def admin_settle_monthly_ggr(request):
     month_key = request.data.get('month_key')
 
     if user_id:
-        target_users = User.objects.filter(pk=user_id, is_api_user=True)
+        target_users = User.objects.filter(pk=user_id, is_api_user=True, is_ggr_user=True)
     else:
-        target_users = User.objects.filter(is_api_user=True, is_active=True)
+        target_users = User.objects.filter(is_api_user=True, is_ggr_user=True, is_active=True)
 
     settlements = []
     for u in target_users:

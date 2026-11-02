@@ -1326,6 +1326,8 @@ export const apiClient = {
     id: number,
     payload: {
       is_api_user?: boolean;
+      is_ggr_user?: boolean;
+      is_ggr?: boolean;
       can_api_payin?: boolean;
       api_webhook_url?: string;
       api_return_url?: string;

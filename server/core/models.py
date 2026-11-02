@@ -450,7 +450,7 @@ def _ensure_api_fund_transfer():
 
     user_model = apps.get_model('core', 'CustomUser')
     needed_user = (
-        'is_api_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
+        'is_api_user', 'is_ggr_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
         'can_api_payin', 'api_webhook_url', 'api_return_url',
     )
     missing_user = [name for name in needed_user if name not in user_cols]
@@ -885,6 +885,19 @@ class CustomUser(AbstractUser):
         db_index=True,
         help_text="When True, this user may authenticate to the Fund Transfer API with an API key.",
     )
+    is_ggr_user = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="When True, this user is permitted to use GGR Coin services and game event APIs.",
+    )
+
+    @property
+    def is_ggr(self):
+        return bool(self.is_ggr_user)
+
+    @is_ggr.setter
+    def is_ggr(self, value):
+        self.is_ggr_user = bool(value)
     api_key = models.CharField(
         max_length=80,
         unique=True,

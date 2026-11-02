@@ -21,7 +21,7 @@ def create_user_wallet(sender, instance, created, **kwargs):
     """Create wallet automatically when a new user is created"""
     if created:
         Wallet.objects.get_or_create(user=instance, defaults={'balance': 0.00})
-    if getattr(instance, 'is_api_user', False):
+    if getattr(instance, 'is_ggr_user', False) or getattr(instance, 'is_ggr', False):
         GgrWallet.objects.get_or_create(user=instance)
     if getattr(instance, 'role', '') == 'shareholder':
         ShareholderWallet.objects.get_or_create(shareholder=instance)

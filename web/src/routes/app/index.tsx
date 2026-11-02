@@ -28,6 +28,7 @@ import { LanguageToggle } from "@/components/LanguageToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { apiClient } from "@/lib/api";
 import { buildActivity, tdsChargeCaption } from "@/lib/activity";
+import { MerchantDashboard } from "@/components/merchant/MerchantDashboard";
 import { buildNotifications } from "@/lib/notifications";
 import { useAuth } from "@/lib/auth";
 import { isNetworkRole } from "@/lib/auth-destination";
@@ -200,6 +201,14 @@ function WalletHome() {
   )
     .slice(0, 2)
     .toUpperCase() || "MS";
+
+  if (user?.is_api_user) {
+    return (
+      <UserShell title="Merchant Portal" hideNav={false}>
+        <MerchantDashboard initialTab="overview" />
+      </UserShell>
+    );
+  }
 
   return (
     <UserShell title="MySewa" hideHeader>

@@ -51,6 +51,7 @@ class GgrAndShareholderTests(TestCase):
             password='Password123!',
             role=User.ROLE_CUSTOMER,
             is_api_user=True,
+            is_ggr_user=True,
             is_active=True,
         )
         self.api_user_wallet, _ = Wallet.objects.get_or_create(user=self.api_user)
@@ -64,67 +65,122 @@ class GgrAndShareholderTests(TestCase):
             password='Password123!',
             role=User.ROLE_CUSTOMER,
             is_api_user=False,
+            is_ggr_user=False,
             is_active=True,
         )
 
-        self.client = APIClient()
+    def test_regular_user_cannot_access_ggr_or_payment_api(self):
+        client = APIClient()
+        client.force_authenticate(user=self.regular_user)
 
-    def test_shareholder_is_staff_and_has_wallet(self):
-        self.assertTrue(self.shareholder.is_staff)
-        wallet = ShareholderWallet.objects.filter(shareholder=self.shareholder).first()
-        self.assertIsNotNone(wallet)
+        res = client.get('/api/v1/ggr/dashboard/')
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.data['code'], 'api_user_required')
 
-    def test_buy_ggr_coins(self):
-        # API user buys 10,000 GGR coins
+        res = client.post('/api/v1/payment/deposit/', {'amount': 1000})
+        self.assertEqual(res.status_code, 403)
+
+    def test_is_ggr_user_permission_gate(self):
+        # API user with is_ggr_user = False
+        non_ggr_api_user = User.objects.create_user(
+            phone='9800000099',
+            password='Password123!',
+            is_api_user=True,
+            is_ggr_user=False,
+            is_active=True,
+        )
+        w, _ = Wallet.objects.get_or_create(user=non_ggr_api_user)
+        w.balance = Decimal('20000.00')
+        w.save()
+
+        client = APIClient()
+        client.force_authenticate(user=non_ggr_api_user)
+
+        # GGR dashboard indicates is_ggr_enabled = False
+        res = client.get('/api/v1/ggr/dashboard/')
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.data['is_ggr_enabled'])
+
+        # GGR buy fails with 403
+        res = client.post('/api/v1/ggr/buy/', {'amount': 1000})
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.data['code'], 'ggr_disabled')
+
+        # GGR game-event fails with 403
+        res = client.post('/api/v1/ggr/game-event/', {'event_type': 'player_win', 'amount': 500})
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.data['code'], 'ggr_disabled')
+
+        # But Payment API still works for this merchant
+        res = client.post('/api/v1/payment/deposit/', {'amount': 1000, 'player_id': 'p1'})
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data['success'])
+
+    def test_buy_ggr_coins_deducts_cash_and_credits_ggr(self):
+        initial_cash = self.api_user_wallet.balance
         txn = buy_ggr_coins(self.api_user, Decimal('10000.00'))
+
         self.assertEqual(txn.amount, Decimal('10000.00'))
+        self.assertEqual(txn.balance_after, Decimal('10000.00'))
 
         self.api_user_wallet.refresh_from_db()
-        self.assertEqual(self.api_user_wallet.balance, Decimal('40000.00'))
+        self.assertEqual(self.api_user_wallet.balance, initial_cash - Decimal('10000.00'))
 
         ggr_wallet = GgrWallet.objects.get(user=self.api_user)
         self.assertEqual(ggr_wallet.coin_balance, Decimal('10000.00'))
         self.assertEqual(ggr_wallet.total_bought, Decimal('10000.00'))
 
-    def test_non_api_user_cannot_buy_ggr(self):
-        with self.assertRaises(PermissionError):
-            buy_ggr_coins(self.regular_user, Decimal('1000.00'))
-
-    def test_game_events(self):
-        # 1. Player loses 1,000 coins -> GGR coins decrease
+    def test_game_event_loss_decreases_coins(self):
         buy_ggr_coins(self.api_user, Decimal('10000.00'))
-        process_game_event(self.api_user, 'player_loss', Decimal('1000.00'))
+
+        txn = process_game_event(self.api_user, 'player_loss', Decimal('2000.00'), 'ROUND_01')
+        self.assertEqual(txn.amount, Decimal('-2000.00'))
+        self.assertEqual(txn.balance_after, Decimal('8000.00'))
 
         ggr_wallet = GgrWallet.objects.get(user=self.api_user)
-        self.assertEqual(ggr_wallet.coin_balance, Decimal('9000.00'))
-        self.assertEqual(ggr_wallet.total_lost, Decimal('1000.00'))
+        self.assertEqual(ggr_wallet.coin_balance, Decimal('8000.00'))
+        self.assertEqual(ggr_wallet.total_lost, Decimal('2000.00'))
 
-        # 2. Player wins 2,000 -> GGR coins increase by 10% bonus (2000 * 1.10 = 2200)
-        process_game_event(self.api_user, 'player_win', Decimal('2000.00'))
-        ggr_wallet.refresh_from_db()
-        self.assertEqual(ggr_wallet.coin_balance, Decimal('11200.00'))
-        self.assertEqual(ggr_wallet.total_won, Decimal('2200.00'))
-
-    def test_monthly_ggr_profit_settlement_and_shareholder_fee(self):
-        # Setup net profit: won 2,200, lost 1,000 -> Net profit = 1,200
+    def test_game_event_win_increases_coins_by_10_percent_bonus(self):
         buy_ggr_coins(self.api_user, Decimal('10000.00'))
-        process_game_event(self.api_user, 'player_loss', Decimal('1000.00'))
-        process_game_event(self.api_user, 'player_win', Decimal('2000.00'))
 
-        # Run settlement
-        settlement = settle_monthly_ggr_for_user(self.api_user, '2026-10')
-        self.assertEqual(settlement.net_profit, Decimal('1200.00'))
-        # 10% of 1200 = 120.00
-        self.assertEqual(settlement.fee_amount, Decimal('120.00'))
+        # Player wins 1000. GGR coin should increase by 10% bonus: 1000 * 1.10 = 1100
+        txn = process_game_event(self.api_user, 'player_win', Decimal('1000.00'), 'ROUND_02')
+        self.assertEqual(txn.amount, Decimal('1100.00'))
+        self.assertEqual(txn.balance_after, Decimal('11100.00'))
 
-        # Verify fee credited to Shareholder wallet
-        sh_wallet = ShareholderWallet.objects.get(shareholder=self.shareholder)
-        self.assertEqual(sh_wallet.balance, Decimal('120.00'))
+        ggr_wallet = GgrWallet.objects.get(user=self.api_user)
+        self.assertEqual(ggr_wallet.coin_balance, Decimal('11100.00'))
+        self.assertEqual(ggr_wallet.total_won, Decimal('1100.00'))
 
-    def test_payment_api_deposit_and_withdraw(self):
+    def test_monthly_ggr_settlement_takes_10_percent_profit_and_credits_shareholder(self):
+        buy_ggr_coins(self.api_user, Decimal('20000.00'))
+
+        # Win 11,000, Lost 1,000 -> Net profit = 10,000
+        process_game_event(self.api_user, 'player_win', Decimal('10000.00')) # credits 11,000
+        process_game_event(self.api_user, 'player_loss', Decimal('1000.00')) # debits 1,000
+
+        self.api_user_wallet.refresh_from_db()
         initial_cash = self.api_user_wallet.balance
 
-        # 1. Deposit: Player deposits 10,000 NPR (1.5% fee = 150 NPR to Shareholder, 9,850 NPR to User balance)
+        # Settle monthly GGR (10% on 10,000 profit = 1,000 NPR fee)
+        settlement = settle_monthly_ggr_for_user(self.api_user, '2026-10')
+        self.assertEqual(settlement.net_profit, Decimal('10000.00'))
+        self.assertEqual(settlement.fee_amount, Decimal('1000.00'))
+
+        # Check user cash debited by 1,000
+        self.api_user_wallet.refresh_from_db()
+        self.assertEqual(self.api_user_wallet.balance, initial_cash - Decimal('1000.00'))
+
+        # Check shareholder received 1,000 fee
+        sh_wallet = ShareholderWallet.objects.get(shareholder=self.shareholder)
+        self.assertEqual(sh_wallet.balance, Decimal('1000.00'))
+        self.assertEqual(sh_wallet.total_earned, Decimal('1000.00'))
+
+    def test_payment_api_deposit_and_withdraw_fees(self):
+        initial_cash = self.api_user_wallet.balance
+
+        # 1. Deposit: Player deposits 10,000 NPR (1.5% fee = 150 NPR to Shareholder, 9,850 credited to User)
         dep_res = process_payment_api_deposit(self.api_user, Decimal('10000.00'), 'player_42', 'REF_DEP_100')
         self.assertEqual(Decimal(dep_res['fee_amount']), Decimal('150.00'))
         self.assertEqual(Decimal(dep_res['net_credited']), Decimal('9850.00'))

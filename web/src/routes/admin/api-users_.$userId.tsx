@@ -76,6 +76,8 @@ function AdminApiUserDetailPage() {
   const accessMutation = useMutation({
     mutationFn: (payload: {
       is_api_user?: boolean;
+      is_ggr_user?: boolean;
+      is_ggr?: boolean;
       can_api_payin?: boolean;
       api_webhook_url?: string;
       api_return_url?: string;
@@ -185,6 +187,21 @@ function AdminApiUserDetailPage() {
                   checked={Boolean(u.can_api_payin)}
                   onCheckedChange={(checked) =>
                     accessMutation.mutate({ can_api_payin: checked })
+                  }
+                  disabled={accessMutation.isPending || !u.is_api_user}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">GGR Gaming Coin Service</p>
+                  <p className="text-xs text-muted-foreground">
+                    Allow GGR coins, gameplay events (+10% win boost / loss), and monthly profit cut.
+                  </p>
+                </div>
+                <Switch
+                  checked={Boolean(u.is_ggr_user || u.is_ggr)}
+                  onCheckedChange={(checked) =>
+                    accessMutation.mutate({ is_ggr_user: checked })
                   }
                   disabled={accessMutation.isPending || !u.is_api_user}
                 />

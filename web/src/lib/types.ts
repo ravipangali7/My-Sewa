@@ -141,6 +141,9 @@ export interface UserProfile {
   can_api_payin?: boolean;
   /** When true, this user can use the Developer API with an API key. */
   is_api_user?: boolean;
+  /** When true (and is_api_user), this merchant can use GGR coin gaming services. */
+  is_ggr_user?: boolean;
+  is_ggr?: boolean;
   wallet_frozen?: boolean;
   wallet_status?: "frozen" | "unfrozen";
   commission_rate?: string | null;
@@ -2082,7 +2085,10 @@ export interface GgrDashboardData {
     phone: string;
     first_name: string;
     is_api_user: boolean;
+    is_ggr_user?: boolean;
+    is_ggr?: boolean;
   };
+  is_ggr_enabled: boolean;
   cash_balance: string;
   ggr_coin_balance: string;
   total_bought: string;
