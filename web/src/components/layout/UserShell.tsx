@@ -21,6 +21,7 @@ import { AuthSessionLoader } from "@/components/AuthSessionLoader";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { PortalShell } from "@/components/layout/PortalShell";
 import { SupportChatUnreadBadge } from "@/hooks/use-support-chat-unread";
+import { MerchantSidebar } from "./MerchantSidebar";
 import { useT, type MessageKey } from "@/lib/i18n";
 
 const TABS = [
@@ -184,6 +185,9 @@ export function UserShell({
           "mysewa-fill-height flex h-[var(--vv-height,100dvh)] max-h-[var(--vv-height,100dvh)] flex-col overflow-hidden",
       )}
     >
+      {user.is_api_user ? (
+        <MerchantSidebar />
+      ) : (
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex">
         <Link to="/app" className="mb-8 flex items-center gap-2.5 px-2">
           <img src={logoUrl} alt="MySewa" className="size-9 rounded-full object-cover" />
@@ -252,6 +256,7 @@ export function UserShell({
           </button>
         </div>
       </aside>
+      )}
 
       <div
         className={cn(

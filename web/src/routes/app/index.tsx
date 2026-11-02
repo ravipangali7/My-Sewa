@@ -204,7 +204,7 @@ function WalletHome() {
 
   if (user?.is_api_user) {
     return (
-      <UserShell title="Merchant Portal" hideNav={false}>
+      <UserShell title="Merchant Portal" hideHeader hideNav={false}>
         <MerchantDashboard initialTab="overview" />
       </UserShell>
     );

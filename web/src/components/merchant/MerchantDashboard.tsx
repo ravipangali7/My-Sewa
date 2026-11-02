@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import {
@@ -71,8 +71,7 @@ export type MerchantTab =
   | "ggr"
   | "api-keys"
   | "docs"
-  | "ledger"
-  | "consumer-services";
+  | "ledger";
 
 interface MerchantDashboardProps {
   initialTab?: MerchantTab;
@@ -81,9 +80,27 @@ interface MerchantDashboardProps {
 export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboardProps) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
-  // Active navigation tab
-  const [activeTab, setActiveTab] = useState<MerchantTab>(initialTab);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const searchTab = useRouterState({
+    select: (s) => (s.location.search as Record<string, unknown>)?.tab as MerchantTab | undefined,
+  });
+
+  // Active tab synced with URL query or pathname
+  const activeTab: MerchantTab = useMemo(() => {
+    if (pathname === "/app/ggr") return "ggr";
+    if (searchTab) return searchTab;
+    return initialTab;
+  }, [pathname, searchTab, initialTab]);
+
+  const handleTabChange = (tab: MerchantTab) => {
+    if (tab === "ggr") {
+      navigate({ to: "/app/ggr" });
+    } else {
+      navigate({ to: "/app", search: { tab } });
+    }
+  };
 
   // Modals
   const [buyModalOpen, setBuyModalOpen] = useState(false);
@@ -231,7 +248,7 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
   const displayKey = showApiKey ? rawKey : rawKey.slice(0, 8) + "••••••••••••••••••••••••••••••••";
 
   return (
-    <div className="space-y-6 pb-12 max-w-7xl mx-auto px-2 sm:px-4">
+    <div className="space-y-6 pb-12 w-full max-w-full">
       {/* High-End Obsidian Emerald Merchant Header */}
       <div className="rounded-2xl border border-zinc-800 bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 text-white p-6 shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 bottom-0 w-96 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-500/10 via-amber-500/5 to-transparent pointer-events-none" />
@@ -305,875 +322,689 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
         </div>
       </div>
 
-      {/* Main Merchant Workspace: Dual-Sidebar Navigation + Workspace Panels */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Sidebar: Merchant Operations & Normal Services */}
-        <div className="lg:col-span-3 space-y-5">
-          {/* Group 1: Merchant Operations */}
-          <div className="rounded-2xl border bg-card p-4 shadow-sm space-y-3">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground px-2 flex items-center justify-between">
-              <span>Merchant Operations</span>
-              <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded font-bold">
-                API v1
-              </span>
+      {/* Mobile Top Tabs (Visible on small screens where sidebar is hidden) */}
+      <div className="lg:hidden flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        {(
+          [
+            { id: "overview", label: "Overview" },
+            { id: "payment-api", label: "Payment API" },
+            { id: "ggr", label: "GGR Gaming" },
+            { id: "api-keys", label: "API Keys" },
+            { id: "docs", label: "API Docs" },
+            { id: "ledger", label: "Ledger" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => handleTabChange(t.id)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+              activeTab === t.id
+                ? "bg-emerald-600 text-white shadow-xs"
+                : "bg-muted text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Top Balance Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Main Cash Balance */}
+        <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Wallet className="h-4 w-4 text-emerald-600" />
+              Merchant Cash Balance (NPR)
+            </span>
+            <div className="flex items-center gap-1.5">
+              <Button size="sm" variant="outline" asChild className="h-7 text-xs">
+                <Link to="/app/load">Deposit Cash</Link>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setWithdrawModalOpen(true)}
+                className="h-7 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+              >
+                API Payout
+              </Button>
             </div>
-
-            <nav className="space-y-1">
-              <button
-                type="button"
-                onClick={() => setActiveTab("overview")}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                  activeTab === "overview"
-                    ? "bg-emerald-600 text-white shadow-sm"
-                    : "text-foreground hover:bg-muted"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <Activity className="h-4 w-4" />
-                  Overview & Telemetry
-                </span>
-                <span className="text-[10px] opacity-80 font-mono">LIVE</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("payment-api")}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                  activeTab === "payment-api"
-                    ? "bg-emerald-600 text-white shadow-sm"
-                    : "text-foreground hover:bg-muted"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <CreditCard className="h-4 w-4" />
-                  Payment API (Payin/Payout)
-                </span>
-                <span className="text-[10px] bg-blue-500/20 text-blue-600 px-1.5 py-0.5 rounded font-mono">
-                  1.5% / 2%
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("ggr")}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                  activeTab === "ggr"
-                    ? "bg-emerald-600 text-white shadow-sm"
-                    : "text-foreground hover:bg-muted"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <Coins className="h-4 w-4" />
-                  GGR Gaming Engine
-                </span>
-                {isGgrEnabled ? (
-                  <span className="text-[10px] bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded font-mono font-bold">
-                    ACTIVE
-                  </span>
-                ) : (
-                  <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded font-mono flex items-center gap-0.5">
-                    <Lock className="h-2.5 w-2.5" />
-                    OFF
-                  </span>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("api-keys")}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                  activeTab === "api-keys"
-                    ? "bg-emerald-600 text-white shadow-sm"
-                    : "text-foreground hover:bg-muted"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <Key className="h-4 w-4" />
-                  API Keys & Webhooks
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("docs")}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                  activeTab === "docs"
-                    ? "bg-emerald-600 text-white shadow-sm"
-                    : "text-foreground hover:bg-muted"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4" />
-                  API Docs & Sandbox
-                </span>
-                <span className="text-[10px] bg-purple-500/20 text-purple-600 px-1.5 py-0.5 rounded">
-                  SDK
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("ledger")}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                  activeTab === "ledger"
-                    ? "bg-emerald-600 text-white shadow-sm"
-                    : "text-foreground hover:bg-muted"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <History className="h-4 w-4" />
-                  Transaction Ledger
-                </span>
-              </button>
-            </nav>
           </div>
-
-          {/* Group 2: Consumer Services (Always Available on Sidebar) */}
-          <div className="rounded-2xl border bg-card p-4 shadow-sm space-y-3">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground px-2 flex items-center justify-between">
-              <span>Consumer Services</span>
-              <span className="text-[10px] text-muted-foreground font-normal">
-                Personal Wallet
-              </span>
+          <div>
+            <div className="text-3xl font-extrabold text-foreground">
+              {isLoading ? "..." : formatNPR(Number(data?.cash_balance || 0))}
             </div>
-            <p className="text-[11px] text-muted-foreground px-2">
-              Use your wallet cash for consumer utility payments anytime:
+            <p className="text-xs text-muted-foreground mt-1">
+              Primary balance funding API player payouts, receiving payin credits, and buying coins.
             </p>
-            <nav className="space-y-1">
-              <Link
-                to="/app/topup"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-foreground hover:bg-muted hover:text-emerald-600 transition-colors"
-              >
-                <Smartphone className="h-3.5 w-3.5 text-emerald-600" />
-                Mobile Topup
-              </Link>
-              <Link
-                to="/app/transfer"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-foreground hover:bg-muted hover:text-emerald-600 transition-colors"
-              >
-                <Send className="h-3.5 w-3.5 text-blue-600" />
-                Bank & Fund Transfer
-              </Link>
-              <Link
-                to="/app/internet"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-foreground hover:bg-muted hover:text-emerald-600 transition-colors"
-              >
-                <Wifi className="h-3.5 w-3.5 text-indigo-600" />
-                Internet Bill
-              </Link>
-              <Link
-                to="/app/electricity"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-foreground hover:bg-muted hover:text-emerald-600 transition-colors"
-              >
-                <Zap className="h-3.5 w-3.5 text-amber-500" />
-                Electricity Bill
-              </Link>
-              <Link
-                to="/app/water"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-foreground hover:bg-muted hover:text-emerald-600 transition-colors"
-              >
-                <Droplet className="h-3.5 w-3.5 text-cyan-600" />
-                Water Bill (Khanepani)
-              </Link>
-              <Link
-                to="/app/remittance"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-foreground hover:bg-muted hover:text-emerald-600 transition-colors"
-              >
-                <Globe className="h-3.5 w-3.5 text-purple-600" />
-                Remittance Transfer
-              </Link>
-              <Link
-                to="/app/load"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-foreground hover:bg-muted hover:text-emerald-600 transition-colors"
-              >
-                <Wallet className="h-3.5 w-3.5 text-emerald-600" />
-                Load Wallet Cash
-              </Link>
-              <Link
-                to="/app/history"
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-foreground hover:bg-muted hover:text-emerald-600 transition-colors"
-              >
-                <FileText className="h-3.5 w-3.5 text-zinc-500" />
-                All Wallet Statements
-              </Link>
-            </nav>
-          </div>
-
-          {/* Gateway Status Badge */}
-          <div className="rounded-2xl border bg-muted/40 p-4 space-y-2">
-            <div className="flex items-center justify-between text-xs font-medium">
-              <span className="text-muted-foreground">API Latency:</span>
-              <span className="text-emerald-600 font-mono font-bold">24ms</span>
-            </div>
-            <div className="flex items-center justify-between text-xs font-medium">
-              <span className="text-muted-foreground">Gateway Uptime:</span>
-              <span className="text-foreground font-mono">99.98%</span>
-            </div>
-            <div className="flex items-center justify-between text-xs font-medium">
-              <span className="text-muted-foreground">Webhook Status:</span>
-              <span className="text-emerald-600 font-mono">Listening</span>
-            </div>
           </div>
         </div>
 
-        {/* Main Workspace Body */}
-        <div className="lg:col-span-9 space-y-6">
-          {/* Top Balance Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Main Cash Balance */}
-            <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <Wallet className="h-4 w-4 text-emerald-600" />
-                  Merchant Cash Balance (NPR)
-                </span>
-                <div className="flex items-center gap-1.5">
-                  <Button size="sm" variant="outline" asChild className="h-7 text-xs">
-                    <Link to="/app/load">Deposit Cash</Link>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setWithdrawModalOpen(true)}
-                    className="h-7 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                  >
-                    API Payout
-                  </Button>
-                </div>
+        {/* GGR Coin Balance (Unlocked if is_ggr, Locked if not) */}
+        {isGgrEnabled ? (
+          <div className="rounded-2xl border bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent p-5 shadow-sm space-y-3 border-amber-200/80">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-amber-700 flex items-center gap-1.5">
+                <Coins className="h-4 w-4 text-amber-600" />
+                GGR Coin Reserve
+              </span>
+              <Button
+                size="sm"
+                onClick={() => setBuyModalOpen(true)}
+                className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Buy Coins
+              </Button>
+            </div>
+            <div>
+              <div className="text-3xl font-extrabold text-amber-700 flex items-baseline gap-2">
+                <span>{isLoading ? "..." : Number(data?.ggr_coin_balance || 0).toLocaleString()}</span>
+                <span className="text-sm font-semibold text-amber-600">Coins</span>
               </div>
-              <div>
-                <div className="text-3xl font-extrabold text-foreground">
-                  {isLoading ? "..." : formatNPR(Number(data?.cash_balance || 0))}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Primary balance funding API player payouts, receiving payin credits, and buying coins.
-                </p>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                <span>Bought: {Number(data?.total_bought || 0).toLocaleString()}</span>
+                <span>•</span>
+                <span className="text-emerald-600 font-medium">Won (+10%): {Number(data?.total_won || 0).toLocaleString()}</span>
+                <span>•</span>
+                <span className="text-red-500">Lost: {Number(data?.total_lost || 0).toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed bg-muted/20 p-5 shadow-sm space-y-3 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
+                <Lock className="h-4 w-4 text-zinc-400" />
+                GGR Gaming Coin Service
+              </span>
+              <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 px-2 py-0.5 rounded font-mono font-semibold">
+                INACTIVE
+              </span>
+            </div>
+            <div className="space-y-1">
+              <div className="text-base font-bold text-foreground flex items-center gap-2">
+                GGR Coins Disabled
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Only users with <code className="font-mono bg-muted px-1 rounded text-foreground">is_ggr</code> enabled by Super Admin can access GGR gaming coins and game event APIs.
+              </p>
+            </div>
+            <div className="text-[11px] text-amber-600 flex items-center gap-1 pt-1">
+              <AlertCircle className="h-3.5 w-3.5" />
+              Contact administration to enable GGR gaming.
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* TAB 1: OVERVIEW & TELEMETRY */}
+      {activeTab === "overview" && (
+        <div className="space-y-6">
+          {/* Telemetry Summary */}
+          <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-emerald-600" />
+                <h3 className="font-semibold text-sm">Platform Gateway Service Fees & Profit Share</h3>
+              </div>
+              <div className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2.5 py-1 rounded-full">
+                {isGgrEnabled ? `GGR Cut: ${ggrProfitPct}% of Net Profit` : "Payment API Active"}
               </div>
             </div>
 
-            {/* GGR Coin Balance (Unlocked if is_ggr, Locked if not) */}
-            {isGgrEnabled ? (
-              <div className="rounded-2xl border bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent p-5 shadow-sm space-y-3 border-amber-200/80">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-amber-700 flex items-center gap-1.5">
-                    <Coins className="h-4 w-4 text-amber-600" />
-                    GGR Coin Reserve
-                  </span>
-                  <Button
-                    size="sm"
-                    onClick={() => setBuyModalOpen(true)}
-                    className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    Buy Coins
-                  </Button>
-                </div>
-                <div>
-                  <div className="text-3xl font-extrabold text-amber-700 flex items-baseline gap-2">
-                    <span>{isLoading ? "..." : Number(data?.ggr_coin_balance || 0).toLocaleString()}</span>
-                    <span className="text-sm font-semibold text-amber-600">Coins</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                    <span>Bought: {Number(data?.total_bought || 0).toLocaleString()}</span>
-                    <span>•</span>
-                    <span className="text-emerald-600 font-medium">Won (+10%): {Number(data?.total_won || 0).toLocaleString()}</span>
-                    <span>•</span>
-                    <span className="text-red-500">Lost: {Number(data?.total_lost || 0).toLocaleString()}</span>
-                  </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              <div className="p-3 rounded-xl bg-muted/40">
+                <div className="text-xs text-muted-foreground">Payin Deposit Fee</div>
+                <div className="text-base font-bold text-blue-600 mt-0.5">
+                  {depFeePct}%
                 </div>
               </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed bg-muted/20 p-5 shadow-sm space-y-3 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                    <Lock className="h-4 w-4 text-zinc-400" />
-                    GGR Gaming Coin Service
-                  </span>
-                  <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 px-2 py-0.5 rounded font-mono font-semibold">
-                    INACTIVE
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-base font-bold text-foreground flex items-center gap-2">
-                    GGR Coins Disabled
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Only users with <code className="font-mono bg-muted px-1 rounded text-foreground">is_ggr</code> enabled by Super Admin can access GGR gaming coins and game event APIs.
-                  </p>
-                </div>
-                <div className="text-[11px] text-amber-600 flex items-center gap-1 pt-1">
-                  <AlertCircle className="h-3.5 w-3.5" />
-                  Contact administration to enable GGR gaming.
+              <div className="p-3 rounded-xl bg-muted/40">
+                <div className="text-xs text-muted-foreground">Payout Withdraw Fee</div>
+                <div className="text-base font-bold text-indigo-600 mt-0.5">
+                  {wthFeePct}%
                 </div>
               </div>
-            )}
+              <div className="p-3 rounded-xl bg-muted/40">
+                <div className="text-xs text-muted-foreground">GGR Net Profit Cut</div>
+                <div className="text-base font-bold text-amber-600 mt-0.5">
+                  {isGgrEnabled ? `${ggrProfitPct}%` : "N/A"}
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-muted/40">
+                <div className="text-xs text-muted-foreground">Monthly Est. Fee</div>
+                <div className="text-base font-bold text-foreground mt-0.5">
+                  {isGgrEnabled ? formatNPR(Number(data?.estimated_monthly_fee || 0)) : "रु. 0.00"}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* TAB 1: OVERVIEW & TELEMETRY */}
-          {activeTab === "overview" && (
-            <div className="space-y-6">
-              {/* Telemetry Summary */}
-              <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-emerald-600" />
-                    <h3 className="font-semibold text-sm">Platform Gateway Service Fees & Profit Share</h3>
-                  </div>
-                  <div className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2.5 py-1 rounded-full">
-                    {isGgrEnabled ? `GGR Cut: ${ggrProfitPct}% of Net Profit` : "Payment API Active"}
-                  </div>
+          {/* Game Simulator (Only when GGR is enabled) */}
+          {isGgrEnabled ? (
+            <div className="rounded-2xl border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div className="flex items-center gap-2">
+                  <Play className="h-4 w-4 text-emerald-600" />
+                  <h3 className="font-semibold text-sm">Live Game Event Simulator</h3>
                 </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                  <div className="p-3 rounded-xl bg-muted/40">
-                    <div className="text-xs text-muted-foreground">Payin Deposit Fee</div>
-                    <div className="text-base font-bold text-blue-600 mt-0.5">
-                      {depFeePct}%
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-xl bg-muted/40">
-                    <div className="text-xs text-muted-foreground">Payout Withdraw Fee</div>
-                    <div className="text-base font-bold text-indigo-600 mt-0.5">
-                      {wthFeePct}%
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-xl bg-muted/40">
-                    <div className="text-xs text-muted-foreground">GGR Net Profit Cut</div>
-                    <div className="text-base font-bold text-amber-600 mt-0.5">
-                      {isGgrEnabled ? `${ggrProfitPct}%` : "N/A"}
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-xl bg-muted/40">
-                    <div className="text-xs text-muted-foreground">Monthly Est. Fee</div>
-                    <div className="text-base font-bold text-foreground mt-0.5">
-                      {isGgrEnabled ? formatNPR(Number(data?.estimated_monthly_fee || 0)) : "रु. 0.00"}
-                    </div>
-                  </div>
-                </div>
+                <span className="text-xs text-muted-foreground">
+                  Test coin fluctuations with win / loss mechanics
+                </span>
               </div>
 
-              {/* Game Simulator (Only when GGR is enabled) */}
-              {isGgrEnabled ? (
-                <div className="rounded-2xl border bg-card p-5 space-y-4 shadow-sm">
-                  <div className="flex items-center justify-between border-b pb-3">
-                    <div className="flex items-center gap-2">
-                      <Play className="h-4 w-4 text-emerald-600" />
-                      <h3 className="font-semibold text-sm">Live Game Event Simulator</h3>
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      Test coin fluctuations with win / loss mechanics
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Game Round Ref</Label>
-                      <Input
-                        value={gameRef}
-                        onChange={(e) => setGameRef(e.target.value)}
-                        placeholder="ROUND_1001"
-                        className="h-9 text-xs font-mono"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Base Bet Amount (NPR / Coins)</Label>
-                      <Input
-                        type="number"
-                        value={gameAmount}
-                        onChange={(e) => setGameAmount(e.target.value)}
-                        placeholder="500"
-                        className="h-9 text-xs"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        onClick={() =>
-                          gameEventMutation.mutate({
-                            event_type: "player_win",
-                            amount: gameAmount,
-                            reference: gameRef,
-                          })
-                        }
-                        disabled={gameEventMutation.isPending || !gameAmount}
-                        className="flex-1 h-9 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
-                      >
-                        <TrendingUp className="h-3.5 w-3.5 mr-1" />
-                        Player Win (+10%)
-                      </Button>
-                      <Button
-                        onClick={() =>
-                          gameEventMutation.mutate({
-                            event_type: "player_loss",
-                            amount: gameAmount,
-                            reference: gameRef,
-                          })
-                        }
-                        disabled={gameEventMutation.isPending || !gameAmount}
-                        variant="destructive"
-                        className="flex-1 h-9 text-xs"
-                      >
-                        <TrendingDown className="h-3.5 w-3.5 mr-1" />
-                        Player Loss
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-1">
-                    <span className="text-[11px] text-muted-foreground">Presets:</span>
-                    {["100", "500", "1000", "5000"].map((amt) => (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => setGameAmount(amt)}
-                        className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
-                          gameAmount === amt
-                            ? "bg-emerald-50 border-emerald-300 text-emerald-700 font-bold"
-                            : "bg-muted/50 border-border text-muted-foreground hover:bg-muted"
-                        }`}
-                      >
-                        {amt}
-                      </button>
-                    ))}
-                  </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Game Round Ref</Label>
+                  <Input
+                    value={gameRef}
+                    onChange={(e) => setGameRef(e.target.value)}
+                    placeholder="ROUND_1001"
+                    className="h-9 text-xs font-mono"
+                  />
                 </div>
-              ) : null}
-
-              {/* Payment API Simulator Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-2xl border bg-card p-5 space-y-3 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-semibold text-sm flex items-center gap-1.5 text-blue-700">
-                      <ArrowDownLeft className="h-4 w-4" />
-                      Player Payin (Deposit)
-                    </h4>
-                    <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
-                      Fee: {depFeePct}%
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Player deposits funds into your platform. Platform fee is deducted and net amount is credited to your cash balance.
-                  </p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Base Bet Amount (NPR / Coins)</Label>
+                  <Input
+                    type="number"
+                    value={gameAmount}
+                    onChange={(e) => setGameAmount(e.target.value)}
+                    placeholder="500"
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
                   <Button
-                    onClick={() => setDepositModalOpen(true)}
-                    variant="outline"
-                    className="w-full h-8 text-xs text-blue-700 border-blue-200 hover:bg-blue-50"
+                    onClick={() =>
+                      gameEventMutation.mutate({
+                        event_type: "player_win",
+                        amount: gameAmount,
+                        reference: gameRef,
+                      })
+                    }
+                    disabled={gameEventMutation.isPending || !gameAmount}
+                    className="flex-1 h-9 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
                   >
-                    Simulate Player Deposit
+                    <TrendingUp className="h-3.5 w-3.5 mr-1" />
+                    Player Win (+10%)
                   </Button>
-                </div>
-
-                <div className="rounded-2xl border bg-card p-5 space-y-3 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-semibold text-sm flex items-center gap-1.5 text-indigo-700">
-                      <ArrowUpRight className="h-4 w-4" />
-                      Player Payout (Withdraw)
-                    </h4>
-                    <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-full">
-                      Fee: {wthFeePct}%
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Player withdraws winnings. Platform fee is added and total is debited from your merchant cash balance.
-                  </p>
                   <Button
-                    onClick={() => setWithdrawModalOpen(true)}
-                    variant="outline"
-                    className="w-full h-8 text-xs text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                    onClick={() =>
+                      gameEventMutation.mutate({
+                        event_type: "player_loss",
+                        amount: gameAmount,
+                        reference: gameRef,
+                      })
+                    }
+                    disabled={gameEventMutation.isPending || !gameAmount}
+                    variant="destructive"
+                    className="flex-1 h-9 text-xs"
                   >
-                    Simulate Player Payout
+                    <TrendingDown className="h-3.5 w-3.5 mr-1" />
+                    Player Loss
                   </Button>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* TAB 2: PAYMENT API CONSOLE */}
-          {activeTab === "payment-api" && (
-            <div className="space-y-6">
-              <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-5">
-                <div className="border-b pb-3">
-                  <h3 className="font-bold text-base flex items-center gap-2">
-                    <CreditCard className="h-5 w-5 text-emerald-600" />
-                    Payment API Gateway Console
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Automate deposits and withdrawals for end-players with real-time fee calculation.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  {/* Payin Simulator Form */}
-                  <div className="rounded-xl border p-4 space-y-3 bg-muted/20">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-xs flex items-center gap-1.5 text-blue-700">
-                        <ArrowDownLeft className="h-4 w-4" />
-                        Player Deposit (Payin)
-                      </span>
-                      <span className="text-[10px] font-mono font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
-                        Fee {depFeePct}%
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-xs">Player ID</Label>
-                      <Input
-                        value={apiDepositPlayer}
-                        onChange={(e) => setApiDepositPlayer(e.target.value)}
-                        placeholder="player_01"
-                        className="h-8 text-xs"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-xs">Deposit Amount (NPR)</Label>
-                      <Input
-                        type="number"
-                        value={apiDepositAmount}
-                        onChange={(e) => setApiDepositAmount(e.target.value)}
-                        placeholder="1000"
-                        className="h-8 text-xs"
-                      />
-                    </div>
-
-                    <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs space-y-1 text-blue-900">
-                      <div className="flex justify-between">
-                        <span>Gross Deposit:</span>
-                        <span className="font-mono font-semibold">NPR {depAmtNum}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Platform Fee ({depFeePct}%):</span>
-                        <span className="font-mono text-red-600">- NPR {calcDepFee}</span>
-                      </div>
-                      <div className="flex justify-between font-bold border-t border-blue-200 pt-1 text-emerald-700">
-                        <span>Credited to Your Balance:</span>
-                        <span className="font-mono">+ NPR {calcDepNet}</span>
-                      </div>
-                    </div>
-
-                    <Button
-                      onClick={() =>
-                        apiDepositMutation.mutate({
-                          amount: apiDepositAmount,
-                          player_id: apiDepositPlayer,
-                        })
-                      }
-                      disabled={apiDepositMutation.isPending || !apiDepositAmount || Number(apiDepositAmount) <= 0}
-                      className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      {apiDepositMutation.isPending ? "Executing Payin..." : "Execute Test Payin"}
-                    </Button>
-                  </div>
-
-                  {/* Payout Simulator Form */}
-                  <div className="rounded-xl border p-4 space-y-3 bg-muted/20">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-xs flex items-center gap-1.5 text-indigo-700">
-                        <ArrowUpRight className="h-4 w-4" />
-                        Player Payout (Withdraw)
-                      </span>
-                      <span className="text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">
-                        Fee {wthFeePct}%
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-xs">Player ID</Label>
-                      <Input
-                        value={apiWithdrawPlayer}
-                        onChange={(e) => setApiWithdrawPlayer(e.target.value)}
-                        placeholder="player_01"
-                        className="h-8 text-xs"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-xs">Payout Amount (NPR)</Label>
-                      <Input
-                        type="number"
-                        value={apiWithdrawAmount}
-                        onChange={(e) => setApiWithdrawAmount(e.target.value)}
-                        placeholder="500"
-                        className="h-8 text-xs"
-                      />
-                    </div>
-
-                    <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg text-xs space-y-1 text-indigo-900">
-                      <div className="flex justify-between">
-                        <span>Player Receives:</span>
-                        <span className="font-mono font-semibold">NPR {wthAmtNum}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Platform Fee ({wthFeePct}%):</span>
-                        <span className="font-mono text-red-600">+ NPR {calcWthFee}</span>
-                      </div>
-                      <div className="flex justify-between font-bold border-t border-indigo-200 pt-1 text-red-600">
-                        <span>Debited from Your Balance:</span>
-                        <span className="font-mono">- NPR {calcWthTotal}</span>
-                      </div>
-                    </div>
-
-                    <Button
-                      onClick={() =>
-                        apiWithdrawMutation.mutate({
-                          amount: apiWithdrawAmount,
-                          player_id: apiWithdrawPlayer,
-                        })
-                      }
-                      disabled={apiWithdrawMutation.isPending || !apiWithdrawAmount || Number(apiWithdrawAmount) <= 0}
-                      className="w-full text-xs h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
-                    >
-                      {apiWithdrawMutation.isPending ? "Executing Payout..." : "Execute Test Payout"}
-                    </Button>
-                  </div>
-                </div>
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-[11px] text-muted-foreground">Presets:</span>
+                {["100", "500", "1000", "5000"].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setGameAmount(amt)}
+                    className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
+                      gameAmount === amt
+                        ? "bg-emerald-50 border-emerald-300 text-emerald-700 font-bold"
+                        : "bg-muted/50 border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {amt}
+                  </button>
+                ))}
               </div>
             </div>
-          )}
+          ) : null}
 
-          {/* TAB 3: GGR GAMING ENGINE (Only available if is_ggr_user) */}
-          {activeTab === "ggr" && (
-            <div className="space-y-6">
-              {isGgrEnabled ? (
-                <>
-                  <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-4">
-                    <div className="flex items-center justify-between border-b pb-3">
-                      <div>
-                        <h3 className="font-bold text-base flex items-center gap-2">
-                          <Coins className="h-5 w-5 text-amber-600" />
-                          GGR Gaming Coins & Mechanics
-                        </h3>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          1 NPR = 1 GGR Coin. When players lose, coins decrease. When players win, coins increase by 10% bonus boost.
-                        </p>
-                      </div>
-                      <Button
-                        onClick={() => setBuyModalOpen(true)}
-                        className="bg-amber-600 hover:bg-amber-700 text-white text-xs h-8"
-                      >
-                        <Plus className="h-3.5 w-3.5 mr-1" />
-                        Buy Coins
-                      </Button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                      <div className="p-4 rounded-xl border bg-muted/30 space-y-2">
-                        <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                          <Wallet className="h-4 w-4 text-emerald-600" />
-                          1. 1:1 Coin Exchange
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Purchase GGR coins with your cash balance anytime. Instant 1:1 settlement.
-                        </p>
-                      </div>
-
-                      <div className="p-4 rounded-xl border bg-muted/30 space-y-2">
-                        <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                          <TrendingUp className="h-4 w-4 text-emerald-600" />
-                          2. +10% Win Multiplier
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          When a player wins, your GGR coins increase by amount + 10% bonus boost.
-                        </p>
-                      </div>
-
-                      <div className="p-4 rounded-xl border bg-muted/30 space-y-2">
-                        <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                          <Sparkles className="h-4 w-4 text-amber-500" />
-                          3. Monthly 10% Profit Cut
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Platform takes 10% on positive net gaming profits at the end of each monthly cycle.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Monthly Settlements list */}
-                  <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-4">
-                    <div className="flex items-center justify-between border-b pb-3">
-                      <h3 className="font-semibold text-sm flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-amber-500" />
-                        Monthly GGR Profit Settlements
-                      </h3>
-                      <span className="text-xs text-muted-foreground font-mono">10% Platform Fee</span>
-                    </div>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs text-left">
-                        <thead className="bg-muted/50 text-muted-foreground uppercase text-[10px]">
-                          <tr>
-                            <th className="p-2.5">Month</th>
-                            <th className="p-2.5">Net Profit</th>
-                            <th className="p-2.5">Fee Rate</th>
-                            <th className="p-2.5">Fee Paid</th>
-                            <th className="p-2.5">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          {data?.monthly_settlements && data.monthly_settlements.length > 0 ? (
-                            data.monthly_settlements.map((s) => (
-                              <tr key={s.id} className="hover:bg-muted/30">
-                                <td className="p-2.5 font-bold">{s.month_key}</td>
-                                <td className="p-2.5 font-mono font-bold text-emerald-600">
-                                  {formatNPR(Number(s.net_profit))}
-                                </td>
-                                <td className="p-2.5 font-mono">{s.fee_percent}%</td>
-                                <td className="p-2.5 font-mono font-bold text-amber-700">
-                                  {formatNPR(Number(s.fee_amount))}
-                                </td>
-                                <td className="p-2.5">
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                                    {s.status.toUpperCase()}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={5} className="p-4 text-center text-muted-foreground">
-                                No monthly settlements yet. Audits occur at the end of each billing cycle.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                /* LOCKED STATE FOR GGR */
-                <div className="rounded-2xl border border-zinc-800 bg-card p-8 shadow-sm text-center space-y-4">
-                  <div className="h-16 w-16 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
-                    <Lock className="h-8 w-8" />
-                  </div>
-                  <div className="space-y-1.5 max-w-md mx-auto">
-                    <h3 className="text-lg font-bold text-foreground">GGR Gaming Service Locked</h3>
-                    <p className="text-xs text-muted-foreground">
-                      GGR Coin management and game event APIs require the <code className="font-mono bg-muted px-1 py-0.5 rounded">is_ggr</code> permission enabled on your merchant account.
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-xl border bg-muted/30 max-w-md mx-auto text-xs text-muted-foreground space-y-2 text-left">
-                    <div className="font-semibold text-foreground flex items-center gap-1.5">
-                      <Sparkles className="h-4 w-4 text-amber-500" />
-                      What GGR Service Unlocks:
-                    </div>
-                    <div>• 1:1 GGR Coin conversion from your cash wallet</div>
-                    <div>• Game Event API with player win (+10% bonus) and loss processing</div>
-                    <div>• Monthly net profit settlement and automated fee distribution</div>
-                  </div>
-
-                  <div className="pt-2">
-                    <Button variant="outline" asChild className="text-xs">
-                      <Link to="/app/support-chat">Contact Support or Admin</Link>
-                    </Button>
-                  </div>
-                </div>
-              )}
+          {/* Payment API Simulator Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-2xl border bg-card p-5 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-sm flex items-center gap-1.5 text-blue-700">
+                  <ArrowDownLeft className="h-4 w-4" />
+                  Player Payin (Deposit)
+                </h4>
+                <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
+                  Fee: {depFeePct}%
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Player deposits funds into your platform. Platform fee is deducted and net amount is credited to your cash balance.
+              </p>
+              <Button
+                onClick={() => setDepositModalOpen(true)}
+                variant="outline"
+                className="w-full h-8 text-xs text-blue-700 border-blue-200 hover:bg-blue-50"
+              >
+                Simulate Player Deposit
+              </Button>
             </div>
-          )}
 
-          {/* TAB 4: API KEYS & WEBHOOKS */}
-          {activeTab === "api-keys" && (
-            <div className="space-y-6">
-              <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-5">
-                <div className="border-b pb-3">
-                  <h3 className="font-bold text-base flex items-center gap-2">
-                    <Key className="h-5 w-5 text-emerald-600" />
-                    API Credentials & Webhook Settings
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Production API credentials for authenticating requests from your backend server.
-                  </p>
+            <div className="rounded-2xl border bg-card p-5 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-sm flex items-center gap-1.5 text-indigo-700">
+                  <ArrowUpRight className="h-4 w-4" />
+                  Player Payout (Withdraw)
+                </h4>
+                <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-full">
+                  Fee: {wthFeePct}%
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Player withdraws winnings. Platform fee is added and total is debited from your merchant cash balance.
+              </p>
+              <Button
+                onClick={() => setWithdrawModalOpen(true)}
+                variant="outline"
+                className="w-full h-8 text-xs text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+              >
+                Simulate Player Payout
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: PAYMENT API CONSOLE */}
+      {activeTab === "payment-api" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-5">
+            <div className="border-b pb-3">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-emerald-600" />
+                Payment API Gateway Console
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Automate deposits and withdrawals for end-players with real-time fee calculation.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Payin Simulator Form */}
+              <div className="rounded-xl border p-4 space-y-3 bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-xs flex items-center gap-1.5 text-blue-700">
+                    <ArrowDownLeft className="h-4 w-4" />
+                    Player Deposit (Payin)
+                  </span>
+                  <span className="text-[10px] font-mono font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                    Fee {depFeePct}%
+                  </span>
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-xs font-semibold">Live Production API Key</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      readOnly
-                      value={displayKey}
-                      className="font-mono text-xs bg-muted"
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      className="h-9 text-xs"
-                    >
-                      {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </Button>
-                    <Button size="sm" onClick={copyApiKey} className="h-9 text-xs bg-emerald-600 hover:bg-emerald-700 text-white">
-                      {copiedKey ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
-                      {copiedKey ? "Copied" : "Copy"}
-                    </Button>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Header: <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground">Authorization: Api-Key &lt;YOUR_API_KEY&gt;</code>
-                  </p>
+                  <Label className="text-xs">Player ID</Label>
+                  <Input
+                    value={apiDepositPlayer}
+                    onChange={(e) => setApiDepositPlayer(e.target.value)}
+                    placeholder="player_01"
+                    className="h-8 text-xs"
+                  />
                 </div>
 
-                <div className="space-y-2 pt-2">
-                  <Label className="text-xs font-semibold">Configured Webhook URL</Label>
+                <div className="space-y-2">
+                  <Label className="text-xs">Deposit Amount (NPR)</Label>
                   <Input
-                    readOnly
-                    value={devProfileQuery.data?.api_webhook_url || "https://your-server.com/api/mysewa/webhook"}
-                    className="font-mono text-xs bg-muted"
+                    type="number"
+                    value={apiDepositAmount}
+                    onChange={(e) => setApiDepositAmount(e.target.value)}
+                    placeholder="1000"
+                    className="h-8 text-xs"
                   />
-                  <p className="text-[11px] text-muted-foreground">
-                    MySewa posts real-time JSON payloads to this endpoint on confirmed deposits and payouts.
-                  </p>
                 </div>
+
+                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs space-y-1 text-blue-900">
+                  <div className="flex justify-between">
+                    <span>Gross Deposit:</span>
+                    <span className="font-mono font-semibold">NPR {depAmtNum}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Platform Fee ({depFeePct}%):</span>
+                    <span className="font-mono text-red-600">- NPR {calcDepFee}</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t border-blue-200 pt-1 text-emerald-700">
+                    <span>Credited to Your Balance:</span>
+                    <span className="font-mono">+ NPR {calcDepNet}</span>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() =>
+                    apiDepositMutation.mutate({
+                      amount: apiDepositAmount,
+                      player_id: apiDepositPlayer,
+                    })
+                  }
+                  disabled={apiDepositMutation.isPending || !apiDepositAmount || Number(apiDepositAmount) <= 0}
+                  className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {apiDepositMutation.isPending ? "Executing Payin..." : "Execute Test Payin"}
+                </Button>
+              </div>
+
+              {/* Payout Simulator Form */}
+              <div className="rounded-xl border p-4 space-y-3 bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-xs flex items-center gap-1.5 text-indigo-700">
+                    <ArrowUpRight className="h-4 w-4" />
+                    Player Payout (Withdraw)
+                  </span>
+                  <span className="text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">
+                    Fee {wthFeePct}%
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Player ID</Label>
+                  <Input
+                    value={apiWithdrawPlayer}
+                    onChange={(e) => setApiWithdrawPlayer(e.target.value)}
+                    placeholder="player_01"
+                    className="h-8 text-xs"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Payout Amount (NPR)</Label>
+                  <Input
+                    type="number"
+                    value={apiWithdrawAmount}
+                    onChange={(e) => setApiWithdrawAmount(e.target.value)}
+                    placeholder="500"
+                    className="h-8 text-xs"
+                  />
+                </div>
+
+                <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg text-xs space-y-1 text-indigo-900">
+                  <div className="flex justify-between">
+                    <span>Player Receives:</span>
+                    <span className="font-mono font-semibold">NPR {wthAmtNum}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Platform Fee ({wthFeePct}%):</span>
+                    <span className="font-mono text-red-600">+ NPR {calcWthFee}</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t border-indigo-200 pt-1 text-red-600">
+                    <span>Debited from Your Balance:</span>
+                    <span className="font-mono">- NPR {calcWthTotal}</span>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() =>
+                    apiWithdrawMutation.mutate({
+                      amount: apiWithdrawAmount,
+                      player_id: apiWithdrawPlayer,
+                    })
+                  }
+                  disabled={apiWithdrawMutation.isPending || !apiWithdrawAmount || Number(apiWithdrawAmount) <= 0}
+                  className="w-full text-xs h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
+                >
+                  {apiWithdrawMutation.isPending ? "Executing Payout..." : "Execute Test Payout"}
+                </Button>
               </div>
             </div>
-          )}
+          </div>
+        </div>
+      )}
 
-          {/* TAB 5: API DOCUMENTATION & SANDBOX */}
-          {activeTab === "docs" && (
-            <div className="space-y-6">
-              <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+      {/* TAB 3: GGR GAMING ENGINE */}
+      {activeTab === "ggr" && (
+        <div className="space-y-6">
+          {isGgrEnabled ? (
+            <>
+              <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b pb-3">
                   <div>
                     <h3 className="font-bold text-base flex items-center gap-2">
-                      <BookOpen className="h-5 w-5 text-purple-600" />
-                      Interactive API Documentation
+                      <Coins className="h-5 w-5 text-amber-600" />
+                      GGR Gaming Coins & Mechanics
                     </h3>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Base URL: <code className="font-mono text-foreground font-semibold">https://mysewa.com.np/api/v1</code>
+                      1 NPR = 1 GGR Coin. When players lose, coins decrease. When players win, coins increase by 10% bonus boost.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => setBuyModalOpen(true)}
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs h-8"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Buy Coins
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                  <div className="p-4 rounded-xl border bg-muted/30 space-y-2">
+                    <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <Wallet className="h-4 w-4 text-emerald-600" />
+                      1. 1:1 Coin Exchange
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Purchase GGR coins with your cash balance anytime. Instant 1:1 settlement.
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-1 bg-muted p-1 rounded-lg">
-                    {(["curl", "python", "node"] as const).map((lang) => (
-                      <button
-                        key={lang}
-                        type="button"
-                        onClick={() => setDocsLang(lang)}
-                        className={`text-xs px-2.5 py-1 rounded-md capitalize font-medium transition-colors ${
-                          docsLang === lang
-                            ? "bg-background text-foreground shadow-xs font-bold"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {lang}
-                      </button>
-                    ))}
+                  <div className="p-4 rounded-xl border bg-muted/30 space-y-2">
+                    <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <TrendingUp className="h-4 w-4 text-emerald-600" />
+                      2. +10% Win Multiplier
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      When a player wins, your GGR coins increase by amount + 10% bonus boost.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl border bg-muted/30 space-y-2">
+                    <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <Sparkles className="h-4 w-4 text-amber-500" />
+                      3. Monthly 10% Profit Cut
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Platform takes 10% on positive net gaming profits at the end of each monthly cycle.
+                    </p>
                   </div>
                 </div>
+              </div>
 
-                {/* Endpoint 1: Payin */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 font-mono">
-                      POST
-                    </span>
-                    <span className="font-mono text-xs font-bold text-foreground">
-                      /api/v1/payment/deposit/
-                    </span>
-                    <span className="text-xs text-muted-foreground">— Player Deposit (Payin)</span>
-                  </div>
+              {/* Monthly Settlements list */}
+              <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b pb-3">
+                  <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-amber-500" />
+                    Monthly GGR Profit Settlements
+                  </h3>
+                  <span className="text-xs text-muted-foreground font-mono">10% Platform Fee</span>
+                </div>
 
-                  <pre className="p-4 rounded-xl bg-zinc-950 text-zinc-200 text-xs font-mono overflow-x-auto">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 text-muted-foreground uppercase text-[10px]">
+                      <tr>
+                        <th className="p-2.5">Month</th>
+                        <th className="p-2.5">Net Profit</th>
+                        <th className="p-2.5">Fee Rate</th>
+                        <th className="p-2.5">Fee Paid</th>
+                        <th className="p-2.5">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {data?.monthly_settlements && data.monthly_settlements.length > 0 ? (
+                        data.monthly_settlements.map((s) => (
+                          <tr key={s.id} className="hover:bg-muted/30">
+                            <td className="p-2.5 font-bold">{s.month_key}</td>
+                            <td className="p-2.5 font-mono font-bold text-emerald-600">
+                              {formatNPR(Number(s.net_profit))}
+                            </td>
+                            <td className="p-2.5 font-mono">{s.fee_percent}%</td>
+                            <td className="p-2.5 font-mono font-bold text-amber-700">
+                              {formatNPR(Number(s.fee_amount))}
+                            </td>
+                            <td className="p-2.5">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                {s.status.toUpperCase()}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="p-4 text-center text-muted-foreground">
+                            No monthly settlements yet. Audits occur at the end of each billing cycle.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : (
+            /* LOCKED STATE FOR GGR */
+            <div className="rounded-2xl border border-zinc-800 bg-card p-8 shadow-sm text-center space-y-4">
+              <div className="h-16 w-16 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
+                <Lock className="h-8 w-8" />
+              </div>
+              <div className="space-y-1.5 max-w-md mx-auto">
+                <h3 className="text-lg font-bold text-foreground">GGR Gaming Service Locked</h3>
+                <p className="text-xs text-muted-foreground">
+                  GGR Coin management and game event APIs require the <code className="font-mono bg-muted px-1 py-0.5 rounded">is_ggr</code> permission enabled on your merchant account.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl border bg-muted/30 max-w-md mx-auto text-xs text-muted-foreground space-y-2 text-left">
+                <div className="font-semibold text-foreground flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-amber-500" />
+                  What GGR Service Unlocks:
+                </div>
+                <div>• 1:1 GGR Coin conversion from your cash wallet</div>
+                <div>• Game Event API with player win (+10% bonus) and loss processing</div>
+                <div>• Monthly net profit settlement and automated fee distribution</div>
+              </div>
+
+              <div className="pt-2">
+                <Button variant="outline" asChild className="text-xs">
+                  <Link to="/app/support-chat">Contact Support or Admin</Link>
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 4: API KEYS & WEBHOOKS */}
+      {activeTab === "api-keys" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-5">
+            <div className="border-b pb-3">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <Key className="h-5 w-5 text-emerald-600" />
+                API Credentials & Webhook Settings
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Production API credentials for authenticating requests from your backend server.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">Live Production API Key</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={displayKey}
+                  className="font-mono text-xs bg-muted"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="h-9 text-xs"
+                >
+                  {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </Button>
+                <Button size="sm" onClick={copyApiKey} className="h-9 text-xs bg-emerald-600 hover:bg-emerald-700 text-white">
+                  {copiedKey ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
+                  {copiedKey ? "Copied" : "Copy"}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Header: <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground">Authorization: Api-Key &lt;YOUR_API_KEY&gt;</code>
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <Label className="text-xs font-semibold">Configured Webhook URL</Label>
+              <Input
+                readOnly
+                value={devProfileQuery.data?.api_webhook_url || "https://your-server.com/api/mysewa/webhook"}
+                className="font-mono text-xs bg-muted"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                MySewa posts real-time JSON payloads to this endpoint on confirmed deposits and payouts.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: API DOCUMENTATION & SANDBOX */}
+      {activeTab === "docs" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+              <div>
+                <h3 className="font-bold text-base flex items-center gap-2">
+                  <BookOpen className="h-5 w-5 text-purple-600" />
+                  Interactive API Documentation
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Base URL: <code className="font-mono text-foreground font-semibold">https://mysewa.com.np/api/v1</code>
+                </p>
+              </div>
+
+              <div className="flex items-center gap-1 bg-muted p-1 rounded-lg">
+                {(["curl", "python", "node"] as const).map((lang) => (
+                  <button
+                    key={lang}
+                    type="button"
+                    onClick={() => setDocsLang(lang)}
+                    className={`text-xs px-2.5 py-1 rounded-md capitalize font-medium transition-colors ${
+                      docsLang === lang
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {lang}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Endpoint 1: Payin */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 font-mono">
+                  POST
+                </span>
+                <span className="font-mono text-xs font-bold text-foreground">
+                  /api/v1/payment/deposit/
+                </span>
+                <span className="text-xs text-muted-foreground">— Player Deposit (Payin)</span>
+              </div>
+
+              <pre className="p-4 rounded-xl bg-zinc-950 text-zinc-200 text-xs font-mono overflow-x-auto">
 {docsLang === "curl" && `curl -X POST "https://mysewa.com.np/api/v1/payment/deposit/" \\
   -H "Authorization: Api-Key ${rawKey}" \\
   -H "Content-Type: application/json" \\
@@ -1210,22 +1041,22 @@ print(response.json())`}
 });
 const data = await response.json();
 console.log(data);`}
-                  </pre>
-                </div>
+              </pre>
+            </div>
 
-                {/* Endpoint 2: Payout */}
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 font-mono">
-                      POST
-                    </span>
-                    <span className="font-mono text-xs font-bold text-foreground">
-                      /api/v1/payment/withdraw/
-                    </span>
-                    <span className="text-xs text-muted-foreground">— Player Payout (Withdraw)</span>
-                  </div>
+            {/* Endpoint 2: Payout */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 font-mono">
+                  POST
+                </span>
+                <span className="font-mono text-xs font-bold text-foreground">
+                  /api/v1/payment/withdraw/
+                </span>
+                <span className="text-xs text-muted-foreground">— Player Payout (Withdraw)</span>
+              </div>
 
-                  <pre className="p-4 rounded-xl bg-zinc-950 text-zinc-200 text-xs font-mono overflow-x-auto">
+              <pre className="p-4 rounded-xl bg-zinc-950 text-zinc-200 text-xs font-mono overflow-x-auto">
 {`curl -X POST "https://mysewa.com.np/api/v1/payment/withdraw/" \\
   -H "Authorization: Api-Key ${rawKey}" \\
   -H "Content-Type: application/json" \\
@@ -1234,24 +1065,24 @@ console.log(data);`}
     "player_id": "player_88",
     "reference": "WTH_TXN_001"
   }'`}
-                  </pre>
-                </div>
+              </pre>
+            </div>
 
-                {/* Endpoint 3: Game Event (if enabled) */}
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 font-mono">
-                      POST
-                    </span>
-                    <span className="font-mono text-xs font-bold text-foreground">
-                      /api/v1/ggr/game-event/
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      — Player Win (+10% Bonus) / Loss (Requires is_ggr)
-                    </span>
-                  </div>
+            {/* Endpoint 3: Game Event (if enabled) */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 font-mono">
+                  POST
+                </span>
+                <span className="font-mono text-xs font-bold text-foreground">
+                  /api/v1/ggr/game-event/
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  — Player Win (+10% Bonus) / Loss (Requires is_ggr)
+                </span>
+              </div>
 
-                  <pre className="p-4 rounded-xl bg-zinc-950 text-zinc-200 text-xs font-mono overflow-x-auto">
+              <pre className="p-4 rounded-xl bg-zinc-950 text-zinc-200 text-xs font-mono overflow-x-auto">
 {`curl -X POST "https://mysewa.com.np/api/v1/ggr/game-event/" \\
   -H "Authorization: Api-Key ${rawKey}" \\
   -H "Content-Type: application/json" \\
@@ -1260,106 +1091,104 @@ console.log(data);`}
     "amount": 500.00,
     "reference": "ROUND_789"
   }'`}
-                  </pre>
-                </div>
-              </div>
+              </pre>
             </div>
-          )}
-
-          {/* TAB 6: TRANSACTION LEDGER */}
-          {activeTab === "ledger" && (
-            <div className="space-y-6">
-              <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
-                  <h3 className="font-semibold text-sm flex items-center gap-2">
-                    <History className="h-4 w-4 text-muted-foreground" />
-                    Complete Merchant Operations Ledger
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <div className="relative">
-                      <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
-                      <Input
-                        placeholder="Search ref or notes..."
-                        value={ledgerSearch}
-                        onChange={(e) => setLedgerSearch(e.target.value)}
-                        className="h-8 pl-8 text-xs w-44"
-                      />
-                    </div>
-                    <select
-                      value={ledgerTypeFilter}
-                      onChange={(e) => setLedgerTypeFilter(e.target.value)}
-                      className="h-8 text-xs border rounded-md px-2 bg-background text-foreground"
-                    >
-                      <option value="all">All Types</option>
-                      <option value="buy">Coin Purchases</option>
-                      <option value="player_win">Player Wins (+10%)</option>
-                      <option value="player_loss">Player Losses</option>
-                      <option value="monthly_settlement">Settlements</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left">
-                    <thead className="bg-muted/50 text-muted-foreground uppercase text-[10px]">
-                      <tr>
-                        <th className="p-2.5">Date</th>
-                        <th className="p-2.5">Type</th>
-                        <th className="p-2.5">Amount</th>
-                        <th className="p-2.5">Balance After</th>
-                        <th className="p-2.5">Reference</th>
-                        <th className="p-2.5">Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {filteredTransactions.length > 0 ? (
-                        filteredTransactions.map((t) => (
-                          <tr key={t.id} className="hover:bg-muted/30">
-                            <td className="p-2.5 font-mono text-muted-foreground">
-                              {formatDateTime(t.created_at)}
-                            </td>
-                            <td className="p-2.5">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  t.txn_type === "buy"
-                                    ? "bg-amber-100 text-amber-800"
-                                    : t.txn_type === "player_win"
-                                      ? "bg-emerald-100 text-emerald-800"
-                                      : t.txn_type === "player_loss"
-                                        ? "bg-red-100 text-red-800"
-                                        : "bg-blue-100 text-blue-800"
-                                }`}
-                              >
-                                {t.type_label}
-                              </span>
-                            </td>
-                            <td
-                              className={`p-2.5 font-mono font-bold ${
-                                Number(t.amount) >= 0 ? "text-emerald-600" : "text-red-500"
-                              }`}
-                            >
-                              {Number(t.amount) >= 0 ? `+${t.amount}` : t.amount}
-                            </td>
-                            <td className="p-2.5 font-mono">{t.balance_after}</td>
-                            <td className="p-2.5 font-mono text-muted-foreground">{t.reference}</td>
-                            <td className="p-2.5 text-muted-foreground max-w-xs truncate">{t.notes}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={6} className="p-4 text-center text-muted-foreground">
-                            No matching transactions recorded.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* TAB 6: TRANSACTION LEDGER */}
+      {activeTab === "ledger" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+              <h3 className="font-semibold text-sm flex items-center gap-2">
+                <History className="h-4 w-4 text-muted-foreground" />
+                Complete Merchant Operations Ledger
+              </h3>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Search ref or notes..."
+                    value={ledgerSearch}
+                    onChange={(e) => setLedgerSearch(e.target.value)}
+                    className="h-8 pl-8 text-xs w-44"
+                  />
+                </div>
+                <select
+                  value={ledgerTypeFilter}
+                  onChange={(e) => setLedgerTypeFilter(e.target.value)}
+                  className="h-8 text-xs border rounded-md px-2 bg-background text-foreground"
+                >
+                  <option value="all">All Types</option>
+                  <option value="buy">Coin Purchases</option>
+                  <option value="player_win">Player Wins (+10%)</option>
+                  <option value="player_loss">Player Losses</option>
+                  <option value="monthly_settlement">Settlements</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-muted/50 text-muted-foreground uppercase text-[10px]">
+                  <tr>
+                    <th className="p-2.5">Date</th>
+                    <th className="p-2.5">Type</th>
+                    <th className="p-2.5">Amount</th>
+                    <th className="p-2.5">Balance After</th>
+                    <th className="p-2.5">Reference</th>
+                    <th className="p-2.5">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredTransactions.length > 0 ? (
+                    filteredTransactions.map((t) => (
+                      <tr key={t.id} className="hover:bg-muted/30">
+                        <td className="p-2.5 font-mono text-muted-foreground">
+                          {formatDateTime(t.created_at)}
+                        </td>
+                        <td className="p-2.5">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              t.txn_type === "buy"
+                                ? "bg-amber-100 text-amber-800"
+                                : t.txn_type === "player_win"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : t.txn_type === "player_loss"
+                                    ? "bg-red-100 text-red-800"
+                                    : "bg-blue-100 text-blue-800"
+                            }`}
+                          >
+                            {t.type_label}
+                          </span>
+                        </td>
+                        <td
+                          className={`p-2.5 font-mono font-bold ${
+                            Number(t.amount) >= 0 ? "text-emerald-600" : "text-red-500"
+                          }`}
+                        >
+                          {Number(t.amount) >= 0 ? `+${t.amount}` : t.amount}
+                        </td>
+                        <td className="p-2.5 font-mono">{t.balance_after}</td>
+                        <td className="p-2.5 font-mono text-muted-foreground">{t.reference}</td>
+                        <td className="p-2.5 text-muted-foreground max-w-xs truncate">{t.notes}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-muted-foreground">
+                        No matching transactions recorded.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: BUY GGR COINS */}
       <Dialog open={buyModalOpen} onOpenChange={setBuyModalOpen}>

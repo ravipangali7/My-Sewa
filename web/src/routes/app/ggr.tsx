@@ -33,7 +33,7 @@ function GgrDashboardScreen() {
   }
 
   return (
-    <UserShell title="GGR Gaming Engine" back="/app">
+    <UserShell title="GGR Gaming Engine" hideHeader back="/app">
       <MerchantDashboard initialTab="ggr" />
     </UserShell>
   );
