@@ -383,15 +383,18 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
     super_admin_rate = serializers.DecimalField(
         max_digits=7, decimal_places=4, required=False, allow_null=True, write_only=True,
     )
+    share_percent = serializers.DecimalField(
+        max_digits=5, decimal_places=2, required=False, allow_null=True,
+    )
 
     class Meta:
         model = User
         fields = (
-            'id', 'phone', 'email', 'first_name', 'last_name',
+            'id', 'phone', 'email', 'first_name', 'last_name', 'nickname', 'business_name',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
             'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer', 'can_api_payin',
-            'is_api_user', 'is_ggr_user', 'is_ggr',
+            'is_api_user', 'is_ggr_user', 'is_ggr', 'share_percent',
             'commission_rate', 'tds_rate', 'sub_agent_commission_rate', 'super_admin_rate',
             'password', 'password2',
         )
@@ -401,6 +404,8 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'email': {'required': False, 'allow_blank': True, 'allow_null': True},
             'first_name': {'required': False, 'allow_blank': True},
             'last_name': {'required': False, 'allow_blank': True},
+            'nickname': {'required': False, 'allow_blank': True},
+            'business_name': {'required': False, 'allow_blank': True},
             'is_active': {'required': False},
             'is_staff': {'required': False},
             'is_superuser': {'required': False},
@@ -413,6 +418,7 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'is_api_user': {'required': False},
             'is_ggr_user': {'required': False},
             'is_ggr': {'required': False},
+            'share_percent': {'required': False},
         }
 
     def validate_phone(self, value):
@@ -521,6 +527,12 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         if getattr(user, 'is_api_user', False):
             from .services.api_keys import enable_api_access
             enable_api_access(user, generate_if_missing=True)
+        if getattr(user, 'role', None) == User.ROLE_SHAREHOLDER:
+            from .services.ggr_service import ensure_shareholder_wallet
+            ensure_shareholder_wallet(user)
+        if getattr(user, 'is_ggr_user', False) or getattr(user, 'is_ggr', False):
+            from .services.ggr_service import ensure_ggr_wallet
+            ensure_ggr_wallet(user)
         self._save_dealer_rates(user, rates)
         try:
             from .services.notifications import notify_user_provisioned
@@ -557,6 +569,9 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
         if instance.is_api_user:
             from .services.api_keys import sync_api_user_key
             sync_api_user_key(instance, previous_is_api_user=was_api_user)
+        if getattr(instance, 'role', None) == User.ROLE_SHAREHOLDER:
+            from .services.ggr_service import ensure_shareholder_wallet
+            ensure_shareholder_wallet(instance)
         if getattr(instance, 'is_ggr_user', False) or getattr(instance, 'is_ggr', False):
             from .services.ggr_service import ensure_ggr_wallet
             ensure_ggr_wallet(instance)

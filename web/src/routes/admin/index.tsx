@@ -52,6 +52,7 @@ import {
   Receipt,
 } from "lucide-react";
 import { adminLiveQueryOptions } from "@/lib/refresh";
+import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({
@@ -103,6 +104,15 @@ function ChartTooltip({
 }
 
 function AdminDashboard() {
+  const { user } = useAuth();
+  const isShareholder = user?.role === "shareholder";
+
+  const shareholderQuery = useQuery({
+    queryKey: ["shareholder-dashboard"],
+    queryFn: () => apiClient.getShareholderDashboard(),
+    enabled: isShareholder,
+  });
+
   const dash = useQuery({
     queryKey: ["admin", "dashboard"],
     queryFn: () => apiClient.adminDashboard(),
@@ -234,8 +244,42 @@ function AdminDashboard() {
   const pending = dash.data?.pending_deposits ?? [];
   const openIssues = dashKpis?.open_statement_issues ?? 0;
 
+  const shWallet = shareholderQuery.data?.my_wallet;
+
   return (
     <AdminShell title="Dashboard" description="Live ops overview" dense>
+      {isShareholder && (
+        <div className="mb-3 rounded-2xl border border-amber-200/90 bg-gradient-to-r from-amber-50/70 via-white to-emerald-50/40 p-4 shadow-xs dark:bg-card dark:border-amber-900/60">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="flex size-2 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-[10px] font-bold tracking-wider uppercase text-amber-800 font-mono dark:text-amber-300">
+                  Shareholder Equity Partner Portal
+                </span>
+                <span className="rounded-full bg-amber-100 px-2 py-0.2 text-[9px] font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  {shWallet?.share_percent || user?.share_percent || "0"}% Allocated Share
+                </span>
+              </div>
+              <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5 pt-0.5">
+                <Coins className="size-4 text-amber-600" />
+                Withdrawable Shareholder Balance:{" "}
+                <span className="text-emerald-700 font-mono tabular dark:text-emerald-400">
+                  {formatNPR(Number(shWallet?.balance || 0))}
+                </span>
+              </h3>
+            </div>
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <Button asChild size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold">
+                <Link to="/admin/shareholders">
+                  <Coins className="size-3.5 mr-1" />
+                  Shareholder Portal
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {dash.isLoading ? (
         <div className="space-y-3">
           <AdminMetricStripSkeleton cells={12} />

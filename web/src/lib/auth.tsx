@@ -262,7 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       wallet: walletQuery.data ?? null,
       isLoading: !!token && (profileQuery.isLoading || walletQuery.isLoading),
       isAuthenticated: !!token && !!user,
-      isStaff: !!(user?.is_staff || user?.is_superuser),
+      isStaff: !!(user?.is_staff || user?.is_superuser || user?.role === "shareholder"),
       beginLogin,
       verifyLoginOtp,
       resendLoginOtp,

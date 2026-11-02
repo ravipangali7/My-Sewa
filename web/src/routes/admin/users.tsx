@@ -47,6 +47,44 @@ import { adminLiveQueryOptions } from "@/lib/refresh";
 const LIST_PAGE = 1;
 const LIST_PAGE_SIZE = 50;
 
+function renderRoleBadge(u: AdminUser) {
+  return (
+    <div className="flex flex-col gap-1 items-start">
+      {u.is_superuser ? (
+        <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100 dark:bg-purple-950 dark:text-purple-300 text-[10px] font-bold">
+          Superadmin
+        </Badge>
+      ) : u.role === "shareholder" ? (
+        <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-300 text-[10px] font-bold">
+          Shareholder ({u.share_percent ?? 0}%)
+        </Badge>
+      ) : u.role === "dealer" ? (
+        <Badge className="bg-indigo-100 text-indigo-800 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-300 text-[10px] font-bold">
+          Dealer Agent
+        </Badge>
+      ) : u.is_staff ? (
+        <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 text-[10px] font-bold">
+          Staff Admin
+        </Badge>
+      ) : (
+        <span className="text-xs text-muted-foreground font-medium">Standard User</span>
+      )}
+      <div className="flex items-center gap-1">
+        {u.is_api_user && (
+          <span className="rounded bg-teal-50 border border-teal-200 px-1 py-0.2 text-[9px] font-bold text-teal-700 dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800">
+            API
+          </span>
+        )}
+        {(u.is_ggr_user || u.is_ggr) && (
+          <span className="rounded bg-emerald-50 border border-emerald-200 px-1 py-0.2 text-[9px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800">
+            GGR
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/admin/users")({
   head: () => ({
     meta: [
@@ -321,7 +359,7 @@ function UsersPage() {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.email || "—"}</TableCell>
                   <TableCell>
-                    {u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : (u.role || "customer")}
+                    {renderRoleBadge(u)}
                   </TableCell>
                   <TableCell className="text-sm">
                     {u.assigned_dealer?.phone || (u.role === "dealer" ? "—" : "Unassigned")}
@@ -383,7 +421,7 @@ function UsersPage() {
                       { label: "Email", value: u.email || "—" },
                       {
                         label: "Role",
-                        value: u.is_superuser ? "Superuser" : u.is_staff ? "Staff" : (u.role || "customer"),
+                        value: renderRoleBadge(u),
                       },
                       {
                         label: "Dealer",

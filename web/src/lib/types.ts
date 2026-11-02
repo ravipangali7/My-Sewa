@@ -1203,6 +1203,8 @@ export interface AdminUserWritePayload {
   email?: string;
   first_name?: string;
   last_name?: string;
+  nickname?: string;
+  business_name?: string;
   is_active?: boolean;
   is_staff?: boolean;
   is_superuser?: boolean;
@@ -1210,15 +1212,19 @@ export interface AdminUserWritePayload {
   role?: UserRole;
   assigned_dealer?: number | null;
   parent_agent?: number | null;
+  assigned_sub_agent?: number | null;
   can_fund_transfer?: boolean;
   can_wallet_adjust?: boolean;
   can_remittance_transfer?: boolean;
+  can_api_payin?: boolean;
   is_api_user?: boolean;
+  is_ggr_user?: boolean;
+  is_ggr?: boolean;
+  share_percent?: string | number | null;
   commission_rate?: string | number | null;
   tds_rate?: string | number | null;
   sub_agent_commission_rate?: string | number | null;
   super_admin_rate?: string | number | null;
-  assigned_sub_agent?: number | null;
   password?: string;
   password2?: string;
 }
