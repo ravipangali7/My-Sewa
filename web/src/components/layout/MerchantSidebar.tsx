@@ -6,20 +6,11 @@ import {
   Key,
   BookOpen,
   History,
-  Smartphone,
-  Send,
-  Wifi,
-  Zap,
-  Droplet,
-  Globe,
-  Wallet,
-  FileText,
+  Landmark,
   MessageCircle,
   UserRound,
   Lock,
-  LogOut,
   ShieldCheck,
-  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -115,7 +106,7 @@ export function MerchantSidebar() {
             );
           })()}
 
-          {/* Payment API (Payin/Payout) */}
+          {/* Payment API */}
           {(() => {
             const active = pathname === "/app" && searchTab === "payment-api";
             return (
@@ -131,7 +122,7 @@ export function MerchantSidebar() {
               >
                 <div className="flex items-center gap-2.5">
                   <CreditCard className="size-4 shrink-0" strokeWidth={active ? 2.5 : 2} />
-                  <span>Payment API (Payin/Payout)</span>
+                  <span>Payment API</span>
                 </div>
                 <span
                   className={cn(
@@ -141,7 +132,7 @@ export function MerchantSidebar() {
                       : "bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400",
                   )}
                 >
-                  1.5% / 2%
+                  PROD
                 </span>
               </Link>
             );
@@ -214,7 +205,7 @@ export function MerchantSidebar() {
             );
           })()}
 
-          {/* API Docs & Sandbox */}
+          {/* API Documentation */}
           {(() => {
             const active = pathname === "/app" && searchTab === "docs";
             return (
@@ -230,17 +221,17 @@ export function MerchantSidebar() {
               >
                 <div className="flex items-center gap-2.5">
                   <BookOpen className="size-4 shrink-0" strokeWidth={active ? 2.5 : 2} />
-                  <span>API Docs & Sandbox</span>
+                  <span>API Documentation</span>
                 </div>
                 <span
                   className={cn(
                     "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded",
                     active
                       ? "bg-emerald-700/60 text-white"
-                      : "bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-400",
+                      : "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400",
                   )}
                 >
-                  SDK
+                  PROD
                 </span>
               </Link>
             );
@@ -267,125 +258,36 @@ export function MerchantSidebar() {
               </Link>
             );
           })()}
+
+          {/* Payout & Bank Accounts */}
+          {(() => {
+            const active = pathname === "/app" && searchTab === "bank-accounts";
+            return (
+              <Link
+                to="/app"
+                search={{ tab: "bank-accounts" }}
+                className={cn(
+                  "flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-semibold transition-all",
+                  active
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900/70 hover:text-foreground",
+                )}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Landmark className="size-4 shrink-0" strokeWidth={active ? 2.5 : 2} />
+                  <span>Payout Bank Accounts</span>
+                </div>
+              </Link>
+            );
+          })()}
         </div>
 
-        {/* Section 2: Consumer Services */}
+        {/* Section 2: Support & Profile */}
         <div className="space-y-1 pt-2 border-t border-zinc-100 dark:border-zinc-900">
-          <div className="flex items-center justify-between px-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-            <span>Consumer Services</span>
-            <span className="text-[10px] font-normal text-zinc-400">Personal Wallet</span>
+          <div className="px-2 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+            Account & Support
           </div>
-          <p className="px-2 text-[11px] text-zinc-400 dark:text-zinc-500 pb-1 leading-snug">
-            Use your wallet cash for consumer utility payments anytime:
-          </p>
 
-          <Link
-            to="/app/topup"
-            className={cn(
-              "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors",
-              pathname.startsWith("/app/topup")
-                ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold"
-                : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900/70",
-            )}
-          >
-            <Smartphone className="size-4 text-emerald-600 shrink-0" />
-            <span>Mobile Topup</span>
-          </Link>
-
-          <Link
-            to="/app/transfer"
-            className={cn(
-              "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors",
-              pathname.startsWith("/app/transfer")
-                ? "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-semibold"
-                : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900/70",
-            )}
-          >
-            <Send className="size-4 text-blue-600 shrink-0" />
-            <span>Bank & Fund Transfer</span>
-          </Link>
-
-          <Link
-            to="/app/internet"
-            className={cn(
-              "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors",
-              pathname.startsWith("/app/internet")
-                ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold"
-                : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900/70",
-            )}
-          >
-            <Wifi className="size-4 text-indigo-600 shrink-0" />
-            <span>Internet Bill</span>
-          </Link>
-
-          <Link
-            to="/app/electricity"
-            className={cn(
-              "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors",
-              pathname.startsWith("/app/electricity")
-                ? "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-semibold"
-                : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900/70",
-            )}
-          >
-            <Zap className="size-4 text-amber-500 shrink-0" />
-            <span>Electricity Bill</span>
-          </Link>
-
-          <Link
-            to="/app/water"
-            className={cn(
-              "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors",
-              pathname.startsWith("/app/water")
-                ? "bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 font-semibold"
-                : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900/70",
-            )}
-          >
-            <Droplet className="size-4 text-cyan-600 shrink-0" />
-            <span>Water Bill (Khanepani)</span>
-          </Link>
-
-          <Link
-            to="/app/remittance"
-            className={cn(
-              "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors",
-              pathname.startsWith("/app/remittance")
-                ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-semibold"
-                : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900/70",
-            )}
-          >
-            <Globe className="size-4 text-purple-600 shrink-0" />
-            <span>Remittance Transfer</span>
-          </Link>
-
-          <Link
-            to="/app/load"
-            className={cn(
-              "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors",
-              pathname.startsWith("/app/load")
-                ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold"
-                : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900/70",
-            )}
-          >
-            <Wallet className="size-4 text-emerald-600 shrink-0" />
-            <span>Load Wallet Cash</span>
-          </Link>
-
-          <Link
-            to="/app/history"
-            className={cn(
-              "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors",
-              pathname.startsWith("/app/history")
-                ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-semibold"
-                : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900/70",
-            )}
-          >
-            <FileText className="size-4 text-zinc-500 shrink-0" />
-            <span>All Statements</span>
-          </Link>
-        </div>
-
-        {/* Section 3: Support & Profile */}
-        <div className="space-y-1 pt-2 border-t border-zinc-100 dark:border-zinc-900">
           <Link
             to="/app/support-chat"
             className={cn(
@@ -430,7 +332,7 @@ export function MerchantSidebar() {
               </p>
               <div className="flex items-center gap-1 mt-1 text-[10px] text-emerald-600 font-medium">
                 <ShieldCheck className="size-3" />
-                <span>Verified Merchant</span>
+                <span>Verified Merchant (Production)</span>
               </div>
             </div>
           </div>
