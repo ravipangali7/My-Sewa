@@ -189,6 +189,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
     assigned_sub_agent = serializers.SerializerMethodField()
     wallet_frozen = serializers.SerializerMethodField()
     wallet_status = serializers.SerializerMethodField()
+    citizenship_no = serializers.SerializerMethodField()
+    pan_document_url = serializers.SerializerMethodField()
+    company_registration_document_url = serializers.SerializerMethodField()
+    citizenship_front_url = serializers.SerializerMethodField()
+    citizenship_back_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -327,11 +332,6 @@ class AdminUserSerializer(serializers.ModelSerializer):
     tds_rate = serializers.SerializerMethodField()
     sub_agent_commission_rate = serializers.SerializerMethodField()
     super_admin_rate = serializers.SerializerMethodField()
-    pan_document_url = serializers.SerializerMethodField()
-    company_registration_document_url = serializers.SerializerMethodField()
-    citizenship_front_url = serializers.SerializerMethodField()
-    citizenship_back_url = serializers.SerializerMethodField()
-    citizenship_no = serializers.SerializerMethodField()
 
     class Meta:
         model = User
