@@ -43,7 +43,8 @@ from ..services.ggr_service import (
     execute_shareholder_withdrawal,
     sync_historical_revenue_to_shareholders,
 )
-from .admin_views import IsStaffUser
+from .admin_views import IsStaffOrShareholder, IsStaffUser
+from ..models import ApiFundTransferLog, ApiPayinLog, GgrTransaction
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -319,7 +320,7 @@ def payment_api_withdraw(request):
 # ============================================================================
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, IsStaffUser])
+@permission_classes([IsAuthenticated, IsStaffOrShareholder])
 def admin_shareholder_dashboard(request):
     """
     Shareholder & Admin overview of service revenue from GGR and Payment API.
@@ -358,6 +359,82 @@ def admin_shareholder_dashboard(request):
     recent_logs = ShareholderRevenueLog.objects.select_related('shareholder').order_by('-created_at')[:50]
     recent_withdrawals = ShareholderWithdrawal.objects.select_related('shareholder').order_by('-created_at')[:30]
 
+    # Developer API Partners (exclusively driving shareholder revenue)
+    api_partners = User.objects.filter(Q(is_api_user=True) | Q(is_ggr_user=True) | Q(can_api_payin=True)).select_related('wallet').order_by('-date_joined')
+    api_partners_data = []
+    for p in api_partners:
+        p_payin_vol = ApiPayinLog.objects.filter(user=p, status='success').aggregate(t=Sum('amount'))['t'] or Decimal('0.00')
+        p_payout_vol = ApiFundTransferLog.objects.filter(user=p, status='success').aggregate(t=Sum('amount'))['t'] or Decimal('0.00')
+        p_ggr_wallet = getattr(p, 'ggr_wallet', None)
+        api_partners_data.append({
+            'id': p.id,
+            'phone': p.phone,
+            'first_name': p.first_name,
+            'last_name': p.last_name,
+            'business_name': getattr(p, 'business_name', '') or '',
+            'pan_no': getattr(p, 'pan_no', '') or '',
+            'company_registration_no': getattr(p, 'company_registration_no', '') or '',
+            'citizenship_no': getattr(p, 'citizenship_no', '') or getattr(p, 'citizenship_number', '') or '',
+            'services': {
+                'ggr': bool(getattr(p, 'is_ggr_user', False)),
+                'payin': bool(getattr(p, 'can_api_payin', False)),
+                'payout': bool(getattr(p, 'can_api_payout', True)),
+            },
+            'is_api_user': bool(p.is_api_user),
+            'payin_volume': str(p_payin_vol),
+            'payout_volume': str(p_payout_vol),
+            'ggr_balance': str(p_ggr_wallet.balance) if p_ggr_wallet else '0.00',
+            'created_at': p.date_joined.isoformat(),
+        })
+
+    # Recent Developer API Transactions (Payment API and GGR only)
+    api_txns = []
+    for row in ApiPayinLog.objects.select_related('user').order_by('-created_at')[:30]:
+        api_txns.append({
+            'id': f'payin-{row.id}',
+            'service': 'payin',
+            'service_label': 'Pay In API',
+            'partner_id': row.user_id,
+            'partner_phone': row.user.phone if row.user else '—',
+            'partner_business': getattr(row.user, 'business_name', '') or (row.user.get_full_name() if row.user else '—'),
+            'reference': row.reference or row.order_id or '—',
+            'amount': str(row.amount) if row.amount is not None else '0.00',
+            'fee_cut': str(round(Decimal(str(row.amount or 0)) * (fee_config.payment_api_deposit_percent / Decimal('100.00')), 2)) if row.amount and row.status == 'success' else '0.00',
+            'status': row.status,
+            'created_at': row.created_at.isoformat(),
+        })
+    for row in ApiFundTransferLog.objects.select_related('user').order_by('-created_at')[:30]:
+        api_txns.append({
+            'id': f'payout-{row.id}',
+            'service': 'payout',
+            'service_label': 'Pay Out API',
+            'partner_id': row.user_id,
+            'partner_phone': row.user.phone if row.user else '—',
+            'partner_business': getattr(row.user, 'business_name', '') or (row.user.get_full_name() if row.user else '—'),
+            'reference': row.reference or row.transaction_id or '—',
+            'amount': str(row.amount) if row.amount is not None else '0.00',
+            'fee_cut': str(round(Decimal(str(row.amount or 0)) * (fee_config.payment_api_withdraw_percent / Decimal('100.00')), 2)) if row.amount and row.status == 'success' else '0.00',
+            'status': row.status,
+            'created_at': row.created_at.isoformat(),
+        })
+    for row in GgrTransaction.objects.select_related('wallet__user').order_by('-created_at')[:30]:
+        partner = row.wallet.user if row.wallet else None
+        api_txns.append({
+            'id': f'ggr-{row.id}',
+            'service': 'ggr',
+            'service_label': f'GGR ({row.get_txn_type_display()})',
+            'partner_id': partner.id if partner else None,
+            'partner_phone': partner.phone if partner else '—',
+            'partner_business': getattr(partner, 'business_name', '') or (partner.get_full_name() if partner else '—'),
+            'reference': row.reference or f'GGR-{row.id}',
+            'amount': str(abs(row.amount)),
+            'fee_cut': str(abs(row.amount)) if row.txn_type == GgrTransaction.TXN_MONTHLY_FEE else '0.00',
+            'status': 'SUCCESS',
+            'created_at': row.created_at.isoformat(),
+        })
+    api_txns.sort(key=lambda x: x['created_at'], reverse=True)
+    developer_api_transactions = api_txns[:50]
+
     return Response({
         'is_shareholder': user.role == User.ROLE_SHAREHOLDER,
         'my_wallet': {
@@ -371,7 +448,10 @@ def admin_shareholder_dashboard(request):
             'ggr_revenue': str(ggr_revenue),
             'api_deposit_revenue': str(api_deposit_revenue),
             'api_withdraw_revenue': str(api_withdraw_revenue),
+            'api_partners_count': api_partners.count(),
         },
+        'developer_api_partners': api_partners_data,
+        'developer_api_transactions': developer_api_transactions,
         'service_fee_config': {
             'ggr_monthly_profit_percent': str(fee_config.ggr_monthly_profit_percent),
             'payment_api_deposit_percent': str(fee_config.payment_api_deposit_percent),

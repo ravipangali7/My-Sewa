@@ -31,7 +31,8 @@ def is_admin_actor(user) -> bool:
     if getattr(user, 'is_superuser', False):
         return True
     if getattr(user, 'role', None) == ROLE_SHAREHOLDER:
-        return True
+        # Pure shareholders are scoped only to API Partner and dividend governance
+        return False
     if getattr(user, 'is_staff', False) and getattr(user, 'role', ROLE_CUSTOMER) not in NETWORK_ROLES:
         return True
     return False

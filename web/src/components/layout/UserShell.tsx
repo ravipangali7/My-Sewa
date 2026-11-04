@@ -92,7 +92,7 @@ export function UserShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, isLoading, token, logout } = useAuth();
+  const { user, isLoading, token, logout, openLogoutDialog } = useAuth();
   const { logoUrl } = useSiteBranding();
   const t = useT();
 
@@ -159,7 +159,7 @@ export function UserShell({
           {maintenance ? (
             <div
               className={cn(
-                "mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100",
+                "mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100",
                 hideHeader && "mx-3 mt-3",
               )}
             >
@@ -190,7 +190,7 @@ export function UserShell({
       ) : (
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 lg:flex">
         <Link to="/app" className="mb-8 flex items-center gap-2.5 px-2">
-          <img src={logoUrl} alt="MySewa" className="size-9 rounded-full object-cover" />
+          <img src={logoUrl} alt="MySewa" className="size-9 rounded-md object-cover" />
           <div>
             <p className="text-[17px] leading-tight font-semibold">
               <span className="text-ocean">My</span>
@@ -207,7 +207,7 @@ export function UserShell({
                 key={tab.to}
                 to={tab.to}
                 className={cn(
-                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
                   active
                     ? "bg-brand-soft text-brand-dark"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -221,7 +221,7 @@ export function UserShell({
           <Link
             to="/app/support-chat"
             className={cn(
-              "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+              "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
               pathname.startsWith("/app/support-chat")
                 ? "bg-brand-soft text-brand-dark"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -235,22 +235,19 @@ export function UserShell({
         {isNetworkRole(user) ? (
           <Link
             to="/dealer"
-            className="mt-4 flex items-center gap-3 rounded-xl bg-brand-soft px-3 py-2.5 text-sm font-medium text-brand-dark"
+            className="mt-4 flex items-center gap-3 rounded-md bg-brand-soft px-3 py-2.5 text-sm font-medium text-brand-dark"
           >
             <LayoutDashboard className="size-[18px]" />
             Dealer portal
           </Link>
         ) : null}
-        <div className="mt-auto rounded-xl bg-muted p-3">
+        <div className="mt-auto rounded-md bg-muted p-3">
           <p className="text-sm font-medium">{displayName}</p>
           <p className="text-xs text-muted-foreground">{user.phone}</p>
           <button
             type="button"
             className="mt-2 inline-block text-xs font-medium text-danger"
-            onClick={async () => {
-              await logout();
-              navigate({ to: "/" });
-            }}
+            onClick={openLogoutDialog}
           >
             {t("nav.logOut")}
           </button>
@@ -275,7 +272,7 @@ export function UserShell({
                     onClick={onBack}
                     aria-label={t("common.goBack")}
                     className={cn(
-                      "group -ml-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur transition-all duration-200",
+                      "group -ml-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur transition-all duration-200",
                       "hover:bg-white/25 hover:shadow-md",
                       "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
@@ -288,7 +285,7 @@ export function UserShell({
                     to={back!}
                     aria-label={t("common.goBack")}
                     className={cn(
-                      "group -ml-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur transition-all duration-200",
+                      "group -ml-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-white/25 bg-white/15 text-primary-foreground shadow-sm backdrop-blur transition-all duration-200",
                       "hover:bg-white/25 hover:shadow-md",
                       "lg:border-border lg:bg-surface lg:text-foreground lg:hover:border-brand/35 lg:hover:bg-brand-soft lg:hover:text-brand-dark",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
@@ -350,7 +347,7 @@ export function UserShell({
               )}
             >
               {maintenance && !(hideHeader && hideNav) ? (
-                <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100">
+                <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-900 dark:text-amber-100">
                   <p className="font-medium">{t("maintenance.title")}</p>
                   <p className="mt-0.5 text-[13px] opacity-90">{maintenanceMessage}</p>
                 </div>
@@ -422,7 +419,7 @@ export function UserShell({
                       >
                         <span
                           className={cn(
-                            "flex size-9 items-center justify-center rounded-2xl transition-all duration-200",
+                            "flex size-9 items-center justify-center rounded-md transition-all duration-200",
                             active
                               ? "bg-brand-soft text-brand-dark"
                               : "bg-transparent text-muted-foreground group-hover:bg-muted/80 group-hover:text-foreground",

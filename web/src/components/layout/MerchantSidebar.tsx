@@ -12,14 +12,18 @@ import {
   Lock,
   ShieldCheck,
   LogOut,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { SwitchAccountModal } from "@/components/SwitchAccountModal";
+import { useState } from "react";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { SupportChatUnreadBadge } from "@/hooks/use-support-chat-unread";
 
 export function MerchantSidebar() {
-  const { user, logout } = useAuth();
+  const { user, logout, openLogoutDialog } = useAuth();
+  const [switchAccountOpen, setSwitchAccountOpen] = useState(false);
   const navigate = useNavigate();
   const { logoUrl } = useSiteBranding();
 
@@ -37,10 +41,6 @@ export function MerchantSidebar() {
     user?.phone ||
     "Merchant";
 
-  const handleLogout = async () => {
-    await logout();
-    navigate({ to: "/" });
-  };
 
   const navItem = (
     tabId: string,
@@ -190,13 +190,26 @@ export function MerchantSidebar() {
             <ShieldCheck className="size-3 text-emerald-600" />
             <span>Verified Merchant</span>
           </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="mt-2 text-[11px] font-semibold text-rose-600 hover:text-rose-700 transition-colors cursor-pointer flex items-center gap-1"
-          >
-            <LogOut className="size-3" /> Sign Out
-          </button>
+          <div className="mt-2 flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={() => setSwitchAccountOpen(true)}
+              className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <Users className="size-3" /> Switch Account
+            </button>
+            <button
+              type="button"
+              onClick={openLogoutDialog}
+              className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <LogOut className="size-3" /> Sign Out
+            </button>
+          </div>
+          <SwitchAccountModal
+            open={switchAccountOpen}
+            onOpenChange={setSwitchAccountOpen}
+          />
         </div>
       </div>
     </aside>

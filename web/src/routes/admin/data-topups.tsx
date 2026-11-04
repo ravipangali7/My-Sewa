@@ -249,7 +249,7 @@ function DataTopupsPage() {
               <TabsTrigger
                 key={op.value}
                 value={op.value}
-                className="rounded-full border border-transparent px-3 data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                className="rounded-sm border border-transparent px-3 data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
                 {op.label}
                 <span className="ml-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">

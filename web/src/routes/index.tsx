@@ -24,6 +24,9 @@ import {
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { useOtpCountdown } from "@/hooks/use-otp-countdown";
 import { useT } from "@/lib/i18n";
+import { SavedAccountsView } from "@/components/SavedAccountsView";
+import { useSavedAccounts } from "@/lib/saved-accounts";
+import { ArrowLeft } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -62,6 +65,8 @@ function LoginPage() {
     useAuth();
   const { logoUrl } = useSiteBranding();
   const t = useT();
+  const savedAccounts = useSavedAccounts();
+  const [viewMode, setViewMode] = useState<"saved" | "credentials">("saved");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
@@ -161,7 +166,7 @@ function LoginPage() {
     <div className="grid min-h-screen lg:grid-cols-2">
       <section className="relative hidden flex-col justify-between bg-hero-gradient p-12 lg:flex">
         <div className="flex items-center gap-3">
-          <img src={logoUrl} alt="" className="size-11 rounded-2xl object-cover" />
+          <img src={logoUrl} alt="" className="size-11 rounded-md object-cover" />
           <span className="text-2xl font-bold text-primary-foreground">MySewa</span>
         </div>
         <div className="max-w-md">
@@ -176,20 +181,40 @@ function LoginPage() {
       </section>
 
       <section className="flex items-center justify-center px-5 py-12 pt-[max(3rem,calc(3rem+var(--safe-area-top,env(safe-area-inset-top,0px))))] pb-[max(3rem,calc(3rem+var(--safe-area-bottom,env(safe-area-inset-bottom,0px))))] lg:py-12">
-        <div className="w-full max-w-sm">
-          <div className="mb-8 flex flex-col items-center lg:items-start">
-            <img src={logoUrl} alt="MySewa" className="size-14 rounded-2xl object-cover lg:hidden" />
-            <h1 className="mt-4 text-[34px] font-bold tracking-tight lg:mt-0">
-              {challenge ? t("auth.verifyLoginTitle") : t("auth.welcomeBack")}
-            </h1>
-            <p className="mt-1 text-[15px] text-muted-foreground">
-              {challenge
-                ? t("auth.verifyLoginSubtitle", { destination: destinationHint })
-                : t("auth.signInWithEmailOrPhone")}
-            </p>
-          </div>
+        <div className={`w-full ${!challenge && savedAccounts.length > 0 && viewMode === "saved" ? "max-w-md" : "max-w-sm"}`}>
+          {!challenge && savedAccounts.length > 0 && viewMode === "saved" ? (
+            <SavedAccountsView
+              onAddAccount={() => setViewMode("credentials")}
+              onSessionExpiredPrefill={(prefill) => {
+                setIdentifier(prefill);
+                setViewMode("credentials");
+              }}
+            />
+          ) : (
+            <>
+              {!challenge && savedAccounts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode("saved")}
+                  className="mb-4 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                >
+                  <ArrowLeft className="size-3.5" />
+                  {t("auth.backToSavedAccounts")} ({savedAccounts.length})
+                </button>
+              )}
+              <div className="mb-8 flex flex-col items-center lg:items-start">
+                <img src={logoUrl} alt="MySewa" className="size-14 rounded-md object-cover lg:hidden" />
+                <h1 className="mt-4 text-[34px] font-bold tracking-tight lg:mt-0">
+                  {challenge ? t("auth.verifyLoginTitle") : t("auth.welcomeBack")}
+                </h1>
+                <p className="mt-1 text-[15px] text-muted-foreground">
+                  {challenge
+                    ? t("auth.verifyLoginSubtitle", { destination: destinationHint })
+                    : t("auth.signInWithEmailOrPhone")}
+                </p>
+              </div>
 
-          {!challenge ? (
+              {!challenge ? (
             <form
               className="space-y-4"
               onSubmit={async (e) => {
@@ -231,7 +256,7 @@ function LoginPage() {
                   enterKeyHint="next"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  className="h-12 rounded-xl"
+                  className="h-12 rounded-md"
                   placeholder={t("auth.emailOrPhonePlaceholder")}
                   required
                 />
@@ -250,14 +275,14 @@ function LoginPage() {
                   id="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="h-12 rounded-xl"
+                  className="h-12 rounded-md"
                   required
                 />
               </div>
               <Button
                 type="submit"
                 disabled={submitting}
-                className="h-12 w-full rounded-xl text-[17px]"
+                className="h-12 w-full rounded-md text-[17px]"
               >
                 {submitting ? t("auth.signingIn") : t("auth.continue")}
               </Button>
@@ -318,7 +343,7 @@ function LoginPage() {
               <Button
                 type="submit"
                 disabled={submitting || otp.length !== 6}
-                className="h-12 w-full rounded-xl text-[17px]"
+                className="h-12 w-full rounded-md text-[17px]"
               >
                 {submitting ? t("auth.verifying") : t("auth.verifyAndLogIn")}
               </Button>
@@ -409,6 +434,8 @@ function LoginPage() {
                   </p>
                 </div>
               ) : null}
+            </>
+          )}
             </>
           )}
         </div>

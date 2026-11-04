@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth";
+import { SwitchAccountModal } from "@/components/SwitchAccountModal";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { toAdIsoDate } from "@/lib/nepali-date";
@@ -52,13 +53,13 @@ export const Route = createFileRoute("/admin/profile")({
 
 function AdminProfilePage() {
   const navigate = useNavigate();
-  const { user, logout, refreshProfile, setSessionToken } = useAuth();
+  const { user, logout, openLogoutDialog, refreshProfile, setSessionToken } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [editOpen, setEditOpen] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [passOpen, setPassOpen] = useState(false);
-  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [switchAccountOpen, setSwitchAccountOpen] = useState(false);
   const [savingAvatar, setSavingAvatar] = useState(false);
 
   const [firstName, setFirstName] = useState("");
@@ -121,10 +122,6 @@ function AdminProfilePage() {
     }
   };
 
-  const handleLogout = async () => {
-    await logout();
-    navigate({ to: "/" });
-  };
 
   return (
     <AdminShell title="Profile" description="Manage your account details and security">
@@ -238,14 +235,24 @@ function AdminProfilePage() {
           />
         </section>
 
-        <button
-          type="button"
-          className="flex w-full items-center justify-center gap-2 rounded-sm border border-slate-200 bg-white shadow-2xs px-4 py-3.5 text-sm font-medium text-danger transition-colors hover:bg-muted"
-          onClick={() => setLogoutOpen(true)}
-        >
-          <LogOut className="size-4" />
-          Log out
-        </button>
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-2 rounded-sm border border-slate-200 bg-white shadow-2xs px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            onClick={() => setSwitchAccountOpen(true)}
+          >
+            <Users className="size-4" />
+            Switch account
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-2 rounded-sm border border-slate-200 bg-white shadow-2xs px-4 py-3 text-sm font-medium text-danger transition-colors hover:bg-muted"
+            onClick={openLogoutDialog}
+          >
+            <LogOut className="size-4" />
+            Log out
+          </button>
+        </div>
       </div>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
@@ -591,25 +598,7 @@ function AdminProfilePage() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Log out?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You will be signed out of the admin portal and returned to the login screen.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-danger text-white hover:bg-danger/90"
-              onClick={handleLogout}
-            >
-              Log out
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <SwitchAccountModal open={switchAccountOpen} onOpenChange={setSwitchAccountOpen} />
     </AdminShell>
   );
 }

@@ -1540,7 +1540,7 @@ console.log(await res.json());`}
 
  {depositSuccessResult ? (
  <div className="py-4 text-center space-y-4">
- <div className="size-14 mx-auto rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
+ <div className="size-14 mx-auto rounded-md bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
  <CheckCircle2 className="size-8" />
  </div>
  <div className="space-y-1">
@@ -1867,7 +1867,7 @@ console.log(await res.json());`}
  {withdrawReceipt ? (
  /* WITHDRAW SUCCESS RECEIPT WITH SCANNABLE VERIFICATION QR */
  <div className="py-2 text-center space-y-3">
- <div className="size-12 mx-auto rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
+ <div className="size-12 mx-auto rounded-md bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
  <CheckCircle2 className="size-7" />
  </div>
 

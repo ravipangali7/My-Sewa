@@ -423,6 +423,8 @@ urlpatterns = [
         name='admin_set_user_transaction_pin',
     ),
     path('api/admin/api-users/', admin_api_user_views.admin_list_api_users, name='admin_list_api_users'),
+    path('api/admin/api-users/select/', admin_api_user_views.admin_select_api_partner, name='admin_select_api_partner'),
+    path('api/admin/api-users/search-candidates/', admin_api_user_views.admin_search_partner_candidates, name='admin_search_partner_candidates'),
     path(
         'api/admin/api-users/<int:user_id>/',
         admin_api_user_views.admin_api_user_detail,

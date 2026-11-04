@@ -35,6 +35,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { SwitchAccountModal } from "@/components/SwitchAccountModal";
 import { homePathForUser } from "@/lib/auth-destination";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { AuthSessionLoader } from "@/components/AuthSessionLoader";
@@ -193,14 +194,10 @@ function AdminProfileControls({
   onNavigate?: () => void;
 }) {
   const navigate = useNavigate();
-  const { logout } = useAuth();
-  const [logoutOpen, setLogoutOpen] = useState(false);
+  const { logout, openLogoutDialog } = useAuth();
+  const [switchAccountOpen, setSwitchAccountOpen] = useState(false);
   const name = displayName(user);
 
-  const handleLogout = async () => {
-    await logout();
-    navigate({ to: "/" });
-  };
 
   const isShareholder = user.role === "shareholder";
   const isSuper = user.is_superuser;
@@ -303,8 +300,15 @@ function AdminProfileControls({
           )}
           <DropdownMenuSeparator className="bg-slate-100" />
           <DropdownMenuItem
+            className="cursor-pointer text-xs focus:bg-slate-50"
+            onSelect={() => setSwitchAccountOpen(true)}
+          >
+            <Users className="size-3.5 mr-2" />
+            Switch Account
+          </DropdownMenuItem>
+          <DropdownMenuItem
             className="cursor-pointer text-xs text-red-600 focus:text-red-700 focus:bg-red-50"
-            onSelect={() => setLogoutOpen(true)}
+            onSelect={openLogoutDialog}
           >
             <LogOut className="size-3.5 mr-2" />
             Sign Out
@@ -312,25 +316,7 @@ function AdminProfileControls({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
-        <AlertDialogContent className="rounded-md border-slate-200 bg-white">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-sm font-bold text-slate-900">Sign out of session?</AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-slate-500">
-              You will be signed out of the management console and returned to the sign-in screen.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2 sm:gap-0">
-            <AlertDialogCancel className="rounded-sm text-xs">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="rounded-sm bg-red-600 text-white text-xs font-semibold hover:bg-red-500"
-              onClick={handleLogout}
-            >
-              Sign Out
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <SwitchAccountModal open={switchAccountOpen} onOpenChange={setSwitchAccountOpen} />
     </>
   );
 }

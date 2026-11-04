@@ -64,7 +64,7 @@ export function WalletCard({
             </p>
           ) : null}
         </div>
-        <span className="shrink-0 rounded-full bg-brand-accent/90 px-3 py-1 text-xs font-medium">
+        <span className="shrink-0 rounded-sm bg-brand-accent/90 px-3 py-1 text-xs font-medium">
           {chip}
         </span>
       </div>

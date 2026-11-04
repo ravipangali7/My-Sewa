@@ -31,6 +31,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { SwitchAccountModal } from "@/components/SwitchAccountModal";
 import { useSiteBranding } from "@/hooks/use-site-branding";
 import { AuthSessionLoader } from "@/components/AuthSessionLoader";
 import { PullToRefresh } from "@/components/PullToRefresh";
@@ -98,7 +99,7 @@ export function DealerMenuButton({ className }: { className?: string }) {
       aria-expanded={chrome.menuOpen}
       onClick={chrome.openMenu}
       className={cn(
-        "relative mt-1 flex size-10 items-center justify-center rounded-full text-white md:hidden",
+        "relative mt-1 flex size-10 items-center justify-center rounded-md text-white md:hidden",
         "transition-transform active:scale-95",
         "hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50",
         className,
@@ -267,7 +268,7 @@ function DealerBottomNav({ pathname }: { pathname: string }) {
                 >
                   <span
                     className={cn(
-                      "relative flex size-9 items-center justify-center rounded-2xl transition-all duration-200",
+                      "relative flex size-9 items-center justify-center rounded-md transition-all duration-200",
                       active
                         ? "bg-brand-soft text-brand-dark"
                         : "bg-transparent text-muted-foreground group-hover:bg-muted/80 group-hover:text-foreground",
@@ -335,10 +336,10 @@ export function PortalShell({
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [switchAccountOpen, setSwitchAccountOpen] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, token, isLoading, isStaff, logout } = useAuth();
+  const { user, token, isLoading, isStaff, logout, openLogoutDialog } = useAuth();
   const { logoUrl } = useSiteBranding();
   const t = useT();
   const hideTopChrome = hideHeader || immersive;
@@ -374,10 +375,6 @@ export function PortalShell({
   const name = displayName(user);
   const showBottomNav = !pathname.startsWith("/app/scan");
 
-  const handleLogout = async () => {
-    await logout();
-    navigate({ to: "/" });
-  };
 
   const navLinks = (
     <nav className="flex flex-col gap-1">
@@ -389,7 +386,7 @@ export function PortalShell({
             to={item.to}
             onClick={closeDrawer}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+              "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
               active
                 ? "bg-brand-soft text-brand-dark"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -406,7 +403,7 @@ export function PortalShell({
 
   const brandBlock = (
     <Link to="/app" onClick={closeDrawer} className="flex items-center gap-2.5 px-2">
-      <img src={logoUrl} alt="MySewa" className="size-9 rounded-xl object-cover" />
+      <img src={logoUrl} alt="MySewa" className="size-9 rounded-md object-cover" />
       <div>
         <p className="text-[15px] leading-tight font-semibold">MySewa</p>
         <p className="text-xs text-muted-foreground">{label} portal</p>
@@ -429,7 +426,7 @@ export function PortalShell({
         <button
           type="button"
           className={cn(
-            "flex items-center gap-3 rounded-lg text-left hover:bg-muted",
+            "flex items-center gap-3 rounded-md text-left hover:bg-muted",
             align === "start" ? "w-full px-2 py-2" : "p-1",
           )}
         >
@@ -464,7 +461,11 @@ export function PortalShell({
           <Link to="/dealer">Dashboard</Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem className="text-danger" onSelect={() => setLogoutOpen(true)}>
+        <DropdownMenuItem onSelect={() => setSwitchAccountOpen(true)}>
+          <Users className="size-3.5" />
+          Switch account
+        </DropdownMenuItem>
+        <DropdownMenuItem className="text-danger" onSelect={openLogoutDialog}>
           <LogOut className="size-3.5" />
           Log out
         </DropdownMenuItem>
@@ -479,7 +480,7 @@ export function PortalShell({
           type="button"
           onClick={onBack}
           aria-label={t("common.goBack")}
-          className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground hover:bg-muted"
+          className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted"
         >
           <ArrowLeft className="size-4" />
         </button>
@@ -487,7 +488,7 @@ export function PortalShell({
         <Link
           to={back!}
           aria-label={t("common.goBack")}
-          className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground hover:bg-muted"
+          className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted"
         >
           <ArrowLeft className="size-4" />
         </Link>
@@ -509,10 +510,21 @@ export function PortalShell({
         <div className="border-t border-border px-3 py-3">
           <button
             type="button"
-            className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-danger hover:bg-muted"
+            className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm font-medium text-foreground hover:bg-muted"
             onClick={() => {
               closeDrawer();
-              setLogoutOpen(true);
+              setSwitchAccountOpen(true);
+            }}
+          >
+            <Users className="size-4" />
+            Switch account
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm font-medium text-danger hover:bg-muted"
+            onClick={() => {
+              closeDrawer();
+              openLogoutDialog();
             }}
           >
             <LogOut className="size-4" />
@@ -523,26 +535,8 @@ export function PortalShell({
     </Sheet>
   );
 
-  const logoutDialog = (
-    <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Log out?</AlertDialogTitle>
-          <AlertDialogDescription>
-            You will be signed out of the {label.toLowerCase()} portal.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-danger text-white hover:bg-danger/90"
-            onClick={handleLogout}
-          >
-            Log out
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+  const switchModal = (
+    <SwitchAccountModal open={switchAccountOpen} onOpenChange={setSwitchAccountOpen} />
   );
 
   if (immersive) {
@@ -552,7 +546,7 @@ export function PortalShell({
           {drawer}
           {children}
           {showBottomNav ? <DealerBottomNav pathname={pathname} /> : null}
-          {logoutDialog}
+          {switchModal}
         </div>
       </DealerChromeContext.Provider>
     );
@@ -588,7 +582,7 @@ export function PortalShell({
                   type="button"
                   aria-label={t("nav.menu")}
                   aria-expanded={drawerOpen}
-                  className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background md:hidden"
+                  className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background md:hidden"
                   onClick={() => setDrawerOpen(true)}
                 >
                   <Menu className="size-5" />
@@ -620,7 +614,7 @@ export function PortalShell({
                   <Link
                     to="/app/support-chat"
                     aria-label={t("nav.supportChat")}
-                    className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground hover:bg-muted md:hidden"
+                    className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted md:hidden"
                   >
                     <MessageCircle className="size-5" />
                     <SupportChatUnreadBadge variant="icon" className="ring-surface" />
@@ -659,7 +653,7 @@ export function PortalShell({
         </div>
 
         {showBottomNav ? <DealerBottomNav pathname={pathname} /> : null}
-        {logoutDialog}
+        {switchModal}
       </div>
     </DealerChromeContext.Provider>
   );

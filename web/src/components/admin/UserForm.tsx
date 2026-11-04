@@ -572,7 +572,7 @@ export function UserForm({
                   Developer API Access (`is_api_user`)
                 </Label>
                 {values.is_api_user && (
-                  <span className="rounded-full bg-teal-100 px-2 py-0.2 text-[9px] font-bold text-teal-800 dark:bg-teal-950 dark:text-teal-300">
+                  <span className="rounded-sm bg-teal-100 px-2 py-0.2 text-[9px] font-bold text-teal-800 dark:bg-teal-950 dark:text-teal-300">
                     Active API Partner
                   </span>
                 )}
@@ -629,7 +629,7 @@ export function UserForm({
                   GGR Coin Gaming Services (`is_ggr`)
                 </Label>
                 {values.is_ggr_user && (
-                  <span className="rounded-full bg-emerald-100 px-2 py-0.2 text-[9px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                  <span className="rounded-sm bg-emerald-100 px-2 py-0.2 text-[9px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
                     GGR Enabled
                   </span>
                 )}

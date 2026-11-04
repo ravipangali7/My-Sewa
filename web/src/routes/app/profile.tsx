@@ -9,6 +9,7 @@ import {
   Code2,
   Lock,
   LogOut,
+  Users,
   Mail,
   Phone,
   Fingerprint,
@@ -23,6 +24,7 @@ import { KycVerifiedBadge } from "@/components/IdentityLockedBanner";
 import { UserShell } from "@/components/layout/UserShell";
 import { DealerMenuButton } from "@/components/layout/PortalShell";
 import { useAuth } from "@/lib/auth";
+import { SwitchAccountModal } from "@/components/SwitchAccountModal";
 import { isNetworkRole } from "@/lib/auth-destination";
 import { apiClient, ApiError } from "@/lib/api";
 import { isAccountActive, canRemittanceTransfer, isWalletFrozen } from "@/lib/account-status";
@@ -65,7 +67,8 @@ export const Route = createFileRoute("/app/profile")({
 function Profile() {
   const t = useT();
   const navigate = useNavigate();
-  const { user, wallet, logout, refreshProfile } = useAuth();
+  const { user, wallet, logout, openLogoutDialog, refreshProfile } = useAuth();
+  const [switchAccountOpen, setSwitchAccountOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -149,7 +152,7 @@ function Profile() {
 
   return (
     <UserShell title={t("profile.title")} hideHeader>
-      <div className="min-w-0 max-w-full bg-[#F2F4F7] lg:min-h-0 lg:rounded-2xl lg:overflow-hidden">
+      <div className="min-w-0 max-w-full bg-[#F2F4F7] lg:min-h-0 lg:rounded-md lg:overflow-hidden">
         <section className="relative bg-[linear-gradient(105deg,#04275C_0%,#0A3D7A_32%,#0C6B7A_68%,#0A9B6E_100%)] px-4 pb-8 pt-[max(14px,var(--content-safe-top,var(--safe-area-top,env(safe-area-inset-top,0px))))]">
           <div className="flex items-center gap-1">
             {isNetworkRole(user) ? <DealerMenuButton className="mt-0 -ml-2" /> : null}
@@ -198,7 +201,7 @@ function Profile() {
               {displayName}
             </p>
             <div className="mt-1.5 flex flex-wrap items-center justify-center gap-2">
-              <p className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[12px] font-medium text-white/95 ring-1 ring-white/20">
+              <p className="inline-flex items-center gap-1.5 rounded-sm bg-white/15 px-2.5 py-1 text-[12px] font-medium text-white/95 ring-1 ring-white/20">
                 <span
                   className={cn(
                     "size-1.5 rounded-full",
@@ -215,8 +218,8 @@ function Profile() {
 
         <div className="space-y-5 px-4 pb-4 pt-4">
           <div className="space-y-2.5">
-            <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+            <div className="flex items-center gap-3 rounded-md bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-[#E8F0FE] text-[#1D4ED8]">
                 <Phone className="size-[18px]" strokeWidth={2} />
               </span>
               <div className="min-w-0 flex-1">
@@ -231,8 +234,8 @@ function Profile() {
               </Link>
             </div>
 
-            <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+            <div className="flex items-center gap-3 rounded-md bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-[#E8F0FE] text-[#1D4ED8]">
                 <Mail className="size-[18px]" strokeWidth={2} />
               </span>
               <div className="min-w-0 flex-1">
@@ -249,8 +252,8 @@ function Profile() {
               </Link>
             </div>
 
-            <div className="flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+            <div className="flex items-center gap-3 rounded-md bg-white px-3.5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-[#E8F0FE] text-[#1D4ED8]">
                 <Cake className="size-[18px]" strokeWidth={2} />
               </span>
               <div className="min-w-0 flex-1">
@@ -282,9 +285,9 @@ function Profile() {
               <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
                 {t("profile.identitySection")}
               </h2>
-              <div className="rounded-2xl bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
+              <div className="rounded-md bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]">
                 <div className="flex items-start gap-3">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#ECFDF5] text-[#15803D]">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-[#ECFDF5] text-[#15803D]">
                     <ShieldCheck className="size-[18px]" strokeWidth={2} />
                   </span>
                   <div className="min-w-0 flex-1 space-y-2.5">
@@ -349,7 +352,7 @@ function Profile() {
             <h2 className="mb-2 px-0.5 text-[12px] font-bold tracking-[0.06em] text-[#8A94A6]">
               Account
             </h2>
-            <div className="space-y-2 rounded-2xl bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)] text-[13px]">
+            <div className="space-y-2 rounded-md bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)] text-[13px]">
               <p>
                 <span className="text-[#8A94A6]">Role:</span>{" "}
                 <span className="font-semibold">{user.role || "customer"}</span>
@@ -455,7 +458,7 @@ function Profile() {
             <AlertDialogTrigger asChild>
               <button
                 type="button"
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#F87171]/70 bg-white px-4 py-3.5 text-[16px] font-semibold text-[#EF4444] transition-colors hover:bg-[#FEF2F2]"
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-[#F87171]/70 bg-white px-4 py-3.5 text-[16px] font-semibold text-[#EF4444] transition-colors hover:bg-[#FEF2F2]"
               >
                 <Trash2 className="size-[18px]" strokeWidth={2} />
                 {t("profile.deleteAccount")}
@@ -475,7 +478,7 @@ function Profile() {
                   value={deletePassword}
                   onChange={(e) => setDeletePassword(e.target.value)}
                   autoComplete="current-password"
-                  className="h-11 rounded-xl"
+                  className="h-11 rounded-md"
                 />
               </div>
               <AlertDialogFooter>
@@ -494,38 +497,28 @@ function Profile() {
             </AlertDialogContent>
           </AlertDialog>
 
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button
-                type="button"
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#F87171]/70 bg-[#FEF2F2] px-4 py-3.5 text-[16px] font-semibold text-[#EF4444] transition-colors hover:bg-[#FEE2E2]"
-              >
-                <LogOut className="size-[18px]" strokeWidth={2} />
-                {t("profile.logout")}
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{t("profile.logoutConfirmTitle")}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {t("profile.logoutConfirmBody")}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={loggingOut}>{t("common.cancel")}</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  disabled={loggingOut}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    void confirmLogout();
-                  }}
-                >
-                  {loggingOut ? t("profile.loggingOut") : t("profile.logOut")}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <button
+            type="button"
+            onClick={() => setSwitchAccountOpen(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-3.5 text-[16px] font-semibold text-foreground transition-colors hover:bg-muted/60"
+          >
+            <Users className="size-[18px]" strokeWidth={2} />
+            {t("auth.switchAccount")}
+          </button>
+
+          <button
+            type="button"
+            onClick={openLogoutDialog}
+            className="flex w-full items-center justify-center gap-2 rounded-md border border-[#F87171]/70 bg-[#FEF2F2] px-4 py-3.5 text-[16px] font-semibold text-[#EF4444] transition-colors hover:bg-[#FEE2E2]"
+          >
+            <LogOut className="size-[18px]" strokeWidth={2} />
+            {t("profile.logout")}
+          </button>
+
+          <SwitchAccountModal
+            open={switchAccountOpen}
+            onOpenChange={setSwitchAccountOpen}
+          />
         </div>
       </div>
     </UserShell>
@@ -565,12 +558,12 @@ function SettingsRow({
     <Link
       to={to}
       className={cn(
-        "flex w-full items-center gap-3 rounded-2xl bg-white px-3.5 py-3.5 text-left",
+        "flex w-full items-center gap-3 rounded-md bg-white px-3.5 py-3.5 text-left",
         "shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)]",
         "active:bg-[#F8FAFC]",
       )}
     >
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E8F0FE] text-[#1D4ED8]">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-[#E8F0FE] text-[#1D4ED8]">
         <Icon className="size-[18px]" strokeWidth={2} />
       </span>
       <div className="min-w-0 flex-1">

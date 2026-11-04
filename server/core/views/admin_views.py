@@ -176,6 +176,20 @@ def _maybe_id_query(value, *fields):
 
 
 class IsStaffUser(BasePermission):
+    """Staff or Super Admin permission for general MySewa operational and user data."""
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (
+                request.user.is_staff
+                or request.user.is_superuser
+            )
+        )
+
+
+class IsStaffOrShareholder(BasePermission):
+    """Permission for Developer API partner and shareholder revenue endpoints."""
     def has_permission(self, request, view):
         return bool(
             request.user
