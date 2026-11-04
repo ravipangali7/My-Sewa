@@ -48,8 +48,11 @@ def handle_deposit_approval(sender, instance, **kwargs):
                     from .services.ggr_service import get_service_fee_config, distribute_platform_fee
                     from .models import ShareholderRevenueLog
 
-                    config = get_service_fee_config()
-                    fee_percent = Decimal(str(config.payment_api_deposit_percent or 0))
+                    target_api_user = instance.user if getattr(instance.user, 'is_api_user', False) else getattr(instance, 'initiated_by', None)
+                    if target_api_user and getattr(target_api_user, 'is_api_user', False):
+                        fee_percent = target_api_user.get_api_deposit_percent()
+                    else:
+                        fee_percent = Decimal('0.00')
                     fee_amount = Decimal('0.00')
                     credit_amount = instance.amount
                     if fee_percent > Decimal('0.00'):
@@ -79,8 +82,11 @@ def handle_deposit_approval(sender, instance, **kwargs):
                 from .services.ggr_service import get_service_fee_config, distribute_platform_fee
                 from .models import ShareholderRevenueLog
 
-                config = get_service_fee_config()
-                fee_percent = Decimal(str(config.payment_api_deposit_percent or 0))
+                target_api_user = instance.user if getattr(instance.user, 'is_api_user', False) else getattr(instance, 'initiated_by', None)
+                if target_api_user and getattr(target_api_user, 'is_api_user', False):
+                    fee_percent = target_api_user.get_api_deposit_percent()
+                else:
+                    fee_percent = Decimal('0.00')
                 fee_amount = Decimal('0.00')
                 credit_amount = instance.amount
                 if fee_percent > Decimal('0.00'):

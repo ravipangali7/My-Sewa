@@ -450,6 +450,21 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
     share_percent = serializers.DecimalField(
         max_digits=5, decimal_places=2, required=False, allow_null=True,
     )
+    api_deposit_percent = serializers.DecimalField(
+        max_digits=5, decimal_places=2, required=False, allow_null=True,
+    )
+    api_withdraw_percent = serializers.DecimalField(
+        max_digits=5, decimal_places=2, required=False, allow_null=True,
+    )
+    is_api = serializers.BooleanField(required=False)
+    effective_api_deposit_percent = serializers.SerializerMethodField()
+    effective_api_withdraw_percent = serializers.SerializerMethodField()
+
+    def get_effective_api_deposit_percent(self, obj):
+        return str(obj.get_api_deposit_percent())
+
+    def get_effective_api_withdraw_percent(self, obj):
+        return str(obj.get_api_withdraw_percent())
 
     class Meta:
         model = User
@@ -458,7 +473,9 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'is_active', 'is_staff', 'is_superuser', 'account_status',
             'role', 'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
             'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer', 'can_api_payin',
-            'is_api_user', 'is_ggr_user', 'is_ggr', 'share_percent',
+            'is_api_user', 'is_api', 'is_ggr_user', 'is_ggr', 'share_percent',
+            'api_deposit_percent', 'api_withdraw_percent',
+            'effective_api_deposit_percent', 'effective_api_withdraw_percent',
             'commission_rate', 'tds_rate', 'sub_agent_commission_rate', 'super_admin_rate',
             'password', 'password2',
         )
@@ -480,9 +497,12 @@ class AdminUserWriteSerializer(serializers.ModelSerializer):
             'can_remittance_transfer': {'required': False},
             'can_api_payin': {'required': False},
             'is_api_user': {'required': False},
+            'is_api': {'required': False},
             'is_ggr_user': {'required': False},
             'is_ggr': {'required': False},
             'share_percent': {'required': False},
+            'api_deposit_percent': {'required': False},
+            'api_withdraw_percent': {'required': False},
         }
 
     def validate_phone(self, value):

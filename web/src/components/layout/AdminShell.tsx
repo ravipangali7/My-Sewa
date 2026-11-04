@@ -96,7 +96,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: "Directory & Partners",
     items: [
       { to: "/admin/users", label: "User Directory", icon: Users },
-      { to: "/admin/api-users", label: "API Merchants", icon: KeyRound },
+      { to: "/admin/api-users", label: "Developer API (Partners)", icon: KeyRound },
       { to: "/admin/shareholders", label: "Shareholder Revenue", icon: Coins },
       { to: "/admin/dealers", label: "Dealer Directory", icon: Handshake },
       { to: "/admin/hierarchy", label: "Dealer Hierarchy", icon: GitBranch },
@@ -141,6 +141,17 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+const SHAREHOLDER_NAV_GROUPS: NavGroup[] = [
+  {
+    id: "shareholder-portal",
+    title: "Shareholder Governance",
+    items: [
+      { to: "/admin/shareholders", label: "Revenue & Dividends", icon: Coins },
+      { to: "/admin/api-users", label: "Developer API Partners", icon: KeyRound },
+    ],
+  },
+];
+
 const ADMIN_BOTTOM_TABS = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { to: "/admin/users", label: "Users", icon: Users },
@@ -150,11 +161,8 @@ const ADMIN_BOTTOM_TABS = [
 ] as const;
 
 const SHAREHOLDER_BOTTOM_TABS = [
-  { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/admin/shareholders", label: "Equity", icon: Coins },
-  { to: "/admin/reports", label: "Reports", icon: BarChart3 },
-  { to: "/admin/wallets", label: "Wallets", icon: Wallet },
-  { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
+  { to: "/admin/shareholders", label: "Equity Portal", icon: Coins },
+  { to: "/admin/api-users", label: "API Partners", icon: KeyRound },
 ] as const;
 
 function isNavActive(pathname: string, to: string) {
@@ -356,6 +364,7 @@ export function AdminShell({
     return <AuthSessionLoader />;
   }
 
+  const isPureShareholder = user.role === "shareholder" && !user.is_superuser;
   const isShareholder = user.role === "shareholder";
   const roleLabel = user.is_superuser
     ? "Super Admin"
@@ -365,11 +374,23 @@ export function AdminShell({
     ? "Staff Admin"
     : "Admin";
 
+  const activeNavGroups = isPureShareholder ? SHAREHOLDER_NAV_GROUPS : NAV_GROUPS;
+
+  useEffect(() => {
+    if (isPureShareholder) {
+      const allowed = ["/admin/shareholders", "/admin/api-users", "/admin/profile"];
+      const isAllowed = allowed.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+      if (!isAllowed) {
+        navigate({ to: "/admin/shareholders" });
+      }
+    }
+  }, [isPureShareholder, pathname, navigate]);
+
   const closeDrawer = () => setDrawerOpen(false);
 
   const navLinks = (
     <div className="flex flex-col gap-4 py-1">
-      {NAV_GROUPS.map((group) => (
+      {activeNavGroups.map((group) => (
         <div key={group.id} className="flex flex-col gap-0.5">
           <div className="px-2.5 pb-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono">
             {group.title}

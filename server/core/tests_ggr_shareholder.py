@@ -33,8 +33,8 @@ class GgrAndShareholderTests(TestCase):
         # Configure service fees
         config = PlatformServiceFeeConfig.get_config()
         config.ggr_monthly_profit_percent = Decimal('10.00')
-        config.payment_api_deposit_percent = Decimal('1.50')
-        config.payment_api_withdraw_percent = Decimal('2.00')
+        config.payment_api_deposit_percent = Decimal('2.50')
+        config.payment_api_withdraw_percent = Decimal('3.00')
         config.save()
 
         # Create Shareholder user
@@ -183,29 +183,58 @@ class GgrAndShareholderTests(TestCase):
     def test_payment_api_deposit_and_withdraw_fees(self):
         initial_cash = self.api_user_wallet.balance
 
-        # 1. Deposit: Player deposits 10,000 NPR (1.5% fee = 150 NPR to Shareholder, 9,850 credited to User)
+        # 1. Deposit: Player deposits 10,000 NPR (2.5% fee = 250 NPR to Shareholder, 9,750 credited to User)
         dep_res = process_payment_api_deposit(self.api_user, Decimal('10000.00'), 'player_42', 'REF_DEP_100')
-        self.assertEqual(Decimal(dep_res['fee_amount']), Decimal('150.00'))
-        self.assertEqual(Decimal(dep_res['net_credited']), Decimal('9850.00'))
+        self.assertEqual(Decimal(dep_res['fee_amount']), Decimal('250.00'))
+        self.assertEqual(Decimal(dep_res['net_credited']), Decimal('9750.00'))
 
         self.api_user_wallet.refresh_from_db()
-        self.assertEqual(self.api_user_wallet.balance, initial_cash + Decimal('9850.00'))
+        self.assertEqual(self.api_user_wallet.balance, initial_cash + Decimal('9750.00'))
 
-        # 2. Withdraw: Player withdraws 5,000 NPR (2% fee = 100 NPR to Shareholder, total debit 5,100 NPR from User)
+        # 2. Withdraw: Player withdraws 5,000 NPR (3% fee = 150 NPR to Shareholder, total debit 5,150 NPR from User)
         wth_res = process_payment_api_withdraw(self.api_user, Decimal('5000.00'), 'player_42', 'REF_WTH_100')
-        self.assertEqual(Decimal(wth_res['fee_amount']), Decimal('100.00'))
-        self.assertEqual(Decimal(wth_res['total_debited']), Decimal('5100.00'))
+        self.assertEqual(Decimal(wth_res['fee_amount']), Decimal('150.00'))
+        self.assertEqual(Decimal(wth_res['total_debited']), Decimal('5150.00'))
 
-        # Check total shareholder revenue accumulated (150 from deposit + 100 from withdraw = 250)
+        # Check total shareholder revenue accumulated (250 from deposit + 150 from withdraw = 400)
         sh_wallet = ShareholderWallet.objects.get(shareholder=self.shareholder)
-        self.assertEqual(sh_wallet.balance, Decimal('250.00'))
+        self.assertEqual(sh_wallet.balance, Decimal('400.00'))
+
+    def test_per_user_custom_fee_percentages_set_by_shareholder(self):
+        client = APIClient()
+        client.force_authenticate(user=self.shareholder)
+
+        # Shareholder updates custom deposit (1.8%) and withdraw (2.2%) for this API user
+        res = client.patch(f'/api/admin/api-users/{self.api_user.id}/', {
+            'api_deposit_percent': '1.80',
+            'api_withdraw_percent': '2.20',
+        })
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['data']['api_deposit_percent'], '1.80')
+        self.assertEqual(res.data['data']['api_withdraw_percent'], '2.20')
+        self.assertEqual(res.data['data']['effective_api_deposit_percent'], '1.80')
+        self.assertEqual(res.data['data']['effective_api_withdraw_percent'], '2.20')
+
+        self.api_user.refresh_from_db()
+        self.assertEqual(self.api_user.get_api_deposit_percent(), Decimal('1.80'))
+        self.assertEqual(self.api_user.get_api_withdraw_percent(), Decimal('2.20'))
+
+        # Process deposit with custom 1.8% cut
+        dep_res = process_payment_api_deposit(self.api_user, Decimal('10000.00'), 'player_99', 'REF_DEP_CUSTOM')
+        self.assertEqual(Decimal(dep_res['fee_amount']), Decimal('180.00'))
+        self.assertEqual(Decimal(dep_res['net_credited']), Decimal('9820.00'))
+
+        # Process withdraw with custom 2.2% cut
+        wth_res = process_payment_api_withdraw(self.api_user, Decimal('5000.00'), 'player_99', 'REF_WTH_CUSTOM')
+        self.assertEqual(Decimal(wth_res['fee_amount']), Decimal('110.00'))
+        self.assertEqual(Decimal(wth_res['total_debited']), Decimal('5110.00'))
 
     def test_shareholder_can_withdraw_revenue(self):
-        # Accumulate 1,000 fee for shareholder
-        process_payment_api_deposit(self.api_user, Decimal('100000.00')) # 1.5% = 1500 NPR fee
+        # Accumulate 2,500 fee for shareholder
+        process_payment_api_deposit(self.api_user, Decimal('100000.00')) # 2.5% = 2500 NPR fee
 
         sh_wallet = ShareholderWallet.objects.get(shareholder=self.shareholder)
-        self.assertEqual(sh_wallet.balance, Decimal('1500.00'))
+        self.assertEqual(sh_wallet.balance, Decimal('2500.00'))
 
         # Shareholder withdraws 1,000 to bank
         withdrawal = execute_shareholder_withdrawal(
@@ -219,7 +248,7 @@ class GgrAndShareholderTests(TestCase):
         self.assertEqual(withdrawal.amount, Decimal('1000.00'))
 
         sh_wallet.refresh_from_db()
-        self.assertEqual(sh_wallet.balance, Decimal('500.00'))
+        self.assertEqual(sh_wallet.balance, Decimal('1500.00'))
         self.assertEqual(sh_wallet.total_withdrawn, Decimal('1000.00'))
 
     def test_deposit_model_approval_cuts_fee_and_credits_shareholders(self):
@@ -236,18 +265,18 @@ class GgrAndShareholderTests(TestCase):
         deposit.status = Deposit.STATUS_APPROVED
         deposit.save()
 
-        # Fee is 1.5% = 150. Net credited to user = 9,850.
+        # Fee is 2.5% = 250. Net credited to user = 9,750.
         user_wallet = Wallet.objects.get(user=self.api_user)
-        self.assertEqual(user_wallet.balance, initial_user_balance + Decimal('9850.00'))
+        self.assertEqual(user_wallet.balance, initial_user_balance + Decimal('9750.00'))
 
-        # Shareholder wallet credited 150
+        # Shareholder wallet credited 250
         sh_wallet = ShareholderWallet.objects.get(shareholder=self.shareholder)
-        self.assertEqual(sh_wallet.balance, initial_sh_balance + Decimal('150.00'))
+        self.assertEqual(sh_wallet.balance, initial_sh_balance + Decimal('250.00'))
 
         # Audit log exists
         log = ShareholderRevenueLog.objects.filter(reference=f'DEP-{deposit.pk}').first()
         self.assertIsNotNone(log)
-        self.assertEqual(log.amount, Decimal('150.00'))
+        self.assertEqual(log.amount, Decimal('250.00'))
 
     def test_shareholder_payout_account_and_withdrawal(self):
         # 1. Create payout account

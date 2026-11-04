@@ -33,6 +33,11 @@ User = get_user_model()
 def _api_user_payload(user, request, *, reveal_key=False):
     data = AdminUserSerializer(user, context={'request': request}).data
     data['is_api_user'] = bool(user.is_api_user)
+    data['is_api'] = bool(user.is_api_user)
+    data['api_deposit_percent'] = str(user.api_deposit_percent) if user.api_deposit_percent is not None else None
+    data['api_withdraw_percent'] = str(user.api_withdraw_percent) if user.api_withdraw_percent is not None else None
+    data['effective_api_deposit_percent'] = str(user.get_api_deposit_percent())
+    data['effective_api_withdraw_percent'] = str(user.get_api_withdraw_percent())
     data['is_ggr_user'] = bool(getattr(user, 'is_ggr_user', False) or getattr(user, 'is_ggr', False))
     data['is_ggr'] = data['is_ggr_user']
     data['can_api_payin'] = bool(getattr(user, 'can_api_payin', False))
@@ -203,6 +208,26 @@ def admin_select_api_partner(request):
         user.can_api_payout = val in (True, 'true', 'True', '1', 1)
         user.can_fund_transfer = user.can_api_payout
 
+    from decimal import Decimal, InvalidOperation
+    if 'api_deposit_percent' in request.data:
+        val = request.data.get('api_deposit_percent')
+        if val in (None, '', 'null', 'None'):
+            user.api_deposit_percent = None
+        else:
+            try:
+                user.api_deposit_percent = round(Decimal(str(val)), 2)
+            except Exception:
+                pass
+    if 'api_withdraw_percent' in request.data:
+        val = request.data.get('api_withdraw_percent')
+        if val in (None, '', 'null', 'None'):
+            user.api_withdraw_percent = None
+        else:
+            try:
+                user.api_withdraw_percent = round(Decimal(str(val)), 2)
+            except Exception:
+                pass
+
     # Business KYC fields
     if 'business_name' in request.data:
         user.business_name = str(request.data.get('business_name') or '').strip()
@@ -258,21 +283,61 @@ def admin_api_user_detail(request, user_id):
         return Response(_api_user_payload(user, request))
 
     if is_shareholder:
-        return Response({'error': 'Shareholders have read-only access.'}, status=status.HTTP_403_FORBIDDEN)
+        # Shareholders can configure Deposit API and Withdraw API fee percentages per user
+        allowed_shareholder_keys = {'api_deposit_percent', 'api_withdraw_percent'}
+        received_keys = set(request.data.keys())
+        disallowed_keys = received_keys - allowed_shareholder_keys
+        if disallowed_keys and not any(k in received_keys for k in allowed_shareholder_keys):
+            return Response(
+                {'error': 'Shareholders can only set Deposit API and Withdraw API fee percentages.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
     was_api_user = bool(user.is_api_user)
-    enable = request.data.get('is_api_user')
-    payin = request.data.get('can_api_payin', None)
-    payout = request.data.get('can_api_payout', None)
-    webhook_url = request.data.get('api_webhook_url', None)
-    return_url = request.data.get('api_return_url', None)
-    ggr_enable = request.data.get('is_ggr_user') if 'is_ggr_user' in request.data else request.data.get('is_ggr')
-    business_name = request.data.get('business_name', None)
-    pan_no = request.data.get('pan_no', None)
-    company_registration_no = request.data.get('company_registration_no', None)
-    citizenship_no = request.data.get('citizenship_no', None)
+    enable = request.data.get('is_api_user') if not is_shareholder else None
+    payin = request.data.get('can_api_payin', None) if not is_shareholder else None
+    payout = request.data.get('can_api_payout', None) if not is_shareholder else None
+    webhook_url = request.data.get('api_webhook_url', None) if not is_shareholder else None
+    return_url = request.data.get('api_return_url', None) if not is_shareholder else None
+    ggr_enable = (request.data.get('is_ggr_user') if 'is_ggr_user' in request.data else request.data.get('is_ggr')) if not is_shareholder else None
+    business_name = request.data.get('business_name', None) if not is_shareholder else None
+    pan_no = request.data.get('pan_no', None) if not is_shareholder else None
+    company_registration_no = request.data.get('company_registration_no', None) if not is_shareholder else None
+    citizenship_no = request.data.get('citizenship_no', None) if not is_shareholder else None
 
     update_fields = []
+
+    # Fee percentages can be set by both Superadmin and Shareholder
+    from decimal import Decimal, InvalidOperation
+    if 'api_deposit_percent' in request.data:
+        val = request.data.get('api_deposit_percent')
+        if val in (None, '', 'null', 'None'):
+            user.api_deposit_percent = None
+            update_fields.append('api_deposit_percent')
+        else:
+            try:
+                dec = Decimal(str(val))
+                if dec < Decimal('0.00') or dec > Decimal('100.00'):
+                    return Response({'error': 'Deposit API percentage must be between 0 and 100.'}, status=status.HTTP_400_BAD_REQUEST)
+                user.api_deposit_percent = round(dec, 2)
+                update_fields.append('api_deposit_percent')
+            except (InvalidOperation, ValueError, TypeError):
+                return Response({'error': 'Invalid deposit API percentage format.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if 'api_withdraw_percent' in request.data:
+        val = request.data.get('api_withdraw_percent')
+        if val in (None, '', 'null', 'None'):
+            user.api_withdraw_percent = None
+            update_fields.append('api_withdraw_percent')
+        else:
+            try:
+                dec = Decimal(str(val))
+                if dec < Decimal('0.00') or dec > Decimal('100.00'):
+                    return Response({'error': 'Withdraw API percentage must be between 0 and 100.'}, status=status.HTTP_400_BAD_REQUEST)
+                user.api_withdraw_percent = round(dec, 2)
+                update_fields.append('api_withdraw_percent')
+            except (InvalidOperation, ValueError, TypeError):
+                return Response({'error': 'Invalid withdraw API percentage format.'}, status=status.HTTP_400_BAD_REQUEST)
     if enable is not None:
         enabled = bool(enable) if not isinstance(enable, str) else enable.lower() in ('true', '1')
         if enabled:

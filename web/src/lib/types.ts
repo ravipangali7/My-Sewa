@@ -141,6 +141,13 @@ export interface UserProfile {
   can_api_payin?: boolean;
   /** When true, this user can use the Developer API with an API key. */
   is_api_user?: boolean;
+  is_api?: boolean;
+  /** Custom Deposit API percentage cut (default 2.50%). */
+  api_deposit_percent?: string | null;
+  /** Custom Withdraw API percentage cut (default 3.00%). */
+  api_withdraw_percent?: string | null;
+  effective_api_deposit_percent?: string;
+  effective_api_withdraw_percent?: string;
   /** When true (and is_api_user), this merchant can use GGR coin gaming services. */
   is_ggr_user?: boolean;
   is_ggr?: boolean;
@@ -2185,6 +2192,11 @@ export interface DeveloperApiPartnerItem {
     payout: boolean;
   };
   is_api_user: boolean;
+  is_api?: boolean;
+  api_deposit_percent?: string | null;
+  api_withdraw_percent?: string | null;
+  effective_api_deposit_percent?: string;
+  effective_api_withdraw_percent?: string;
   payin_volume: string;
   payout_volume: string;
   ggr_balance: string;

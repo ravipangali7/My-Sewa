@@ -315,8 +315,11 @@ def execute_api_fund_transfer(request) -> Response:
 
             from .ggr_service import get_service_fee_config, distribute_platform_fee
             from ..models import ShareholderRevenueLog, Wallet
-            fee_cfg = get_service_fee_config()
-            fee_percent = Decimal(str(fee_cfg.payment_api_withdraw_percent or 0))
+            if hasattr(sender, 'get_api_withdraw_percent'):
+                fee_percent = sender.get_api_withdraw_percent()
+            else:
+                fee_cfg = get_service_fee_config()
+                fee_percent = Decimal(str(fee_cfg.payment_api_withdraw_percent or 0))
             fee_amount = round(amount * (fee_percent / Decimal('100.00')), 2) if fee_percent > Decimal('0.00') else Decimal('0.00')
 
             sender_wallet = Wallet.objects.select_for_update().get(user=sender)

@@ -175,8 +175,8 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  );
 
  const cashBalance = Number(data?.cash_balance || 0);
- const depFeePct = Number(data?.service_fees?.payment_api_deposit_percent || 1.5);
- const wthFeePct = Number(data?.service_fees?.payment_api_withdraw_percent || 2.0);
+ const depFeePct = Number(data?.service_fees?.payment_api_deposit_percent || 2.5);
+ const wthFeePct = Number(data?.service_fees?.payment_api_withdraw_percent || 3.0);
 
  // ─────────────────────────────────────────────────────────────
  // DEPOSIT (QR CODE & API PAYMENT WORKFLOW)

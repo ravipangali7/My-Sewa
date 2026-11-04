@@ -301,8 +301,11 @@ def process_payment_api_deposit(
     if not getattr(api_user, 'is_api_user', False):
         raise PermissionError("Only API users can process Payment API deposits.")
 
-    config = get_service_fee_config()
-    fee_percent = config.payment_api_deposit_percent
+    if hasattr(api_user, 'get_api_deposit_percent'):
+        fee_percent = api_user.get_api_deposit_percent()
+    else:
+        config = get_service_fee_config()
+        fee_percent = config.payment_api_deposit_percent
     fee_amount = round(amount * (fee_percent / Decimal('100.00')), 2)
     net_credit = amount - fee_amount
 
@@ -356,8 +359,11 @@ def process_payment_api_withdraw(
     if not getattr(api_user, 'is_api_user', False):
         raise PermissionError("Only API users can process Payment API withdrawals.")
 
-    config = get_service_fee_config()
-    fee_percent = config.payment_api_withdraw_percent
+    if hasattr(api_user, 'get_api_withdraw_percent'):
+        fee_percent = api_user.get_api_withdraw_percent()
+    else:
+        config = get_service_fee_config()
+        fee_percent = config.payment_api_withdraw_percent
     fee_amount = round(amount * (fee_percent / Decimal('100.00')), 2)
     total_debit = amount + fee_amount
 

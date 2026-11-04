@@ -52,6 +52,8 @@ export type UserFormValues = {
   can_remittance_transfer: boolean;
   can_api_payin: boolean;
   is_api_user: boolean;
+  api_deposit_percent: string;
+  api_withdraw_percent: string;
   is_ggr_user: boolean;
   commission_rate: string;
   tds_rate: string;
@@ -83,6 +85,8 @@ function fromUser(user?: AdminUser | null): UserFormValues {
     can_remittance_transfer: user?.can_remittance_transfer ?? true,
     can_api_payin: user?.can_api_payin ?? false,
     is_api_user: user?.is_api_user ?? false,
+    api_deposit_percent: user?.api_deposit_percent != null ? String(user.api_deposit_percent) : user?.effective_api_deposit_percent || "2.50",
+    api_withdraw_percent: user?.api_withdraw_percent != null ? String(user.api_withdraw_percent) : user?.effective_api_withdraw_percent || "3.00",
     is_ggr_user: user?.is_ggr_user ?? user?.is_ggr ?? false,
     commission_rate: user?.commission_rate ?? "0",
     tds_rate: user?.tds_rate ?? "",
@@ -141,6 +145,8 @@ export function UserForm({
       can_remittance_transfer: values.can_remittance_transfer,
       can_api_payin: values.can_api_payin,
       is_api_user: values.is_api_user,
+      api_deposit_percent: values.is_api_user && values.api_deposit_percent ? values.api_deposit_percent : null,
+      api_withdraw_percent: values.is_api_user && values.api_withdraw_percent ? values.api_withdraw_percent : null,
       is_ggr_user: values.is_ggr_user,
       is_ggr: values.is_ggr_user,
     };
@@ -592,6 +598,62 @@ export function UserForm({
               }}
             />
           </div>
+
+          {/* API CUT CHARGES (DEPOSIT 2.5% & WITHDRAW 3%) */}
+          {values.is_api_user && (
+            <div className="rounded-sm border border-emerald-200/90 bg-emerald-50/30 p-3.5 space-y-3">
+              <div>
+                <Label className="text-xs font-bold text-foreground">
+                  API Cut Charges (Instant Deposit &amp; Withdraw)
+                </Label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Percentage deducted automatically on their account using API. Settable by Super Admin and Shareholders.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="api_deposit_percent" className="text-[11px] font-semibold text-foreground">
+                    Deposit API Cut (%)
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="api_deposit_percent"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      placeholder="2.50"
+                      value={values.api_deposit_percent}
+                      onChange={(e) => set("api_deposit_percent", e.target.value)}
+                      className="text-xs h-8 pr-7 font-mono"
+                    />
+                    <span className="absolute right-2 top-2 text-xs text-muted-foreground font-mono">%</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Default: 2.50% cut charge on instant deposit.</p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="api_withdraw_percent" className="text-[11px] font-semibold text-foreground">
+                    Withdraw API Cut (%)
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="api_withdraw_percent"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      placeholder="3.00"
+                      value={values.api_withdraw_percent}
+                      onChange={(e) => set("api_withdraw_percent", e.target.value)}
+                      className="text-xs h-8 pr-7 font-mono"
+                    />
+                    <span className="absolute right-2 top-2 text-xs text-muted-foreground font-mono">%</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Default: 3.00% cut charge on instant withdraw.</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* CAN API PAYIN SWITCH */}
           <div

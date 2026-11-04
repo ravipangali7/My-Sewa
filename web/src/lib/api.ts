@@ -1332,6 +1332,8 @@ export const apiClient = {
           can_api_payin?: boolean;
           can_api_payout?: boolean;
           can_fund_transfer?: boolean;
+          api_deposit_percent?: string | number | null;
+          api_withdraw_percent?: string | number | null;
           api_webhook_url?: string;
           api_return_url?: string;
           business_name?: string;

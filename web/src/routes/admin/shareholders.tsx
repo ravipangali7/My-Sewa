@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Coins,
   TrendingUp,
@@ -21,6 +21,8 @@ import {
   Check,
   Star,
   Plus,
+  KeyRound,
+  Gamepad2,
 } from "lucide-react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { Button } from "@/components/ui/button";
@@ -85,13 +87,21 @@ function ShareholderAdminScreen() {
   // Fee Config Modal State
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [ggrPercent, setGgrPercent] = useState("10.00");
-  const [depPercent, setDepPercent] = useState("1.50");
-  const [wthPercent, setWthPercent] = useState("2.00");
+  const [depPercent, setDepPercent] = useState("2.50");
+  const [wthPercent, setWthPercent] = useState("3.00");
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["shareholder-dashboard"],
     queryFn: () => apiClient.getShareholderDashboard(),
   });
+
+  const [txnServiceFilter, setTxnServiceFilter] = useState<"all" | "payin" | "payout" | "ggr">("all");
+
+  const filteredApiTxns = useMemo(() => {
+    const list = data?.developer_api_transactions || [];
+    if (txnServiceFilter === "all") return list;
+    return list.filter((t) => t.service === txnServiceFilter);
+  }, [data?.developer_api_transactions, txnServiceFilter]);
 
   const withdrawMutation = useMutation({
     mutationFn: () => {
@@ -226,6 +236,9 @@ function ShareholderAdminScreen() {
                 <span className="text-[10px] font-bold tracking-wider uppercase text-slate-500 font-mono">
                   Governance & Dividends
                 </span>
+                <span className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded-xs border border-slate-200 font-medium">
+                  Source: Developer API Partners Only (GGR, Pay In, Pay Out)
+                </span>
                 {data?.is_shareholder && (
                   <span className="text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.2 rounded-xs border border-amber-200 font-bold">
                     {data.my_wallet?.share_percent || "0"}% Partner
@@ -345,7 +358,7 @@ function ShareholderAdminScreen() {
                 Deposit API Cut
               </span>
               <span className="text-[10px] font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded-xs border border-blue-200/60">
-                {data?.service_fee_config?.payment_api_deposit_percent || 1.5}%
+                {data?.service_fee_config?.payment_api_deposit_percent || 2.5}%
               </span>
             </div>
             <div className="text-xl sm:text-2xl font-bold text-blue-600 font-mono tabular-nums">
@@ -361,7 +374,7 @@ function ShareholderAdminScreen() {
                 Payout API Cut
               </span>
               <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded-xs border border-indigo-200/60">
-                {data?.service_fee_config?.payment_api_withdraw_percent || 2.0}%
+                {data?.service_fee_config?.payment_api_withdraw_percent || 3.0}%
               </span>
             </div>
             <div className="text-xl sm:text-2xl font-bold text-indigo-600 font-mono tabular-nums">
@@ -403,28 +416,247 @@ function ShareholderAdminScreen() {
           </div>
         )}
 
-        {/* Tabs: Cap Table, Payout Accounts, Stream, Withdrawals */}
-        <Tabs defaultValue="shareholders" className="space-y-3">
-          <TabsList className="grid grid-cols-4 w-full bg-slate-100 p-1 rounded-md border border-slate-200">
+        {/* Tabs: API Partners, API Transactions, Stream, Cap Table, Payout Accounts */}
+        <Tabs defaultValue="api-partners" className="space-y-3">
+          <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full bg-slate-100 p-1 rounded-md border border-slate-200">
+            <TabsTrigger value="api-partners" className="text-xs font-semibold gap-1.5">
+              <Building className="h-3.5 w-3.5 text-emerald-600" />
+              API Partners ({data?.developer_api_partners?.length || data?.totals?.api_partners_count || 0})
+            </TabsTrigger>
+            <TabsTrigger value="api-transactions" className="text-xs font-semibold gap-1.5">
+              <History className="h-3.5 w-3.5 text-blue-600" />
+              API Transactions
+            </TabsTrigger>
+            <TabsTrigger value="audit-stream" className="text-xs font-semibold gap-1.5">
+              <TrendingUp className="h-3.5 w-3.5 text-amber-500" />
+              Dividend Ledger
+            </TabsTrigger>
             <TabsTrigger value="shareholders" className="text-xs font-semibold gap-1.5">
               <Users className="h-3.5 w-3.5" />
               Cap Table ({data?.shareholders?.length || 0})
             </TabsTrigger>
             <TabsTrigger value="payout-accounts" className="text-xs font-semibold gap-1.5">
-              <Building className="h-3.5 w-3.5" />
-              Accounts ({data?.payout_accounts?.length || 0})
-            </TabsTrigger>
-            <TabsTrigger value="audit-stream" className="text-xs font-semibold gap-1.5">
-              <History className="h-3.5 w-3.5" />
-              Revenue Stream
-            </TabsTrigger>
-            <TabsTrigger value="withdrawals" className="text-xs font-semibold gap-1.5">
               <Landmark className="h-3.5 w-3.5" />
-              Withdrawals
+              Accounts ({data?.payout_accounts?.length || 0})
             </TabsTrigger>
           </TabsList>
 
-          {/* TAB 1: CAP TABLE */}
+          {/* TAB 1: DEVELOPER API PARTNERS (Primary Shareholder Revenue Source) */}
+          <TabsContent value="api-partners" className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 space-y-3.5 shadow-2xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                  <Building className="h-4 w-4 text-emerald-600" />
+                  Developer API Partners (Platform Revenue Source)
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Shareholder dividends are generated exclusively from Developer API Partners utilizing GGR Gaming, Pay In, and Pay Out services.
+                </p>
+              </div>
+              <Button asChild size="sm" variant="outline" className="text-xs rounded-sm h-8 border-slate-200 bg-white hover:bg-slate-50">
+                <Link to="/admin/api-users">
+                  <KeyRound className="size-3 mr-1" />
+                  View All API Partners
+                </Link>
+              </Button>
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>API Partner / Business</TableHead>
+                  <TableHead>Active Services</TableHead>
+                  <TableHead>Pay In Volume</TableHead>
+                  <TableHead>Pay Out Volume</TableHead>
+                  <TableHead>GGR Balance</TableHead>
+                  <TableHead>Business KYC</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data?.developer_api_partners && data.developer_api_partners.length > 0 ? (
+                  data.developer_api_partners.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell>
+                        <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                          <Building className="h-3.5 w-3.5 text-slate-500" />
+                          <span>{p.business_name || p.phone}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono">
+                          {p.phone} · {[p.first_name, p.last_name].filter(Boolean).join(" ") || "No name"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span
+                            className={`px-1.5 py-0.2 rounded-xs text-[10px] font-bold border ${
+                              p.services.ggr ? "bg-amber-50 text-amber-800 border-amber-300" : "bg-slate-100 text-slate-400 border-slate-200"
+                            }`}
+                          >
+                            GGR
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded-xs text-[10px] font-bold border ${
+                              p.services.payin ? "bg-blue-50 text-blue-800 border-blue-300" : "bg-slate-100 text-slate-400 border-slate-200"
+                            }`}
+                          >
+                            Pay In
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded-xs text-[10px] font-bold border ${
+                              p.services.payout ? "bg-emerald-50 text-emerald-800 border-emerald-300" : "bg-slate-100 text-slate-400 border-slate-200"
+                            }`}
+                          >
+                            Pay Out
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-blue-700 font-semibold">
+                        {formatNPR(Number(p.payin_volume || 0))}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-emerald-700 font-semibold">
+                        {formatNPR(Number(p.payout_volume || 0))}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-amber-700 font-semibold">
+                        {formatNPR(Number(p.ggr_balance || 0))}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <div className="space-y-0.5">
+                          {p.pan_no ? (
+                            <span className="font-mono text-[10px] bg-slate-100 px-1 py-0.2 rounded-xs border border-slate-200">
+                              PAN: {p.pan_no}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-[10px]">No PAN</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button asChild size="sm" variant="outline" className="h-7 px-2.5 text-[11px] rounded-sm border-slate-200 hover:bg-slate-50">
+                          <Link to="/admin/api-users/$userId" params={{ userId: String(p.id) }}>
+                            Partner Details
+                          </Link>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-8 text-center text-slate-400 text-xs">
+                      No Developer API Partners active yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TabsContent>
+
+          {/* TAB 2: DEVELOPER API TRANSACTIONS */}
+          <TabsContent value="api-transactions" className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 space-y-3.5 shadow-2xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                  <History className="h-4 w-4 text-blue-600" />
+                  Developer API Partner Transactions Feed
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Transaction volume generated by API Partners (Pay In, Pay Out, and GGR Game events) with platform cuts.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { id: "all", label: "All Services" },
+                    { id: "payin", label: "Pay In" },
+                    { id: "payout", label: "Pay Out" },
+                    { id: "ggr", label: "GGR Coin" },
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setTxnServiceFilter(tab.id)}
+                    className={`rounded-xs px-2 py-0.5 text-[11px] font-semibold transition-colors cursor-pointer ${
+                      txnServiceFilter === tab.id
+                        ? "bg-slate-900 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Timestamp</TableHead>
+                  <TableHead>Service</TableHead>
+                  <TableHead>API Partner</TableHead>
+                  <TableHead>Reference / Order</TableHead>
+                  <TableHead>Txn Volume</TableHead>
+                  <TableHead>Shareholder Cut</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredApiTxns.length > 0 ? (
+                  filteredApiTxns.map((t) => (
+                    <TableRow key={t.id}>
+                      <TableCell className="font-mono text-slate-500 text-xs">
+                        {formatDateTime(t.created_at)}
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={`px-1.5 py-0.2 rounded-xs text-[10px] font-bold border ${
+                            t.service === "ggr"
+                              ? "bg-amber-50 text-amber-800 border-amber-200"
+                              : t.service === "payin"
+                              ? "bg-blue-50 text-blue-800 border-blue-200"
+                              : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                          }`}
+                        >
+                          {t.service_label}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-semibold text-slate-900 text-xs">{t.partner_business}</div>
+                        <div className="text-[10px] text-slate-500 font-mono">{t.partner_phone}</div>
+                      </TableCell>
+                      <TableCell className="font-mono text-slate-600 text-xs">{t.reference}</TableCell>
+                      <TableCell className="font-mono text-xs font-bold text-slate-900">
+                        {formatNPR(Number(t.amount))}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs font-bold text-emerald-700">
+                        +{formatNPR(Number(t.fee_cut))}
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={`px-1.5 py-0.2 rounded-xs text-[10px] font-bold border ${
+                            t.status.toLowerCase() === "success" || t.status.toLowerCase() === "completed"
+                              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                              : "bg-slate-100 text-slate-500 border-slate-200"
+                          }`}
+                        >
+                          {t.status.toUpperCase()}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-8 text-center text-slate-400 text-xs">
+                      No Developer API Partner transactions found.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TabsContent>
+
+          {/* TAB 3: CAP TABLE */}
           <TabsContent value="shareholders" className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 space-y-3.5 shadow-2xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-100 pb-3">
               <div>
@@ -436,12 +668,14 @@ function ShareholderAdminScreen() {
                   Accounts configured with Shareholder role. Fee allocations divide automatically by equity %.
                 </p>
               </div>
-              <Button asChild size="sm" variant="outline" className="text-xs rounded-sm h-8 border-slate-200 bg-white hover:bg-slate-50 self-start sm:self-auto">
-                <Link to="/admin/users">
-                  <Plus className="size-3 mr-1" />
-                  Add Partner
-                </Link>
-              </Button>
+              {user?.is_superuser && (
+                <Button asChild size="sm" variant="outline" className="text-xs rounded-sm h-8 border-slate-200 bg-white hover:bg-slate-50 self-start sm:self-auto">
+                  <Link to="/admin/users">
+                    <Plus className="size-3 mr-1" />
+                    Add Partner
+                  </Link>
+                </Button>
+              )}
             </div>
 
             <Table>

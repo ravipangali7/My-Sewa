@@ -454,6 +454,7 @@ def _ensure_api_fund_transfer():
         'can_api_payin', 'can_api_payout', 'api_webhook_url', 'api_return_url',
         'pan_no', 'pan_document', 'company_registration_no', 'company_registration_document',
         'citizenship_front', 'citizenship_back',
+        'api_deposit_percent', 'api_withdraw_percent',
     )
     missing_user = [name for name in needed_user if name not in user_cols]
     if missing_user:
@@ -940,6 +941,55 @@ class CustomUser(AbstractUser):
         db_index=True,
         help_text="When True, this user may authenticate to the Fund Transfer API with an API key.",
     )
+    api_deposit_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))],
+        help_text="Custom Deposit API percentage cut for this user (default 2.50% if not set).",
+    )
+    api_withdraw_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))],
+        help_text="Custom Withdraw API percentage cut for this user (default 3.00% if not set).",
+    )
+
+    @property
+    def is_api(self):
+        return bool(self.is_api_user)
+
+    @is_api.setter
+    def is_api(self, value):
+        self.is_api_user = bool(value)
+
+    def get_api_deposit_percent(self) -> Decimal:
+        if self.api_deposit_percent is not None:
+            return Decimal(str(self.api_deposit_percent))
+        try:
+            from .services.ggr_service import get_service_fee_config
+            cfg = get_service_fee_config()
+            if cfg and cfg.payment_api_deposit_percent is not None:
+                return Decimal(str(cfg.payment_api_deposit_percent))
+        except Exception:
+            pass
+        return Decimal('2.50')
+
+    def get_api_withdraw_percent(self) -> Decimal:
+        if self.api_withdraw_percent is not None:
+            return Decimal(str(self.api_withdraw_percent))
+        try:
+            from .services.ggr_service import get_service_fee_config
+            cfg = get_service_fee_config()
+            if cfg and cfg.payment_api_withdraw_percent is not None:
+                return Decimal(str(cfg.payment_api_withdraw_percent))
+        except Exception:
+            pass
+        return Decimal('3.00')
+
     is_ggr_user = models.BooleanField(
         default=False,
         db_index=True,
@@ -3822,14 +3872,14 @@ class PlatformServiceFeeConfig(models.Model):
     payment_api_deposit_percent = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        default=Decimal('1.50'),
+        default=Decimal('2.50'),
         validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))],
         help_text="Percentage fee deducted from Payment API deposits (payins).",
     )
     payment_api_withdraw_percent = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        default=Decimal('2.00'),
+        default=Decimal('3.00'),
         validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))],
         help_text="Percentage fee deducted from Payment API withdrawals (payouts).",
     )

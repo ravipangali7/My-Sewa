@@ -139,8 +139,8 @@ def user_ggr_dashboard(request):
         'estimated_monthly_fee': str(estimated_monthly_fee),
         'service_fees': {
             'ggr_monthly_profit_percent': str(fee_config.ggr_monthly_profit_percent),
-            'payment_api_deposit_percent': str(fee_config.payment_api_deposit_percent),
-            'payment_api_withdraw_percent': str(fee_config.payment_api_withdraw_percent),
+            'payment_api_deposit_percent': str(user.get_api_deposit_percent()) if hasattr(user, 'get_api_deposit_percent') else str(fee_config.payment_api_deposit_percent),
+            'payment_api_withdraw_percent': str(user.get_api_withdraw_percent()) if hasattr(user, 'get_api_withdraw_percent') else str(fee_config.payment_api_withdraw_percent),
         },
         'recent_transactions': [
             {
@@ -399,7 +399,7 @@ def admin_shareholder_dashboard(request):
             'partner_business': getattr(row.user, 'business_name', '') or (row.user.get_full_name() if row.user else '—'),
             'reference': row.reference or row.order_id or '—',
             'amount': str(row.amount) if row.amount is not None else '0.00',
-            'fee_cut': str(round(Decimal(str(row.amount or 0)) * (fee_config.payment_api_deposit_percent / Decimal('100.00')), 2)) if row.amount and row.status == 'success' else '0.00',
+            'fee_cut': str(round(Decimal(str(row.amount or 0)) * ((row.user.get_api_deposit_percent() if row.user and hasattr(row.user, 'get_api_deposit_percent') else fee_config.payment_api_deposit_percent) / Decimal('100.00')), 2)) if row.amount and row.status == 'success' else '0.00',
             'status': row.status,
             'created_at': row.created_at.isoformat(),
         })
