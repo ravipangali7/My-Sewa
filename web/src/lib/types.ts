@@ -1079,8 +1079,19 @@ export interface AdminUser extends UserProfile {
 export interface AdminApiUser extends AdminUser {
   api_key?: string;
   can_api_payin?: boolean;
+  can_api_payout?: boolean;
   api_webhook_url?: string;
   api_return_url?: string;
+  business_name?: string;
+  pan_no?: string;
+  pan_document_url?: string | null;
+  company_registration_no?: string;
+  company_registration_document_url?: string | null;
+  citizenship_no?: string;
+  citizenship_front_url?: string | null;
+  citizenship_back_url?: string | null;
+  business_kyc_completed?: boolean;
+  business_kyc_status?: "verified" | "pending" | "incomplete";
 }
 
 export interface AdminApiUserLog {
@@ -2159,6 +2170,41 @@ export interface ShareholderPayoutAccountItem {
   created_at: string;
 }
 
+export interface DeveloperApiPartnerItem {
+  id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  business_name?: string;
+  pan_no?: string;
+  company_registration_no?: string;
+  citizenship_no?: string;
+  services: {
+    ggr: boolean;
+    payin: boolean;
+    payout: boolean;
+  };
+  is_api_user: boolean;
+  payin_volume: string;
+  payout_volume: string;
+  ggr_balance: string;
+  created_at: string;
+}
+
+export interface DeveloperApiTransactionItem {
+  id: string;
+  service: "payin" | "payout" | "ggr";
+  service_label: string;
+  partner_id?: number | null;
+  partner_phone: string;
+  partner_business?: string;
+  reference: string;
+  amount: string;
+  fee_cut: string;
+  status: string;
+  created_at: string;
+}
+
 export interface ShareholderDashboardData {
   is_shareholder: boolean;
   my_wallet: {
@@ -2172,6 +2218,7 @@ export interface ShareholderDashboardData {
     ggr_revenue: string;
     api_deposit_revenue: string;
     api_withdraw_revenue: string;
+    api_partners_count?: number;
   };
   service_fee_config: {
     ggr_monthly_profit_percent: string;
@@ -2179,6 +2226,8 @@ export interface ShareholderDashboardData {
     payment_api_withdraw_percent: string;
   };
   shareholders: ShareholderItem[];
+  developer_api_partners?: DeveloperApiPartnerItem[];
+  developer_api_transactions?: DeveloperApiTransactionItem[];
   recent_logs: ShareholderRevenueLogItem[];
   recent_withdrawals: ShareholderWithdrawalItem[];
   payout_accounts?: ShareholderPayoutAccountItem[];
