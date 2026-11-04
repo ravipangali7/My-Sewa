@@ -1458,6 +1458,10 @@ export const apiClient = {
       `mysewa-developer-api.${ext}`,
     );
   },
+  developerGetDocsText: async (format: "markdown" | "html" = "markdown") => {
+    const blob = await apiBlob(`/api/developer/docs/download/?doc_format=${format}`);
+    return await blob.text();
+  },
   developerTransfers: (filters?: {
     q?: string;
     status?: string;

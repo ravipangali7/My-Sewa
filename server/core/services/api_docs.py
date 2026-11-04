@@ -267,6 +267,8 @@ def documentation_payload(request=None) -> dict:
     bank_list_section = {
         'id': 'bank-list',
         'title': 'Bank List API',
+        'is_core': False,
+        'category': 'supporting',
         'purpose': (
             'Returns banks currently available through the configured HimalPay BANK_TRANSFER_LIST service. '
             'MySewa does not hardcode this list. Use bank_code from this response in later calls. '
@@ -310,7 +312,9 @@ def documentation_payload(request=None) -> dict:
     }
     verified_bank_section = {
         'id': 'verified-bank',
-        'title': 'Verified Bank API',
+        'title': 'Bank Verify API',
+        'is_core': True,
+        'category': 'core',
         'purpose': (
             'Verifies a destination bank account against HimalPay BANK_TRANSFER_VERIFICATION. '
             'This call does not debit the wallet. A successful verify is required before /banktransfer/ '
@@ -372,7 +376,9 @@ def documentation_payload(request=None) -> dict:
     }
     bank_transfer_section = {
         'id': 'bank-transfer',
-        'title': 'Bank Transfer API',
+        'title': 'Withdraw API (Bank Transfer / Payout)',
+        'is_core': True,
+        'category': 'core',
         'purpose': (
             'Pays a verified bank account through HimalPay BANK_TRANSFER using the API user MySewa wallet. '
             'The wallet is debited only after HimalPay reports success (or auto-verified pending policy). '
@@ -493,7 +499,9 @@ def documentation_payload(request=None) -> dict:
     ]
     payin_section = {
         'id': 'payin',
-        'title': 'Payin / Wallet Load API',
+        'title': 'Deposit API (Payin / Wallet Load)',
+        'is_core': True,
+        'category': 'core',
         'purpose': (
             'Starts a PayBridgeNP wallet-load for an existing MySewa user (receiver phone). '
             'The wallet is credited only after a verified successful PayBridgeNP payment '
@@ -646,7 +654,9 @@ def documentation_payload(request=None) -> dict:
     }
     payin_status_section = {
         'id': 'payin-status',
-        'title': 'Payin Status API',
+        'title': 'Deposit Status API',
+        'is_core': False,
+        'category': 'supporting',
         'purpose': (
             'Returns the live status of a Payin created by this API user. '
             'When still PENDING, MySewa soft-verifies with PayBridgeNP before responding.'
@@ -949,11 +959,37 @@ def documentation_payload(request=None) -> dict:
         },
         'bank_flow': bank_flow,
         'payin_flow': payin_flow,
+        'core_apis': [
+            {
+                'id': 'verified-bank',
+                'name': 'Bank Verify API',
+                'method': 'POST',
+                'path': verifiedbank_path(),
+                'url': verifiedbank_url,
+                'summary': 'Validates destination bank account number and registered holder name before payout.',
+            },
+            {
+                'id': 'payin',
+                'name': 'Deposit API',
+                'method': 'POST',
+                'path': payin_path(),
+                'url': payin_endpoint,
+                'summary': 'Generates dynamic Fonepay QR or hosted payment checkout to load customer wallets.',
+            },
+            {
+                'id': 'bank-transfer',
+                'name': 'Withdraw API',
+                'method': 'POST',
+                'path': banktransfer_path(),
+                'url': banktransfer_url,
+                'summary': 'Withdraws funds from merchant wallet to verified bank account (instant bank payout).',
+            },
+        ],
         'api_sections': [
-            bank_list_section,
             verified_bank_section,
-            bank_transfer_section,
             payin_section,
+            bank_transfer_section,
+            bank_list_section,
             payin_status_section,
         ],
         'toc': [
@@ -1152,24 +1188,64 @@ def markdown_documentation(request=None) -> str:
     codes = '\n'.join(f"- `{item['http']}` — {item['meaning']}" for item in doc['http_status_codes'])
     bank_flow = '\n'.join(f'{i}. {step}' for i, step in enumerate(doc.get('bank_flow') or [], start=1))
     payin_flow = '\n'.join(f'{i}. {step}' for i, step in enumerate(doc.get('payin_flow') or [], start=1))
-    bank_md = '\n'.join(_markdown_api_section(section) for section in doc.get('api_sections') or [])
-    return f"""# {doc['title']}
+    api_sections_md = '\n'.join(_markdown_api_section(section) for section in doc.get('api_sections') or [])
 
-Version: {doc['version']} · Documentation {doc['docs_version']} · {doc['published_at']}
+    core_apis_summary = """| # | API Name | Method & Endpoint | Core Purpose |
+|---|---|---|---|
+| 1 | **Bank Verify API** | `POST /api/v1/verifiedbank/` | Verifies destination bank account number and account holder name against the banking network in real-time before payout. |
+| 2 | **Deposit API** | `POST /api/v1/payin/` | Creates customer deposit / wallet load. Generates dynamic Fonepay QR code URL and image for instant mobile banking scan & pay. |
+| 3 | **Withdraw API** | `POST /api/v1/banktransfer/` | Withdraws / transfers funds from merchant wallet to a pre-verified destination bank account (instant bank payout). |"""
+
+    return f"""# {doc['title']} — Integration Specification
+
+> **Version:** {doc['version']} · **Docs Version:** {doc['docs_version']} · **Published:** {doc['published_at']}  
+> **Base URL:** `{doc['base_url']}`  
+> **Authentication:** `Authorization: Bearer YOUR_API_KEY`  
+> **Format:** Official Offline Markdown Specification (`.md`)
+
+---
+
+## The 3 Core APIs
+
+MySewa provides **3 Primary APIs** for seamless fintech, merchant, and platform integration:
+
+{core_apis_summary}
+
+### Supporting APIs
+In addition to the 3 core APIs, MySewa provides supporting endpoints:
+- **Bank List API** (`GET /api/v1/banklist/`): Look up supported banks and bank codes.
+- **Deposit Status API** (`GET /api/v1/payin/status/`): Check real-time status of deposit / payin requests.
+- **Fund Transfer API** (`POST /api/v1/fund-transfer/`): Direct wallet-to-wallet transfer between MySewa users.
+
+---
+
+## Table of Contents
+
+1. [Introduction](#introduction)
+2. [API Base URL & Authentication](#api-base-url)
+3. [The 3 Core APIs & Endpoints](#the-3-core-apis--endpoints)
+   - [Bank Verify API](#bank-verify-api) (`POST /api/v1/verifiedbank/`)
+   - [Deposit API (Payin / Wallet Load)](#deposit-api-payin--wallet-load) (`POST /api/v1/payin/`)
+   - [Withdraw API (Bank Transfer / Payout)](#withdraw-api-bank-transfer--payout) (`POST /api/v1/banktransfer/`)
+   - [Bank List API](#bank-list-api) (`GET /api/v1/banklist/`)
+   - [Deposit Status API](#deposit-status-api) (`GET /api/v1/payin/status/`)
+   - [Fund Transfer API](#fund-transfer-api) (`POST /api/v1/fund-transfer/`)
+4. [Integration Flows](#integration-flows)
+   - [Bank API integration flow](#bank-api-integration-flow)
+   - [Payin integration flow](#payin-integration-flow)
+   - [How API Fund Transfer Works](#how-api-fund-transfer-works)
+5. [Duplicate / Idempotency Behavior](#duplicate--idempotency-behavior)
+6. [API Transaction History](#api-transaction-history)
+7. [Security Guidelines](#security-guidelines)
+8. [Documentation Download Option](#documentation-download)
+
+---
 
 ## Introduction
 
 MySewa Developer API lets an approved API user move NPR from their MySewa wallet (Fund Transfer / Bank Transfer) and load wallets via PayBridgeNP Payin.
 
 You do **not** create API transactions from the Developer dashboard. Your application calls the API; MySewa creates the transaction automatically.
-
-## How API Fund Transfer Works
-
-{flow}
-
-## Payin integration flow
-
-{payin_flow}
 
 ## API Base URL
 
@@ -1192,7 +1268,11 @@ Send the API key as a Bearer token:
 3. Open **Developer / API** in the MySewa app to view, copy, or regenerate the key.
 4. Regenerating a key invalidates the previous key immediately.
 
-## Bank API integration flow
+---
+
+## Integration Flows
+
+### Bank API integration flow
 
 Recommended order. The three bank endpoints are independent, but payouts require a recent successful verification of the same bank details.
 
@@ -1204,7 +1284,19 @@ Recommended order. The three bank endpoints are independent, but payouts require
 
 {bank_flow}
 
-{bank_md}
+### Payin integration flow
+
+{payin_flow}
+
+### How API Fund Transfer Works
+
+{flow}
+
+---
+
+## The 3 Core APIs & Endpoints
+
+{api_sections_md}
 
 ## Fund Transfer API
 
@@ -1212,11 +1304,11 @@ Recommended order. The three bank endpoints are independent, but payouts require
 
 Full URL: `{doc['endpoint']}`
 
-## Headers
+### Headers
 
 {headers}
 
-## Request Parameters
+### Request Parameters
 
 | Field | Required | Type | Description |
 | --- | --- | --- | --- |
@@ -1230,31 +1322,31 @@ Example:
 { _json_block(doc['request_example']) }
 ```
 
-## Validation rules
+### Validation rules
 
 {rules}
 
-## Request Examples
+### Request Examples
 
-### cURL
+#### cURL
 
 ```bash
 {doc['examples']['curl']}
 ```
 
-### Python
+#### Python
 
 ```python
 {doc['examples']['python']}
 ```
 
-### JavaScript
+#### JavaScript
 
 ```javascript
 {doc['examples']['javascript']}
 ```
 
-## Successful Response
+### Successful Response
 
 {doc['success_http']}
 
@@ -1264,7 +1356,7 @@ Example:
 { _json_block(doc['success_response']) }
 ```
 
-## Error Responses
+### Error Responses
 
 {errors}
 
@@ -1276,9 +1368,11 @@ Error body shape:
 
 Internal exception messages and stack traces are never returned.
 
-## HTTP Status Codes
+### HTTP Status Codes
 
 {codes}
+
+---
 
 ## Duplicate / idempotency behavior
 
@@ -1298,11 +1392,15 @@ Empty state: {doc['transaction_history']['empty']}
 
 {security}
 
-## Documentation download
+---
 
-Dashboard users with API access can download this document:
+## Documentation Download
 
-`GET /api/developer/docs/download/?doc_format=markdown`
+Dashboard users with API access can download this documentation directly:
+
+- **Markdown (`.md`)**: `GET /api/developer/docs/download/?doc_format=markdown`
+- **HTML**: `GET /api/developer/docs/download/?doc_format=html`
+- **PDF**: `GET /api/developer/docs/download/?doc_format=pdf`
 
 Supported `doc_format` values: `markdown`, `html`, `pdf`.
 """

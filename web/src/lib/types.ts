@@ -1199,6 +1199,8 @@ export interface DeveloperApiDocumentation {
   request_example?: Record<string, unknown>;
   success_http?: string;
   bank_flow?: string[];
+  payin_flow?: string[];
+  core_apis?: Array<{ id: string; name: string; method: string; path: string; url?: string; summary?: string }>;
   api_sections?: DeveloperApiEndpointSection[];
 }
 
@@ -1209,9 +1211,16 @@ export interface DeveloperApiEndpointSection {
   method: string;
   path: string;
   url: string;
+  is_core?: boolean;
+  category?: string;
+  headers?: Array<{ name: string; required?: boolean; example: string; notes?: string }>;
+  query?: Array<{ name: string; required?: boolean; type: string; description: string; example?: string }>;
+  request_body?: Record<string, { required: boolean; type: string; description: string; example?: unknown }>;
   request_example?: Record<string, unknown> | null;
+  success_http?: string;
   success_response: Record<string, unknown>;
   failed_response?: Record<string, unknown>;
+  errors?: Array<{ http: number; code: string; error: string; message?: string }>;
   examples?: { curl?: string; python?: string; javascript?: string };
   notes?: string[];
 }

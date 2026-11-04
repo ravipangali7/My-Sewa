@@ -36,13 +36,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
- Dialog,
- DialogContent,
- DialogDescription,
- DialogFooter,
- DialogHeader,
- DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { BankCombobox } from "@/components/BankCombobox";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
@@ -496,46 +502,53 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  return (
  <div className="space-y-6 pb-12 w-full max-w-full">
  {/* ─────────────────────────────────────────────────────────────
- ABOVE MENU: TOP MISSION-CONTROL COMMAND BAR (STITCH DESIGN)
- Featuring: Deposit (QR API), Withdraw (API Payout), Bank Setup
+ ABOVE MENU: TOP MISSION-CONTROL COMMAND BAR (COMPACT & PROPERLY MANAGED)
+ Featuring: Compact Height, Icon-Driven Actions, Responsive Tooltips
  ───────────────────────────────────────────────────────────── */}
- <div className="sticky top-0 z-20 rounded-md border border-slate-200/80 /80 bg-white/95 /95 backdrop-blur-md p-4 sm:p-5 shadow-xs transition-all">
- <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+ <div className="sticky top-0 z-20 rounded-md border border-slate-200/80 dark:border-zinc-800 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-all">
+ <div className="flex items-center justify-between gap-3">
  {/* Identity & Status */}
- <div className="flex items-center gap-3">
- <div className="size-11 rounded-sm bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
- <Building className="size-5" />
+ <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+ <div className="size-8 sm:size-9 rounded-md bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+ <Building className="size-4 sm:size-4.5" />
  </div>
  <div className="min-w-0">
- <div className="flex flex-wrap items-center gap-2">
- <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-xs text-[10px] font-mono font-bold tracking-wider bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 uppercase">
- <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
- Production API Gateway
- </span>
- <span className="text-[11px] font-mono font-semibold text-slate-500 ">
- MID-{user?.phone}
- </span>
- </div>
- <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 truncate mt-0.5">
+ <div className="flex items-center gap-2 min-w-0">
+ <h1 className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-zinc-100 truncate">
  {user?.business_name || user?.first_name || "Merchant"} Operations Deck
  </h1>
+ <span className="hidden md:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 shrink-0 uppercase">
+ <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+ Live
+ </span>
+ </div>
+ <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-500 dark:text-zinc-400 truncate">
+ <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Production API Gateway</span>
+ <span>•</span>
+ <span>MID-{user?.phone}</span>
+ </div>
  </div>
  </div>
 
  {/* Above Menu Quick Action Bar */}
- <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+ <TooltipProvider delayDuration={150}>
+ <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
  {/* Quick Balance Readout */}
- <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-sm bg-zinc-100 border border-slate-200 ">
- <Wallet className="size-3.5 text-emerald-600" />
- <div className="text-right">
- <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Cash Balance</p>
- <p className="text-xs font-mono font-bold text-slate-900 ">
- {isLoading ? "..." : formatNPR(cashBalance)}
- </p>
+ <Tooltip>
+ <TooltipTrigger asChild>
+ <div className="hidden sm:flex items-center gap-1.5 h-8 px-2.5 rounded-md bg-zinc-100/90 dark:bg-zinc-800/80 border border-slate-200/80 dark:border-zinc-700 text-xs font-mono font-bold text-slate-800 dark:text-zinc-200 select-none cursor-default">
+ <Wallet className="size-3.5 text-emerald-600 shrink-0" />
+ <span>{isLoading ? "..." : formatNPR(cashBalance)}</span>
  </div>
- </div>
+ </TooltipTrigger>
+ <TooltipContent side="bottom" className="text-xs">
+ Cash Balance: {formatNPR(cashBalance)}
+ </TooltipContent>
+ </Tooltip>
 
- {/* ACTION 1: DEPOSIT (USING QR CODE & API WORKFLOW) */}
+ {/* ACTION 1: DEPOSIT (Icon button with tooltip) */}
+ <Tooltip>
+ <TooltipTrigger asChild>
  <Button
  size="sm"
  onClick={() => {
@@ -543,15 +556,23 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  setDepositSuccessResult(null);
  setDepositModalOpen(true);
  }}
- className="h-9 px-3.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer transition-all active:scale-95"
+ className="size-8 p-0 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer transition-all active:scale-95 shrink-0"
+ aria-label="Deposit Funds (QR Code)"
  >
- <QrCode className="size-3.5 mr-1.5 stroke-[2.5]" />
- Deposit (QR)
+ <QrCode className="size-4 stroke-[2.2]" />
  </Button>
+ </TooltipTrigger>
+ <TooltipContent side="bottom" className="text-xs">
+ Deposit (QR Code)
+ </TooltipContent>
+ </Tooltip>
 
- {/* ACTION 2: WITHDRAW (USING SAME WAY API PAYOUT WORKS) */}
+ {/* ACTION 2: WITHDRAW (Icon button with tooltip) */}
+ <Tooltip>
+ <TooltipTrigger asChild>
  <Button
  size="sm"
+ variant="outline"
  onClick={() => {
  if (!savedBank) {
  toast.info("Please configure your Payout Bank Account first.");
@@ -562,40 +583,63 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  setWithdrawModalOpen(true);
  }
  }}
- variant="outline"
- className="h-9 px-3.5 text-xs font-semibold border-emerald-600/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer transition-all active:scale-95"
+ className="size-8 p-0 border-emerald-600/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer transition-all active:scale-95 shrink-0"
+ aria-label="Withdraw Funds (API Payout)"
  >
- <ArrowUpRight className="size-3.5 mr-1.5 stroke-[2.5]" />
- Withdraw (API Payout)
+ <ArrowUpRight className="size-4 stroke-[2.2]" />
  </Button>
+ </TooltipTrigger>
+ <TooltipContent side="bottom" className="text-xs">
+ Withdraw (API Payout)
+ </TooltipContent>
+ </Tooltip>
 
- {/* ACTION 3: PAYOUT BANK ACCOUNT SETUP */}
+ {/* ACTION 3: PAYOUT BANK ACCOUNT SETUP (Icon button with tooltip) */}
+ <Tooltip>
+ <TooltipTrigger asChild>
  <Button
  size="sm"
  variant="outline"
  onClick={() => setBankSetupModalOpen(true)}
- className="h-9 px-3 text-xs font-semibold text-slate-700 border-slate-200 hover:bg-zinc-100 cursor-pointer transition-all active:scale-95"
+ className="relative size-8 p-0 text-slate-700 dark:text-zinc-300 border-slate-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer transition-all active:scale-95 shrink-0"
+ aria-label="Payout Bank Setup"
  >
- <Landmark className="size-3.5 mr-1.5 text-blue-600 dark:text-blue-400" />
- <span className="hidden sm:inline">Payout Bank Setup</span>
- <span className="sm:hidden">Bank Setup</span>
+ <Landmark className="size-4 text-blue-600 dark:text-blue-400" />
  {savedBank?.verified && (
- <span className="size-1.5 rounded-full bg-emerald-500 ml-1.5" title="Bank Verified" />
+ <span
+ className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-zinc-900"
+ title="Bank Verified"
+ />
  )}
  </Button>
+ </TooltipTrigger>
+ <TooltipContent side="bottom" className="text-xs">
+ {savedBank?.verified
+ ? `Payout Bank: ${savedBank.bank_name} (••••${savedBank.account_number.slice(-4)})`
+ : "Payout Bank Setup"}
+ </TooltipContent>
+ </Tooltip>
 
- {/* REFRESH */}
+ {/* REFRESH (Icon button with tooltip) */}
+ <Tooltip>
+ <TooltipTrigger asChild>
  <Button
  size="sm"
  variant="ghost"
  onClick={() => refetch()}
  disabled={isFetching}
- className="h-9 w-9 p-0 text-slate-500 hover:text-slate-900 dark:hover:text-zinc-100"
- title="Refresh Telemetry"
+ className="size-8 p-0 text-slate-500 hover:text-slate-900 dark:hover:text-zinc-100 cursor-pointer transition-all active:scale-95 shrink-0"
+ aria-label="Refresh Telemetry"
  >
  <RefreshCw className={`size-3.5 ${isFetching ? "animate-spin" : ""}`} />
  </Button>
+ </TooltipTrigger>
+ <TooltipContent side="bottom" className="text-xs">
+ Refresh Telemetry
+ </TooltipContent>
+ </Tooltip>
  </div>
+ </TooltipProvider>
  </div>
  </div>
 
