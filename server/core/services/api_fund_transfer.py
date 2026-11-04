@@ -153,6 +153,13 @@ def execute_api_fund_transfer(request) -> Response:
             'api_access_disabled',
             status.HTTP_403_FORBIDDEN,
         )
+    if not getattr(sender, 'can_api_payout', True):
+        return fail(
+            'Payout API disabled',
+            'Payout / Fund transfer API access is disabled for this account.',
+            'payout_api_disabled',
+            status.HTTP_403_FORBIDDEN,
+        )
     if not sender.is_active:
         return fail(
             'User inactive',
