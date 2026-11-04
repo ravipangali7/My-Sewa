@@ -1324,19 +1324,51 @@ export const apiClient = {
     api<import("./types").AdminApiUser>(`/api/admin/api-users/${id}/`),
   adminSetApiUserAccess: (
     id: number,
-    payload: {
-      is_api_user?: boolean;
-      is_ggr_user?: boolean;
-      is_ggr?: boolean;
-      can_api_payin?: boolean;
-      api_webhook_url?: string;
-      api_return_url?: string;
-    },
+    payload:
+      | {
+          is_api_user?: boolean;
+          is_ggr_user?: boolean;
+          is_ggr?: boolean;
+          can_api_payin?: boolean;
+          can_api_payout?: boolean;
+          can_fund_transfer?: boolean;
+          api_webhook_url?: string;
+          api_return_url?: string;
+          business_name?: string;
+          pan_no?: string;
+          company_registration_no?: string;
+          citizenship_no?: string;
+        }
+      | FormData,
   ) =>
     api<{ message: string; data: import("./types").AdminApiUser }>(`/api/admin/api-users/${id}/`, {
       method: "PATCH",
-      body: payload,
+      ...(payload instanceof FormData ? { formData: payload } : { body: payload }),
     }),
+  adminSelectApiPartner: (payload: FormData | Record<string, unknown>) =>
+    api<{ message: string; data: import("./types").AdminApiUser }>("/api/admin/api-users/select/", {
+      method: "POST",
+      ...(payload instanceof FormData ? { formData: payload } : { body: payload }),
+    }),
+  adminSearchPartnerCandidates: (q: string) =>
+    api<{
+      items: Array<{
+        id: number;
+        phone: string;
+        first_name: string;
+        last_name: string;
+        email: string | null;
+        business_name?: string;
+        pan_no?: string;
+        company_registration_no?: string;
+        citizenship_no?: string;
+        is_api_user: boolean;
+        is_ggr_user: boolean;
+        can_api_payin: boolean;
+        can_api_payout: boolean;
+        kyc_status?: string | null;
+      }>;
+    }>(`/api/admin/api-users/search-candidates/?q=${encodeURIComponent(q)}`),
   adminRegenerateApiKey: (id: number) =>
     api<{ message: string; data: import("./types").AdminApiUser }>(
       `/api/admin/api-users/${id}/regenerate-key/`,
@@ -1348,6 +1380,16 @@ export const apiClient = {
     api<{
       items: import("./types").AdminApiUserLog[];
       payin_items?: import("./types").AdminApiUserLog[];
+      ggr_items?: Array<{
+        id: number;
+        txn_type: string;
+        txn_type_label: string;
+        amount: string;
+        balance_after: string;
+        reference: string;
+        notes: string;
+        created_at: string;
+      }>;
       transfers: Array<{
         id: number;
         transaction_id: string;
