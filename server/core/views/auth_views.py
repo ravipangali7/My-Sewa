@@ -1850,3 +1850,163 @@ def biometric_login(request):
     response.data = payload
     return response
 
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def save_device(request):
+    """
+    Establish or refresh a strongly-saved device credential for the current user.
+    Returns device_id and device_secret so this device can re-authenticate
+    with 1 click without requiring password or email OTP.
+    """
+    import hashlib
+    import secrets
+    import uuid
+    from ..models import SavedDeviceAccount, _ensure_saved_device_table
+
+    _ensure_saved_device_table()
+
+    device_id = (request.data.get('device_id') or '').strip()
+    if not device_id:
+        device_id = uuid.uuid4().hex
+
+    device_name = (request.data.get('device_name') or '').strip()
+    platform = (request.data.get('platform') or 'web').strip()
+
+    device_secret = secrets.token_urlsafe(48)
+    secret_hash = hashlib.sha256(device_secret.encode('utf-8')).hexdigest()
+
+    SavedDeviceAccount.objects.update_or_create(
+        user=request.user,
+        device_id=device_id,
+        defaults={
+            'device_secret_hash': secret_hash,
+            'device_name': device_name[:128],
+            'platform': platform[:32],
+        },
+    )
+
+    return Response({
+        'success': True,
+        'user_id': request.user.id,
+        'device_id': device_id,
+        'device_secret': device_secret,
+        'message': 'Account strongly saved on this device.',
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def saved_device_login(request):
+    """
+    Direct 1-click login for a strongly-saved account on this device.
+    Verifies device_secret and directly issues a fresh DRF token without requiring email OTP.
+    Works seamlessly even if the account was logged into on another device (which rotated DRF token)
+    or when switching between multiple saved accounts.
+    """
+    import hashlib
+    import hmac
+    from django.utils import timezone
+    from ..models import SavedDeviceAccount, SecurityAuditLog, _ensure_saved_device_table
+    from ..services.app_config import get_app_config
+    from ..services.security import log_security_event
+
+    _ensure_saved_device_table()
+
+    user_id = request.data.get('user_id')
+    identifier = (request.data.get('identifier') or '').strip()
+    device_id = (request.data.get('device_id') or '').strip()
+    device_secret = (request.data.get('device_secret') or '').strip()
+
+    if not device_id or not device_secret or (not user_id and not identifier):
+        return Response({
+            'error': 'Missing device credentials',
+            'message': 'Device ID, device secret, and user identifier are required.',
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    saved_acc = None
+    if user_id:
+        try:
+            saved_acc = SavedDeviceAccount.objects.filter(
+                user_id=int(user_id), device_id=device_id
+            ).select_related('user').first()
+        except (ValueError, TypeError):
+            pass
+
+    if saved_acc is None and identifier:
+        target_user = _find_user_by_login_identifier(identifier)
+        if target_user:
+            saved_acc = SavedDeviceAccount.objects.filter(
+                user=target_user, device_id=device_id
+            ).select_related('user').first()
+
+    if saved_acc is None:
+        return Response({
+            'error': 'device_not_saved',
+            'message': 'This account is not saved on this device. Please sign in with your password.',
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    user = saved_acc.user
+    if not user.is_active:
+        return _account_deactivated_response()
+
+    incoming_hash = hashlib.sha256(device_secret.encode('utf-8')).hexdigest()
+    if not hmac.compare_digest(saved_acc.device_secret_hash, incoming_hash):
+        return Response({
+            'error': 'invalid_device_secret',
+            'message': 'Device authentication failed. Please sign in with your password.',
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    security = get_app_config().get('security') or {}
+    if security.get('maintenance_mode') and not (user.is_staff or user.is_superuser):
+        return Response({
+            'error': 'maintenance_mode',
+            'message': security.get('maintenance_message')
+                or 'MySewa is under maintenance. Please try again later.',
+            'code': 'maintenance_mode',
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    saved_acc.last_login_at = timezone.now()
+    saved_acc.save(update_fields=['last_login_at'])
+
+    log_security_event(
+        user=user,
+        action=SecurityAuditLog.ACTION_LOGIN_OTP_VERIFIED,
+        request=request,
+        details={'source': 'saved_device_login', 'device_id': device_id},
+    )
+
+    # Issue fresh token — no OTP required since device identity is verified cryptographically
+    return _issue_login_token_response(request, user, otp_verified=True)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def remove_saved_device(request):
+    """Remove a saved account from this device."""
+    from ..models import SavedDeviceAccount, _ensure_saved_device_table
+
+    _ensure_saved_device_table()
+
+    user_id = request.data.get('user_id')
+    identifier = (request.data.get('identifier') or '').strip()
+    device_id = (request.data.get('device_id') or '').strip()
+
+    if device_id:
+        qs = SavedDeviceAccount.objects.filter(device_id=device_id)
+        if user_id:
+            try:
+                qs = qs.filter(user_id=int(user_id))
+            except (ValueError, TypeError):
+                pass
+        elif identifier:
+            target_user = _find_user_by_login_identifier(identifier)
+            if target_user:
+                qs = qs.filter(user=target_user)
+        qs.delete()
+
+    return Response({
+        'success': True,
+        'message': 'Account removed from this device.',
+    }, status=status.HTTP_200_OK)
+

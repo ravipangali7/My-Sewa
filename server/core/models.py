@@ -263,6 +263,40 @@ def _ensure_electricity_bill_table():
     return True
 
 
+
+_saved_device_table_ready = False
+
+
+def _ensure_saved_device_table():
+    """Create core_saveddeviceaccount if migration is not yet applied."""
+    global _saved_device_table_ready
+    if _saved_device_table_ready:
+        return False
+    table = 'core_saveddeviceaccount'
+    try:
+        names = connection.introspection.table_names()
+        if table in names:
+            _saved_device_table_ready = True
+            return False
+        if 'core_customuser' not in names:
+            return False
+    except Exception:
+        return False
+
+    from django.apps import apps
+    try:
+        model = apps.get_model('core', 'SavedDeviceAccount')
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(model)
+        _saved_device_table_ready = True
+        return True
+    except Exception:
+        if table in connection.introspection.table_names():
+            _saved_device_table_ready = True
+            return False
+    return False
+
+
 def _ensure_push_notification_table():
     """Create core_pushnotification if deploy skipped migrate 0037."""
     table = 'core_pushnotification'
@@ -2873,6 +2907,40 @@ class BiometricDevice(models.Model):
         verbose_name = 'Biometric Device'
         verbose_name_plural = 'Biometric Devices'
         ordering = ['-updated_at']
+
+
+
+
+class SavedDeviceAccount(models.Model):
+    """Device-bound authorized account for 1-tap OTP-less login (Facebook-style).
+
+    Survives DRF single-token rotation caused by logins on other devices or account switching.
+    """
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='saved_device_accounts',
+    )
+    device_id = models.CharField(max_length=128, db_index=True)
+    device_secret_hash = models.CharField(max_length=128)
+    device_name = models.CharField(max_length=128, blank=True, default='')
+    platform = models.CharField(max_length=32, blank=True, default='web')
+    last_login_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Saved Device Account'
+        verbose_name_plural = 'Saved Device Accounts'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'device_id'], name='uniq_user_saved_device'),
+        ]
+        indexes = [
+            models.Index(fields=['device_id', 'user'], name='core_saveddev_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.user.phone} on {self.device_id[:8]}'
 
 
 class BiometricAssertion(models.Model):

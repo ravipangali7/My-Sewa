@@ -624,6 +624,36 @@ export const apiClient = {
 
   logout: () => api<{ message: string }>("/api/auth/logout/", { method: "POST" }),
 
+  saveDevice: (body: { device_id?: string; device_name?: string; platform?: string }) =>
+    api<{ success: boolean; user_id: number; device_id: string; device_secret: string }>(
+      "/api/auth/save-device/",
+      { method: "POST", body },
+    ),
+
+  savedDeviceLogin: (body: {
+    user_id?: number;
+    identifier?: string;
+    device_id: string;
+    device_secret: string;
+  }) =>
+    api<{
+      message: string;
+      requires_otp: boolean;
+      token: string;
+      user: import("./types").UserProfile;
+    }>("/api/auth/saved-device-login/", {
+      method: "POST",
+      body,
+      auth: false,
+    }),
+
+  removeSavedDevice: (body: { user_id?: number; identifier?: string; device_id: string }) =>
+    api<{ success: boolean }>("/api/auth/remove-saved-device/", {
+      method: "POST",
+      body,
+      auth: false,
+    }),
+
   profile: () => api<import("./types").UserProfile>("/api/auth/profile/"),
 
   updateProfile: (formData: FormData) =>

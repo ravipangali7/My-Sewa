@@ -75,6 +75,9 @@ urlpatterns = [
     path('api/auth/biometric/disable/', auth_views.biometric_disable, name='biometric_disable'),
     path('api/auth/biometric/assertion/', auth_views.biometric_assertion, name='biometric_assertion'),
     path('api/auth/biometric-login/', auth_views.biometric_login, name='biometric_login'),
+    path('api/auth/save-device/', auth_views.save_device, name='save_device'),
+    path('api/auth/saved-device-login/', auth_views.saved_device_login, name='saved_device_login'),
+    path('api/auth/remove-saved-device/', auth_views.remove_saved_device, name='remove_saved_device'),
     path('api/auth/device-token/', auth_views.device_token, name='device_token'),
     path('api/notifications/fcm-token/', auth_views.device_token, name='fcm_token'),
     path(

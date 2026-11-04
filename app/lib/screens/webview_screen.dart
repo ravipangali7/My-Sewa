@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -441,6 +442,7 @@ class _WebViewScreenState extends State<WebViewScreen>
           await controller.runJavaScript(_unlockWebViewScrollJs);
           await controller.runJavaScript(_bustWebCachesJs);
           await controller.runJavaScript(_installNativeBridgeJs);
+          await _restoreSavedAccountsFromSecureStorage();
           await _deliverBiometricCapability();
           // First thing after the SPA is ready: send the FCM token to React
           // and persist it to the API if the user is already logged in.
@@ -753,6 +755,20 @@ class _WebViewScreenState extends State<WebViewScreen>
         return;
       }
 
+      if (type == 'save_saved_accounts' || type == 'sync_saved_accounts') {
+        final accounts = decoded['accounts']?.toString() ??
+            decoded['payload']?.toString() ??
+            '';
+        if (accounts.isNotEmpty) {
+          const storage = FlutterSecureStorage(
+            aOptions: AndroidOptions(storageNamespace: 'mysewa_saved_accounts'),
+            iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
+          );
+          await storage.write(key: 'mysewa_saved_accounts', value: accounts);
+        }
+        return;
+      }
+
       if (type == 'logout' || type == 'signed_out') {
         final fcm = (_lastPostedFcm ?? PushMessaging.instance.token)?.trim() ?? '';
         final auth = (_lastPostedAuth ?? '').trim();
@@ -886,6 +902,34 @@ class _WebViewScreenState extends State<WebViewScreen>
 })();
 ''');
     });
+  }
+
+  Future<void> _restoreSavedAccountsFromSecureStorage() async {
+    try {
+      const storage = FlutterSecureStorage(
+        aOptions: AndroidOptions(storageNamespace: 'mysewa_saved_accounts'),
+        iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
+      );
+      final raw = await storage.read(key: 'mysewa_saved_accounts');
+      if (raw != null && raw.isNotEmpty && raw != '[]') {
+        final encoded = jsonEncode(raw);
+        await _safeControllerCall((c) async {
+          await c.runJavaScript('''
+(function() {
+  try {
+    var stored = $encoded;
+    var current = window.localStorage.getItem('mysewa_saved_accounts');
+    if (!current || current === '[]' || current.length < 5) {
+      window.localStorage.setItem('mysewa_saved_accounts', stored);
+      window.dispatchEvent(new Event('mysewa_saved_accounts_changed'));
+      window.dispatchEvent(new CustomEvent('mysewa-native-saved-accounts', { detail: stored }));
+    }
+  } catch (e) {}
+})();
+''');
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _deliverBiometricCapability() async {

@@ -10,15 +10,58 @@ export interface SavedAccount {
   avatarUrl: string | null;
   role?: string;
   token: string;
+  deviceId?: string;
+  deviceSecret?: string;
   savedAt: number;
   lastUsedAt: number;
 }
 
 const SAVED_ACCOUNTS_EVENT = "mysewa_saved_accounts_changed";
 
-function notifyChange() {
+export function getDeviceId(): string {
+  if (typeof window === "undefined") return "browser-device";
+  try {
+    let id = localStorage.getItem("mysewa_device_id");
+    if (!id || id.trim() === "") {
+      id =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `dev-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem("mysewa_device_id", id);
+    }
+    return id;
+  } catch {
+    return "fallback-device";
+  }
+}
+
+function syncToNativeBridge(accounts: SavedAccount[]) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = JSON.stringify(accounts);
+    const win = window as unknown as {
+      MySewaBridge?: { postMessage: (msg: string) => void };
+      MySewaNative?: { isFlutterWebView?: boolean };
+    };
+    if (win.MySewaBridge?.postMessage) {
+      win.MySewaBridge.postMessage(
+        JSON.stringify({
+          type: "save_saved_accounts",
+          accounts: raw,
+        }),
+      );
+    }
+  } catch {
+    // ignore bridge errors
+  }
+}
+
+function notifyChange(accounts?: SavedAccount[]) {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(SAVED_ACCOUNTS_EVENT));
+    if (accounts) {
+      syncToNativeBridge(accounts);
+    }
   }
 }
 
@@ -48,6 +91,8 @@ export function saveAccount(account: {
   avatarUrl?: string | null;
   role?: string;
   token: string;
+  deviceId?: string;
+  deviceSecret?: string;
 }): SavedAccount[] {
   if (typeof window === "undefined") return [];
   const current = getSavedAccounts();
@@ -57,6 +102,8 @@ export function saveAccount(account: {
     (a) => a.id === account.id || (account.phone && a.phone === account.phone),
   );
 
+  const existing = existingIdx >= 0 ? current[existingIdx] : null;
+
   const entry: SavedAccount = {
     id: account.id,
     phone: account.phone,
@@ -65,7 +112,9 @@ export function saveAccount(account: {
     avatarUrl: account.avatarUrl ?? null,
     role: account.role,
     token: account.token,
-    savedAt: existingIdx >= 0 ? current[existingIdx]!.savedAt : now,
+    deviceId: account.deviceId || existing?.deviceId || getDeviceId(),
+    deviceSecret: account.deviceSecret || existing?.deviceSecret,
+    savedAt: existing ? existing.savedAt : now,
     lastUsedAt: now,
   };
 
@@ -79,7 +128,7 @@ export function saveAccount(account: {
 
   try {
     localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(next));
-    notifyChange();
+    notifyChange(next);
   } catch (err) {
     console.error("Failed to save account to localStorage", err);
   }
@@ -88,7 +137,7 @@ export function saveAccount(account: {
 
 export function updateSavedAccountProfile(
   id: number,
-  updates: Partial<Pick<SavedAccount, "name" | "avatarUrl" | "role">>,
+  updates: Partial<Pick<SavedAccount, "name" | "avatarUrl" | "role" | "token" | "deviceSecret">>,
 ): void {
   if (typeof window === "undefined") return;
   const current = getSavedAccounts();
@@ -102,7 +151,7 @@ export function updateSavedAccountProfile(
   current[idx] = updated;
   try {
     localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(current));
-    notifyChange();
+    notifyChange(current);
   } catch {
     // ignore
   }
@@ -116,27 +165,38 @@ export function removeSavedAccount(
   const current = getSavedAccounts();
   const target = current.find((a) => a.id === id);
 
-  if (options?.revokeOnServer && target?.token) {
-    // Best-effort remote revocation
+  if (target) {
+    // Notify server to remove saved device binding and optionally logout session
     try {
-      const base = getApiBase();
-      const url = `${base.replace(/\/$/, "")}/api/auth/logout/`;
-      fetch(url, {
+      const base = getApiBase().replace(/\/$/, "");
+      const deviceId = target.deviceId || getDeviceId();
+
+      // 1. Remove saved device record
+      fetch(`${base}/api/auth/remove-saved-device/`, {
         method: "POST",
-        headers: {
-          Authorization: `Token ${target.token}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: target.id, device_id: deviceId }),
       }).catch(() => {});
+
+      // 2. Revoke active session token if requested
+      if (options?.revokeOnServer && target.token) {
+        fetch(`${base}/api/auth/logout/`, {
+          method: "POST",
+          headers: {
+            Authorization: `Token ${target.token}`,
+            "Content-Type": "application/json",
+          },
+        }).catch(() => {});
+      }
     } catch {
-      // ignore
+      // ignore network errors on cleanup
     }
   }
 
   const next = current.filter((a) => a.id !== id);
   try {
     localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(next));
-    notifyChange();
+    notifyChange(next);
   } catch (err) {
     console.error("Failed to update saved accounts in localStorage", err);
   }
@@ -151,7 +211,7 @@ export function clearSavedAccounts(): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.removeItem(SAVED_ACCOUNTS_KEY);
-    notifyChange();
+    notifyChange([]);
   } catch {
     // ignore
   }
@@ -168,9 +228,11 @@ export function useSavedAccounts(): SavedAccount[] {
     const update = () => setAccounts(getSavedAccounts());
     window.addEventListener(SAVED_ACCOUNTS_EVENT, update);
     window.addEventListener("storage", update);
+    window.addEventListener("mysewa-native-saved-accounts", update);
     return () => {
       window.removeEventListener(SAVED_ACCOUNTS_EVENT, update);
       window.removeEventListener("storage", update);
+      window.removeEventListener("mysewa-native-saved-accounts", update);
     };
   }, []);
 

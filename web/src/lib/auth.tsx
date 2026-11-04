@@ -24,7 +24,9 @@ import {
   saveAccount,
   removeSavedAccount,
   updateSavedAccountProfile,
+  getDeviceId,
 } from "./saved-accounts";
+import { isFlutterWebView } from "./biometric";
 import { LogoutConfirmDialog } from "@/components/LogoutConfirmDialog";
 
 export type LoginOtpChallenge = {
@@ -247,6 +249,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           `${currentProfile.first_name || ""} ${currentProfile.last_name || ""}`.trim() ||
           currentProfile.phone ||
           "Account";
+
+        let deviceSecret: string | undefined;
+        const deviceId = getDeviceId();
+        try {
+          const res = await apiClient.saveDevice({
+            device_id: deviceId,
+            device_name: typeof navigator !== "undefined" ? navigator.userAgent : "Device",
+            platform: isFlutterWebView() ? "flutter" : "web",
+          });
+          if (res?.device_secret) {
+            deviceSecret = res.device_secret;
+          }
+        } catch {
+          // best-effort backend device registration
+        }
+
         saveAccount({
           id: currentProfile.id,
           phone: currentProfile.phone,
@@ -255,9 +273,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           avatarUrl: currentProfile.avatar_url || currentProfile.avatar,
           role: currentProfile.role,
           token: currentToken,
+          deviceId,
+          deviceSecret,
         });
       } else if (!shouldSave && currentProfile) {
-        removeSavedAccount(currentProfile.id);
+        removeSavedAccount(currentProfile.id, { revokeOnServer: true });
       }
 
       try {
@@ -280,17 +300,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithSavedAccount = useCallback(
     async (account: SavedAccount) => {
-      const profile = await establishSession(account.token);
+      let activeToken = account.token;
+      let sessionProfile: UserProfile | null = null;
+
+      // 1. Strongly saved device login (bypasses Email OTP, works even if logged in elsewhere)
+      if (account.deviceSecret) {
+        try {
+          const deviceRes = await apiClient.savedDeviceLogin({
+            user_id: account.id,
+            device_id: account.deviceId || getDeviceId(),
+            device_secret: account.deviceSecret,
+          });
+          if (deviceRes.token) {
+            activeToken = deviceRes.token;
+            sessionProfile = await establishSession(deviceRes.token);
+            updateSavedAccountProfile(account.id, {
+              token: deviceRes.token,
+            });
+          }
+        } catch (deviceErr) {
+          console.warn("Saved device login failed, trying fallback token:", deviceErr);
+        }
+      }
+
+      // 2. Fallback to cached token
+      if (!sessionProfile) {
+        sessionProfile = await establishSession(activeToken);
+      }
+
+      // 3. Keep device registration fresh
       const fullName =
-        `${profile.first_name || ""} ${profile.last_name || ""}`.trim() ||
-        profile.phone ||
+        `${sessionProfile.first_name || ""} ${sessionProfile.last_name || ""}`.trim() ||
+        sessionProfile.phone ||
         "Account";
-      updateSavedAccountProfile(profile.id, {
+      updateSavedAccountProfile(sessionProfile.id, {
         name: fullName,
-        avatarUrl: profile.avatar_url || profile.avatar,
-        role: profile.role,
+        avatarUrl: sessionProfile.avatar_url || sessionProfile.avatar,
+        role: sessionProfile.role,
+        token: activeToken,
       });
-      return profile;
+      return sessionProfile;
     },
     [establishSession],
   );
