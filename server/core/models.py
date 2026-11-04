@@ -465,6 +465,24 @@ def _ensure_api_fund_transfer():
         except Exception:
             pass
 
+    # Ensure MySQL has database-level DEFAULT values for new columns on core_customuser
+    # so strict mode (1364) never trips on missing fields during INSERTs.
+    if connection.vendor == 'mysql':
+        try:
+            with connection.cursor() as cursor:
+                for col_name, def_val in (
+                    ('can_api_payout', '1'),
+                    ('can_api_payin', '0'),
+                    ('pan_no', "''"),
+                    ('company_registration_no', "''"),
+                ):
+                    try:
+                        cursor.execute(f"ALTER TABLE core_customuser ALTER COLUMN {col_name} SET DEFAULT {def_val}")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     wt_table = 'core_wallettransfer'
     if wt_table in names:
         try:
@@ -694,8 +712,12 @@ class CustomUserManager(BaseUserManager):
         """Create and save a regular user with the given phone and password"""
         if not phone:
             raise ValueError('The phone field must be set')
-        # Ensure is_active defaults to True if not explicitly set
+        # Ensure is_active and default partner fields are set if not explicitly provided
         extra_fields.setdefault('is_active', True)
+        extra_fields.setdefault('can_api_payout', True)
+        extra_fields.setdefault('can_api_payin', False)
+        extra_fields.setdefault('pan_no', '')
+        extra_fields.setdefault('company_registration_no', '')
         user = self.model(phone=phone, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -780,6 +802,7 @@ class CustomUser(AbstractUser):
     )
     can_api_payin = models.BooleanField(
         default=False,
+        db_default=False,
         db_index=True,
         help_text=(
             "When enabled (and is_api_user), this account may call the Payin / Wallet Load API "
@@ -788,6 +811,7 @@ class CustomUser(AbstractUser):
     )
     can_api_payout = models.BooleanField(
         default=True,
+        db_default=True,
         db_index=True,
         help_text=(
             "When enabled (and is_api_user), this account may call the Fund Transfer / Payout API "
@@ -799,6 +823,7 @@ class CustomUser(AbstractUser):
         max_length=50,
         blank=True,
         default='',
+        db_default='',
         help_text="Business PAN / Tax ID number for API Partner.",
     )
     pan_document = models.FileField(
@@ -811,6 +836,7 @@ class CustomUser(AbstractUser):
         max_length=100,
         blank=True,
         default='',
+        db_default='',
         help_text="Company / Business registration number.",
     )
     company_registration_document = models.FileField(

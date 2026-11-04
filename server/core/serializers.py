@@ -171,6 +171,8 @@ class UserSerializer(serializers.ModelSerializer):
             date_of_birth=validated_data['date_of_birth'],
             account_status=User.ACCOUNT_STATUS_PENDING,
             transaction_pin=make_password(raw_pin),
+            can_api_payout=True,
+            can_api_payin=False,
         )
         # Wallet will be created automatically via signal
         return user

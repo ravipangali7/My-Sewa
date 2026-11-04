@@ -350,6 +350,8 @@ export function AdminShell({
   const { user, token, isLoading, isStaff } = useAuth();
   const { logoUrl } = useSiteBranding();
 
+  const isPureShareholder = Boolean(user && user.role === "shareholder" && !user.is_superuser);
+
   useEffect(() => {
     if (!token) {
       navigate({ to: "/" });
@@ -360,11 +362,21 @@ export function AdminShell({
     }
   }, [token, isLoading, user, isStaff, navigate]);
 
+  useEffect(() => {
+    if (!token || isLoading || !user || !isStaff) return;
+    if (isPureShareholder) {
+      const allowed = ["/admin/shareholders", "/admin/api-users", "/admin/profile"];
+      const isAllowed = allowed.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+      if (!isAllowed) {
+        navigate({ to: "/admin/shareholders" });
+      }
+    }
+  }, [token, isLoading, user, isStaff, isPureShareholder, pathname, navigate]);
+
   if (!token || isLoading || !user || !isStaff) {
     return <AuthSessionLoader />;
   }
 
-  const isPureShareholder = user.role === "shareholder" && !user.is_superuser;
   const isShareholder = user.role === "shareholder";
   const roleLabel = user.is_superuser
     ? "Super Admin"
@@ -375,16 +387,6 @@ export function AdminShell({
     : "Admin";
 
   const activeNavGroups = isPureShareholder ? SHAREHOLDER_NAV_GROUPS : NAV_GROUPS;
-
-  useEffect(() => {
-    if (isPureShareholder) {
-      const allowed = ["/admin/shareholders", "/admin/api-users", "/admin/profile"];
-      const isAllowed = allowed.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-      if (!isAllowed) {
-        navigate({ to: "/admin/shareholders" });
-      }
-    }
-  }, [isPureShareholder, pathname, navigate]);
 
   const closeDrawer = () => setDrawerOpen(false);
 
