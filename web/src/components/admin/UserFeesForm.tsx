@@ -48,7 +48,7 @@ export function UserFeesForm({ userId }: { userId: number }) {
 
   if (feesQuery.isLoading) {
     return (
-      <div className="rounded-xl border border-border bg-surface p-5">
+      <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-5">
         <p className="text-sm text-muted-foreground">Loading charge settings…</p>
       </div>
     );
@@ -56,7 +56,7 @@ export function UserFeesForm({ userId }: { userId: number }) {
 
   if (feesQuery.isError) {
     return (
-      <div className="rounded-xl border border-border bg-surface p-5">
+      <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-5">
         <p className="text-sm text-muted-foreground">
           {feesQuery.error instanceof ApiError
             ? feesQuery.error.message
@@ -73,7 +73,7 @@ export function UserFeesForm({ userId }: { userId: number }) {
 
   return (
     <form
-      className="rounded-xl border border-border bg-surface p-5"
+      className="rounded-sm border border-slate-200 bg-white shadow-2xs p-5"
       onSubmit={handleSubmit}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -111,7 +111,7 @@ export function UserFeesForm({ userId }: { userId: number }) {
           const entry = charges[service.id] ?? { amount: "", charge_type: "flat" as const };
           const unit = entry.charge_type === "percent" ? "%" : "Rs";
           return (
-            <div key={service.id} className="space-y-1.5 rounded-md border border-border/60 p-2.5">
+            <div key={service.id} className="space-y-1.5 rounded-md border border-slate-200/70 p-2.5">
               <Label htmlFor={`user-charge-${userId}-${service.id}`}>{service.label}</Label>
               <div className="flex gap-2">
                 <select

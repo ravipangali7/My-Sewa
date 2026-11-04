@@ -203,7 +203,7 @@ function EditWalletPage() {
             subtitle={`${name} · ${w.phone}`}
           />
 
-          <div className="grid gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-2 sm:p-5">
+          <div className="grid gap-3 rounded-sm border border-slate-200 bg-white shadow-2xs p-4 sm:grid-cols-2 sm:p-5">
             <div>
               <p className="text-xs text-muted-foreground">Before</p>
               <p className="tabular text-lg font-semibold">{formatNPR(w.balance)}</p>
@@ -215,7 +215,7 @@ function EditWalletPage() {
           </div>
 
           <form
-            className="min-w-0 max-w-full space-y-5 rounded-xl border border-border bg-surface p-4 sm:p-5"
+            className="min-w-0 max-w-full space-y-5 rounded-sm border border-slate-200 bg-white shadow-2xs p-4 sm:p-5"
             onSubmit={handleSubmit}
           >
             {!allowAdjust ? (

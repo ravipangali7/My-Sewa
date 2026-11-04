@@ -11,6 +11,8 @@ from .models import (
     ShareholderWallet,
     ShareholderRevenueLog,
     ShareholderWithdrawal,
+    ShareholderPayoutAccount,
+    Deposit,
     PlatformServiceFeeConfig,
 )
 from .services.ggr_service import (
@@ -20,6 +22,7 @@ from .services.ggr_service import (
     process_payment_api_deposit,
     process_payment_api_withdraw,
     execute_shareholder_withdrawal,
+    sync_historical_revenue_to_shareholders,
 )
 
 User = get_user_model()
@@ -218,3 +221,83 @@ class GgrAndShareholderTests(TestCase):
         sh_wallet.refresh_from_db()
         self.assertEqual(sh_wallet.balance, Decimal('500.00'))
         self.assertEqual(sh_wallet.total_withdrawn, Decimal('1000.00'))
+
+    def test_deposit_model_approval_cuts_fee_and_credits_shareholders(self):
+        # Normal deposit creation
+        deposit = Deposit.objects.create(
+            user=self.api_user,
+            amount=Decimal('10000.00'),
+            status=Deposit.STATUS_PENDING,
+        )
+        initial_user_balance = Wallet.objects.get(user=self.api_user).balance
+        initial_sh_balance = ShareholderWallet.objects.get(shareholder=self.shareholder).balance
+
+        # Admin approves deposit
+        deposit.status = Deposit.STATUS_APPROVED
+        deposit.save()
+
+        # Fee is 1.5% = 150. Net credited to user = 9,850.
+        user_wallet = Wallet.objects.get(user=self.api_user)
+        self.assertEqual(user_wallet.balance, initial_user_balance + Decimal('9850.00'))
+
+        # Shareholder wallet credited 150
+        sh_wallet = ShareholderWallet.objects.get(shareholder=self.shareholder)
+        self.assertEqual(sh_wallet.balance, initial_sh_balance + Decimal('150.00'))
+
+        # Audit log exists
+        log = ShareholderRevenueLog.objects.filter(reference=f'DEP-{deposit.pk}').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.amount, Decimal('150.00'))
+
+    def test_shareholder_payout_account_and_withdrawal(self):
+        # 1. Create payout account
+        pa = ShareholderPayoutAccount.objects.create(
+            shareholder=self.shareholder,
+            method='bank',
+            label='My Nabil Account',
+            account_name='John Doe',
+            account_number='9876543210',
+            bank_name='Nabil Bank',
+            is_default=True,
+        )
+        self.assertEqual(pa.method, 'bank')
+
+        # 2. Fund shareholder wallet
+        sh_wallet = ShareholderWallet.objects.get(shareholder=self.shareholder)
+        sh_wallet.balance = Decimal('5000.00')
+        sh_wallet.save()
+
+        # 3. Withdraw using payout_account_id
+        wth = execute_shareholder_withdrawal(
+            shareholder=self.shareholder,
+            amount=Decimal('2000.00'),
+            payout_account_id=pa.id,
+        )
+        self.assertEqual(wth.amount, Decimal('2000.00'))
+        self.assertEqual(wth.payout_account, pa)
+        self.assertEqual(wth.account_name, 'John Doe')
+        self.assertEqual(wth.account_number, '9876543210')
+
+        sh_wallet.refresh_from_db()
+        self.assertEqual(sh_wallet.balance, Decimal('3000.00'))
+        self.assertEqual(sh_wallet.total_withdrawn, Decimal('2000.00'))
+
+    def test_sync_historical_revenue_utility(self):
+        # Create un-synced approved deposit by bypassing signal
+        Deposit.objects.filter(pk=1).delete()
+        dep = Deposit.objects.create(
+            user=self.api_user,
+            amount=Decimal('20000.00'),
+            status=Deposit.STATUS_APPROVED,
+        )
+        # Clear any revenue logs for it to simulate past deposit before feature
+        ShareholderRevenueLog.objects.filter(reference=f'DEP-{dep.pk}').delete()
+
+        sh_before = ShareholderWallet.objects.get(shareholder=self.shareholder).balance
+
+        # Run sync
+        res = sync_historical_revenue_to_shareholders()
+        self.assertGreaterEqual(res['synced_deposits_count'], 1)
+
+        sh_after = ShareholderWallet.objects.get(shareholder=self.shareholder).balance
+        self.assertGreater(sh_after, sh_before)

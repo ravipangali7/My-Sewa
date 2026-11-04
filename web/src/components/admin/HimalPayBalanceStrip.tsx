@@ -116,7 +116,7 @@ export function HimalPayBalanceStrip({
       <StatsCards items={balanceCards} />
 
       {balanceUnavailable ? (
-        <div className="rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-foreground">
+        <div className="rounded-sm border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-foreground">
           <p className="font-medium">HimalPay balance could not be loaded with your API key</p>
           <p className="mt-1 text-muted-foreground">
             {balanceQuery.data?.hint ||

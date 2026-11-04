@@ -16,8 +16,8 @@ export function AdminDataList({
   if (isEmpty) {
     return (
       empty ?? (
-        <div className="rounded-xl border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-          No items found.
+        <div className="rounded-md border border-dashed border-slate-200 bg-white px-4 py-12 text-center text-xs text-slate-500 shadow-2xs">
+          No records found.
         </div>
       )
     );
@@ -25,7 +25,7 @@ export function AdminDataList({
 
   return (
     <>
-      <div className="hidden min-w-0 overflow-x-auto rounded-xl border border-border bg-surface lg:block">
+      <div className="hidden min-w-0 overflow-x-auto rounded-md border border-slate-200 bg-white shadow-2xs lg:block">
         {table}
       </div>
       <div className="min-w-0 lg:hidden">{mobile}</div>
@@ -58,8 +58,8 @@ export function AdminMobileCard({
           : undefined
       }
       className={cn(
-        "w-full min-w-0 rounded-xl border border-border bg-surface p-4 text-left shadow-sm",
-        onClick && "cursor-pointer transition-colors active:bg-muted/60",
+        "w-full min-w-0 rounded-md border border-slate-200 bg-white p-3.5 text-left shadow-2xs transition-all",
+        onClick && "cursor-pointer hover:border-slate-300 active:bg-slate-50",
         className,
       )}
     >
@@ -75,7 +75,7 @@ export function AdminMobileCardGrid({
   children: ReactNode;
   className?: string;
 }) {
-  return <div className={cn("grid min-w-0 gap-3", className)}>{children}</div>;
+  return <div className={cn("grid min-w-0 gap-2.5", className)}>{children}</div>;
 }
 
 export function AdminMobileMeta({
@@ -86,13 +86,13 @@ export function AdminMobileMeta({
   className?: string;
 }) {
   return (
-    <dl className={cn("mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5", className)}>
+    <dl className={cn("mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2", className)}>
       {items.map((item) => (
         <div key={item.label} className="min-w-0">
-          <dt className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+          <dt className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
             {item.label}
           </dt>
-          <dd className="mt-0.5 break-words text-sm text-foreground [overflow-wrap:anywhere]">
+          <dd className="mt-0.5 break-words text-xs font-medium text-slate-800 [overflow-wrap:anywhere]">
             {item.value}
           </dd>
         </div>
@@ -103,7 +103,7 @@ export function AdminMobileMeta({
 
 export function AdminEmptyState({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
+    <div className="rounded-md border border-dashed border-slate-200 bg-white px-4 py-12 text-center text-xs text-slate-500 shadow-2xs">
       {children}
     </div>
   );

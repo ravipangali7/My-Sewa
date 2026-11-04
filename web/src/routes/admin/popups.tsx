@@ -329,7 +329,7 @@ function PopupsPage() {
                   <TableCell>
                     <span
                       className={cn(
-                        "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
+                        "inline-flex rounded-xs px-2 py-0.5 text-xs font-medium",
                         popup.is_active
                           ? "bg-emerald-100 text-emerald-800"
                           : "bg-slate-100 text-slate-600",

@@ -140,19 +140,19 @@ function AdminApiUserDetailPage() {
       </div>
 
       {userQuery.isError && (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-slate-500">
           {userQuery.error instanceof ApiError ? userQuery.error.message : "User not found."}
         </p>
       )}
 
       {u && (
         <div className="space-y-5">
-          <div className="rounded-xl border border-border bg-surface p-4 sm:p-5">
+          <div className="rounded-md border border-slate-200 bg-white shadow-2xs p-4 sm:p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-muted-foreground">Account</p>
+                <p className="text-sm text-slate-500">Account</p>
                 <p className="font-medium">{u.phone}</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-slate-500">
                   {[u.first_name, u.last_name].filter(Boolean).join(" ") || u.email || "—"}
                 </p>
               </div>
@@ -163,10 +163,10 @@ function AdminApiUserDetailPage() {
               </Button>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+              <div className="flex items-center justify-between rounded-sm border border-slate-200 px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">API access</p>
-                  <p className="text-xs text-muted-foreground">Enabling for the first time generates a key.</p>
+                  <p className="text-xs text-slate-500">Enabling for the first time generates a key.</p>
                 </div>
                 <Switch
                   checked={Boolean(u.is_api_user)}
@@ -176,10 +176,10 @@ function AdminApiUserDetailPage() {
                   disabled={accessMutation.isPending}
                 />
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+              <div className="flex items-center justify-between rounded-sm border border-slate-200 px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">Payin / Wallet Load API</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-slate-500">
                     Allow PayBridgeNP payin for this API key. Requires API access.
                   </p>
                 </div>
@@ -191,10 +191,10 @@ function AdminApiUserDetailPage() {
                   disabled={accessMutation.isPending || !u.is_api_user}
                 />
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+              <div className="flex items-center justify-between rounded-sm border border-slate-200 px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">GGR Gaming Coin Service</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-slate-500">
                     Allow GGR coins, gameplay events (+10% win boost / loss), and monthly profit cut.
                   </p>
                 </div>
@@ -206,7 +206,7 @@ function AdminApiUserDetailPage() {
                   disabled={accessMutation.isPending || !u.is_api_user}
                 />
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+              <div className="flex items-center justify-between rounded-sm border border-slate-200 px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">Account status</p>
                   <Badge variant={u.is_active && u.account_status === "approved" ? "default" : "secondary"}>
@@ -217,9 +217,9 @@ function AdminApiUserDetailPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-surface p-4 sm:p-5 space-y-3">
+          <div className="rounded-md border border-slate-200 bg-white shadow-2xs p-4 sm:p-5 space-y-3">
             <h2 className="text-sm font-semibold">Payin webhook URL</h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-slate-500">
               After PayBridgeNP confirms payment and MySewa credits the receiver wallet, MySewa
               POSTs the result to this URL for this API user (server-to-server). The player browser
               is never opened on this URL — use Return URL below for that.
@@ -261,9 +261,9 @@ function AdminApiUserDetailPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-surface p-4 sm:p-5 space-y-3">
+          <div className="rounded-md border border-slate-200 bg-white shadow-2xs p-4 sm:p-5 space-y-3">
             <h2 className="text-sm font-semibold">Payin return URL (player browser)</h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-slate-500">
               Optional. After a successful Payin, MySewa redirects the player browser here (game
               page / deep link). Do not put the webhook API URL here — that only returns JSON.
             </p>
@@ -304,10 +304,10 @@ function AdminApiUserDetailPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-surface p-4 sm:p-5 space-y-3">
+          <div className="rounded-md border border-slate-200 bg-white shadow-2xs p-4 sm:p-5 space-y-3">
             <h2 className="text-sm font-semibold">API key</h2>
-            <p className="font-mono text-sm break-all rounded-lg bg-muted px-3 py-2">{displayKey}</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="font-mono text-sm break-all rounded-sm bg-slate-50 px-3 py-2">{displayKey}</p>
+            <p className="text-xs text-slate-500">
               Created {u.api_key_created_at ? formatDateTime(u.api_key_created_at) : "—"} · Updated{" "}
               {u.api_key_updated_at ? formatDateTime(u.api_key_updated_at) : "—"} · Last used{" "}
               {u.api_last_used_at ? formatDateTime(u.api_last_used_at) : "never"}
@@ -358,7 +358,7 @@ function AdminApiUserDetailPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-surface p-4 sm:p-5">
+          <div className="rounded-md border border-slate-200 bg-white shadow-2xs p-4 sm:p-5">
             <h2 className="mb-3 text-sm font-semibold">Fund Transfer API history</h2>
             <Table>
               <TableHeader>
@@ -374,7 +374,7 @@ function AdminApiUserDetailPage() {
               <TableBody>
                 {(logsQuery.data?.items ?? []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                    <TableCell colSpan={6} className="text-sm text-slate-500">
                       No API fund-transfer calls yet.
                     </TableCell>
                   </TableRow>
@@ -400,7 +400,7 @@ function AdminApiUserDetailPage() {
             </Table>
           </div>
 
-          <div className="rounded-xl border border-border bg-surface p-4 sm:p-5">
+          <div className="rounded-md border border-slate-200 bg-white shadow-2xs p-4 sm:p-5">
             <h2 className="mb-3 text-sm font-semibold">Payin / Wallet Load API history</h2>
             <Table>
               <TableHeader>
@@ -416,7 +416,7 @@ function AdminApiUserDetailPage() {
               <TableBody>
                 {(logsQuery.data?.payin_items ?? []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                    <TableCell colSpan={6} className="text-sm text-slate-500">
                       No API payin calls yet.
                     </TableCell>
                   </TableRow>

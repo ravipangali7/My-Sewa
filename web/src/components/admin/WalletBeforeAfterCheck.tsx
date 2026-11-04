@@ -57,7 +57,7 @@ function formatTxnTime(iso: string) {
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[minmax(9rem,38%)_1fr] gap-2 border-b border-border/70 py-2 text-sm last:border-0">
+    <div className="grid grid-cols-[minmax(9rem,38%)_1fr] gap-2 border-b border-slate-200/80 py-2 text-sm last:border-0">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="font-medium text-foreground break-all">{value}</dd>
     </div>
@@ -125,7 +125,7 @@ export function WalletBeforeAfterCheck() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
+      <div className="flex flex-col gap-3 rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
         <p className="text-sm text-muted-foreground">
           Compares each user&apos;s recorded wallet balance before and after a transaction.
           If an amount was deducted (or credited) but the after-balance did not change,
@@ -192,11 +192,11 @@ export function WalletBeforeAfterCheck() {
       {listQuery.isLoading ? (
         <p className="text-sm text-muted-foreground">Loading before/after issues…</p>
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+        <div className="rounded-sm border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-muted-foreground">
           No before/after mismatches in this range. Run a check after selecting dates.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+        <div className="overflow-x-auto rounded-sm border border-slate-200 bg-white shadow-2xs">
           <Table>
             <TableHeader>
               <TableRow>
@@ -281,7 +281,7 @@ export function WalletBeforeAfterCheck() {
             </DialogDescription>
           </DialogHeader>
           {selected ? (
-            <dl className="rounded-lg border border-border bg-muted/20 px-3">
+            <dl className="rounded-lg border border-slate-200 bg-muted/20 px-3">
               <DetailRow label="User" value={selected.user_name || selected.user_phone || "—"} />
               <DetailRow label="Phone" value={selected.user_phone || "—"} />
               <DetailRow label="Previous balance" value={formatNPR(selected.balance_before)} />

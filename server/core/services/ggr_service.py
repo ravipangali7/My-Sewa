@@ -398,13 +398,15 @@ def process_payment_api_withdraw(
 def execute_shareholder_withdrawal(
     shareholder,
     amount: Decimal,
-    payout_method: str,
-    account_name: str,
-    account_number: str,
+    payout_method: str = '',
+    account_name: str = '',
+    account_number: str = '',
     bank_name: str = '',
+    payout_account_id: int | None = None,
 ) -> ShareholderWithdrawal:
     """
     Shareholder withdraws accumulated platform service revenue to Bank / eSewa / Khalti.
+    Can use a saved ShareholderPayoutAccount or explicit account fields.
     """
     amount = Decimal(str(amount))
     if amount <= Decimal('0.00'):
@@ -412,6 +414,19 @@ def execute_shareholder_withdrawal(
 
     if shareholder.role != User.ROLE_SHAREHOLDER:
         raise PermissionError("Only shareholders can withdraw from service revenue.")
+
+    payout_account = None
+    if payout_account_id:
+        from ..models import ShareholderPayoutAccount
+        payout_account = ShareholderPayoutAccount.objects.filter(pk=payout_account_id, shareholder=shareholder).first()
+        if payout_account:
+            payout_method = payout_account.method
+            account_name = payout_account.account_name
+            account_number = payout_account.account_number
+            bank_name = payout_account.bank_name or bank_name
+
+    if not payout_method:
+        payout_method = ShareholderWithdrawal.METHOD_BANK
 
     with transaction.atomic():
         wallet = ShareholderWallet.objects.select_for_update().filter(shareholder=shareholder).first()
@@ -425,6 +440,7 @@ def execute_shareholder_withdrawal(
 
         withdrawal = ShareholderWithdrawal.objects.create(
             shareholder=shareholder,
+            payout_account=payout_account,
             amount=amount,
             payout_method=payout_method,
             account_name=account_name,
@@ -434,3 +450,117 @@ def execute_shareholder_withdrawal(
         )
 
     return withdrawal
+
+
+def record_shareholder_transaction_fee(txn) -> list[ShareholderRevenueLog]:
+    """
+    Called when an outbound transaction succeeds (e.g. BankTransferTransaction).
+    Extracts platform withdraw fee and distributes to shareholders.
+    """
+    model_name = txn.__class__.__name__
+    if model_name != 'BankTransferTransaction':
+        return []
+
+    if getattr(txn, 'status', None) != 'success':
+        return []
+
+    ref = f"BT-{txn.pk}"
+    if ShareholderRevenueLog.objects.filter(reference=ref).exists():
+        return []
+
+    config = get_service_fee_config()
+    fee_percent = Decimal(str(config.payment_api_withdraw_percent or 0))
+    amount = Decimal(str(txn.amount or 0))
+    if fee_percent > Decimal('0.00'):
+        fee_amount = round(amount * (fee_percent / Decimal('100.00')), 2)
+    else:
+        fee_amount = Decimal(str(getattr(txn, 'platform_charge', 0) or 0))
+
+    if fee_amount <= Decimal('0.00'):
+        return []
+
+    user = getattr(txn, 'user', None)
+    phone = user.phone if user else 'user'
+    return distribute_platform_fee(
+        fee_amount=fee_amount,
+        source=ShareholderRevenueLog.SOURCE_API_WITHDRAW,
+        reference=ref,
+        notes=f"Bank withdrawal fee on NPR {amount} for {phone}",
+    )
+
+
+def sync_historical_revenue_to_shareholders() -> dict:
+    """
+    Backfill/sync shareholder earnings from all approved Deposits, successful BankTransfers,
+    and ApiFundTransfers that have not been credited to ShareholderRevenueLog yet.
+    """
+    from ..models import Deposit, BankTransferTransaction, ApiFundTransferLog
+
+    config = get_service_fee_config()
+    dep_percent = Decimal(str(config.payment_api_deposit_percent or 0))
+    wth_percent = Decimal(str(config.payment_api_withdraw_percent or 0))
+
+    synced_deposits = 0
+    synced_withdraws = 0
+    total_deposit_fees = Decimal('0.00')
+    total_withdraw_fees = Decimal('0.00')
+
+    # 1. Sync Deposits
+    if dep_percent > Decimal('0.00'):
+        approved_deposits = Deposit.objects.filter(status='approved').order_by('id')
+        for dep in approved_deposits:
+            ref = f"DEP-{dep.pk}"
+            if not ShareholderRevenueLog.objects.filter(reference=ref).exists():
+                fee_amount = round(dep.amount * (dep_percent / Decimal('100.00')), 2)
+                if fee_amount > Decimal('0.00'):
+                    distribute_platform_fee(
+                        fee_amount=fee_amount,
+                        source=ShareholderRevenueLog.SOURCE_API_DEPOSIT,
+                        reference=ref,
+                        notes=f"Backfill deposit fee ({dep_percent}%) on NPR {dep.amount} from {dep.user.phone}",
+                    )
+                    dep.platform_fee = fee_amount
+                    dep.save(update_fields=['platform_fee'])
+                    synced_deposits += 1
+                    total_deposit_fees += fee_amount
+
+    # 2. Sync Bank Transfers
+    if wth_percent > Decimal('0.00'):
+        successful_bt = BankTransferTransaction.objects.filter(status='success').order_by('id')
+        for bt in successful_bt:
+            ref = f"BT-{bt.pk}"
+            if not ShareholderRevenueLog.objects.filter(reference=ref).exists():
+                fee_amount = round(bt.amount * (wth_percent / Decimal('100.00')), 2)
+                if fee_amount > Decimal('0.00'):
+                    distribute_platform_fee(
+                        fee_amount=fee_amount,
+                        source=ShareholderRevenueLog.SOURCE_API_WITHDRAW,
+                        reference=ref,
+                        notes=f"Backfill bank withdrawal fee ({wth_percent}%) on NPR {bt.amount} from {bt.user.phone}",
+                    )
+                    synced_withdraws += 1
+                    total_withdraw_fees += fee_amount
+
+        # 3. Sync API Fund Transfers
+        api_transfers = ApiFundTransferLog.objects.filter(status=ApiFundTransferLog.STATUS_SUCCESS, wallet_transfer__isnull=False).order_by('id')
+        for aft in api_transfers:
+            ref = f"API-WTH-{aft.wallet_transfer_id}"
+            if not ShareholderRevenueLog.objects.filter(reference=ref).exists():
+                fee_amount = round(aft.amount * (wth_percent / Decimal('100.00')), 2)
+                if fee_amount > Decimal('0.00'):
+                    distribute_platform_fee(
+                        fee_amount=fee_amount,
+                        source=ShareholderRevenueLog.SOURCE_API_WITHDRAW,
+                        reference=ref,
+                        notes=f"Backfill API payout fee ({wth_percent}%) on NPR {aft.amount} from {aft.user.phone}",
+                    )
+                    synced_withdraws += 1
+                    total_withdraw_fees += fee_amount
+
+    return {
+        'synced_deposits_count': synced_deposits,
+        'synced_withdraws_count': synced_withdraws,
+        'total_deposit_fees': str(total_deposit_fees),
+        'total_withdraw_fees': str(total_withdraw_fees),
+        'total_fees_synced': str(total_deposit_fees + total_withdraw_fees),
+    }

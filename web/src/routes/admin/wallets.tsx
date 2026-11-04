@@ -297,7 +297,7 @@ function WalletsPage() {
                         { label: "Updated", value: formatDateTime(w.updated_at) },
                       ]}
                     />
-                    <div className="mt-3 flex gap-2 border-t border-border pt-3">
+                    <div className="mt-3 flex gap-2 border-t border-slate-200 pt-3">
                       <Button asChild size="sm" variant="outline" className="flex-1">
                         <Link to="/admin/wallets/$walletId" params={{ walletId }}>
                           View

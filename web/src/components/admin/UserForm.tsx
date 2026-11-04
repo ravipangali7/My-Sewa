@@ -166,8 +166,8 @@ export function UserForm({
   return (
     <form className="min-w-0 max-w-full space-y-6" onSubmit={handleSubmit}>
       {/* GROUP 1: Personal & Business Identity */}
-      <div className="rounded-2xl border border-border bg-white p-5 sm:p-6 shadow-xs dark:bg-card">
-        <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-border/80">
+      <div className="rounded-md border border-slate-200 bg-white p-5 sm:p-6 shadow-xs ">
+        <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-slate-200/90">
           <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
             <User className="size-4" />
           </div>
@@ -266,8 +266,8 @@ export function UserForm({
       </div>
 
       {/* GROUP 2: Security & Authentication */}
-      <div className="rounded-2xl border border-border bg-white p-5 sm:p-6 shadow-xs dark:bg-card">
-        <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-border/80">
+      <div className="rounded-md border border-slate-200 bg-white p-5 sm:p-6 shadow-xs ">
+        <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-slate-200/90">
           <div className="flex size-8 items-center justify-center rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-400">
             <Lock className="size-4" />
           </div>
@@ -317,7 +317,7 @@ export function UserForm({
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t border-border/60">
+          <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t border-slate-200/70">
             <div className="space-y-1.5">
               <Label htmlFor="account_status" className="text-xs font-semibold">
                 Account Activation Status
@@ -342,7 +342,7 @@ export function UserForm({
               </p>
             </div>
 
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-slate-50/60 p-3 dark:bg-card/50">
+            <div className="flex items-center justify-between gap-3 rounded-sm border border-slate-200/90 bg-slate-50/60 p-3 /50">
               <div className="min-w-0">
                 <Label htmlFor="is_active" className="text-xs font-semibold">
                   Login Permitted
@@ -362,8 +362,8 @@ export function UserForm({
       </div>
 
       {/* GROUP 3: Role & Business Hierarchy */}
-      <div className="rounded-2xl border border-border bg-white p-5 sm:p-6 shadow-xs dark:bg-card">
-        <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-border/80">
+      <div className="rounded-md border border-slate-200 bg-white p-5 sm:p-6 shadow-xs ">
+        <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-slate-200/90">
           <div className="flex size-8 items-center justify-center rounded-lg bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-400">
             <GitBranch className="size-4" />
           </div>
@@ -403,7 +403,7 @@ export function UserForm({
 
           {/* SHAREHOLDER SPECIFIC CONFIG */}
           {values.role === "shareholder" && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+            <div className="rounded-sm border border-amber-200 bg-amber-50/50 p-4 space-y-3 dark:border-amber-900/60 dark:bg-amber-950/30">
               <div className="flex items-start gap-2.5">
                 <Coins className="size-5 text-amber-600 shrink-0 mt-0.5" />
                 <div>
@@ -431,7 +431,7 @@ export function UserForm({
                     value={values.share_percent}
                     onChange={(e) => set("share_percent", e.target.value)}
                     placeholder="10.00"
-                    className="pr-8 font-mono text-sm font-bold bg-white dark:bg-card border-amber-300 dark:border-amber-700"
+                    className="pr-8 font-mono text-sm font-bold bg-white  border-amber-300 dark:border-amber-700"
                   />
                   <div className="absolute inset-y-0 right-2.5 flex items-center pointer-events-none text-muted-foreground font-bold text-xs">
                     %
@@ -480,7 +480,7 @@ export function UserForm({
 
           {/* DEALER SPECIFIC CONFIG */}
           {values.role === "dealer" && (
-            <div className="space-y-3 rounded-xl border border-indigo-200/80 bg-indigo-50/40 p-4 dark:border-indigo-900/60 dark:bg-indigo-950/20">
+            <div className="space-y-3 rounded-sm border border-indigo-200/80 bg-indigo-50/40 p-4 dark:border-indigo-900/60 dark:bg-indigo-950/20">
               <h4 className="text-xs font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
                 <Building2 className="size-4 text-indigo-600" />
                 Dealer Commission & Tax Configuration
@@ -497,7 +497,7 @@ export function UserForm({
                     step="0.01"
                     value={values.commission_rate}
                     onChange={(e) => set("commission_rate", e.target.value)}
-                    className="font-mono text-sm bg-white dark:bg-card"
+                    className="font-mono text-sm bg-white "
                   />
                 </div>
                 <div className="space-y-1">
@@ -512,7 +512,7 @@ export function UserForm({
                     value={values.tds_rate}
                     onChange={(e) => set("tds_rate", e.target.value)}
                     placeholder="Global default"
-                    className="font-mono text-sm bg-white dark:bg-card"
+                    className="font-mono text-sm bg-white "
                   />
                 </div>
                 <div className="space-y-1">
@@ -526,7 +526,7 @@ export function UserForm({
                     step="0.01"
                     value={values.sub_agent_commission_rate}
                     onChange={(e) => set("sub_agent_commission_rate", e.target.value)}
-                    className="font-mono text-sm bg-white dark:bg-card"
+                    className="font-mono text-sm bg-white "
                   />
                 </div>
                 <div className="space-y-1">
@@ -540,7 +540,7 @@ export function UserForm({
                     step="0.01"
                     value={values.super_admin_rate}
                     onChange={(e) => set("super_admin_rate", e.target.value)}
-                    className="font-mono text-sm bg-white dark:bg-card"
+                    className="font-mono text-sm bg-white "
                   />
                 </div>
               </div>
@@ -550,8 +550,8 @@ export function UserForm({
       </div>
 
       {/* GROUP 4: Developer API & Gaming Integrations */}
-      <div className="rounded-2xl border border-border bg-white p-5 sm:p-6 shadow-xs dark:bg-card">
-        <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-border/80">
+      <div className="rounded-md border border-slate-200 bg-white p-5 sm:p-6 shadow-xs ">
+        <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-slate-200/90">
           <div className="flex size-8 items-center justify-center rounded-lg bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-400">
             <KeyRound className="size-4" />
           </div>
@@ -565,7 +565,7 @@ export function UserForm({
 
         <div className="space-y-3">
           {/* IS API USER SWITCH */}
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-border/80 bg-slate-50/50 p-3.5 transition-colors hover:bg-slate-50 dark:bg-card/40">
+          <div className="flex items-center justify-between gap-4 rounded-sm border border-slate-200/90 bg-slate-50/50 p-3.5 transition-colors hover:bg-slate-50 /40">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Label htmlFor="is_api_user" className="text-xs font-bold text-foreground cursor-pointer">
@@ -595,10 +595,10 @@ export function UserForm({
 
           {/* CAN API PAYIN SWITCH */}
           <div
-            className={`flex items-center justify-between gap-4 rounded-xl border p-3.5 transition-colors ${
+            className={`flex items-center justify-between gap-4 rounded-sm border p-3.5 transition-colors ${
               values.is_api_user
-                ? "border-border/80 bg-slate-50/50 hover:bg-slate-50 dark:bg-card/40"
-                : "border-border/40 bg-slate-50/20 opacity-60"
+                ? "border-slate-200/90 bg-slate-50/50 hover:bg-slate-50 /40"
+                : "border-slate-200/40 bg-slate-50/20 opacity-60"
             }`}
           >
             <div className="min-w-0 flex-1">
@@ -621,7 +621,7 @@ export function UserForm({
           </div>
 
           {/* IS GGR USER SWITCH */}
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-border/80 bg-slate-50/50 p-3.5 transition-colors hover:bg-slate-50 dark:bg-card/40">
+          <div className="flex items-center justify-between gap-4 rounded-sm border border-slate-200/90 bg-slate-50/50 p-3.5 transition-colors hover:bg-slate-50 /40">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Label htmlFor="is_ggr_user" className="text-xs font-bold text-foreground cursor-pointer flex items-center gap-1.5">
@@ -648,8 +648,8 @@ export function UserForm({
       </div>
 
       {/* GROUP 5: Financial Operations & Feature Permissions */}
-      <div className="rounded-2xl border border-border bg-white p-5 sm:p-6 shadow-xs dark:bg-card">
-        <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-border/80">
+      <div className="rounded-md border border-slate-200 bg-white p-5 sm:p-6 shadow-xs ">
+        <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-slate-200/90">
           <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
             <Banknote className="size-4" />
           </div>
@@ -662,7 +662,7 @@ export function UserForm({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">
-          <div className="flex flex-col justify-between rounded-xl border border-border/80 bg-slate-50/40 p-3.5 dark:bg-card/40">
+          <div className="flex flex-col justify-between rounded-sm border border-slate-200/90 bg-slate-50/40 p-3.5 /40">
             <div>
               <Label htmlFor="can_fund_transfer" className="text-xs font-bold text-foreground cursor-pointer">
                 Fund Transfers
@@ -680,7 +680,7 @@ export function UserForm({
             </div>
           </div>
 
-          <div className="flex flex-col justify-between rounded-xl border border-border/80 bg-slate-50/40 p-3.5 dark:bg-card/40">
+          <div className="flex flex-col justify-between rounded-sm border border-slate-200/90 bg-slate-50/40 p-3.5 /40">
             <div>
               <Label htmlFor="can_remittance_transfer" className="text-xs font-bold text-foreground cursor-pointer">
                 Remittances
@@ -698,7 +698,7 @@ export function UserForm({
             </div>
           </div>
 
-          <div className="flex flex-col justify-between rounded-xl border border-border/80 bg-slate-50/40 p-3.5 dark:bg-card/40">
+          <div className="flex flex-col justify-between rounded-sm border border-slate-200/90 bg-slate-50/40 p-3.5 /40">
             <div>
               <Label htmlFor="can_wallet_adjust" className="text-xs font-bold text-foreground cursor-pointer">
                 Wallet Transfers
@@ -719,7 +719,7 @@ export function UserForm({
       </div>
 
       {/* GROUP 6: System Privileges & Admin Control (Superadmin only) */}
-      <div className="rounded-2xl border border-purple-200/80 bg-purple-50/20 p-5 sm:p-6 shadow-xs dark:border-purple-900/60 dark:bg-purple-950/10">
+      <div className="rounded-md border border-purple-200/80 bg-purple-50/20 p-5 sm:p-6 shadow-xs dark:border-purple-900/60 dark:bg-purple-950/10">
         <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-purple-200/70 dark:border-purple-900/50">
           <div className="flex size-8 items-center justify-center rounded-lg bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300">
             <ShieldCheck className="size-4" />
@@ -735,7 +735,7 @@ export function UserForm({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-white p-3.5 shadow-2xs dark:bg-card">
+          <div className="flex items-center justify-between gap-3 rounded-sm border border-slate-200/90 bg-white p-3.5 shadow-2xs ">
             <div className="min-w-0">
               <Label htmlFor="is_staff" className="text-xs font-bold text-foreground cursor-pointer">
                 Staff Admin Access (`is_staff`)
@@ -751,7 +751,7 @@ export function UserForm({
             />
           </div>
 
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-white p-3.5 shadow-2xs dark:bg-card">
+          <div className="flex items-center justify-between gap-3 rounded-sm border border-slate-200/90 bg-white p-3.5 shadow-2xs ">
             <div className="min-w-0">
               <Label htmlFor="is_superuser" className="text-xs font-bold text-foreground cursor-pointer">
                 Superuser Status (`is_superuser`)
@@ -789,7 +789,7 @@ export function UserForm({
           variant="outline"
           onClick={onCancel}
           disabled={submitting}
-          className="border-border text-foreground hover:bg-slate-50 dark:hover:bg-muted"
+          className="border-slate-200 text-foreground hover:bg-slate-50 dark:hover:bg-muted"
         >
           Cancel
         </Button>

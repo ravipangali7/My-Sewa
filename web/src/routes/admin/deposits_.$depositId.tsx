@@ -37,7 +37,7 @@ export const Route = createFileRoute("/admin/deposits_/$depositId")({
 
 function StatementRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-border/80 py-2.5 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-3">
+    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-slate-200/90 py-2.5 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-3">
       <dt className="min-w-0 break-words text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {label}
       </dt>
@@ -187,8 +187,8 @@ function DepositDetailPage() {
 
       {d && (
         <div className="space-y-6">
-          <article className="min-w-0 overflow-x-clip rounded-2xl border border-border bg-surface shadow-card">
-            <div className="border-b border-border bg-gradient-to-br from-muted/80 via-surface to-surface px-4 py-5 sm:px-6 sm:py-6 md:px-8">
+          <article className="min-w-0 overflow-x-clip rounded-md border border-slate-200 bg-white shadow-2xs shadow-card">
+            <div className="border-b border-slate-200 bg-gradient-to-br from-muted/80 via-surface to-surface px-4 py-5 sm:px-6 sm:py-6 md:px-8">
               <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
@@ -204,7 +204,7 @@ function DepositDetailPage() {
                 <StatusChip status={d.status} />
               </div>
 
-              <div className="mt-6 min-w-0 rounded-xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 text-center sm:px-5 sm:text-left">
+              <div className="mt-6 min-w-0 rounded-sm border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 text-center sm:px-5 sm:text-left">
                 <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Transaction amount
                 </p>
@@ -218,7 +218,7 @@ function DepositDetailPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-0 md:grid-cols-2">
-              <section className="border-b border-border px-4 py-5 sm:px-6 md:border-r md:px-8">
+              <section className="border-b border-slate-200 px-4 py-5 sm:px-6 md:border-r md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Account holder
                 </h3>
@@ -237,7 +237,7 @@ function DepositDetailPage() {
                 </dl>
               </section>
 
-              <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
+              <section className="border-b border-slate-200 px-4 py-5 sm:px-6 md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Transaction
                 </h3>
@@ -294,7 +294,7 @@ function DepositDetailPage() {
               </section>
             </div>
 
-            <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
+            <section className="border-b border-slate-200 px-4 py-5 sm:px-6 md:px-8">
               <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                 Narrative
               </h3>
@@ -330,7 +330,7 @@ function DepositDetailPage() {
                   href={d.screenshot_proof}
                   target="_blank"
                   rel="noreferrer"
-                  className="block overflow-x-clip rounded-xl border border-border bg-muted/40"
+                  className="block overflow-x-clip rounded-sm border border-slate-200 bg-muted/40"
                 >
                   <img
                     src={d.screenshot_proof}
@@ -339,14 +339,14 @@ function DepositDetailPage() {
                   />
                 </a>
               ) : (
-                <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/30 text-muted-foreground">
+                <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-sm border border-dashed border-slate-200 bg-muted/30 text-muted-foreground">
                   <ImageIcon className="size-8 opacity-50" />
                   <p className="text-sm">No screenshot uploaded</p>
                 </div>
               )}
             </section>
 
-            <footer className="border-t border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground sm:px-6 md:px-8">
+            <footer className="border-t border-slate-200 bg-muted/40 px-4 py-3 text-xs text-muted-foreground sm:px-6 md:px-8">
               This statement summarizes the deposit request recorded in MySewa. Approval credits the
               user wallet; rejection leaves the balance unchanged.
             </footer>

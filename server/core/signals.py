@@ -44,7 +44,28 @@ def handle_deposit_approval(sender, instance, **kwargs):
                         raise ValueError(
                             (wallet.freeze_reason or '').strip() or WALLET_FROZEN_MESSAGE
                         )
-                    credit_wallet_for_txn(wallet, instance, instance.amount)
+                    from decimal import Decimal
+                    from .services.ggr_service import get_service_fee_config, distribute_platform_fee
+                    from .models import ShareholderRevenueLog
+
+                    config = get_service_fee_config()
+                    fee_percent = Decimal(str(config.payment_api_deposit_percent or 0))
+                    fee_amount = Decimal('0.00')
+                    credit_amount = instance.amount
+                    if fee_percent > Decimal('0.00'):
+                        fee_amount = round(instance.amount * (fee_percent / Decimal('100.00')), 2)
+                        credit_amount = max(Decimal('0.00'), instance.amount - fee_amount)
+
+                    instance.platform_fee = fee_amount
+                    credit_wallet_for_txn(wallet, instance, credit_amount)
+
+                    if fee_amount > Decimal('0.00'):
+                        distribute_platform_fee(
+                            fee_amount=fee_amount,
+                            source=ShareholderRevenueLog.SOURCE_API_DEPOSIT,
+                            reference=f"DEP-{instance.pk}",
+                            notes=f"Deposit fee ({fee_percent}%) on NPR {instance.amount} from {instance.user.phone}",
+                        )
                 # Flag for post_save notification (avoid double-send on create)
                 instance._notify_deposit_approved = True
                 instance._balance_after = wallet.balance
@@ -54,7 +75,28 @@ def handle_deposit_approval(sender, instance, **kwargs):
             with transaction.atomic():
                 wallet = Wallet.objects.create(user=instance.user, balance=0.00)
                 wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
-                credit_wallet_for_txn(wallet, instance, instance.amount)
+                from decimal import Decimal
+                from .services.ggr_service import get_service_fee_config, distribute_platform_fee
+                from .models import ShareholderRevenueLog
+
+                config = get_service_fee_config()
+                fee_percent = Decimal(str(config.payment_api_deposit_percent or 0))
+                fee_amount = Decimal('0.00')
+                credit_amount = instance.amount
+                if fee_percent > Decimal('0.00'):
+                    fee_amount = round(instance.amount * (fee_percent / Decimal('100.00')), 2)
+                    credit_amount = max(Decimal('0.00'), instance.amount - fee_amount)
+
+                instance.platform_fee = fee_amount
+                credit_wallet_for_txn(wallet, instance, credit_amount)
+
+                if fee_amount > Decimal('0.00'):
+                    distribute_platform_fee(
+                        fee_amount=fee_amount,
+                        source=ShareholderRevenueLog.SOURCE_API_DEPOSIT,
+                        reference=f"DEP-{instance.pk or 'NEW'}",
+                        notes=f"Deposit fee ({fee_percent}%) on NPR {instance.amount} from {instance.user.phone}",
+                    )
             instance._notify_deposit_approved = True
             instance._balance_after = wallet.balance
 

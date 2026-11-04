@@ -78,7 +78,7 @@ export function UserTransactionPinForm({
 
   return (
     <form
-      className="min-w-0 max-w-full space-y-4 rounded-xl border border-border bg-surface p-4 sm:p-5"
+      className="min-w-0 max-w-full space-y-4 rounded-sm border border-slate-200 bg-white shadow-2xs p-4 sm:p-5"
       onSubmit={handleSubmit}
     >
       <div className="space-y-1">

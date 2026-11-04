@@ -464,7 +464,7 @@ function StatementPage() {
       }
     >
       <Tabs value={view} onValueChange={(v) => setView(v as StatementView)} className="mt-1">
-        <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl sm:w-auto sm:min-w-[28rem]">
+        <TabsList className="grid h-11 w-full grid-cols-2 rounded-sm sm:w-auto sm:min-w-[28rem]">
           <TabsTrigger value="himalpay">HimalPay Overall</TabsTrigger>
           <TabsTrigger value="before-after">Before & After Check</TabsTrigger>
         </TabsList>
@@ -476,7 +476,7 @@ function StatementPage() {
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as StatementTab)} className="mt-5">
-        <TabsList className="grid h-11 w-full grid-cols-3 rounded-xl sm:w-auto sm:min-w-[28rem]">
+        <TabsList className="grid h-11 w-full grid-cols-3 rounded-sm sm:w-auto sm:min-w-[28rem]">
           <TabsTrigger value="ledger">Ledger</TabsTrigger>
           <TabsTrigger value="issues">
             Issues
@@ -486,7 +486,7 @@ function StatementPage() {
         </TabsList>
 
         <TabsContent value="ledger" className="mt-4 space-y-4">
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
+          <div className="flex flex-col gap-3 rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
             <div className="flex flex-wrap gap-2">
               {(["day", "week", "month", "year"] as DatePreset[]).map((key) => (
                 <Button
@@ -626,16 +626,16 @@ function StatementPage() {
             {ledgerQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading ledger…</p>
             ) : byUser.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+              <div className="rounded-sm border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-muted-foreground">
                 No transactions in this range. Widen the dates or run a check.
               </div>
             ) : (
               byUser.map((group) => (
                 <section
                   key={String(group.user_id ?? group.user_phone ?? "unmatched")}
-                  className="overflow-hidden rounded-xl border border-border bg-surface"
+                  className="overflow-hidden rounded-sm border border-slate-200 bg-white shadow-2xs"
                 >
-                  <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-3">
+                  <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-muted/30 px-4 py-3">
                     <div>
                       <h2 className="text-sm font-semibold text-foreground">
                         {group.user_name || group.user_phone || "Unmatched (no MySewa user)"}
@@ -813,7 +813,7 @@ function StatementPage() {
         </TabsContent>
 
         <TabsContent value="issues" className="mt-4 space-y-4">
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
+          <div className="flex flex-col gap-3 rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="space-y-1.5">
                 <Label>Status</Label>
@@ -875,11 +875,11 @@ function StatementPage() {
           {issuesQuery.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading issues…</p>
           ) : issues.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+            <div className="rounded-sm border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-muted-foreground">
               No statement issues for this filter.
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+            <div className="overflow-x-auto rounded-sm border border-slate-200 bg-white shadow-2xs">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1003,11 +1003,11 @@ function StatementPage() {
           {runsQuery.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading runs…</p>
           ) : runs.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+            <div className="rounded-sm border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-muted-foreground">
               No reconcile runs yet. Run a check from the Ledger tab.
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+            <div className="overflow-x-auto rounded-sm border border-slate-200 bg-white shadow-2xs">
               <Table>
                 <TableHeader>
                   <TableRow>

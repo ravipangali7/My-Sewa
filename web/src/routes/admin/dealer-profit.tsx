@@ -152,7 +152,7 @@ function DealerProfitPage() {
         ) : null}
         <div className="flex flex-wrap gap-2">
           <select
-            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            className="h-9 rounded-md border border-slate-200 bg-background px-2 text-sm"
             value={dealerId}
             onChange={(e) => {
               setDealerId(e.target.value);
@@ -170,7 +170,7 @@ function DealerProfitPage() {
             ))}
           </select>
           <select
-            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            className="h-9 rounded-md border border-slate-200 bg-background px-2 text-sm"
             value={subAgentId}
             onChange={(e) => setSubAgentId(e.target.value)}
           >
@@ -185,7 +185,7 @@ function DealerProfitPage() {
             ))}
           </select>
           <select
-            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            className="h-9 rounded-md border border-slate-200 bg-background px-2 text-sm"
             value={txnType}
             onChange={(e) => setTxnType(e.target.value)}
           >
@@ -196,7 +196,7 @@ function DealerProfitPage() {
             ))}
           </select>
           <select
-            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            className="h-9 rounded-md border border-slate-200 bg-background px-2 text-sm"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
           >

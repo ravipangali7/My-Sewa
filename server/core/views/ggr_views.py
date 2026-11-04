@@ -27,6 +27,7 @@ from ..models import (
     ShareholderWallet,
     ShareholderRevenueLog,
     ShareholderWithdrawal,
+    ShareholderPayoutAccount,
     ApiPayinLog,
     ApiFundTransferLog,
 )
@@ -40,6 +41,7 @@ from ..services.ggr_service import (
     process_payment_api_deposit,
     process_payment_api_withdraw,
     execute_shareholder_withdrawal,
+    sync_historical_revenue_to_shareholders,
 )
 from .admin_views import IsStaffUser
 
@@ -403,6 +405,22 @@ def admin_shareholder_dashboard(request):
             }
             for w in recent_withdrawals
         ],
+        'payout_accounts': [
+            {
+                'id': pa.id,
+                'shareholder_id': pa.shareholder_id,
+                'shareholder_phone': pa.shareholder.phone,
+                'method': pa.method,
+                'label': pa.label,
+                'account_name': pa.account_name,
+                'account_number': pa.account_number,
+                'bank_name': pa.bank_name,
+                'branch': pa.branch,
+                'is_default': pa.is_default,
+                'created_at': pa.created_at.isoformat(),
+            }
+            for pa in ShareholderPayoutAccount.objects.filter(shareholder=user).order_by('-is_default', '-created_at')
+        ],
     })
 
 
@@ -421,14 +439,23 @@ def admin_shareholder_withdraw(request):
         )
 
     raw_amount = request.data.get('amount')
+    payout_account_id = request.data.get('payout_account_id')
     payout_method = request.data.get('payout_method', 'bank')
     account_name = request.data.get('account_name', '').strip()
     account_number = request.data.get('account_number', '').strip()
     bank_name = request.data.get('bank_name', '').strip()
 
-    if not account_name or not account_number:
+    if payout_account_id:
+        pa = ShareholderPayoutAccount.objects.filter(pk=payout_account_id, shareholder=user).first()
+        if not pa:
+            return Response({'error': 'Payout account not found'}, status=status.HTTP_404_NOT_FOUND)
+        payout_method = pa.method
+        account_name = pa.account_name
+        account_number = pa.account_number
+        bank_name = pa.bank_name
+    elif not account_name or not account_number:
         return Response(
-            {'error': 'Validation error', 'message': 'Account name and account number are required.'},
+            {'error': 'Validation error', 'message': 'Account name and account number are required, or choose a saved payout account.'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -447,6 +474,7 @@ def admin_shareholder_withdraw(request):
             account_name=account_name,
             account_number=account_number,
             bank_name=bank_name,
+            payout_account_id=payout_account_id,
         )
         return Response({
             'success': True,
@@ -523,4 +551,129 @@ def admin_settle_monthly_ggr(request):
         'success': True,
         'count': len(settlements),
         'settlements': settlements,
+    })
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_shareholder_payout_accounts(request):
+    """
+    List or create payout accounts for the authenticated shareholder.
+    """
+    user = request.user
+    if user.role != User.ROLE_SHAREHOLDER and not user.is_superuser:
+        return Response({'error': 'Shareholder access required.'}, status=status.HTTP_403_FORBIDDEN)
+
+    if request.method == 'GET':
+        qs = ShareholderPayoutAccount.objects.filter(shareholder=user).order_by('-is_default', '-created_at')
+        data = [
+            {
+                'id': pa.id,
+                'shareholder_id': pa.shareholder_id,
+                'shareholder_phone': pa.shareholder.phone,
+                'method': pa.method,
+                'label': pa.label,
+                'account_name': pa.account_name,
+                'account_number': pa.account_number,
+                'bank_name': pa.bank_name,
+                'branch': pa.branch,
+                'is_default': pa.is_default,
+                'created_at': pa.created_at.isoformat(),
+            }
+            for pa in qs
+        ]
+        return Response({'payout_accounts': data})
+
+    # POST create
+    method = request.data.get('method', 'bank')
+    label = request.data.get('label', '').strip()
+    account_name = request.data.get('account_name', '').strip()
+    account_number = request.data.get('account_number', '').strip()
+    bank_name = request.data.get('bank_name', '').strip()
+    branch = request.data.get('branch', '').strip()
+    is_default = bool(request.data.get('is_default', False))
+
+    if not account_name or not account_number:
+        return Response(
+            {'error': 'Account name and account number are required.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if method not in ('bank', 'esewa', 'khalti'):
+        return Response({'error': 'Invalid payout method. Must be bank, esewa, or khalti.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if is_default:
+        ShareholderPayoutAccount.objects.filter(shareholder=user).update(is_default=False)
+    elif not ShareholderPayoutAccount.objects.filter(shareholder=user).exists():
+        is_default = True
+
+    pa = ShareholderPayoutAccount.objects.create(
+        shareholder=user,
+        method=method,
+        label=label,
+        account_name=account_name,
+        account_number=account_number,
+        bank_name=bank_name,
+        branch=branch,
+        is_default=is_default,
+    )
+
+    return Response({
+        'success': True,
+        'message': 'Payout account saved successfully.',
+        'payout_account': {
+            'id': pa.id,
+            'method': pa.method,
+            'label': pa.label,
+            'account_name': pa.account_name,
+            'account_number': pa.account_number,
+            'bank_name': pa.bank_name,
+            'branch': pa.branch,
+            'is_default': pa.is_default,
+            'created_at': pa.created_at.isoformat(),
+        }
+    }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['PUT', 'DELETE'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_shareholder_payout_account_detail(request, pk):
+    user = request.user
+    pa = ShareholderPayoutAccount.objects.filter(pk=pk).first()
+    if not pa or (pa.shareholder != user and not user.is_superuser):
+        return Response({'error': 'Payout account not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        pa.delete()
+        return Response({'success': True, 'message': 'Payout account deleted successfully.'})
+
+    # PUT
+    for field in ('method', 'label', 'account_name', 'account_number', 'bank_name', 'branch'):
+        if field in request.data:
+            setattr(pa, field, str(request.data[field]).strip())
+
+    if 'is_default' in request.data:
+        is_def = bool(request.data['is_default'])
+        if is_def:
+            ShareholderPayoutAccount.objects.filter(shareholder=user).update(is_default=False)
+        pa.is_default = is_def
+
+    pa.save()
+    return Response({'success': True, 'message': 'Payout account updated successfully.'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_sync_historical_revenue(request):
+    """
+    Backfill / sync platform fees from all historical deposits and withdrawals to shareholders.
+    """
+    if not (request.user.is_superuser or request.user.role == User.ROLE_SHAREHOLDER):
+        return Response({'error': 'Super Admin or Shareholder access required.'}, status=status.HTTP_403_FORBIDDEN)
+
+    result = sync_historical_revenue_to_shareholders()
+    return Response({
+        'success': True,
+        'message': f"Synced {result['synced_deposits_count']} deposits and {result['synced_withdraws_count']} withdrawals. Total fees distributed: NPR {result['total_fees_synced']}",
+        'data': result,
     })

@@ -277,7 +277,7 @@ function TransfersPage() {
                     },
                   ]}
                 />
-                <div className="mt-3 border-t border-border pt-3">{statusSelect(b.id, b.status)}</div>
+                <div className="mt-3 border-t border-slate-200 pt-3">{statusSelect(b.id, b.status)}</div>
               </AdminMobileCard>
             ))}
           </AdminMobileCardGrid>

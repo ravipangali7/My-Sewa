@@ -240,7 +240,7 @@ function DepositsPage() {
         <img
           src={d.screenshot_proof}
           alt={`Deposit #${d.id} proof`}
-          className="size-12 rounded-md border border-border object-cover shadow-sm transition-opacity group-hover:opacity-90"
+          className="size-12 rounded-md border border-slate-200 object-cover shadow-sm transition-opacity group-hover:opacity-90"
         />
         <span className="text-xs text-brand group-hover:underline">View</span>
       </a>
@@ -389,7 +389,7 @@ function DepositsPage() {
                         <img
                           src={d.screenshot_proof}
                           alt={`Deposit #${d.id} proof`}
-                          className="size-14 rounded-lg border border-border object-cover"
+                          className="size-14 rounded-lg border border-slate-200 object-cover"
                         />
                       </a>
                     ) : (
@@ -423,7 +423,7 @@ function DepositsPage() {
                   ]}
                 />
                 <div
-                  className="mt-3 border-t border-border pt-3"
+                  className="mt-3 border-t border-slate-200 pt-3"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {depositActions(d)}

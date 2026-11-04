@@ -112,7 +112,7 @@ function AdminApiUsersPage() {
                 <TableRow key={u.id}>
                   <TableCell>
                     <div className="font-medium">{u.phone}</div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-slate-500">
                       {[u.first_name, u.last_name].filter(Boolean).join(" ") || u.email || "—"}
                     </div>
                   </TableCell>
@@ -167,7 +167,7 @@ function ApiUserCard({
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="font-medium">{user.phone}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-slate-500">
             {[user.first_name, user.last_name].filter(Boolean).join(" ") || "—"}
           </p>
         </div>

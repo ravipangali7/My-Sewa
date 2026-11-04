@@ -306,6 +306,23 @@ def execute_api_fund_transfer(request) -> Response:
                     status.HTTP_409_CONFLICT,
                 )
 
+            from .ggr_service import get_service_fee_config, distribute_platform_fee
+            from ..models import ShareholderRevenueLog, Wallet
+            fee_cfg = get_service_fee_config()
+            fee_percent = Decimal(str(fee_cfg.payment_api_withdraw_percent or 0))
+            fee_amount = round(amount * (fee_percent / Decimal('100.00')), 2) if fee_percent > Decimal('0.00') else Decimal('0.00')
+
+            sender_wallet = Wallet.objects.select_for_update().get(user=sender)
+            total_required = amount + fee_amount
+            if sender_wallet.balance < total_required:
+                return fail(
+                    'Insufficient balance',
+                    f'Insufficient MySewa wallet balance. Need Rs. {total_required} (including {fee_percent}% platform fee), have Rs. {sender_wallet.balance}.',
+                    'insufficient_balance',
+                    status.HTTP_400_BAD_REQUEST,
+                    extra={'required': str(total_required), 'available': str(sender_wallet.balance), 'fee': str(fee_amount)}
+                )
+
             transfer, err = perform_wallet_transfer(
                 sender=sender,
                 recipient=recipient,
@@ -317,7 +334,21 @@ def execute_api_fund_transfer(request) -> Response:
             if err:
                 raise _TransferFailed(err)
 
+            if fee_amount > Decimal('0.00'):
+                sender_wallet = Wallet.objects.select_for_update().get(user=sender)
+                sender_wallet.balance = max(Decimal('0.00'), sender_wallet.balance - fee_amount)
+                sender_wallet.save(update_fields=['balance', 'updated_at'])
+                distribute_platform_fee(
+                    fee_amount=fee_amount,
+                    source=ShareholderRevenueLog.SOURCE_API_WITHDRAW,
+                    reference=f'API-WTH-{transfer.pk}',
+                    notes=f'API Payout withdraw fee ({fee_percent}%) on NPR {amount} for {sender.phone}',
+                )
+
             payload = _success_payload(transfer, reference)
+            if fee_amount > Decimal('0.00'):
+                payload['fee_amount'] = str(fee_amount)
+                payload['total_debited'] = str(total_required)
             record.status = ApiIdempotencyRecord.STATUS_COMPLETED
             record.wallet_transfer = transfer
             record.response_payload = payload

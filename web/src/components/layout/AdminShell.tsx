@@ -83,7 +83,7 @@ export type NavGroup = {
 const NAV_GROUPS: NavGroup[] = [
   {
     id: "overview",
-    title: "Intelligence & Overview",
+    title: "Overview & Audits",
     items: [
       { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
       { to: "/admin/reports", label: "Financial Reports", icon: BarChart3 },
@@ -92,12 +92,12 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     id: "network",
-    title: "User & Network Directory",
+    title: "Directory & Partners",
     items: [
       { to: "/admin/users", label: "User Directory", icon: Users },
-      { to: "/admin/api-users", label: "Developer API Users", icon: KeyRound },
+      { to: "/admin/api-users", label: "API Merchants", icon: KeyRound },
       { to: "/admin/shareholders", label: "Shareholder Revenue", icon: Coins },
-      { to: "/admin/dealers", label: "Dealers Directory", icon: Handshake },
+      { to: "/admin/dealers", label: "Dealer Directory", icon: Handshake },
       { to: "/admin/hierarchy", label: "Dealer Hierarchy", icon: GitBranch },
       { to: "/admin/dealer-profit", label: "Dealer Profit Share", icon: TrendingUp },
       { to: "/admin/kyc", label: "KYC Verification", icon: ShieldCheck },
@@ -105,7 +105,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     id: "finance",
-    title: "Finance & Settlements",
+    title: "Settlement & Ledger",
     items: [
       { to: "/admin/wallets", label: "User Wallets", icon: Wallet },
       { to: "/admin/transaction-history", label: "Transaction Ledger", icon: History },
@@ -119,7 +119,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     id: "utilities",
-    title: "Utility & Digital Bills",
+    title: "Utility Services",
     items: [
       { to: "/admin/topups", label: "Mobile Top-ups", icon: Smartphone },
       { to: "/admin/data-topups", label: "Data Packages", icon: Package },
@@ -130,17 +130,16 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     id: "engagement",
-    title: "Engagement & Platform",
+    title: "System & Support",
     items: [
       { to: "/admin/support-chat", label: "Support Chat", icon: MessageCircle, badge: "support-chat" },
-      { to: "/admin/popups", label: "Announcements & Popups", icon: MessageSquare },
+      { to: "/admin/popups", label: "Announcements", icon: MessageSquare },
       { to: "/admin/push", label: "Push Notifications", icon: Bell },
-      { to: "/admin/settings", label: "System Settings", icon: SettingsIcon },
+      { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
     ],
   },
 ];
 
-/** Primary destinations shown in the mobile bottom bar. */
 const ADMIN_BOTTOM_TABS = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { to: "/admin/users", label: "Users", icon: Users },
@@ -207,9 +206,9 @@ function AdminProfileControls({
   const isSuper = user.is_superuser;
 
   const avatar = (
-    <Avatar className={cn(variant === "header" ? "size-8 ring-1 ring-border" : "size-9 ring-1 ring-border")}>
+    <Avatar className={cn(variant === "header" ? "size-7 rounded-sm ring-1 ring-slate-200" : "size-8 rounded-sm ring-1 ring-slate-200")}>
       {user.avatar_url ? <AvatarImage src={user.avatar_url} alt={name} /> : null}
-      <AvatarFallback className="bg-emerald-50 text-xs font-semibold text-emerald-700">
+      <AvatarFallback className="bg-slate-100 rounded-sm text-xs font-bold text-slate-800">
         {initials(user)}
       </AvatarFallback>
     </Avatar>
@@ -222,64 +221,64 @@ function AdminProfileControls({
           {variant === "header" ? (
             <button
               type="button"
-              className="flex items-center gap-2 rounded-xl border border-border bg-white px-2.5 py-1.5 text-left shadow-xs transition-colors hover:bg-slate-50 dark:bg-card dark:hover:bg-muted"
+              className="flex items-center gap-2 rounded-sm border border-slate-200 bg-white px-2.5 py-1.5 text-left shadow-2xs transition-colors hover:bg-slate-50 cursor-pointer"
             >
               {avatar}
               <div className="hidden text-left sm:block">
-                <span className="block max-w-[130px] truncate text-xs font-semibold leading-tight text-foreground">
+                <span className="block max-w-[130px] truncate text-xs font-semibold leading-tight text-slate-900">
                   {name}
                 </span>
-                <span className="block text-[10px] text-muted-foreground font-medium">
+                <span className="block text-[10px] text-slate-500 font-medium">
                   {roleLabel}
                 </span>
               </div>
-              <ChevronDown className="size-3.5 text-muted-foreground" />
+              <ChevronDown className="size-3 text-slate-400" />
             </button>
           ) : (
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-xl border border-border/60 bg-white p-2 text-left shadow-2xs transition-colors hover:bg-slate-50 dark:bg-card/60 dark:hover:bg-muted"
+              className="flex w-full items-center gap-2.5 rounded-sm border border-slate-200 bg-white p-2 text-left shadow-2xs transition-colors hover:bg-slate-50 cursor-pointer"
             >
               {avatar}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-semibold text-foreground">{name}</p>
+                <p className="truncate text-xs font-semibold text-slate-900">{name}</p>
                 <div className="flex items-center gap-1.5 pt-0.5">
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-sm px-1.5 py-0.2 text-[9px] font-bold uppercase tracking-wide",
+                      "inline-flex items-center rounded-xs px-1.5 py-0.2 text-[9px] font-bold uppercase tracking-wider",
                       isSuper
-                        ? "bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300"
+                        ? "bg-purple-50 text-purple-700 border border-purple-200"
                         : isShareholder
-                        ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
-                        : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",
+                        ? "bg-amber-50 text-amber-700 border border-amber-200"
+                        : "bg-emerald-50 text-emerald-700 border border-emerald-200",
                     )}
                   >
                     {roleLabel}
                   </span>
-                  <span className="truncate text-[10px] text-muted-foreground font-mono">
+                  <span className="truncate text-[10px] text-slate-400 font-mono">
                     {user.phone}
                   </span>
                 </div>
               </div>
-              <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+              <ChevronDown className="size-3.5 shrink-0 text-slate-400" />
             </button>
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align={variant === "header" ? "end" : "start"}
           side={variant === "sidebar" ? "top" : "bottom"}
-          className="w-56 shadow-lg border-border"
+          className="w-56 rounded-md shadow-md border-slate-200 bg-white"
         >
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col gap-0.5">
-              <span className="text-xs font-semibold text-foreground">{name}</span>
-              <span className="text-[11px] text-muted-foreground">{user.email || user.phone}</span>
+              <span className="text-xs font-semibold text-slate-900">{name}</span>
+              <span className="text-[11px] text-slate-500">{user.email || user.phone}</span>
               <span className="text-[10px] font-mono font-medium text-emerald-600 pt-0.5">
                 Role: {roleLabel}
               </span>
             </div>
           </DropdownMenuLabel>
-          <DropdownMenuSeparator />
+          <DropdownMenuSeparator className="bg-slate-100" />
           <DropdownMenuItem asChild>
             <Link
               to="/admin/profile"
@@ -295,39 +294,39 @@ function AdminProfileControls({
               <Link
                 to="/admin/shareholders"
                 onClick={() => onNavigate?.()}
-                className="cursor-pointer text-xs text-amber-700 dark:text-amber-300"
+                className="cursor-pointer text-xs text-amber-700"
               >
                 <Coins className="size-3.5 mr-2" />
-                My Shareholder Balance
+                Shareholder Balance
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
+          <DropdownMenuSeparator className="bg-slate-100" />
           <DropdownMenuItem
-            className="cursor-pointer text-xs text-danger focus:text-danger"
+            className="cursor-pointer text-xs text-red-600 focus:text-red-700 focus:bg-red-50"
             onSelect={() => setLogoutOpen(true)}
           >
             <LogOut className="size-3.5 mr-2" />
-            Log out
+            Sign Out
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
       <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="rounded-md border-slate-200 bg-white">
           <AlertDialogHeader>
-            <AlertDialogTitle>Log out of admin session?</AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogTitle className="text-sm font-bold text-slate-900">Sign out of session?</AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-slate-500">
               You will be signed out of the management console and returned to the sign-in screen.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogFooter className="gap-2 sm:gap-0">
+            <AlertDialogCancel className="rounded-sm text-xs">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-danger text-white hover:bg-danger/90"
+              className="rounded-sm bg-red-600 text-white text-xs font-semibold hover:bg-red-500"
               onClick={handleLogout}
             >
-              Log out
+              Sign Out
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -348,7 +347,6 @@ export function AdminShell({
   description?: string;
   children: ReactNode;
   actions?: ReactNode;
-  /** Compact header + page padding for managed console surfaces */
   dense?: boolean;
   fillHeight?: boolean;
 }) {
@@ -384,10 +382,10 @@ export function AdminShell({
   const closeDrawer = () => setDrawerOpen(false);
 
   const navLinks = (
-    <div className="flex flex-col gap-5 py-1">
+    <div className="flex flex-col gap-4 py-1">
       {NAV_GROUPS.map((group) => (
         <div key={group.id} className="flex flex-col gap-0.5">
-          <div className="px-2.5 pb-1 text-[10px] font-bold tracking-wider text-muted-foreground/75 uppercase font-mono">
+          <div className="px-2.5 pb-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono">
             {group.title}
           </div>
           <div className="flex flex-col gap-0.5">
@@ -399,30 +397,24 @@ export function AdminShell({
                   to={item.to}
                   onClick={closeDrawer}
                   className={cn(
-                    "group relative flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all",
+                    "group relative flex items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-xs transition-all",
                     active
-                      ? "bg-emerald-50 text-emerald-800 shadow-2xs font-semibold dark:bg-emerald-950/50 dark:text-emerald-300"
-                      : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200",
+                      ? "bg-slate-100 text-slate-900 font-semibold shadow-2xs border-l-2 border-emerald-600"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium",
                   )}
                 >
-                  {active ? (
-                    <span
-                      aria-hidden
-                      className="absolute inset-y-1.5 left-0 w-1 rounded-r-md bg-emerald-600 dark:bg-emerald-400"
-                    />
-                  ) : null}
                   <item.icon
                     className={cn(
                       "size-4 shrink-0 transition-colors",
                       active
-                        ? "text-emerald-700 dark:text-emerald-400"
-                        : "text-slate-400 group-hover:text-slate-700 dark:text-slate-500 dark:group-hover:text-slate-300",
+                        ? "text-emerald-700"
+                        : "text-slate-400 group-hover:text-slate-600",
                     )}
                   />
                   <span className="min-w-0 flex-1 truncate">{item.label}</span>
                   {item.badge === "support-chat" ? <SupportChatUnreadBadge /> : null}
                   {item.to === "/admin/shareholders" && isShareholder ? (
-                    <span className="rounded-full bg-amber-100 px-1.5 py-0.2 text-[9px] font-bold text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                    <span className="rounded-xs bg-amber-50 border border-amber-200 px-1.5 py-0.2 text-[9px] font-bold text-amber-700">
                       Equity
                     </span>
                   ) : null}
@@ -439,24 +431,24 @@ export function AdminShell({
     <Link
       to="/admin"
       onClick={closeDrawer}
-      className="flex items-center gap-3 rounded-xl p-1.5 transition-colors hover:bg-slate-50 dark:hover:bg-muted"
+      className="flex items-center gap-2.5 rounded-sm p-1.5 transition-colors hover:bg-slate-50"
     >
       <img
         src={logoUrl || "/logo.png"}
         alt="MySewa"
-        className="size-9 rounded-xl object-contain border border-border shadow-2xs bg-white p-0.5"
+        className="size-8 rounded-sm object-contain border border-slate-200 shadow-2xs bg-white p-0.5"
       />
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <p className="text-sm leading-tight font-bold tracking-tight text-foreground">
+          <p className="text-sm leading-tight font-bold tracking-tight text-slate-900">
             MySewa
           </p>
-          <span className="inline-flex items-center rounded-sm bg-emerald-50 px-1 py-0.2 text-[9px] font-semibold text-emerald-700 border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60">
+          <span className="inline-flex items-center rounded-xs bg-emerald-50 px-1 py-0.2 text-[9px] font-semibold text-emerald-700 border border-emerald-200">
             Console
           </span>
         </div>
-        <p className="text-[11px] text-muted-foreground font-medium pt-0.5">
-          {isShareholder ? "Shareholder & Admin Portal" : "Enterprise Operations"}
+        <p className="text-[10px] text-slate-400 font-medium pt-0.5">
+          {isShareholder ? "Shareholder & Admin" : "Enterprise Operations"}
         </p>
       </div>
     </Link>
@@ -467,18 +459,18 @@ export function AdminShell({
   return (
     <div
       className={cn(
-        "mysewa-app-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-[#f8fafc] text-foreground dark:bg-background md:flex",
+        "mysewa-app-shell min-h-dvh w-full max-w-full overflow-x-clip overscroll-y-none bg-[#f8fafc] text-slate-900 md:flex",
         fillHeight &&
           "mysewa-fill-height flex h-[var(--vv-height,100dvh)] max-h-[var(--vv-height,100dvh)] flex-col overflow-hidden md:flex-row",
       )}
     >
-      {/* Desktop Professional White Sidebar */}
-      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-border bg-white px-3.5 py-4 shadow-2xs dark:bg-card md:flex">
-        <div className="mb-4 pb-3 border-b border-border/70">{brandBlock}</div>
+      {/* Desktop Professional Clean White Sidebar */}
+      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-slate-200 bg-white px-3 py-4 shadow-2xs md:flex select-none">
+        <div className="mb-3 pb-3 border-b border-slate-100">{brandBlock}</div>
         <div className="min-h-0 flex-1 overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:thin]">
           {navLinks}
         </div>
-        <div className="mt-auto border-t border-border pt-3">
+        <div className="mt-auto border-t border-slate-100 pt-3">
           <AdminProfileControls user={user} roleLabel={roleLabel} variant="sidebar" />
         </div>
       </aside>
@@ -487,17 +479,17 @@ export function AdminShell({
       <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
         <SheetContent
           side="left"
-          className="flex w-[min(100%,20rem)] flex-col gap-0 p-0 pt-[var(--safe-area-top,env(safe-area-inset-top,0px))] pb-[var(--safe-area-bottom,env(safe-area-inset-bottom,0px))] bg-white dark:bg-card"
+          className="flex w-[min(100%,19rem)] flex-col gap-0 p-0 pt-[var(--safe-area-top,env(safe-area-inset-top,0px))] pb-[var(--safe-area-bottom,env(safe-area-inset-bottom,0px))] bg-white border-r border-slate-200"
         >
-          <SheetHeader className="border-b border-border px-4 py-3.5 text-left">
+          <SheetHeader className="border-b border-slate-100 px-4 py-3 text-left">
             <SheetTitle className="sr-only">Admin Navigation Menu</SheetTitle>
             <SheetDescription className="sr-only">
-              Categorized administration and management destinations
+              Navigation menu
             </SheetDescription>
             {brandBlock}
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">{navLinks}</div>
-          <div className="border-t border-border px-3 py-3 bg-slate-50/50 dark:bg-card/50">
+          <div className="border-t border-slate-100 px-3 py-3 bg-slate-50/50">
             <AdminProfileControls
               user={user}
               roleLabel={roleLabel}
@@ -517,8 +509,8 @@ export function AdminShell({
       >
         <header
           className={cn(
-            "sticky top-0 z-30 border-b border-border/80 bg-white/95 px-3 pt-[max(12px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-3 backdrop-blur-md shadow-2xs dark:bg-surface/95 sm:px-4 md:px-8",
-            dense ? "md:pt-3 md:pb-3" : "md:pt-4 md:pb-4",
+            "sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 px-3 pt-[max(10px,var(--safe-area-top,env(safe-area-inset-top,0px)))] pb-3 backdrop-blur-md shadow-2xs sm:px-4 md:px-7",
+            dense ? "md:pt-2.5 md:pb-2.5" : "md:pt-3.5 md:pb-3.5",
           )}
         >
           <div className="flex min-w-0 items-start gap-2 sm:gap-3">
@@ -526,10 +518,10 @@ export function AdminShell({
               type="button"
               aria-label="Open navigation menu"
               aria-expanded={drawerOpen}
-              className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-white text-foreground shadow-2xs transition-colors hover:bg-slate-50 dark:bg-card md:hidden"
+              className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-sm border border-slate-200 bg-white text-slate-700 shadow-2xs transition-colors hover:bg-slate-50 md:hidden cursor-pointer"
               onClick={() => setDrawerOpen(true)}
             >
-              <Menu className="size-5" />
+              <Menu className="size-4" />
             </button>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-start gap-2">
@@ -537,26 +529,26 @@ export function AdminShell({
                   <div className="flex items-center gap-2">
                     <h1
                       className={cn(
-                        "truncate font-bold tracking-tight text-foreground",
+                        "truncate font-bold tracking-tight text-slate-900",
                         dense
-                          ? "text-base sm:text-lg md:text-xl"
-                          : "text-lg sm:text-xl md:text-2xl",
+                          ? "text-base sm:text-lg"
+                          : "text-lg sm:text-xl",
                       )}
                     >
                       {title}
                     </h1>
                     {isShareholder && (
-                      <span className="hidden sm:inline-flex items-center gap-1 rounded-full border border-amber-300/80 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/60 dark:text-amber-300">
+                      <span className="hidden sm:inline-flex items-center gap-1 rounded-xs border border-amber-200 bg-amber-50 px-1.5 py-0.2 text-[10px] font-semibold text-amber-800">
                         <Sparkles className="size-2.5 text-amber-600" />
-                        Shareholder Portal
+                        Shareholder
                       </span>
                     )}
                   </div>
                   {description && (
                     <p
                       className={cn(
-                        "mt-0.5 line-clamp-2 text-muted-foreground md:truncate md:line-clamp-none",
-                        dense ? "text-xs" : "text-xs sm:text-sm",
+                        "mt-0.5 line-clamp-1 text-slate-500",
+                        dense ? "text-xs" : "text-xs",
                       )}
                     >
                       {description}
@@ -567,13 +559,12 @@ export function AdminShell({
                   <Link
                     to="/admin/support-chat"
                     aria-label="Support Chat"
-                    className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white text-foreground shadow-2xs transition-colors hover:bg-slate-50 dark:bg-card md:hidden"
+                    className="relative inline-flex size-8 shrink-0 items-center justify-center rounded-sm border border-slate-200 bg-white text-slate-700 shadow-2xs transition-colors hover:bg-slate-50 md:hidden"
                   >
                     <MessageCircle className="size-4" />
-                    <SupportChatUnreadBadge variant="icon" className="ring-white dark:ring-card" />
+                    <SupportChatUnreadBadge variant="icon" className="ring-white" />
                   </Link>
-                  {/* Action buttons */}
-                  <div className="hidden max-w-[min(100%,24rem)] items-center gap-2 overflow-x-auto md:flex [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
+                  <div className="hidden max-w-[min(100%,24rem)] items-center gap-1.5 overflow-x-auto md:flex">
                     {actions}
                   </div>
                   <AdminProfileControls
@@ -585,7 +576,7 @@ export function AdminShell({
                 </div>
               </div>
               {actions ? (
-                <div className="mt-3 flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5 md:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
+                <div className="mt-2.5 flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5 md:hidden">
                   {actions}
                 </div>
               ) : null}
@@ -595,8 +586,8 @@ export function AdminShell({
 
         <main
           className={cn(
-            "min-w-0 max-w-full overscroll-y-none px-3 pb-safe sm:px-4 md:flex-1 md:px-8",
-            dense ? "py-4 md:py-5 md:pb-5" : "py-5 md:py-6 md:pb-8",
+            "min-w-0 max-w-full overscroll-y-none px-3 pb-safe sm:px-4 md:flex-1 md:px-7",
+            dense ? "py-3.5 md:py-4 md:pb-5" : "py-4 md:py-5 md:pb-8",
             fillHeight && "flex min-h-0 flex-1 flex-col overflow-hidden py-3 md:py-4",
           )}
         >
@@ -605,7 +596,7 @@ export function AdminShell({
 
         <nav
           aria-label="Admin quick navigation"
-          className="mysewa-bottom-nav fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-white/95 backdrop-blur-md pb-[max(8px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] shadow-md dark:bg-surface/95 md:hidden"
+          className="mysewa-bottom-nav fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur-md pb-[max(6px,var(--safe-area-bottom,env(safe-area-inset-bottom,0px)))] shadow-md md:hidden"
         >
           <ul className="grid grid-cols-5">
             {bottomTabs.map((tab) => {
@@ -615,18 +606,17 @@ export function AdminShell({
                   <Link
                     to={tab.to}
                     className={cn(
-                      "relative flex min-h-[52px] flex-col items-center justify-center gap-0.5 px-0.5 pt-1.5 text-[10px] font-medium no-underline outline-none",
-                      "active:bg-transparent focus-visible:bg-transparent",
-                      active ? "text-emerald-700 font-bold dark:text-emerald-400" : "text-slate-500",
+                      "relative flex min-h-[48px] flex-col items-center justify-center gap-0.5 px-0.5 pt-1 text-[10px] font-medium no-underline outline-none",
+                      active ? "text-emerald-700 font-bold" : "text-slate-500",
                     )}
                   >
                     {active ? (
                       <span
                         aria-hidden
-                        className="absolute inset-x-3 top-0 h-[2.5px] rounded-b-full bg-emerald-600 dark:bg-emerald-400"
+                        className="absolute inset-x-3 top-0 h-[2px] rounded-b-xs bg-emerald-600"
                       />
                     ) : null}
-                    <tab.icon className={cn("size-5", active && "stroke-[2.25px]")} />
+                    <tab.icon className={cn("size-4", active && "stroke-[2.25px]")} />
                     <span className="max-w-full truncate leading-none">{tab.label}</span>
                   </Link>
                 </li>

@@ -27,30 +27,21 @@ export type StatCardItem = {
 };
 
 const TONE_ICON_WRAP: Record<StatCardTone, string> = {
-  default: "bg-brand-soft/80 text-brand",
-  credit: "bg-success/12 text-success",
-  debit: "bg-ocean/10 text-ocean",
-  brand: "bg-brand-soft text-brand-dark",
-  info: "bg-info/12 text-info",
-  warning: "bg-warning/12 text-warning",
+  default: "bg-slate-50 text-slate-700 border-slate-200",
+  credit: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  debit: "bg-blue-50 text-blue-700 border-blue-200",
+  brand: "bg-emerald-50 text-emerald-800 border-emerald-200",
+  info: "bg-sky-50 text-sky-700 border-sky-200",
+  warning: "bg-amber-50 text-amber-700 border-amber-200",
 };
 
 const TONE_VALUE: Record<StatCardTone, string> = {
-  default: "text-label",
-  credit: "text-success",
-  debit: "text-ocean",
-  brand: "text-brand-dark",
-  info: "text-info",
-  warning: "text-warning",
-};
-
-const TONE_ACCENT: Record<StatCardTone, string> = {
-  default: "from-brand/15 via-transparent to-transparent",
-  credit: "from-success/15 via-transparent to-transparent",
-  debit: "from-ocean/15 via-transparent to-transparent",
-  brand: "from-brand/20 via-transparent to-transparent",
-  info: "from-info/15 via-transparent to-transparent",
-  warning: "from-warning/15 via-transparent to-transparent",
+  default: "text-slate-900",
+  credit: "text-emerald-600",
+  debit: "text-blue-600",
+  brand: "text-emerald-700",
+  info: "text-sky-600",
+  warning: "text-amber-600",
 };
 
 type StatsCardsProps = {
@@ -82,67 +73,57 @@ export function StatsCards({ items, className, variant = "admin" }: StatsCardsPr
         const isUser = variant === "user";
         const clickable = Boolean(card.to);
         const body = (
-          <>
-            <div
-              aria-hidden
-              className={cn(
-                "pointer-events-none absolute inset-0 bg-gradient-to-br opacity-90",
-                TONE_ACCENT[tone],
-              )}
-            />
-            <div className="relative flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <p
-                  className={cn(
-                    "font-medium tracking-wide text-muted-foreground uppercase",
-                    isUser ? "text-[10px]" : "text-[10px] sm:text-[11px]",
-                  )}
-                >
-                  {card.label}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p
+                className={cn(
+                  "font-semibold tracking-wider text-slate-500 uppercase",
+                  isUser ? "text-[10px]" : "text-[11px]",
+                )}
+              >
+                {card.label}
+              </p>
+              <p
+                className={cn(
+                  "font-mono tabular-nums mt-1.5 font-bold tracking-tight",
+                  isUser ? "text-lg" : "text-xl sm:text-2xl",
+                  TONE_VALUE[tone],
+                )}
+              >
+                {card.value}
+              </p>
+              {card.hint ? (
+                <p className="mt-1 text-[11px] leading-snug text-slate-400">
+                  {card.hint}
                 </p>
-                <p
-                  className={cn(
-                    "tabular mt-2 font-bold tracking-tight",
-                    isUser ? "text-lg" : "text-xl sm:text-2xl",
-                    TONE_VALUE[tone],
-                  )}
-                >
-                  {card.value}
-                </p>
-                {card.hint ? (
-                  <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-                    {card.hint}
-                  </p>
-                ) : null}
-              </div>
-              <span className="flex shrink-0 items-center gap-1">
-                {Icon ? (
-                  <span
-                    className={cn(
-                      "inline-flex shrink-0 items-center justify-center rounded-xl",
-                      "ring-1 ring-inset ring-black/5",
-                      isUser ? "size-9" : "size-10 sm:size-11",
-                      TONE_ICON_WRAP[tone],
-                    )}
-                  >
-                    <Icon className={cn(isUser ? "size-4" : "size-5")} aria-hidden />
-                  </span>
-                ) : null}
-                {clickable ? (
-                  <ChevronRight className="size-4 text-muted-foreground/70" aria-hidden />
-                ) : null}
-              </span>
+              ) : null}
             </div>
-          </>
+            <span className="flex shrink-0 items-center gap-1.5">
+              {Icon ? (
+                <span
+                  className={cn(
+                    "inline-flex shrink-0 items-center justify-center rounded-sm border shadow-2xs",
+                    isUser ? "size-8" : "size-9",
+                    TONE_ICON_WRAP[tone],
+                  )}
+                >
+                  <Icon className={cn(isUser ? "size-3.5" : "size-4")} aria-hidden />
+                </span>
+              ) : null}
+              {clickable ? (
+                <ChevronRight className="size-4 text-slate-400" aria-hidden />
+              ) : null}
+            </span>
+          </div>
         );
+
         const classNameCard = cn(
-          "group relative overflow-hidden rounded-2xl border border-border/80 bg-surface text-left",
-          "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.12)]",
-          "transition-[box-shadow,transform,border-color] duration-200",
-          "hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[0_2px_4px_rgba(15,23,42,0.05),0_16px_32px_-14px_rgba(10,122,75,0.22)]",
+          "group relative overflow-hidden rounded-md border border-slate-200/90 bg-white text-left shadow-2xs",
+          "transition-all duration-150 hover:border-slate-300 hover:shadow-xs",
           isUser ? "p-3.5" : "p-4 sm:p-5",
-          clickable && "cursor-pointer",
+          clickable && "cursor-pointer active:bg-slate-50",
         );
+
         return card.to ? (
           <Link
             key={card.key}
@@ -174,14 +155,14 @@ type AmountCardOptions = {
 };
 
 const DEFAULT_LABELS: Record<keyof AmountSummary, string> = {
-  total_volume: "Total transaction volume",
-  total_credit: "Total credit",
-  total_debit: "Total debit",
-  total_amount: "Total amount",
-  today_amount: "Today's amount",
-  monthly_amount: "Monthly amount",
-  system_income: "System income",
-  system_payout: "Paid out",
+  total_volume: "Total Volume",
+  total_credit: "Total Credit",
+  total_debit: "Total Debit",
+  total_amount: "Total Amount",
+  today_amount: "Today's Volume",
+  monthly_amount: "Monthly Volume",
+  system_income: "Platform Fees",
+  system_payout: "Total Payouts",
 };
 
 const DEFAULT_ICONS: Partial<Record<keyof AmountSummary, LucideIcon>> = {

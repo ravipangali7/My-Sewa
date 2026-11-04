@@ -39,3 +39,4 @@ export function validateOperatorMobile(
 }
 
 export const TOKEN_KEY = "mysewa_token";
+export const SAVED_ACCOUNTS_KEY = "mysewa_saved_accounts";

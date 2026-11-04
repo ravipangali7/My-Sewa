@@ -451,7 +451,9 @@ def _ensure_api_fund_transfer():
     user_model = apps.get_model('core', 'CustomUser')
     needed_user = (
         'is_api_user', 'is_ggr_user', 'api_key', 'api_key_created_at', 'api_key_updated_at', 'api_last_used_at',
-        'can_api_payin', 'api_webhook_url', 'api_return_url',
+        'can_api_payin', 'can_api_payout', 'api_webhook_url', 'api_return_url',
+        'pan_no', 'pan_document', 'company_registration_no', 'company_registration_document',
+        'citizenship_front', 'citizenship_back',
     )
     missing_user = [name for name in needed_user if name not in user_cols]
     if missing_user:
@@ -783,6 +785,59 @@ class CustomUser(AbstractUser):
             "to initiate PayBridgeNP checkout that credits another MySewa user's wallet."
         ),
     )
+    can_api_payout = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text=(
+            "When enabled (and is_api_user), this account may call the Fund Transfer / Payout API "
+            "to transfer funds or request bank payouts."
+        ),
+    )
+
+    pan_no = models.CharField(
+        max_length=50,
+        blank=True,
+        default='',
+        help_text="Business PAN / Tax ID number for API Partner.",
+    )
+    pan_document = models.FileField(
+        upload_to='api_partners/pan/',
+        null=True,
+        blank=True,
+        help_text="Business PAN certificate / document.",
+    )
+    company_registration_no = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        help_text="Company / Business registration number.",
+    )
+    company_registration_document = models.FileField(
+        upload_to='api_partners/company/',
+        null=True,
+        blank=True,
+        help_text="Company registration certificate / document.",
+    )
+    citizenship_front = models.FileField(
+        upload_to='api_partners/citizenship/',
+        null=True,
+        blank=True,
+        help_text="Citizenship / ID card front image.",
+    )
+    citizenship_back = models.FileField(
+        upload_to='api_partners/citizenship/',
+        null=True,
+        blank=True,
+        help_text="Citizenship / ID card back image.",
+    )
+
+    @property
+    def citizenship_no(self):
+        return self.citizenship_number or ''
+
+    @citizenship_no.setter
+    def citizenship_no(self, value):
+        self.citizenship_number = (value or '').strip()
 
     ROLE_CUSTOMER = 'customer'
     ROLE_USER = 'customer'
@@ -1642,6 +1697,12 @@ class Deposit(models.Model):
     )
     balance_before = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     balance_after = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    platform_fee = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        help_text="Platform service fee deducted on deposit for shareholders",
+    )
     SOURCE_APP = 'app'
     SOURCE_API = 'api'
     SOURCE_CHOICES = [
@@ -3848,6 +3909,42 @@ class ShareholderRevenueLog(models.Model):
         ordering = ['-created_at']
 
 
+class ShareholderPayoutAccount(models.Model):
+    """Payout accounts (Bank, eSewa, Khalti) configured by shareholders for revenue withdrawal."""
+    METHOD_BANK = 'bank'
+    METHOD_ESEWA = 'esewa'
+    METHOD_KHALTI = 'khalti'
+    METHOD_CHOICES = [
+        (METHOD_BANK, 'Bank Transfer'),
+        (METHOD_ESEWA, 'eSewa'),
+        (METHOD_KHALTI, 'Khalti'),
+    ]
+
+    shareholder = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='shareholder_payout_accounts',
+        limit_choices_to={'role': 'shareholder'},
+    )
+    method = models.CharField(max_length=20, choices=METHOD_CHOICES, default=METHOD_BANK, db_index=True)
+    label = models.CharField(max_length=120, blank=True, default='')
+    account_name = models.CharField(max_length=150)
+    account_number = models.CharField(max_length=80, help_text='Bank account number, eSewa ID, or Khalti mobile')
+    bank_name = models.CharField(max_length=120, blank=True, default='')
+    branch = models.CharField(max_length=120, blank=True, default='')
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Shareholder Payout Account'
+        verbose_name_plural = 'Shareholder Payout Accounts'
+        ordering = ['-is_default', '-created_at']
+
+    def __str__(self):
+        return f"{self.shareholder.phone} - {self.method} - {self.account_number}"
+
+
 class ShareholderWithdrawal(models.Model):
     """Withdrawal requests executed by shareholders from their service revenue."""
     METHOD_BANK = 'bank'
@@ -3872,6 +3969,13 @@ class ShareholderWithdrawal(models.Model):
         CustomUser,
         on_delete=models.CASCADE,
         related_name='shareholder_withdrawals',
+    )
+    payout_account = models.ForeignKey(
+        'ShareholderPayoutAccount',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='withdrawals',
     )
     amount = models.DecimalField(
         max_digits=14,

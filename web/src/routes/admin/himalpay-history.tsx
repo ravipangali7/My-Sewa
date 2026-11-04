@@ -315,13 +315,13 @@ function HimalPayHistoryPage() {
         />
 
         {historyQuery.data?.warning ? (
-          <div className="rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-foreground">
+          <div className="rounded-sm border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-foreground">
             <p className="font-medium">Showing stored HimalPay statement rows</p>
             <p className="mt-1 text-muted-foreground">{historyQuery.data.warning}</p>
           </div>
         ) : null}
 
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
+        <div className="flex flex-col gap-3 rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1.5">
               <Label htmlFor="hp-from">From</Label>
@@ -374,7 +374,7 @@ function HimalPayHistoryPage() {
         </div>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as HistoryTab)}>
-          <TabsList className="grid h-11 w-full grid-cols-3 rounded-xl sm:w-auto sm:min-w-[22rem]">
+          <TabsList className="grid h-11 w-full grid-cols-3 rounded-sm sm:w-auto sm:min-w-[22rem]">
             <TabsTrigger value="all">All ({items.length})</TabsTrigger>
             <TabsTrigger value="credit">Credit ({credits.length})</TabsTrigger>
             <TabsTrigger value="debit">Debit ({debits.length})</TabsTrigger>

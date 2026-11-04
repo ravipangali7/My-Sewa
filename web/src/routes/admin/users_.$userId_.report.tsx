@@ -218,7 +218,7 @@ function UserReportPage() {
       </div>
 
       <div className="space-y-5">
-        <div className="rounded-xl border border-border bg-surface p-3 sm:p-4">
+        <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-3 sm:p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-sm font-medium">Date range</p>
@@ -241,7 +241,7 @@ function UserReportPage() {
                       "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
                       preset === key
                         ? "border-brand bg-brand-soft text-brand-dark"
-                        : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
+                        : "border-slate-200 bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
                     {label}
@@ -294,7 +294,7 @@ function UserReportPage() {
         {report.isLoading ? (
           <p className="text-sm text-muted-foreground">Loading user report…</p>
         ) : report.isError ? (
-          <div className="rounded-xl border border-danger/20 bg-danger/5 p-4 text-sm text-danger">
+          <div className="rounded-sm border border-danger/20 bg-danger/5 p-4 text-sm text-danger">
             Failed to load user report. Check your connection and try again.
           </div>
         ) : data ? (
@@ -303,7 +303,7 @@ function UserReportPage() {
               {summaryCards.map((card) => (
                 <div
                   key={card.label}
-                  className="rounded-xl border border-border bg-surface p-3.5 sm:p-4"
+                  className="rounded-sm border border-slate-200 bg-white shadow-2xs p-3.5 sm:p-4"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-[11px] text-muted-foreground sm:text-xs">{card.label}</p>
@@ -318,7 +318,7 @@ function UserReportPage() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-3">
-              <div className="rounded-xl border border-border bg-surface p-4 lg:col-span-2">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4 lg:col-span-2">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-base font-semibold">Volume trend</h2>
@@ -367,7 +367,7 @@ function UserReportPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-border bg-surface p-4">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
                 <h2 className="text-base font-semibold">Service mix</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Share of successful volume by service
@@ -406,7 +406,7 @@ function UserReportPage() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-border bg-surface p-4">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
                 <h2 className="text-base font-semibold">Balance summary</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Wallet movement within the selected period
@@ -468,7 +468,7 @@ function UserReportPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-border bg-surface p-4">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
                 <h2 className="text-base font-semibold">Charges</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Fees collected across successful services
@@ -504,7 +504,7 @@ function UserReportPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
               <h2 className="text-base font-semibold">Category breakdown</h2>
               <p className="mt-0.5 mb-4 text-xs text-muted-foreground">
                 Counts, volumes, and success rates by service

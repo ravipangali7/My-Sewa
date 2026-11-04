@@ -38,7 +38,7 @@ export const Route = createFileRoute("/admin/kyc_/$kycId")({
 
 function StatementRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-border/80 py-2.5 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-3">
+    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-slate-200/90 py-2.5 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-3">
       <dt className="min-w-0 break-words text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {label}
       </dt>
@@ -225,8 +225,8 @@ function KycDetailPage() {
 
       {s && (
         <div className="space-y-6">
-          <article className="min-w-0 overflow-x-clip rounded-2xl border border-border bg-surface shadow-card">
-            <div className="border-b border-border bg-gradient-to-br from-muted/80 via-surface to-surface px-4 py-5 sm:px-6 sm:py-6 md:px-8">
+          <article className="min-w-0 overflow-x-clip rounded-md border border-slate-200 bg-white shadow-2xs shadow-card">
+            <div className="border-b border-slate-200 bg-gradient-to-br from-muted/80 via-surface to-surface px-4 py-5 sm:px-6 sm:py-6 md:px-8">
               <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
@@ -244,7 +244,7 @@ function KycDetailPage() {
               </div>
 
               {canEdit ? (
-                <div className="mt-6 space-y-4 rounded-xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 sm:px-5">
+                <div className="mt-6 space-y-4 rounded-sm border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 sm:px-5">
                   <div>
                     <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                       Correct missing or incorrect details
@@ -300,7 +300,7 @@ function KycDetailPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-0 md:grid-cols-2">
-              <section className="border-b border-border px-4 py-5 sm:px-6 md:border-r md:px-8">
+              <section className="border-b border-slate-200 px-4 py-5 sm:px-6 md:border-r md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Account holder
                 </h3>
@@ -322,7 +322,7 @@ function KycDetailPage() {
                 </dl>
               </section>
 
-              <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
+              <section className="border-b border-slate-200 px-4 py-5 sm:px-6 md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Review
                 </h3>
@@ -343,7 +343,7 @@ function KycDetailPage() {
             </div>
 
             {s.status === "rejected" && (
-              <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
+              <section className="border-b border-slate-200 px-4 py-5 sm:px-6 md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Rejection
                 </h3>
@@ -368,9 +368,9 @@ function KycDetailPage() {
                     return (
                       <div
                         key={doc.id}
-                        className="overflow-hidden rounded-xl border border-border bg-muted/30"
+                        className="overflow-hidden rounded-sm border border-slate-200 bg-muted/30"
                       >
-                        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium">
                               {doc.document_type_display}
@@ -413,14 +413,14 @@ function KycDetailPage() {
                   })}
                 </div>
               ) : (
-                <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/30 text-muted-foreground">
+                <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-sm border border-dashed border-slate-200 bg-muted/30 text-muted-foreground">
                   <ImageIcon className="size-8 opacity-50" />
                   <p className="text-sm">No documents uploaded</p>
                 </div>
               )}
             </section>
 
-            <footer className="border-t border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground sm:px-6 md:px-8">
+            <footer className="border-t border-slate-200 bg-muted/40 px-4 py-3 text-xs text-muted-foreground sm:px-6 md:px-8">
               {isPending
                 ? "Correct citizenship or name fields if needed, then Save & approve. Approval verifies the user and locks identity fields. Rejection requires a reason and lets the user re-upload."
                 : "You can edit and save identity details on this submission. Approved users remain verified; identity fields stay locked for the end user."}

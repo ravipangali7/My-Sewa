@@ -25,7 +25,7 @@ export const Route = createFileRoute("/admin/data-topups_/$dataTopupId")({
 
 function StatementRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-border/80 py-2.5 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-3">
+    <div className="grid grid-cols-1 gap-1 border-b border-dashed border-slate-200/90 py-2.5 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-3">
       <dt className="min-w-0 break-words text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {label}
       </dt>
@@ -88,8 +88,8 @@ function DataTopupDetailPage() {
 
       {t && (
         <div className="space-y-6">
-          <article className="min-w-0 overflow-x-clip rounded-2xl border border-border bg-surface shadow-card">
-            <div className="border-b border-border bg-gradient-to-br from-muted/80 via-surface to-surface px-4 py-5 sm:px-6 sm:py-6 md:px-8">
+          <article className="min-w-0 overflow-x-clip rounded-md border border-slate-200 bg-white shadow-2xs shadow-card">
+            <div className="border-b border-slate-200 bg-gradient-to-br from-muted/80 via-surface to-surface px-4 py-5 sm:px-6 sm:py-6 md:px-8">
               <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
@@ -106,7 +106,7 @@ function DataTopupDetailPage() {
               </div>
 
               <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className="min-w-0 rounded-xl border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 sm:px-5">
+                <div className="min-w-0 rounded-sm border border-brand/20 bg-gradient-to-br from-brand-soft/70 via-surface to-surface px-4 py-5 sm:px-5">
                   <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                     Package amount
                   </p>
@@ -117,7 +117,7 @@ function DataTopupDetailPage() {
                     {t.operator} · {t.mobile_number}
                   </p>
                 </div>
-                <div className="min-w-0 rounded-xl border border-border/70 bg-surface/90 px-4 py-5 sm:px-5">
+                <div className="min-w-0 rounded-sm border border-slate-200/80 bg-white/90 px-4 py-5 sm:px-5">
                   <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                     Total debited
                   </p>
@@ -132,7 +132,7 @@ function DataTopupDetailPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-0 md:grid-cols-2">
-              <section className="border-b border-border px-4 py-5 sm:px-6 md:border-r md:px-8">
+              <section className="border-b border-slate-200 px-4 py-5 sm:px-6 md:border-r md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Account holder
                 </h3>
@@ -151,7 +151,7 @@ function DataTopupDetailPage() {
                 </dl>
               </section>
 
-              <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
+              <section className="border-b border-slate-200 px-4 py-5 sm:px-6 md:px-8">
                 <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   Beneficiary
                 </h3>
@@ -165,7 +165,7 @@ function DataTopupDetailPage() {
               </section>
             </div>
 
-            <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
+            <section className="border-b border-slate-200 px-4 py-5 sm:px-6 md:px-8">
               <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                 Transaction
               </h3>
@@ -186,7 +186,7 @@ function DataTopupDetailPage() {
               </dl>
             </section>
 
-            <section className="border-b border-border px-4 py-5 sm:px-6 md:px-8">
+            <section className="border-b border-slate-200 px-4 py-5 sm:px-6 md:px-8">
               <h3 className="mb-3 text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                 Settlement breakdown
               </h3>
@@ -213,17 +213,17 @@ function DataTopupDetailPage() {
                 Provider response
               </h3>
               {providerJson ? (
-                <pre className="max-h-80 overflow-x-auto overflow-y-auto rounded-xl border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-foreground sm:p-4">
+                <pre className="max-h-80 overflow-x-auto overflow-y-auto rounded-sm border border-slate-200 bg-muted/40 p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-foreground sm:p-4">
                   {providerJson}
                 </pre>
               ) : (
-                <div className="flex h-24 items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 text-sm text-muted-foreground">
+                <div className="flex h-24 items-center justify-center rounded-sm border border-dashed border-slate-200 bg-muted/30 text-sm text-muted-foreground">
                   No provider response recorded
                 </div>
               )}
             </section>
 
-            <footer className="border-t border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground sm:px-6 md:px-8">
+            <footer className="border-t border-slate-200 bg-muted/40 px-4 py-3 text-xs text-muted-foreground sm:px-6 md:px-8">
               This statement summarizes the data pack purchase recorded in MySewa. Wallet debit
               equals package amount plus charge minus cashback.
             </footer>

@@ -709,7 +709,7 @@ function SettingsPage() {
     >
       {errorPopup.popup}
       {settingsQuery.isError ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm text-destructive">
+        <div className="rounded-sm border border-destructive/30 bg-destructive/5 p-5 text-sm text-destructive">
           Could not load settings. Refresh the page or try again.
         </div>
       ) : (
@@ -790,13 +790,13 @@ function SettingsPage() {
               </SettingsPanel>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-xl border border-border bg-surface p-5">
+                <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-5">
                   <h2 className="text-base font-semibold">Logo</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Upload the brand logo used across the site. The same image is also used as the
                     favicon.
                   </p>
-                  <div className="mt-4 flex aspect-square max-h-48 items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
+                  <div className="mt-4 flex aspect-square max-h-48 items-center justify-center overflow-hidden rounded-lg border border-dashed border-slate-200 bg-muted">
                     {brandingSrc ? (
                       <img
                         src={brandingSrc}
@@ -879,12 +879,12 @@ function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-surface p-5">
+                <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-5">
                   <h2 className="text-base font-semibold">Favicon</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Automatically uses the uploaded logo. No separate favicon upload is required.
                   </p>
-                  <div className="mt-4 flex aspect-square max-h-48 items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
+                  <div className="mt-4 flex aspect-square max-h-48 items-center justify-center overflow-hidden rounded-lg border border-dashed border-slate-200 bg-muted">
                     {brandingSrc ? (
                       <div className="flex flex-col items-center gap-3 p-4">
                         <img
@@ -1181,7 +1181,7 @@ function SettingsPage() {
                           },
                         }))
                       }
-                      className="rounded-xl"
+                      className="rounded-sm"
                     />
                   </div>
                 ))}
@@ -1214,14 +1214,14 @@ function SettingsPage() {
                   >
                     <div className="space-y-4">
                       {methodAccounts.length === 0 ? (
-                        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                        <p className="rounded-sm border border-dashed border-slate-200 px-4 py-6 text-sm text-muted-foreground">
                           No {methodLabel(method)} accounts yet. Add one below.
                         </p>
                       ) : (
                         methodAccounts.map((acc, index) => (
                           <div
                             key={acc.id}
-                            className="rounded-xl border border-border bg-muted/20 p-4"
+                            className="rounded-sm border border-slate-200 bg-muted/20 p-4"
                           >
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <span className="text-sm font-semibold">
@@ -1259,7 +1259,7 @@ function SettingsPage() {
                                   onChange={(e) =>
                                     updateAccount(acc.id, { label: e.target.value })
                                   }
-                                  className="rounded-xl"
+                                  className="rounded-sm"
                                   placeholder={methodLabel(method)}
                                 />
                               </div>
@@ -1278,7 +1278,7 @@ function SettingsPage() {
                                             : acc.label,
                                       })
                                     }
-                                    className="rounded-xl"
+                                    className="rounded-sm"
                                   />
                                 </div>
                               ) : null}
@@ -1292,7 +1292,7 @@ function SettingsPage() {
                                   onChange={(e) =>
                                     updateAccount(acc.id, { account_name: e.target.value })
                                   }
-                                  className="rounded-xl"
+                                  className="rounded-sm"
                                 />
                               </div>
                               <div className="space-y-1.5">
@@ -1309,7 +1309,7 @@ function SettingsPage() {
                                   onChange={(e) =>
                                     updateAccount(acc.id, { account_number: e.target.value })
                                   }
-                                  className="rounded-xl font-mono"
+                                  className="rounded-sm font-mono"
                                 />
                               </div>
                               {method === "bank" ? (
@@ -1321,7 +1321,7 @@ function SettingsPage() {
                                     onChange={(e) =>
                                       updateAccount(acc.id, { branch: e.target.value })
                                     }
-                                    className="rounded-xl"
+                                    className="rounded-sm"
                                   />
                                 </div>
                               ) : null}
@@ -1333,7 +1333,7 @@ function SettingsPage() {
                               const savedUrl = acc.qr_code_url || null;
                               const displaySrc = preview || savedUrl;
                               return (
-                                <div className="mt-4 rounded-xl border border-dashed border-border bg-surface/60 p-4">
+                                <div className="mt-4 rounded-sm border border-dashed border-slate-200 bg-white shadow-2xs/60 p-4">
                                   <div className="flex flex-wrap items-start justify-between gap-3">
                                     <div>
                                       <p className="text-sm font-medium">Account QR code</p>
@@ -1344,7 +1344,7 @@ function SettingsPage() {
                                     </div>
                                   </div>
                                   <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
-                                    <div className="flex aspect-square w-full max-w-40 items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
+                                    <div className="flex aspect-square w-full max-w-40 items-center justify-center overflow-hidden rounded-lg border border-dashed border-slate-200 bg-muted">
                                       {displaySrc ? (
                                         <img
                                           src={displaySrc}
@@ -1401,7 +1401,7 @@ function SettingsPage() {
                                             type="button"
                                             variant="outline"
                                             size="sm"
-                                            className="rounded-xl"
+                                            className="rounded-sm"
                                             disabled={saving}
                                             onClick={() => clearAccountQr(acc.id)}
                                           >
@@ -1413,7 +1413,7 @@ function SettingsPage() {
                                             type="button"
                                             variant="ghost"
                                             size="sm"
-                                            className="rounded-xl"
+                                            className="rounded-sm"
                                             disabled={saving}
                                             onClick={() =>
                                               setAccountQrFiles((prev) => {
@@ -1439,7 +1439,7 @@ function SettingsPage() {
                       <Button
                         type="button"
                         variant="outline"
-                        className="gap-1.5 rounded-xl"
+                        className="gap-1.5 rounded-sm"
                         onClick={() => addAccount(method)}
                       >
                         <Plus className="size-3.5" />
@@ -1509,7 +1509,7 @@ function SettingsPage() {
                       https://uatapi.himalpay.com.np/api/v1. Authenticate with header X-API-Key.
                     </p>
                   </div>
-                  <div className="rounded-lg border border-border/70 bg-muted/20 p-3 space-y-3">
+                  <div className="rounded-lg border border-slate-200/80 bg-muted/20 p-3 space-y-3">
                     <div>
                       <p className="text-sm font-medium">Portal login (LIVE statement / balance)</p>
                       <p className="text-xs text-muted-foreground mt-1">
@@ -1583,12 +1583,12 @@ function SettingsPage() {
 
                   <div
                     className={cn(
-                      "rounded-xl border p-4",
+                      "rounded-sm border p-4",
                       himalpayStatusQuery.data?.ok
                         ? "border-success/30 bg-success/5"
                         : himalpayStatusQuery.data
                           ? "border-destructive/30 bg-destructive/5"
-                          : "border-border bg-muted/40",
+                          : "border-slate-200 bg-muted/40",
                     )}
                   >
                     <p className="text-sm font-medium">Server IP for HimalPay allowlist</p>
@@ -1625,7 +1625,7 @@ function SettingsPage() {
                       </p>
                     ) : null}
                     {himalpayStatusQuery.data?.inbound_qr_reason ? (
-                      <div className="mt-3 rounded-lg border border-border/70 bg-background/60 p-3">
+                      <div className="mt-3 rounded-lg border border-slate-200/80 bg-background/60 p-3">
                         <p className="text-sm font-medium">
                           Bank-to-wallet QR:{" "}
                           {himalpayStatusQuery.data.inbound_qr_supported
@@ -1646,7 +1646,7 @@ function SettingsPage() {
                     <Button
                       type="button"
                       variant="secondary"
-                      className="mt-3 h-10 rounded-xl"
+                      className="mt-3 h-10 rounded-sm"
                       disabled={testHimalpayMutation.isPending}
                       onClick={() => testHimalpayMutation.mutate()}
                     >
@@ -1749,7 +1749,7 @@ function SettingsPage() {
                 saving={saving}
               >
                 <div className="grid gap-4">
-                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/80 bg-muted/30 px-3 py-2 text-xs">
                     <span
                       className={
                         config.integrations?.paybridgenp_configured
@@ -1895,7 +1895,7 @@ function SettingsPage() {
                 </div>
               </SettingsPanel>
 
-              <div className="rounded-xl border border-border bg-surface p-5">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-5">
                 <div className="mb-4">
                   <h2 className="text-base font-semibold">Method default QR codes</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -1951,7 +1951,7 @@ function SettingsPage() {
                             {saving ? "Saving…" : `Save ${label}`}
                           </Button>
                         </div>
-                        <div className="flex aspect-square max-w-xs items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-muted">
+                        <div className="flex aspect-square max-w-xs items-center justify-center overflow-hidden rounded-lg border border-dashed border-slate-200 bg-muted">
                           {preview || savedUrl ? (
                             <img
                               src={preview || savedUrl || ""}
@@ -2191,7 +2191,7 @@ function SettingsPage() {
                 </div>
               </SettingsPanel>
 
-              <div className="rounded-xl border border-border bg-surface p-5">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h2 className="text-base font-semibold">Test Mail</h2>
@@ -2489,7 +2489,7 @@ function SettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="apk_file">APK file</Label>
-                  <div className="rounded-lg border border-dashed border-border bg-muted/40 p-4">
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-muted/40 p-4">
                     <input
                       id="apk_file"
                       type="file"
@@ -2544,7 +2544,7 @@ function SettingsPage() {
 
           <TabsContent value="export">
             <div className="space-y-4">
-              <div className="rounded-xl border border-border bg-surface p-5">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-5">
                 <h2 className="text-base font-semibold">Export all data</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Download every database table (users, wallets, deposits, bills, settings, and
@@ -2586,7 +2586,7 @@ function SettingsPage() {
                   return (
                     <div
                       key={format}
-                      className="flex flex-col rounded-xl border border-border bg-surface p-5"
+                      className="flex flex-col rounded-sm border border-slate-200 bg-white shadow-2xs p-5"
                     >
                       <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
                         <Icon className="size-5 text-foreground" />
@@ -2607,7 +2607,7 @@ function SettingsPage() {
                 })}
               </div>
 
-              <div className="rounded-xl border border-border bg-muted/30 p-5 text-sm text-muted-foreground">
+              <div className="rounded-sm border border-slate-200 bg-muted/30 p-5 text-sm text-muted-foreground">
                 <p className="font-medium text-foreground">phpMyAdmin import</p>
                 <ol className="mt-2 list-decimal space-y-1 pl-5">
                   <li>Download the MySQL / phpMyAdmin (.sql) file.</li>
@@ -2639,7 +2639,7 @@ function SettingsPanel({
 }) {
   return (
     <form
-      className="rounded-xl border border-border bg-surface p-5"
+      className="rounded-sm border border-slate-200 bg-white shadow-2xs p-5"
       onSubmit={(e) => {
         e.preventDefault();
         onSave();
@@ -2721,7 +2721,7 @@ function ToggleRow({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-border/80 bg-muted/30 px-4 py-3">
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200/90 bg-muted/30 px-4 py-3">
       <div className="min-w-0">
         <p className="text-sm font-medium">{label}</p>
         <p className="text-xs text-muted-foreground">{description}</p>

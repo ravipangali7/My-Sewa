@@ -111,7 +111,7 @@ function DeveloperApiPage() {
       <UserShell title={t("developer.title")}>
         <div className="px-4 py-8">
           <BackButton to="/app/profile" label={t("common.goBack")} />
-          <p className="mt-6 text-sm text-muted-foreground">{t("developer.notEnabled")}</p>
+          <p className="mt-6 text-sm text-slate-500">{t("developer.notEnabled")}</p>
         </div>
       </UserShell>
     );
@@ -123,28 +123,28 @@ function DeveloperApiPage() {
         <BackButton to="/app/profile" label={t("common.goBack")} />
 
         {profileQuery.isError && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-slate-500">
             {profileQuery.error instanceof ApiError ? profileQuery.error.message : t("common.requestFailed")}
           </p>
         )}
 
         {data && docs && (
           <>
-            <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
+            <section className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold">{t("developer.status")}</h2>
                 <Badge>{t("developer.enabled")}</Badge>
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-slate-500">
                 {t("developer.lastUsed")}: {data.api_last_used_at ? formatDateTime(data.api_last_used_at) : t("developer.never")}
               </p>
               <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">{t("developer.apiKey")}</p>
-                <p className="break-all rounded-xl bg-muted px-3 py-2 font-mono text-xs">
+                <p className="mb-1 text-xs font-medium text-slate-500">{t("developer.apiKey")}</p>
+                <p className="break-all rounded-md bg-slate-50 px-3 py-2 font-mono text-xs">
                   {showKey ? data.api_key : data.api_key_masked}
                 </p>
               </div>
-              <p className="text-xs text-muted-foreground">{t("developer.keyWarning")}</p>
+              <p className="text-xs text-slate-500">{t("developer.keyWarning")}</p>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" onClick={() => setShowKey((v) => !v)}>
                   {showKey ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
@@ -177,9 +177,9 @@ function DeveloperApiPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
+            <section className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
               <h2 className="text-sm font-semibold">{t("developer.webhookTitle")}</h2>
-              <p className="text-xs text-muted-foreground">{t("developer.webhookHelp")}</p>
+              <p className="text-xs text-slate-500">{t("developer.webhookHelp")}</p>
               <div className="space-y-2">
                 <Label htmlFor="developer_webhook_url">{t("developer.webhookTitle")}</Label>
                 <Input
@@ -215,9 +215,9 @@ function DeveloperApiPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
+            <section className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
               <h2 className="text-sm font-semibold">{t("developer.howTitle")}</h2>
-              <p className="text-sm text-muted-foreground">{t("developer.howLead")}</p>
+              <p className="text-sm text-slate-500">{t("developer.howLead")}</p>
               <ol className="space-y-2 text-sm">
                 {(docs.how_it_works || []).map((step, index) => (
                   <li key={step} className="flex gap-2">
@@ -230,9 +230,9 @@ function DeveloperApiPage() {
               </ol>
             </section>
 
-            <section className="rounded-2xl border border-border bg-white p-4 space-y-2">
+            <section className="rounded-md border border-slate-200 bg-white p-4 space-y-2">
               <h2 className="text-sm font-semibold">{t("developer.docsTitle")}</h2>
-              <p className="text-xs text-muted-foreground break-all">
+              <p className="text-xs text-slate-500 break-all">
                 {docs.method} {docs.endpoint}
               </p>
               <p className="text-sm">{docs.authentication.header}</p>
@@ -268,9 +268,9 @@ function DeveloperApiPage() {
             </section>
 
             {(docs.bank_flow?.length || docs.api_sections?.length) ? (
-              <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
+              <section className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
                 <h2 className="text-sm font-semibold">{t("developer.bankFlowTitle")}</h2>
-                <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-3 text-[11px] text-slate-100">
+                <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-[11px] text-slate-100">
 {`1. GET /api/v1/banklist/
 2. POST /api/v1/verifiedbank/
 3. POST /api/v1/banktransfer/`}
@@ -289,15 +289,15 @@ function DeveloperApiPage() {
             ) : null}
 
             {(docs.api_sections || []).map((section) => (
-              <section key={section.id} className="rounded-2xl border border-border bg-white p-4 space-y-3">
+              <section key={section.id} className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className={section.method === "GET" ? "bg-blue-600" : ""}>{section.method}</Badge>
                   <h2 className="text-sm font-semibold">{section.title}</h2>
                 </div>
-                <p className="font-mono text-xs break-all text-muted-foreground">
+                <p className="font-mono text-xs break-all text-slate-500">
                   {section.method} {section.url || section.path}
                 </p>
-                <p className="text-sm text-muted-foreground">{section.purpose}</p>
+                <p className="text-sm text-slate-500">{section.purpose}</p>
                 {section.request_example ? (
                   <DocBlock title={t("developer.request")}>
                     {JSON.stringify(section.request_example, null, 2)}
@@ -328,22 +328,22 @@ function DeveloperApiPage() {
                 <li key={rule}>• {rule}</li>
               ))}
             </ul>
-            <p className="text-sm text-muted-foreground">{docs.idempotency}</p>
+            <p className="text-sm text-slate-500">{docs.idempotency}</p>
             <DocBlock title="cURL">{docs.examples.curl}</DocBlock>
             <DocBlock title="Python">{docs.examples.python}</DocBlock>
             <DocBlock title="JavaScript">{docs.examples.javascript}</DocBlock>
-            <section className="rounded-2xl border border-border bg-white p-4">
+            <section className="rounded-md border border-slate-200 bg-white p-4">
               <h2 className="mb-2 text-sm font-semibold">{t("developer.errors")}</h2>
               <ul className="space-y-1 text-sm">
                 {docs.error_responses.map((item) => (
                   <li key={`${item.http}-${item.code}-${item.message ?? ""}`}>
                     <span className="font-mono text-xs">{item.http}</span> {item.error}{" "}
-                    <span className="text-muted-foreground">({item.code})</span>
+                    <span className="text-slate-500">({item.code})</span>
                   </li>
                 ))}
               </ul>
             </section>
-            <section className="rounded-2xl border border-border bg-white p-4">
+            <section className="rounded-md border border-slate-200 bg-white p-4">
               <h2 className="mb-2 text-sm font-semibold">{t("developer.security")}</h2>
               <ul className="space-y-1 text-sm">
                 {docs.security.map((item) => (
@@ -351,7 +351,7 @@ function DeveloperApiPage() {
                 ))}
               </ul>
             </section>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-slate-500">
               <Link to="/app/history" className="text-brand underline">
                 {t("developer.viewHistory")}
               </Link>
@@ -406,14 +406,14 @@ function ApiTransactionHistory() {
   }, [page, query.data]);
 
   return (
-    <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
+    <section className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
       <div>
         <h2 className="text-sm font-semibold">{t("developer.historyTitle")}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">{t("developer.historyLead")}</p>
+        <p className="mt-1 text-xs text-slate-500">{t("developer.historyLead")}</p>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="relative sm:col-span-2">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
           <Input
             value={q}
             onChange={(e) => {
@@ -421,7 +421,7 @@ function ApiTransactionHistory() {
               setQ(e.target.value);
             }}
             placeholder={t("developer.historySearch")}
-            className="h-10 rounded-xl pl-9"
+            className="h-10 rounded-md pl-9"
           />
         </div>
         <div className="space-y-1">
@@ -432,7 +432,7 @@ function ApiTransactionHistory() {
               setPage(1);
               setStatus(e.target.value);
             }}
-            className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm"
+            className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm"
           >
             <option value="all">{t("list.allStatuses")}</option>
             <option value="success">{t("developer.statusSuccess")}</option>
@@ -443,36 +443,36 @@ function ApiTransactionHistory() {
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
             <Label className="text-xs">{t("list.startDate")}</Label>
-            <Input type="date" value={startDate} onChange={(e) => { setPage(1); setStartDate(e.target.value); }} className="h-10 rounded-xl" />
+            <Input type="date" value={startDate} onChange={(e) => { setPage(1); setStartDate(e.target.value); }} className="h-10 rounded-md" />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{t("list.endDate")}</Label>
-            <Input type="date" value={endDate} onChange={(e) => { setPage(1); setEndDate(e.target.value); }} className="h-10 rounded-xl" />
+            <Input type="date" value={endDate} onChange={(e) => { setPage(1); setEndDate(e.target.value); }} className="h-10 rounded-md" />
           </div>
         </div>
       </div>
 
       {query.isLoading ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">{t("common.loading")}</p>
+        <p className="py-8 text-center text-sm text-slate-500">{t("common.loading")}</p>
       ) : empty ? (
-        <div className="rounded-xl bg-muted/60 px-4 py-8 text-center">
+        <div className="rounded-md bg-slate-50/60 px-4 py-8 text-center">
           <p className="text-sm font-medium">{t("developer.historyEmptyTitle")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs text-slate-500">
             {emptyFiltered ? t("developer.historyEmptyFiltered") : t("developer.historyEmpty")}
           </p>
         </div>
       ) : (
-        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+        <ul className="divide-y divide-border overflow-hidden rounded-md border border-slate-200">
           {items.map((row) => (
             <li key={`${row.method}-${row.id}-${row.transaction_id}`}>
               <button
                 type="button"
                 onClick={() => setSelected(row)}
-                className="flex w-full items-center gap-3 px-3 py-3 text-left active:bg-muted/60"
+                className="flex w-full items-center gap-3 px-3 py-3 text-left active:bg-slate-50/60"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{row.receiver || "—"}</p>
-                  <p className="truncate text-xs text-muted-foreground">
+                  <p className="truncate text-xs text-slate-500">
                     {row.reference || "—"} · {formatDateTime(row.created_at)}
                   </p>
                 </div>
@@ -480,7 +480,7 @@ function ApiTransactionHistory() {
                   <p className="text-sm font-semibold">{row.amount ? formatNPR(row.amount) : "—"}</p>
                   <StatusChip status={row.status} compact className="mt-1" />
                 </div>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                <ChevronRight className="size-4 shrink-0 text-slate-500" />
               </button>
             </li>
           ))}
@@ -488,7 +488,7 @@ function ApiTransactionHistory() {
       )}
 
       {query.data && query.data.count > 0 ? (
-        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
           <span>{rangeLabel}</span>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" disabled={!query.data.has_previous} onClick={() => setPage((p) => Math.max(1, p - 1))}>
@@ -514,7 +514,7 @@ function ApiTransactionHistory() {
               <Detail label={t("common.amount")} value={selected.amount ? formatNPR(selected.amount) : "—"} />
               <Detail label={t("developer.reference")} value={selected.reference || "—"} />
               <div>
-                <dt className="text-xs text-muted-foreground">{t("common.status")}</dt>
+                <dt className="text-xs text-slate-500">{t("common.status")}</dt>
                 <dd className="mt-1"><StatusChip status={selected.status} /></dd>
               </div>
               <Detail label={t("developer.method")} value={selected.method} />
@@ -542,7 +542,7 @@ function ApiTransactionHistory() {
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dt className="text-xs text-slate-500">{label}</dt>
       <dd className="mt-0.5 break-all font-medium">{value}</dd>
     </div>
   );
@@ -550,9 +550,9 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function DocBlock({ title, children }: { title: string; children: string }) {
   return (
-    <section className="rounded-2xl border border-border bg-white p-4">
+    <section className="rounded-md border border-slate-200 bg-white p-4">
       <h2 className="mb-2 text-sm font-semibold">{title}</h2>
-      <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl bg-slate-950 p-3 text-[11px] text-slate-100">
+      <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-slate-950 p-3 text-[11px] text-slate-100">
         {children}
       </pre>
     </section>

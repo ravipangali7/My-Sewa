@@ -2145,6 +2145,20 @@ export interface ShareholderWithdrawalItem {
   created_at: string;
 }
 
+export interface ShareholderPayoutAccountItem {
+  id: number;
+  shareholder_id: number;
+  shareholder_phone: string;
+  method: "bank" | "esewa" | "khalti";
+  label: string;
+  account_name: string;
+  account_number: string;
+  bank_name: string;
+  branch: string;
+  is_default: boolean;
+  created_at: string;
+}
+
 export interface ShareholderDashboardData {
   is_shareholder: boolean;
   my_wallet: {
@@ -2167,4 +2181,5 @@ export interface ShareholderDashboardData {
   shareholders: ShareholderItem[];
   recent_logs: ShareholderRevenueLogItem[];
   recent_withdrawals: ShareholderWithdrawalItem[];
+  payout_accounts?: ShareholderPayoutAccountItem[];
 }

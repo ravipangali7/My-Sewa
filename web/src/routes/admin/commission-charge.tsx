@@ -361,7 +361,7 @@ function CommissionSetupFormCard({
     (splitHint == null || !splitHint.startsWith("Dealer commission plus"));
 
   return (
-    <section className="rounded-xl border border-border bg-white p-5 shadow-sm sm:p-6">
+    <section className="rounded-sm border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <h2 className={cn("text-lg font-semibold", TITLE_BLUE)}>
         {editingId ? "Edit Commission Setup" : "Add Commission Setup"}
       </h2>
@@ -635,7 +635,7 @@ function CommissionSetupListCard({
   }, [pageCount]);
 
   return (
-    <section className="rounded-xl border border-border bg-white p-5 shadow-sm sm:p-6">
+    <section className="rounded-sm border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className={cn("text-lg font-semibold", TITLE_BLUE)}>Commission Setup List</h2>
         <div className="relative w-full sm:max-w-xs">
@@ -649,7 +649,7 @@ function CommissionSetupListCard({
         </div>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+      <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
         <Table className="min-w-[56rem]">
           <TableHeader>
             <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -695,7 +695,7 @@ function CommissionSetupListCard({
                         statusMutation.mutate({ id: row.id, is_active: !row.is_active })
                       }
                       className={cn(
-                        "inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                        "inline-flex rounded-xs px-2.5 py-0.5 text-xs font-semibold",
                         row.is_active
                           ? "bg-[#dcfce7] text-[#15803d]"
                           : "bg-[#fee2e2] text-[#dc2626]",

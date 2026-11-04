@@ -43,7 +43,7 @@ function StatusBadge({ node }: { node: HierarchyNode }) {
 
 function SubAgentRow({ node }: { node: HierarchyNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-background px-3 py-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-background px-3 py-2">
       <div>
         <p className="text-sm font-medium">{node.name || node.phone}</p>
         <p className="text-xs text-muted-foreground">
@@ -72,7 +72,7 @@ function DealerNode({ node }: { node: HierarchyNode }) {
     <Collapsible
       open={open}
       onOpenChange={setOpen}
-      className="rounded-xl border border-border bg-surface"
+      className="rounded-sm border border-slate-200 bg-white shadow-2xs"
     >
       <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
         <CollapsibleTrigger asChild>
@@ -104,7 +104,7 @@ function DealerNode({ node }: { node: HierarchyNode }) {
           </Button>
         </div>
       </div>
-      <CollapsibleContent className="space-y-2 border-t border-border px-4 py-3">
+      <CollapsibleContent className="space-y-2 border-t border-slate-200 px-4 py-3">
         {(node.sub_agents ?? []).length === 0 ? (
           <p className="text-sm text-muted-foreground">No Sub-Agents under this Dealer.</p>
         ) : (
@@ -144,7 +144,7 @@ function HierarchyPage() {
         <p className="text-sm text-muted-foreground">No dealers in the network yet.</p>
       ) : (
         <div className="space-y-3">
-          <div className="rounded-lg border border-dashed border-border px-4 py-2 text-sm font-medium">
+          <div className="rounded-lg border border-dashed border-slate-200 px-4 py-2 text-sm font-medium">
             Super Admin
           </div>
           {items.map((node) => (

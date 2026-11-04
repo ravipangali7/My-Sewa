@@ -450,7 +450,7 @@ function UsersPage() {
                       },
                     ]}
                   />
-                  <div className="mt-3 border-t border-border pt-3">{actionsFor(u, true)}</div>
+                  <div className="mt-3 border-t border-slate-200 pt-3">{actionsFor(u, true)}</div>
                 </AdminMobileCard>
               );
             })}

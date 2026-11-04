@@ -1388,6 +1388,26 @@ export const messages = {
       "Create your wallet account. An admin must activate it before remittance, top-up and transfers unlock.",
     "auth.resetBlurb":
       "We'll email a verification code, confirm your date of birth, then you can choose a new password.",
+    "auth.saveLoginInfoTitle": "Save your login info?",
+    "auth.saveLoginInfoDescription":
+      "Save this account on this device so you can log in with one tap next time without entering password or OTP.",
+    "auth.saveAndLogOut": "Save & Log Out",
+    "auth.logOutWithoutSaving": "Don't Save",
+    "auth.savedAccountsTitle": "Recent Logins",
+    "auth.savedAccountsSubtitle": "Click your account to log in with one tap.",
+    "auth.logIntoAnotherAccount": "Log into another account",
+    "auth.removeAccountFromDevice": "Remove account from device",
+    "auth.removeAccountConfirmTitle": "Remove account from this device?",
+    "auth.removeAccountConfirmBody":
+      "You will need to enter your phone or email and password next time you log in.",
+    "auth.removeAccountCta": "Remove",
+    "auth.switchAccount": "Switch account",
+    "auth.backToSavedAccounts": "Back to saved accounts",
+    "auth.savedAccountToast": "Login info saved on this device",
+    "auth.accountRemovedToast": "Account removed from this device",
+    "auth.loggingInAs": "Logging in as {name}…",
+    "auth.sessionExpiredForUser": "Session expired for {name}. Please enter your password to log in.",
+
   },
   ne: {
     "common.loading": "लोड हुँदै…",
@@ -2775,6 +2795,26 @@ export const messages = {
       "वालेट खाता बनाउनुहोस्। रेमिटेन्स, टप-अप र ट्रान्सफर अनलक हुन एडमिन सक्रियता आवश्यक छ।",
     "auth.resetBlurb":
       "हामी प्रमाणीकरण कोड इमेल गर्नेछौं, जन्म मिति पुष्टि गर्नुहोस्, त्यसपछि नयाँ पासवर्ड छान्न सक्नुहुन्छ।",
+    "auth.saveLoginInfoTitle": "लगइन जानकारी सुरक्षित गर्ने?",
+    "auth.saveLoginInfoDescription":
+      "अर्को पटक पासवर्ड वा ओटीपी नहाली एकै ट्यापमा लगइन गर्न यस डिभाइसमा खाता सुरक्षित गर्नुहोस्।",
+    "auth.saveAndLogOut": "सुरक्षित गरी लग आउट गर्नुहोस्",
+    "auth.logOutWithoutSaving": "सुरक्षित नगर्नुहोस्",
+    "auth.savedAccountsTitle": "हालका लगइनहरू",
+    "auth.savedAccountsSubtitle": "एकै ट्यापमा लगइन गर्न आफ्नो खातामा थिच्नुहोस्।",
+    "auth.logIntoAnotherAccount": "अर्को खातामा लगइन गर्नुहोस्",
+    "auth.removeAccountFromDevice": "डिभाइसबाट खाता हटाउनुहोस्",
+    "auth.removeAccountConfirmTitle": "यो खाता डिभाइसबाट हटाउने?",
+    "auth.removeAccountConfirmBody":
+      "अर्को पटक लगइन गर्दा तपाईंले आफ्नो फोन वा इमेल र पासवर्ड हाल्नुपर्नेछ।",
+    "auth.removeAccountCta": "हटाउनुहोस्",
+    "auth.switchAccount": "खाता बदल्नुहोस्",
+    "auth.backToSavedAccounts": "सुरक्षित खाताहरूमा फर्कनुहोस्",
+    "auth.savedAccountToast": "यस डिभाइसमा लगइन जानकारी सुरक्षित गरियो",
+    "auth.accountRemovedToast": "यस डिभाइसबाट खाता हटाइयो",
+    "auth.loggingInAs": "{name} को रूपमा लगइन हुँदैछ…",
+    "auth.sessionExpiredForUser": "{name} को सेसन समाप्त भयो। कृपया लगइन गर्न पासवर्ड हाल्नुहोस्।",
+
   },
 } as const;
 

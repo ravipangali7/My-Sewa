@@ -40,7 +40,7 @@ export const Route = createFileRoute("/admin/wallets_/$walletId")({
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 gap-1 border-b border-border py-3 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-4">
+    <div className="grid grid-cols-1 gap-1 border-b border-slate-200 py-3 last:border-0 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)] md:gap-4">
       <dt className="min-w-0 break-words text-sm text-muted-foreground">{label}</dt>
       <dd className="min-w-0 break-all text-sm font-medium">{children}</dd>
     </div>
@@ -225,7 +225,7 @@ function WalletDetailPage() {
             subtitle={`${name} · ${w.phone}`}
           />
 
-          <div className="min-w-0 overflow-x-clip rounded-xl border border-border bg-surface p-4 sm:p-5">
+          <div className="min-w-0 overflow-x-clip rounded-sm border border-slate-200 bg-white shadow-2xs p-4 sm:p-5">
             <h2 className="mb-1 text-sm font-semibold">Wallet information</h2>
             <p className="mb-3 text-sm text-muted-foreground">Full record for this user wallet.</p>
             <dl>

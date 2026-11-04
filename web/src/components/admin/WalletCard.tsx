@@ -28,7 +28,7 @@ export function WalletCard({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl bg-hero-gradient text-primary-foreground shadow-card",
+        "relative overflow-hidden rounded-md bg-hero-gradient text-primary-foreground shadow-card",
         large ? "p-6 lg:p-8" : "p-5",
         className,
       )}

@@ -2211,15 +2211,48 @@ export const apiClient = {
   getShareholderDashboard: () => api<import("./types").ShareholderDashboardData>("/api/admin/shareholders/dashboard/"),
   shareholderWithdraw: (payload: {
     amount: number | string;
-    payout_method: string;
-    account_name: string;
-    account_number: string;
+    payout_account_id?: number;
+    payout_method?: string;
+    account_name?: string;
+    account_number?: string;
     bank_name?: string;
   }) =>
     api<{ success: boolean; message: string; withdrawal_id: number; remaining_balance: string }>(
       "/api/admin/shareholders/withdraw/",
       { method: "POST", body: payload },
     ),
+  getShareholderPayoutAccounts: () =>
+    api<{ payout_accounts: import("./types").ShareholderPayoutAccountItem[] }>("/api/admin/shareholders/payout-accounts/"),
+  createShareholderPayoutAccount: (payload: {
+    method: "bank" | "esewa" | "khalti";
+    label?: string;
+    account_name: string;
+    account_number: string;
+    bank_name?: string;
+    branch?: string;
+    is_default?: boolean;
+  }) =>
+    api<{ success: boolean; message: string; payout_account: import("./types").ShareholderPayoutAccountItem }>(
+      "/api/admin/shareholders/payout-accounts/",
+      { method: "POST", body: payload },
+    ),
+  deleteShareholderPayoutAccount: (id: number) =>
+    api<{ success: boolean; message: string }>(
+      `/api/admin/shareholders/payout-accounts/${id}/`,
+      { method: "DELETE" },
+    ),
+  syncHistoricalRevenue: () =>
+    api<{
+      success: boolean;
+      message: string;
+      data: {
+        synced_deposits_count: number;
+        synced_withdraws_count: number;
+        total_deposit_fees: string;
+        total_withdraw_fees: string;
+        total_fees_synced: string;
+      };
+    }>("/api/admin/shareholders/sync-historical-revenue/", { method: "POST" }),
   updateServiceFeeConfig: (payload: {
     ggr_monthly_profit_percent?: number | string;
     payment_api_deposit_percent?: number | string;

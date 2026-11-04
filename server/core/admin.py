@@ -883,3 +883,41 @@ class ApiIdempotencyRecordAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+from .models import (
+    ShareholderWallet,
+    ShareholderRevenueLog,
+    ShareholderWithdrawal,
+    ShareholderPayoutAccount,
+    PlatformServiceFeeConfig,
+)
+
+@admin.register(ShareholderWallet)
+class ShareholderWalletAdmin(admin.ModelAdmin):
+    list_display = ('shareholder', 'balance', 'total_earned', 'total_withdrawn', 'updated_at')
+    search_fields = ('shareholder__phone', 'shareholder__first_name', 'shareholder__last_name')
+    readonly_fields = ('updated_at',)
+
+@admin.register(ShareholderRevenueLog)
+class ShareholderRevenueLogAdmin(admin.ModelAdmin):
+    list_display = ('shareholder', 'amount', 'source', 'reference', 'created_at')
+    list_filter = ('source', 'created_at')
+    search_fields = ('shareholder__phone', 'reference')
+    readonly_fields = ('created_at',)
+
+@admin.register(ShareholderPayoutAccount)
+class ShareholderPayoutAccountAdmin(admin.ModelAdmin):
+    list_display = ('shareholder', 'method', 'account_name', 'account_number', 'bank_name', 'is_default', 'created_at')
+    list_filter = ('method', 'is_default')
+    search_fields = ('shareholder__phone', 'account_name', 'account_number')
+
+@admin.register(ShareholderWithdrawal)
+class ShareholderWithdrawalAdmin(admin.ModelAdmin):
+    list_display = ('shareholder', 'amount', 'payout_method', 'account_name', 'account_number', 'status', 'created_at')
+    list_filter = ('payout_method', 'status', 'created_at')
+    search_fields = ('shareholder__phone', 'account_name', 'account_number')
+
+@admin.register(PlatformServiceFeeConfig)
+class PlatformServiceFeeConfigAdmin(admin.ModelAdmin):
+    list_display = ('ggr_monthly_profit_percent', 'payment_api_deposit_percent', 'payment_api_withdraw_percent', 'updated_at')

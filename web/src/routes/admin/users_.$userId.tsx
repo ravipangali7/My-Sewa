@@ -62,7 +62,7 @@ export const Route = createFileRoute("/admin/users_/$userId")({
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 gap-1 border-b border-border/70 py-2.5 last:border-0 md:grid-cols-[minmax(9rem,13rem)_minmax(0,1fr)] md:gap-4 items-center">
+    <div className="grid grid-cols-1 gap-1 border-b border-slate-200/80 py-2.5 last:border-0 md:grid-cols-[minmax(9rem,13rem)_minmax(0,1fr)] md:gap-4 items-center">
       <dt className="min-w-0 break-words text-xs font-semibold text-muted-foreground">{label}</dt>
       <dd className="min-w-0 break-all text-xs sm:text-sm font-medium text-foreground">{children}</dd>
     </div>
@@ -112,20 +112,20 @@ function UserDetailPage() {
       actions={
         u ? (
           <div className="flex shrink-0 items-center gap-2 [&>*]:shrink-0">
-            <Button asChild size="sm" variant="outline" className="h-8 text-xs bg-white shadow-2xs hover:bg-slate-50 dark:bg-card">
+            <Button asChild size="sm" variant="outline" className="h-8 text-xs bg-white shadow-2xs hover:bg-slate-50 ">
               <Link to="/admin/users/$userId/report" params={{ userId }}>
                 <FileBarChart2 className="size-3.5 mr-1" />
                 Report
               </Link>
             </Button>
-            <Button asChild size="sm" variant="outline" className="h-8 text-xs bg-white shadow-2xs hover:bg-slate-50 dark:bg-card">
+            <Button asChild size="sm" variant="outline" className="h-8 text-xs bg-white shadow-2xs hover:bg-slate-50 ">
               <Link to="/admin/users/$userId/edit" params={{ userId }}>
                 <Pencil className="size-3.5 mr-1" />
                 Edit Profile
               </Link>
             </Button>
             {u.is_api_user ? (
-              <Button asChild size="sm" variant="outline" className="h-8 text-xs bg-white shadow-2xs hover:bg-slate-50 dark:bg-card text-teal-700 dark:text-teal-300">
+              <Button asChild size="sm" variant="outline" className="h-8 text-xs bg-white shadow-2xs hover:bg-slate-50  text-teal-700 dark:text-teal-300">
                 <Link to="/admin/api-users/$userId" params={{ userId }}>
                   <KeyRound className="size-3.5 mr-1" />
                   API Keys
@@ -137,7 +137,7 @@ function UserDetailPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-8 text-xs border-border text-danger hover:bg-red-50 dark:hover:bg-red-950/40"
+                  className="h-8 text-xs border-slate-200 text-danger hover:bg-red-50 dark:hover:bg-red-950/40"
                   disabled={isSelf || deleteMutation.isPending || !u.is_active}
                 >
                   <Trash2 className="size-3.5 mr-1" />
@@ -171,7 +171,7 @@ function UserDetailPage() {
       </div>
 
       {userQuery.isError && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+        <div className="rounded-sm border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
           {userQuery.error instanceof ApiError ? userQuery.error.message : "User could not be loaded."}
         </div>
       )}
@@ -179,7 +179,7 @@ function UserDetailPage() {
       {u && (
         <div className="space-y-6">
           {/* Executive User Summary Banner */}
-          <div className="rounded-2xl border border-border bg-white p-5 sm:p-6 shadow-xs dark:bg-card">
+          <div className="rounded-md border border-slate-200 bg-white p-5 sm:p-6 shadow-xs ">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <Avatar className="size-14 sm:size-16 ring-2 ring-border/80">
@@ -242,7 +242,7 @@ function UserDetailPage() {
               </div>
 
               {/* Wallet Balance Hero Badge */}
-              <div className="rounded-xl border border-border/80 bg-slate-50/70 p-4 sm:text-right dark:bg-card/60">
+              <div className="rounded-sm border border-slate-200/90 bg-slate-50/70 p-4 sm:text-right /60">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Available Wallet Balance</p>
                 <div className="text-2xl font-extrabold text-foreground tabular font-mono">
                   {formatNPR(u.wallet_balance ?? "0.00")}
@@ -260,8 +260,8 @@ function UserDetailPage() {
           {/* Group 1 & Group 2 Grid */}
           <div className="grid gap-6 lg:grid-cols-2">
             {/* GROUP A: Profile & Identity */}
-            <div className="rounded-2xl border border-border bg-white p-5 shadow-xs dark:bg-card">
-              <div className="flex items-center gap-2.5 pb-3 mb-3 border-b border-border/80">
+            <div className="rounded-md border border-slate-200 bg-white p-5 shadow-xs ">
+              <div className="flex items-center gap-2.5 pb-3 mb-3 border-b border-slate-200/90">
                 <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
                   <User className="size-4" />
                 </div>
@@ -285,8 +285,8 @@ function UserDetailPage() {
             </div>
 
             {/* GROUP B: Business Role & Hierarchy */}
-            <div className="rounded-2xl border border-border bg-white p-5 shadow-xs dark:bg-card">
-              <div className="flex items-center gap-2.5 pb-3 mb-3 border-b border-border/80">
+            <div className="rounded-md border border-slate-200 bg-white p-5 shadow-xs ">
+              <div className="flex items-center gap-2.5 pb-3 mb-3 border-b border-slate-200/90">
                 <div className="flex size-7 items-center justify-center rounded-lg bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-400">
                   <Building2 className="size-4" />
                 </div>
@@ -341,8 +341,8 @@ function UserDetailPage() {
           {/* Group 3 & Group 4 Grid */}
           <div className="grid gap-6 lg:grid-cols-2">
             {/* GROUP C: Developer API & Gaming Integrations */}
-            <div className="rounded-2xl border border-border bg-white p-5 shadow-xs dark:bg-card">
-              <div className="flex items-center gap-2.5 pb-3 mb-3 border-b border-border/80">
+            <div className="rounded-md border border-slate-200 bg-white p-5 shadow-xs ">
+              <div className="flex items-center gap-2.5 pb-3 mb-3 border-b border-slate-200/90">
                 <div className="flex size-7 items-center justify-center rounded-lg bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-400">
                   <KeyRound className="size-4" />
                 </div>
@@ -378,8 +378,8 @@ function UserDetailPage() {
             </div>
 
             {/* GROUP D: Financial Feature Permissions */}
-            <div className="rounded-2xl border border-border bg-white p-5 shadow-xs dark:bg-card">
-              <div className="flex items-center gap-2.5 pb-3 mb-3 border-b border-border/80">
+            <div className="rounded-md border border-slate-200 bg-white p-5 shadow-xs ">
+              <div className="flex items-center gap-2.5 pb-3 mb-3 border-b border-slate-200/90">
                 <div className="flex size-7 items-center justify-center rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-400">
                   <Wallet className="size-4" />
                 </div>
@@ -411,8 +411,8 @@ function UserDetailPage() {
           </div>
 
           {/* QR Payment Card */}
-          <div className="min-w-0 overflow-x-clip rounded-2xl border border-border bg-white shadow-xs dark:bg-card">
-            <div className="border-b border-border px-5 py-3.5">
+          <div className="min-w-0 overflow-x-clip rounded-md border border-slate-200 bg-white shadow-xs ">
+            <div className="border-b border-slate-200 px-5 py-3.5">
               <h2 className="text-sm font-bold">{t("scan.myQr")}</h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Digital Payment QR for peer-to-peer transfers into this wallet.

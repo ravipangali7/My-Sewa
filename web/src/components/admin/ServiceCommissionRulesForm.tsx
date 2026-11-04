@@ -92,7 +92,7 @@ export function ServiceCommissionRulesForm({
 
   return (
     <form
-      className="min-w-0 space-y-4 rounded-xl border border-border bg-surface p-4 sm:p-5"
+      className="min-w-0 space-y-4 rounded-sm border border-slate-200 bg-white shadow-2xs p-4 sm:p-5"
       onSubmit={handleSubmit}
     >
       <div>
@@ -106,7 +106,7 @@ export function ServiceCommissionRulesForm({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[20rem] text-sm">
           <thead>
-            <tr className="border-b border-border text-left text-xs text-muted-foreground">
+            <tr className="border-b border-slate-200 text-left text-xs text-muted-foreground">
               <th className="py-2 pr-3 font-medium">Service</th>
               <th className="py-2 font-medium">Dealer (Rs)</th>
             </tr>
@@ -115,7 +115,7 @@ export function ServiceCommissionRulesForm({
             {rows.map((row) => {
               const label = SERVICES.find((s) => s.id === row.txn_type)?.label ?? row.txn_type;
               return (
-                <tr key={row.txn_type} className="border-b border-border/70 last:border-0">
+                <tr key={row.txn_type} className="border-b border-slate-200/80 last:border-0">
                   <td className="py-2 pr-3">{label}</td>
                   <td className="py-2">
                     <Input

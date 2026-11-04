@@ -86,12 +86,12 @@ function ChartTooltip({
 }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[11px] shadow-sm">
-      {label ? <p className="mb-1 font-medium text-muted-foreground">{label}</p> : null}
+    <div className="rounded-md border border-slate-200 bg-white shadow-2xs px-2.5 py-1.5 text-[11px] shadow-sm">
+      {label ? <p className="mb-1 font-medium text-slate-500">{label}</p> : null}
       <ul className="space-y-0.5">
         {payload.map((entry) => (
           <li key={entry.name} className="flex items-center justify-between gap-4">
-            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 text-slate-500">
               <span className="size-1.5 rounded-full" style={{ background: entry.color }} />
               {entry.name}
             </span>
@@ -249,7 +249,7 @@ function AdminDashboard() {
   return (
     <AdminShell title="Dashboard" description="Live ops overview" dense>
       {isShareholder && (
-        <div className="mb-3 rounded-2xl border border-amber-200/90 bg-gradient-to-r from-amber-50/70 via-white to-emerald-50/40 p-4 shadow-xs dark:bg-card dark:border-amber-900/60">
+        <div className="mb-3 rounded-md border border-slate-200 bg-white p-4 shadow-2xs border-l-4 border-l-amber-500">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
@@ -257,7 +257,7 @@ function AdminDashboard() {
                 <span className="text-[10px] font-bold tracking-wider uppercase text-amber-800 font-mono dark:text-amber-300">
                   Shareholder Equity Partner Portal
                 </span>
-                <span className="rounded-full bg-amber-100 px-2 py-0.2 text-[9px] font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                <span className="rounded-xs bg-amber-50 border border-amber-200 px-1.5 py-0.2 text-[9px] font-bold text-amber-800">
                   {shWallet?.share_percent || user?.share_percent || "0"}% Allocated Share
                 </span>
               </div>
@@ -285,8 +285,8 @@ function AdminDashboard() {
           <AdminMetricStripSkeleton cells={12} />
           <AdminMetricStripSkeleton cells={5} />
           <div className="grid gap-3 lg:grid-cols-3">
-            <div className="h-52 animate-pulse rounded-lg border border-border bg-surface lg:col-span-2" />
-            <div className="h-52 animate-pulse rounded-lg border border-border bg-surface" />
+            <div className="h-52 animate-pulse rounded-md border border-slate-200 bg-white shadow-2xs lg:col-span-2" />
+            <div className="h-52 animate-pulse rounded-md border border-slate-200 bg-white shadow-2xs" />
           </div>
         </div>
       ) : dash.isError ? (
@@ -294,7 +294,7 @@ function AdminDashboard() {
       ) : (
         <div className="space-y-3">
           {openIssues > 0 ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-100">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-100">
               <p>
                 <span className="font-semibold">
                   {openIssues} HimalPay statement issue{openIssues === 1 ? "" : "s"}
@@ -311,8 +311,8 @@ function AdminDashboard() {
           {amountCards.length > 0 ? <AdminMetricStrip items={amountCards} /> : null}
 
           <div className="grid gap-3 lg:grid-cols-3">
-            <section className="rounded-lg border border-border bg-surface p-3 lg:col-span-2">
-              <h2 className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <section className="rounded-md border border-slate-200 bg-white shadow-2xs p-3 lg:col-span-2">
+              <h2 className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
                 Weekly volume
               </h2>
               <div className="mt-2 h-40 sm:h-44">
@@ -346,13 +346,13 @@ function AdminDashboard() {
               </div>
             </section>
 
-            <section className="rounded-lg border border-border bg-surface p-3">
-              <h2 className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <section className="rounded-md border border-slate-200 bg-white shadow-2xs p-3">
+              <h2 className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
                 Operator split
               </h2>
               <div className="mt-2 h-40 sm:h-44">
                 {operatorSplit.length === 0 ? (
-                  <p className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                  <p className="flex h-full items-center justify-center text-xs text-slate-500">
                     No top-up volume
                   </p>
                 ) : (
@@ -387,7 +387,7 @@ function AdminDashboard() {
                             />
                             {op.name}
                           </p>
-                          <p className="tabular pl-3 text-[10px] text-muted-foreground">
+                          <p className="tabular pl-3 text-[10px] text-slate-500">
                             {formatNPR(op.value)}
                           </p>
                         </li>
@@ -401,7 +401,7 @@ function AdminDashboard() {
 
           <section>
             <div className="mb-2 flex items-center justify-between gap-3">
-              <h2 className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <h2 className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
                 Pending deposits
               </h2>
               <Button asChild size="sm" variant="ghost" className="h-7 px-2 text-[11px]">
@@ -440,7 +440,7 @@ function AdminDashboard() {
                         <TableCell className="tabular px-3 py-1.5 text-right font-semibold">
                           {formatNPR(d.amount)}
                         </TableCell>
-                        <TableCell className="px-3 py-1.5 text-muted-foreground">
+                        <TableCell className="px-3 py-1.5 text-slate-500">
                           {formatDateTime(d.created_at)}
                         </TableCell>
                         <TableCell className="px-3 py-1.5">
@@ -463,7 +463,7 @@ function AdminDashboard() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <p className="text-sm font-semibold">{d.phone}</p>
-                            <p className="text-[11px] text-muted-foreground">#{d.id}</p>
+                            <p className="text-[11px] text-slate-500">#{d.id}</p>
                           </div>
                           <StatusChip status={d.status} compact />
                         </div>

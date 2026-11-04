@@ -249,7 +249,7 @@ function TopupsPage() {
               <TabsTrigger
                 key={op.value}
                 value={op.value}
-                className="rounded-full border border-transparent px-3 data-[state=active]:border-border data-[state=active]:bg-surface data-[state=active]:shadow-sm"
+                className="rounded-full border border-transparent px-3 data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
                 {op.label}
                 <span className="ml-1.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
@@ -364,7 +364,7 @@ function TopupsPage() {
                     ]}
                   />
                   <div
-                    className="mt-3 border-t border-border pt-3"
+                    className="mt-3 border-t border-slate-200 pt-3"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {statusSelect(t.id, t.status)}

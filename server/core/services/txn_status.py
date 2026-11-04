@@ -58,6 +58,11 @@ def settle_posted_charges(txn, wallet=None) -> None:
         record_system_charge(txn)
     except Exception:
         logger.exception('Failed to credit system charge')
+    try:
+        from .ggr_service import record_shareholder_transaction_fee
+        record_shareholder_transaction_fee(txn)
+    except Exception:
+        logger.exception('Failed to credit shareholder platform fee')
 
 
 def reverse_posted_charges(txn) -> None:

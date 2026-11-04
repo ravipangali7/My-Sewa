@@ -129,7 +129,7 @@ function AdminProfilePage() {
   return (
     <AdminShell title="Profile" description="Manage your account details and security">
       <div className="space-y-4">
-        <section className="rounded-xl border border-border bg-surface p-5">
+        <section className="rounded-sm border border-slate-200 bg-white shadow-2xs p-5">
           <div className="flex items-center gap-4">
             <div className="relative">
               <Avatar className="size-16">
@@ -144,7 +144,7 @@ function AdminProfilePage() {
                 type="button"
                 aria-label="Change profile photo"
                 disabled={savingAvatar}
-                className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-muted disabled:opacity-60"
+                className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border border-slate-200 bg-background text-muted-foreground shadow-sm hover:bg-muted disabled:opacity-60"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Camera className="size-3.5" />
@@ -176,7 +176,7 @@ function AdminProfilePage() {
           </Button>
         </section>
 
-        <section className="min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
+        <section className="min-w-0 overflow-hidden rounded-sm border border-slate-200 bg-white shadow-2xs">
           <Field label="Full name" value={name} />
           <Field label="Phone" value={user.phone} />
           <Field label="Email" value={user.email || "—"} />
@@ -193,7 +193,7 @@ function AdminProfilePage() {
           />
         </section>
 
-        <section className="min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
+        <section className="min-w-0 overflow-hidden rounded-sm border border-slate-200 bg-white shadow-2xs">
           <ActionRow
             label="Edit profile"
             description="Name and date of birth"
@@ -240,7 +240,7 @@ function AdminProfilePage() {
 
         <button
           type="button"
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 py-3.5 text-sm font-medium text-danger transition-colors hover:bg-muted"
+          className="flex w-full items-center justify-center gap-2 rounded-sm border border-slate-200 bg-white shadow-2xs px-4 py-3.5 text-sm font-medium text-danger transition-colors hover:bg-muted"
           onClick={() => setLogoutOpen(true)}
         >
           <LogOut className="size-4" />
@@ -622,7 +622,7 @@ function Field({
   value: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3 last:border-b-0">
+    <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-4 py-3 last:border-b-0">
       <span className="text-sm text-muted-foreground">{label}</span>
       <span className="truncate text-sm font-medium">{value}</span>
     </div>
@@ -642,7 +642,7 @@ function ActionRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 border-b border-border px-4 py-3.5 text-left transition-colors last:border-b-0 hover:bg-muted/60"
+      className="flex w-full items-center gap-3 border-b border-slate-200 px-4 py-3.5 text-left transition-colors last:border-b-0 hover:bg-muted/60"
     >
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{label}</p>

@@ -228,7 +228,7 @@ function ReportsPage() {
       }
     >
       <div className="space-y-5">
-        <div className="rounded-xl border border-border bg-surface p-3 sm:p-4">
+        <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-3 sm:p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-sm font-medium">Date range</p>
@@ -251,7 +251,7 @@ function ReportsPage() {
                       "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
                       preset === key
                         ? "border-brand bg-brand-soft text-brand-dark"
-                        : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
+                        : "border-slate-200 bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
                     {label}
@@ -304,7 +304,7 @@ function ReportsPage() {
         {reports.isLoading ? (
           <p className="text-sm text-muted-foreground">Loading reports…</p>
         ) : reports.isError ? (
-          <div className="rounded-xl border border-danger/20 bg-danger/5 p-4 text-sm text-danger">
+          <div className="rounded-sm border border-danger/20 bg-danger/5 p-4 text-sm text-danger">
             Failed to load reports. Check your connection and try again.
           </div>
         ) : data ? (
@@ -315,7 +315,7 @@ function ReportsPage() {
             ) : null}
 
             <div className="grid gap-4 lg:grid-cols-3">
-              <div className="rounded-xl border border-border bg-surface p-4 lg:col-span-2">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4 lg:col-span-2">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-base font-semibold">Volume trend</h2>
@@ -368,7 +368,7 @@ function ReportsPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-border bg-surface p-4">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
                 <h2 className="text-base font-semibold">Service mix</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Share of successful volume by service
@@ -409,7 +409,7 @@ function ReportsPage() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-3">
-              <div className="rounded-xl border border-border bg-surface p-4 lg:col-span-2">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4 lg:col-span-2">
                 <h2 className="text-base font-semibold">Volume by service</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Daily stacked successful volume across products
@@ -463,7 +463,7 @@ function ReportsPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-border bg-surface p-4">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
                 <h2 className="text-base font-semibold">Status distribution</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Transaction outcomes in selected range
@@ -511,7 +511,7 @@ function ReportsPage() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-border bg-surface p-4">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
                 <h2 className="text-base font-semibold">Top-up operators</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">NTC vs NCELL successful volume</p>
                 <div className="mt-4 h-52">
@@ -546,7 +546,7 @@ function ReportsPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-border bg-surface p-4">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
                 <h2 className="text-base font-semibold">New users</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Registrations over the selected period
@@ -578,7 +578,7 @@ function ReportsPage() {
             </div>
 
             {data.isp_split.length > 0 ? (
-              <div className="rounded-xl border border-border bg-surface p-4">
+              <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
                 <h2 className="text-base font-semibold">Internet bill providers</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Top ISPs by successful payment volume
@@ -601,7 +601,7 @@ function ReportsPage() {
               </div>
             ) : null}
 
-            <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
               <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <h2 className="text-base font-semibold">Category reports</h2>
@@ -655,7 +655,7 @@ function ReportsPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="rounded-sm border border-slate-200 bg-white shadow-2xs p-4">
               <h2 className="text-base font-semibold">Recent activity</h2>
               <p className="mt-0.5 mb-4 text-xs text-muted-foreground">
                 Latest transactions in the selected date range
@@ -705,7 +705,7 @@ function CategoryCard({
   const Icon = meta.icon;
 
   return (
-    <div className="rounded-xl border border-border bg-background/60 p-3.5">
+    <div className="rounded-sm border border-slate-200 bg-background/60 p-3.5">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2.5">
           <span

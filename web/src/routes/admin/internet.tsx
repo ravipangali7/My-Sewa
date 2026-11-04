@@ -321,7 +321,7 @@ function InternetPage() {
                     ]}
                   />
                   <div
-                    className="mt-3 border-t border-border pt-3"
+                    className="mt-3 border-t border-slate-200 pt-3"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {statusSelect(t.id, t.status)}
