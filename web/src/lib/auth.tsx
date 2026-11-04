@@ -19,6 +19,13 @@ import {
   unregisterStoredDeviceToken,
   notifyNativeLogout,
 } from "./push-notifications";
+import {
+  type SavedAccount,
+  saveAccount,
+  removeSavedAccount,
+  updateSavedAccountProfile,
+} from "./saved-accounts";
+import { LogoutConfirmDialog } from "@/components/LogoutConfirmDialog";
 
 export type LoginOtpChallenge = {
   challenge_id: string;
@@ -58,7 +65,11 @@ type AuthContextValue = {
     first_name?: string;
     last_name?: string;
   }) => Promise<UserProfile>;
-  logout: () => Promise<void>;
+  logout: (options?: { saveOnDevice?: boolean }) => Promise<void>;
+  openLogoutDialog: () => void;
+  closeLogoutDialog: () => void;
+  isLogoutDialogOpen: boolean;
+  loginWithSavedAccount: (account: SavedAccount) => Promise<UserProfile>;
   refreshProfile: () => Promise<void>;
   setSessionToken: (token: string) => void;
   /** Hydrate auth after Flutter injects mysewa_token into localStorage. */
@@ -220,19 +231,69 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [establishSession],
   );
 
-  const logout = useCallback(async () => {
-    try {
-      await unregisterStoredDeviceToken();
-      notifyNativeLogout();
-      if (getToken()) await apiClient.logout();
-    } catch {
-      // ignore logout errors
-    } finally {
-      setToken(null);
-      setTokenState(null);
-      queryClient.clear();
-    }
-  }, [queryClient]);
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+
+  const openLogoutDialog = useCallback(() => setLogoutDialogOpen(true), []);
+  const closeLogoutDialog = useCallback(() => setLogoutDialogOpen(false), []);
+
+  const logout = useCallback(
+    async (options?: { saveOnDevice?: boolean }) => {
+      const shouldSave = options?.saveOnDevice ?? false;
+      const currentToken = token || getToken();
+      const currentProfile = profileQuery.data;
+
+      if (shouldSave && currentProfile && currentToken) {
+        const fullName =
+          `${currentProfile.first_name || ""} ${currentProfile.last_name || ""}`.trim() ||
+          currentProfile.phone ||
+          "Account";
+        saveAccount({
+          id: currentProfile.id,
+          phone: currentProfile.phone,
+          email: currentProfile.email,
+          name: fullName,
+          avatarUrl: currentProfile.avatar_url || currentProfile.avatar,
+          role: currentProfile.role,
+          token: currentToken,
+        });
+      } else if (!shouldSave && currentProfile) {
+        removeSavedAccount(currentProfile.id);
+      }
+
+      try {
+        await unregisterStoredDeviceToken();
+        notifyNativeLogout();
+        if (!shouldSave && getToken()) {
+          await apiClient.logout();
+        }
+      } catch {
+        // ignore logout errors
+      } finally {
+        setToken(null);
+        setTokenState(null);
+        queryClient.clear();
+        setLogoutDialogOpen(false);
+      }
+    },
+    [token, profileQuery.data, queryClient],
+  );
+
+  const loginWithSavedAccount = useCallback(
+    async (account: SavedAccount) => {
+      const profile = await establishSession(account.token);
+      const fullName =
+        `${profile.first_name || ""} ${profile.last_name || ""}`.trim() ||
+        profile.phone ||
+        "Account";
+      updateSavedAccountProfile(profile.id, {
+        name: fullName,
+        avatarUrl: profile.avatar_url || profile.avatar,
+        role: profile.role,
+      });
+      return profile;
+    },
+    [establishSession],
+  );
 
   const refreshProfile = useCallback(async () => {
     await Promise.all([
@@ -268,6 +329,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resendLoginOtp,
       register,
       logout,
+      openLogoutDialog,
+      closeLogoutDialog,
+      isLogoutDialogOpen: logoutDialogOpen,
+      loginWithSavedAccount,
       refreshProfile,
       setSessionToken,
       hydrateSessionFromStorage,
@@ -283,13 +348,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resendLoginOtp,
       register,
       logout,
+      openLogoutDialog,
+      closeLogoutDialog,
+      logoutDialogOpen,
+      loginWithSavedAccount,
       refreshProfile,
       setSessionToken,
       hydrateSessionFromStorage,
     ],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      <LogoutConfirmDialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen} />
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

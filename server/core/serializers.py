@@ -196,8 +196,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'avatar', 'avatar_url',
             'is_active', 'is_staff', 'is_superuser', 'account_status',
             'role', 'assigned_dealer_id', 'parent_agent_id', 'assigned_sub_agent_id',
-            'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer', 'can_api_payin',
-            'kyc_status', 'citizenship_number', 'kyc_verified', 'profile_locked',
+            'business_name', 'can_fund_transfer', 'can_wallet_adjust', 'can_remittance_transfer', 'can_api_payin', 'can_api_payout',
+            'kyc_status', 'citizenship_number', 'citizenship_no',
+            'pan_no', 'company_registration_no', 'pan_document_url', 'company_registration_document_url',
+            'citizenship_front_url', 'citizenship_back_url', 'kyc_verified', 'profile_locked',
             'has_transaction_pin', 'login_biometric_enabled',
             'transaction_pin_biometric_enabled',
             'assigned_dealer', 'parent_agent', 'assigned_sub_agent',
@@ -242,6 +244,63 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def get_assigned_sub_agent(self, obj):
         return _related_user_brief(getattr(obj, 'assigned_sub_agent', None))
 
+    def get_citizenship_no(self, obj):
+        return getattr(obj, 'citizenship_no', '') or getattr(obj, 'citizenship_number', '') or ''
+
+    def get_pan_document_url(self, obj):
+        doc = getattr(obj, 'pan_document', None)
+        if not doc:
+            return None
+        request = self.context.get('request')
+        try:
+            return request.build_absolute_uri(doc.url) if request else doc.url
+        except Exception:
+            return None
+
+    def get_company_registration_document_url(self, obj):
+        doc = getattr(obj, 'company_registration_document', None)
+        if not doc:
+            return None
+        request = self.context.get('request')
+        try:
+            return request.build_absolute_uri(doc.url) if request else doc.url
+        except Exception:
+            return None
+
+    def get_citizenship_front_url(self, obj):
+        doc = getattr(obj, 'citizenship_front', None)
+        request = self.context.get('request')
+        if doc:
+            try:
+                return request.build_absolute_uri(doc.url) if request else doc.url
+            except Exception:
+                pass
+        try:
+            from ..models import KYCDocument
+            d = KYCDocument.objects.filter(submission__user=obj, document_type=KYCDocument.DOC_CITIZENSHIP, side=KYCDocument.SIDE_FRONT).first()
+            if d and d.file:
+                return request.build_absolute_uri(d.file.url) if request else d.file.url
+        except Exception:
+            pass
+        return None
+
+    def get_citizenship_back_url(self, obj):
+        doc = getattr(obj, 'citizenship_back', None)
+        request = self.context.get('request')
+        if doc:
+            try:
+                return request.build_absolute_uri(doc.url) if request else doc.url
+            except Exception:
+                pass
+        try:
+            from ..models import KYCDocument
+            d = KYCDocument.objects.filter(submission__user=obj, document_type=KYCDocument.DOC_CITIZENSHIP, side=KYCDocument.SIDE_BACK).first()
+            if d and d.file:
+                return request.build_absolute_uri(d.file.url) if request else d.file.url
+        except Exception:
+            pass
+        return None
+
     def get_wallet_frozen(self, obj):
         wallet = getattr(obj, 'wallet', None)
         return bool(wallet and getattr(wallet, 'is_frozen', False))
@@ -266,6 +325,11 @@ class AdminUserSerializer(serializers.ModelSerializer):
     tds_rate = serializers.SerializerMethodField()
     sub_agent_commission_rate = serializers.SerializerMethodField()
     super_admin_rate = serializers.SerializerMethodField()
+    pan_document_url = serializers.SerializerMethodField()
+    company_registration_document_url = serializers.SerializerMethodField()
+    citizenship_front_url = serializers.SerializerMethodField()
+    citizenship_back_url = serializers.SerializerMethodField()
+    citizenship_no = serializers.SerializerMethodField()
 
     class Meta:
         model = User

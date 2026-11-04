@@ -88,6 +88,8 @@ def _developer_payload(request):
         'api_webhook_url': str(getattr(user, 'api_webhook_url', '') or ''),
         'api_return_url': str(getattr(user, 'api_return_url', '') or ''),
         'can_api_payin': bool(getattr(user, 'can_api_payin', False)),
+        'can_api_payout': bool(getattr(user, 'can_api_payout', True)),
+        'is_ggr_user': bool(getattr(user, 'is_ggr_user', False)),
         'endpoint': fund_transfer_url(request),
         'documentation': docs,
     }
@@ -187,6 +189,13 @@ class BankTransferView(BankApiView):
         denied = _require_api_user(request.user)
         if denied:
             return denied
+        if not getattr(request.user, 'can_api_payout', True):
+            return api_error(
+                'Payout API disabled',
+                'Bank payout API access is disabled for this account.',
+                'payout_api_disabled',
+                status.HTTP_403_FORBIDDEN,
+            )
         return execute_api_bank_transfer(request)
 
 
