@@ -31,7 +31,12 @@ import {
  Info,
  Clock,
  Sparkles,
+ FileCode,
+ ExternalLink,
+ Layers,
+ ShieldAlert,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -474,6 +479,40 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  const [showApiKey, setShowApiKey] = useState(false);
  const [copiedKey, setCopiedKey] = useState(false);
  const [docsLang, setDocsLang] = useState<"curl" | "python" | "node">("curl");
+ const [docsSubTab, setDocsSubTab] = useState<"all" | "verify" | "deposit" | "withdraw" | "supporting">("all");
+ const [downloadingDocs, setDownloadingDocs] = useState<"markdown" | "html" | "pdf" | null>(null);
+ const [copyingMd, setCopyingMd] = useState(false);
+
+ const downloadDocs = async (format: "markdown" | "html" | "pdf") => {
+ if (downloadingDocs) return;
+ setDownloadingDocs(format);
+ try {
+ await apiClient.developerDownloadDocs(format);
+ toast.success("Documentation saved to Downloads");
+ } catch (err) {
+ toast.error(err instanceof ApiError ? err.message : "Could not download documentation");
+ } finally {
+ setDownloadingDocs(null);
+ }
+ };
+
+ const copyMarkdownDocs = async () => {
+ setCopyingMd(true);
+ try {
+ const text = await apiClient.developerGetDocsText("markdown");
+ await navigator.clipboard.writeText(text);
+ toast.success("Markdown documentation copied to clipboard");
+ } catch {
+ toast.error("Failed to copy markdown documentation");
+ } finally {
+ setCopyingMd(false);
+ }
+ };
+
+ const copyText = (text: string, label: string) => {
+ navigator.clipboard.writeText(text);
+ toast.success(`${label} copied to clipboard`);
+ };
 
  const copyApiKey = () => {
  const key = devProfileQuery.data?.api_key || "ms_live_" + (user?.phone || "key");
@@ -497,6 +536,7 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  }, [data?.recent_transactions, ledgerTypeFilter, ledgerSearch]);
 
  const rawKey = devProfileQuery.data?.api_key || `ms_live_key_${user?.phone || "default"}`;
+ const baseUrl = devProfileQuery.data?.documentation?.base_url || "https://mysewaserver.sewabyapar.com";
  const displayKey = showApiKey ? rawKey : rawKey.slice(0, 8) + "••••••••••••••••••••••••••••••••";
 
  return (
@@ -977,7 +1017,7 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  </p>
  </div>
  <span className="text-[11px] font-mono px-2.5 py-1 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 font-bold self-start sm:self-auto">
- BASE: https://mysewa.com.np/api/v1
+ BASE: https://mysewaserver.sewabyapar.com
  </span>
  </div>
 
@@ -1345,7 +1385,7 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  </Button>
  </div>
  <p className="text-[11px] text-slate-500">
- Header format: <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-slate-900 ">Authorization: Api-Key &lt;KEY&gt;</code>
+ Header format: <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-slate-900 ">Authorization: Bearer &lt;KEY&gt;</code>
  </p>
  </div>
 
@@ -1365,22 +1405,95 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  )}
 
  {/* ─────────────────────────────────────────────────────────────
- TAB 6: API DOCUMENTATION (100% PRODUCTION SPECS, NO SANDBOX)
+ TAB 6: API DOCUMENTATION (THE 3 CORE PRODUCTION APIS & MD DOWNLOAD)
  ───────────────────────────────────────────────────────────── */}
  {activeTab === "docs" && (
  <div className="space-y-6">
+ {/* Document Download Card (.md priority) */}
+ <div className="rounded-xl border border-emerald-300 bg-gradient-to-br from-emerald-50/70 via-white to-slate-50 p-5 sm:p-6 shadow-xs space-y-4">
+ <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+ <div className="flex items-start gap-3">
+ <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-emerald-700 text-white shadow-xs">
+ <FileCode className="size-6" />
+ </div>
+ <div className="space-y-1">
+ <div className="flex flex-wrap items-center gap-2">
+ <h3 className="font-bold text-base text-slate-900">
+ Production API Documentation (.md)
+ </h3>
+ <Badge className="bg-emerald-700 hover:bg-emerald-800 text-[10px]">
+ v{devProfileQuery.data?.documentation?.docs_version || "1.6"} • Markdown (.md)
+ </Badge>
+ </div>
+ <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
+ Download the complete, self-contained Markdown documentation file (<code className="font-mono text-emerald-800">mysewa-developer-api.md</code>) for offline reference, technical integration, or sharing with your engineering team. Covers all 3 core APIs: Bank Verify, Deposit, and Withdraw.
+ </p>
+ </div>
+ </div>
+ </div>
+
+ <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-emerald-100">
+ <Button
+ size="sm"
+ className="bg-emerald-700 hover:bg-emerald-800 text-white font-medium gap-1.5 shadow-xs cursor-pointer"
+ disabled={downloadingDocs !== null}
+ onClick={() => void downloadDocs("markdown")}
+ >
+ <Download className="size-3.5" />
+ {downloadingDocs === "markdown" ? "Downloading..." : "Download Markdown (.md)"}
+ </Button>
+
+ <Button
+ size="sm"
+ variant="outline"
+ className="gap-1.5 bg-white text-slate-700 hover:bg-slate-50 border-slate-300 cursor-pointer"
+ disabled={copyingMd}
+ onClick={() => void copyMarkdownDocs()}
+ >
+ <Copy className="size-3.5" />
+ {copyingMd ? "Copying..." : "Copy Raw Markdown"}
+ </Button>
+
+ <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1" />
+
+ <Button
+ size="sm"
+ variant="ghost"
+ className="text-xs text-slate-600 hover:text-slate-900 gap-1 cursor-pointer"
+ disabled={downloadingDocs !== null}
+ onClick={() => void downloadDocs("pdf")}
+ >
+ <FileText className="size-3" />
+ {downloadingDocs === "pdf" ? "Preparing..." : "PDF"}
+ </Button>
+
+ <Button
+ size="sm"
+ variant="ghost"
+ className="text-xs text-slate-600 hover:text-slate-900 gap-1 cursor-pointer"
+ disabled={downloadingDocs !== null}
+ onClick={() => void downloadDocs("html")}
+ >
+ <ExternalLink className="size-3" />
+ {downloadingDocs === "html" ? "Preparing..." : "HTML"}
+ </Button>
+ </div>
+ </div>
+
+ {/* The 3 Core APIs Section Header & Quick Switcher */}
  <div className="rounded-md border border-slate-200 bg-white p-6 shadow-xs space-y-5">
- <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+ <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
  <div>
  <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
  <BookOpen className="size-5 text-emerald-600" />
- Production API Documentation & Endpoints
+ The 3 Core Production APIs & Specifications
  </h3>
  <p className="text-xs text-slate-500 mt-0.5">
- Production Base URL: <code className="font-mono text-emerald-600 font-bold">https://mysewa.com.np/api/v1</code>
+ Production Base URL: <code className="font-mono text-emerald-700 font-bold">{baseUrl}</code> • Auth: <code className="font-mono text-slate-700">Authorization: Bearer &lt;API_KEY&gt;</code>
  </p>
  </div>
 
+ {/* Global language switcher */}
  <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-lg">
  {(["curl", "python", "node"] as const).map((lang) => (
  <button
@@ -1389,88 +1502,730 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  onClick={() => setDocsLang(lang)}
  className={`text-xs px-2.5 py-1 rounded-md capitalize font-medium transition-colors cursor-pointer ${
  docsLang === lang
- ? "bg-white dark:bg-zinc-800 text-slate-900 shadow-xs font-bold"
- : "text-slate-500 hover:text-slate-900 dark:hover:text-zinc-100"
+ ? "bg-white text-slate-900 shadow-xs font-bold"
+ : "text-slate-500 hover:text-slate-900"
  }`}
  >
- {lang}
+ {lang === "node" ? "Node.js" : lang}
  </button>
  ))}
  </div>
  </div>
 
- {/* Deposit Endpoint */}
- <div className="space-y-2">
- <div className="flex items-center gap-2">
- <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-400 font-mono">
- POST
- </span>
- <span className="font-mono text-xs font-bold text-slate-900 ">
- /api/v1/payment/deposit/
- </span>
- <span className="text-xs text-slate-500">— Player Deposit (Payin via QR or API)</span>
+ {/* Sub-tab navigation */}
+ <div className="flex flex-wrap gap-1.5 p-1 rounded-lg bg-slate-100 border border-slate-200 text-xs">
+ <button
+ type="button"
+ onClick={() => setDocsSubTab("all")}
+ className={`px-3 py-1.5 rounded-md font-medium transition cursor-pointer ${
+ docsSubTab === "all" ? "bg-white text-slate-900 shadow-xs font-bold" : "text-slate-600 hover:text-slate-900"
+ }`}
+ >
+ All 3 Core APIs
+ </button>
+ <button
+ type="button"
+ onClick={() => setDocsSubTab("verify")}
+ className={`px-3 py-1.5 rounded-md font-medium transition cursor-pointer ${
+ docsSubTab === "verify" ? "bg-white text-emerald-700 shadow-xs font-bold" : "text-slate-600 hover:text-slate-900"
+ }`}
+ >
+ 1. Bank Verify API
+ </button>
+ <button
+ type="button"
+ onClick={() => setDocsSubTab("deposit")}
+ className={`px-3 py-1.5 rounded-md font-medium transition cursor-pointer ${
+ docsSubTab === "deposit" ? "bg-white text-indigo-700 shadow-xs font-bold" : "text-slate-600 hover:text-slate-900"
+ }`}
+ >
+ 2. Deposit API
+ </button>
+ <button
+ type="button"
+ onClick={() => setDocsSubTab("withdraw")}
+ className={`px-3 py-1.5 rounded-md font-medium transition cursor-pointer ${
+ docsSubTab === "withdraw" ? "bg-white text-amber-700 shadow-xs font-bold" : "text-slate-600 hover:text-slate-900"
+ }`}
+ >
+ 3. Withdraw API
+ </button>
+ <button
+ type="button"
+ onClick={() => setDocsSubTab("supporting")}
+ className={`px-3 py-1.5 rounded-md font-medium transition cursor-pointer ${
+ docsSubTab === "supporting" ? "bg-white text-slate-900 shadow-xs font-bold" : "text-slate-600 hover:text-slate-900"
+ }`}
+ >
+ Supporting APIs (Bank List & Status)
+ </button>
  </div>
 
- <pre className="p-4 rounded-sm bg-white text-zinc-200 text-xs font-mono overflow-x-auto">
-{docsLang === "curl" && `curl -X POST "https://mysewa.com.np/api/v1/payment/deposit/" \\
- -H "Authorization: Api-Key ${rawKey}" \\
- -H "Content-Type: application/json" \\
+ {/* 1. BANK VERIFY API */}
+ {(docsSubTab === "all" || docsSubTab === "verify") && (
+ <div className="rounded-lg border border-emerald-200/90 bg-emerald-50/20 p-5 space-y-4">
+ <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-100 pb-3">
+ <div className="flex flex-wrap items-center gap-2">
+ <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white font-mono">
+ POST
+ </span>
+ <span className="font-mono text-sm font-bold text-slate-900">
+ /api/v1/verifiedbank/
+ </span>
+ <Badge variant="outline" className="text-[10px] border-emerald-400 text-emerald-800 bg-emerald-50">
+ Core API 1: Account Verification
+ </Badge>
+ </div>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-7 text-xs gap-1.5 bg-white cursor-pointer"
+ onClick={() => copyText(`${baseUrl}/api/v1/verifiedbank/`, "Bank Verify URL")}
+ >
+ <Copy className="size-3" />
+ Copy URL
+ </Button>
+ </div>
+
+ <p className="text-xs text-slate-600 leading-relaxed">
+ Verifies a destination bank account number and account holder name in real-time against the banking network before initiating a payout. A successful verification is required before calling the Withdraw API (<code className="font-mono text-emerald-800">/api/v1/banktransfer/</code>). Does not debit the merchant wallet.
+ </p>
+
+ <div className="space-y-1">
+ <h5 className="text-xs font-semibold text-slate-700">Headers:</h5>
+ <div className="flex flex-wrap gap-2 text-xs">
+ <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700">
+ <strong>Authorization:</strong> Bearer {showApiKey ? rawKey : "YOUR_API_KEY"}
+ </span>
+ <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700">
+ <strong>Content-Type:</strong> application/json
+ </span>
+ </div>
+ </div>
+
+ <div className="space-y-1.5">
+ <h5 className="text-xs font-semibold text-slate-700">Request Parameters:</h5>
+ <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+ <table className="w-full text-left text-xs">
+ <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+ <tr>
+ <th className="py-2 px-3 font-semibold">Field</th>
+ <th className="py-2 px-2 font-semibold">Required</th>
+ <th className="py-2 px-2 font-semibold">Type</th>
+ <th className="py-2 px-3 font-semibold">Description</th>
+ </tr>
+ </thead>
+ <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">bank_code</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">Bank SWIFT/identifier code from Bank List (e.g., <code className="font-mono">NABILNPKA</code>).</td>
+ </tr>
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">bank_account_number</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">Destination bank account number to verify.</td>
+ </tr>
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">account_holder_name</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">Registered account holder name on the bank record.</td>
+ </tr>
+ </tbody>
+ </table>
+ </div>
+ </div>
+
+ <div className="space-y-1.5">
+ <div className="flex items-center justify-between">
+ <h5 className="text-xs font-semibold text-slate-700">Code Example ({docsLang}):</h5>
+ <button
+ type="button"
+ className="text-[11px] text-emerald-700 hover:text-emerald-800 font-medium flex items-center gap-1 cursor-pointer"
+ onClick={() => {
+ const snippet =
+ docsLang === "curl"
+ ? `curl -X POST "${baseUrl}/api/v1/verifiedbank/" \
+ -H "Authorization: Bearer ${rawKey}" \
+ -H "Content-Type: application/json" \
  -d '{
- "amount": 1000.00,
- "player_id": "player_88",
- "reference": "DEP_TXN_001"
+ "bank_code": "NABILNPKA",
+ "bank_account_number": "1234567890123",
+ "account_holder_name": "Ram Bahadur"
+ }'`
+ : docsLang === "python"
+ ? `import requests
+
+res = requests.post(
+ "${baseUrl}/api/v1/verifiedbank/",
+ headers={"Authorization": "Bearer ${rawKey}", "Content-Type": "application/json"},
+ json={
+ "bank_code": "NABILNPKA",
+ "bank_account_number": "1234567890123",
+ "account_holder_name": "Ram Bahadur"
+ }
+)
+print(res.status_code, res.json())`
+ : `const res = await fetch("${baseUrl}/api/v1/verifiedbank/", {
+ method: "POST",
+ headers: {
+ "Authorization": "Bearer ${rawKey}",
+ "Content-Type": "application/json"
+ },
+ body: JSON.stringify({
+ bank_code: "NABILNPKA",
+ bank_account_number: "1234567890123",
+ account_holder_name: "Ram Bahadur"
+ })
+});
+console.log(await res.json());`;
+ copyText(snippet, "Bank Verify Code");
+ }}
+ >
+ <Copy className="size-3" />
+ Copy Code
+ </button>
+ </div>
+ <pre className="p-3.5 rounded-md bg-slate-950 text-slate-100 text-[11px] font-mono overflow-x-auto">
+{docsLang === "curl" && `curl -X POST "${baseUrl}/api/v1/verifiedbank/" \
+ -H "Authorization: Bearer ${rawKey}" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "bank_code": "NABILNPKA",
+ "bank_account_number": "1234567890123",
+ "account_holder_name": "Ram Bahadur"
  }'`}
 {docsLang === "python" && `import requests
 
 res = requests.post(
- "https://mysewa.com.np/api/v1/payment/deposit/",
- headers={"Authorization": "Api-Key ${rawKey}"},
- json={"amount": 1000.00, "player_id": "player_88", "reference": "DEP_001"}
+ "${baseUrl}/api/v1/verifiedbank/",
+ headers={"Authorization": "Bearer ${rawKey}", "Content-Type": "application/json"},
+ json={
+ "bank_code": "NABILNPKA",
+ "bank_account_number": "1234567890123",
+ "account_holder_name": "Ram Bahadur"
+ }
 )
-print(res.json())`}
-{docsLang === "node" && `const res = await fetch("https://mysewa.com.np/api/v1/payment/deposit/", {
+print(res.status_code, res.json())`}
+{docsLang === "node" && `const res = await fetch("${baseUrl}/api/v1/verifiedbank/", {
  method: "POST",
  headers: {
- "Authorization": "Api-Key ${rawKey}",
+ "Authorization": "Bearer ${rawKey}",
  "Content-Type": "application/json"
  },
- body: JSON.stringify({ amount: 1000.00, player_id: "player_88", reference: "DEP_001" })
+ body: JSON.stringify({
+ bank_code: "NABILNPKA",
+ bank_account_number: "1234567890123",
+ account_holder_name: "Ram Bahadur"
+ })
 });
 console.log(await res.json());`}
  </pre>
  </div>
 
- {/* Withdraw Endpoint */}
- <div className="space-y-2 pt-2">
- <div className="flex items-center gap-2">
- <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-400 font-mono">
- POST
- </span>
- <span className="font-mono text-xs font-bold text-slate-900 ">
- /api/v1/payment/withdraw/
- </span>
- <span className="text-xs text-slate-500">— Player Payout (Withdrawal System)</span>
- </div>
-
- <pre className="p-4 rounded-sm bg-white text-zinc-200 text-xs font-mono overflow-x-auto">
-{`curl -X POST "https://mysewa.com.np/api/v1/payment/withdraw/" \\
- -H "Authorization: Api-Key ${rawKey}" \\
- -H "Content-Type: application/json" \\
- -d '{
- "amount": 500.00,
- "player_id": "player_88",
- "reference": "WTH_TXN_001",
- "payout_details": {
- "bank_code": "GLOBAL_IME",
- "account_number": "01234567890",
- "account_name": "Ram Bahadur"
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+ <div className="space-y-1">
+ <span className="text-[11px] font-semibold text-slate-700">Successful Response (200 OK):</span>
+ <pre className="p-3 rounded-md bg-slate-900 text-emerald-300 text-[11px] font-mono overflow-x-auto">
+{`{
+ "success": true,
+ "verified": true,
+ "message": "Bank account verified successfully",
+ "data": {
+ "bank_code": "NABILNPKA",
+ "bank_name": "Nabil Bank Limited",
+ "account_number": "*********0123",
+ "account_holder_name": "Ram Bahadur"
  }
- }'`}
+}`}
+ </pre>
+ </div>
+ <div className="space-y-1">
+ <span className="text-[11px] font-semibold text-slate-700">Failed Response (400):</span>
+ <pre className="p-3 rounded-md bg-slate-900 text-rose-300 text-[11px] font-mono overflow-x-auto">
+{`{
+ "success": false,
+ "verified": false,
+ "message": "Bank account verification failed",
+ "error": "Bank account verification failed",
+ "code": "verification_failed"
+}`}
  </pre>
  </div>
  </div>
  </div>
  )}
+
+ {/* 2. DEPOSIT API (PAYIN) */}
+ {(docsSubTab === "all" || docsSubTab === "deposit") && (
+ <div className="rounded-lg border border-indigo-200/90 bg-indigo-50/20 p-5 space-y-4">
+ <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 pb-3">
+ <div className="flex flex-wrap items-center gap-2">
+ <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white font-mono">
+ POST
+ </span>
+ <span className="font-mono text-sm font-bold text-slate-900">
+ /api/v1/payin/
+ </span>
+ <Badge variant="outline" className="text-[10px] border-indigo-400 text-indigo-800 bg-indigo-50">
+ Core API 2: Deposit / Fonepay QR
+ </Badge>
+ </div>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-7 text-xs gap-1.5 bg-white cursor-pointer"
+ onClick={() => copyText(`${baseUrl}/api/v1/payin/`, "Deposit API URL")}
+ >
+ <Copy className="size-3" />
+ Copy URL
+ </Button>
+ </div>
+
+ <p className="text-xs text-slate-600 leading-relaxed">
+ Creates a customer deposit / wallet load. Generates dynamic Fonepay QR code URL and image on the MySewa domain for instant mobile banking scan & pay. After verified payment, MySewa credits the wallet and triggers your webhook automatically.
+ </p>
+
+ <div className="space-y-1">
+ <h5 className="text-xs font-semibold text-slate-700">Headers:</h5>
+ <div className="flex flex-wrap gap-2 text-xs">
+ <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700">
+ <strong>Authorization:</strong> Bearer {showApiKey ? rawKey : "YOUR_API_KEY"}
+ </span>
+ <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700">
+ <strong>Content-Type:</strong> application/json
+ </span>
+ <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700">
+ <strong>Idempotency-Key:</strong> YOUR_REFERENCE
+ </span>
+ </div>
+ </div>
+
+ <div className="space-y-1.5">
+ <h5 className="text-xs font-semibold text-slate-700">Request Parameters:</h5>
+ <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+ <table className="w-full text-left text-xs">
+ <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+ <tr>
+ <th className="py-2 px-3 font-semibold">Field</th>
+ <th className="py-2 px-2 font-semibold">Required</th>
+ <th className="py-2 px-2 font-semibold">Type</th>
+ <th className="py-2 px-3 font-semibold">Description</th>
+ </tr>
+ </thead>
+ <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">receiver</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">MySewa phone number of the wallet to credit (e.g., <code className="font-mono">98XXXXXXXX</code>).</td>
+ </tr>
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">amount</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">number</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">NPR amount to deposit (e.g., <code className="font-mono">1000</code>).</td>
+ </tr>
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">reference</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">Unique client reference for idempotency and tracking.</td>
+ </tr>
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">mode</td>
+ <td className="py-2 px-2"><span className="text-slate-500 font-sans text-[10px]">Optional</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans"><code className="font-mono">"direct_qr"</code> (default) for MySewa Fonepay QR or <code className="font-mono">"hosted"</code> for payment picker.</td>
+ </tr>
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">customer_name</td>
+ <td className="py-2 px-2"><span className="text-slate-500 font-sans text-[10px]">Optional</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">Player or customer name shown on checkout page.</td>
+ </tr>
+ </tbody>
+ </table>
+ </div>
+ </div>
+
+ <div className="space-y-1.5">
+ <div className="flex items-center justify-between">
+ <h5 className="text-xs font-semibold text-slate-700">Code Example ({docsLang}):</h5>
+ <button
+ type="button"
+ className="text-[11px] text-indigo-700 hover:text-indigo-800 font-medium flex items-center gap-1 cursor-pointer"
+ onClick={() => {
+ const snippet =
+ docsLang === "curl"
+ ? `curl -X POST "${baseUrl}/api/v1/payin/" \
+ -H "Authorization: Bearer ${rawKey}" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "receiver": "${user?.phone || "98XXXXXXXX"}",
+ "amount": 1000,
+ "reference": "DEP_TXN_001",
+ "mode": "direct_qr"
+ }'`
+ : docsLang === "python"
+ ? `import requests
+
+res = requests.post(
+ "${baseUrl}/api/v1/payin/",
+ headers={"Authorization": "Bearer ${rawKey}", "Content-Type": "application/json"},
+ json={
+ "receiver": "${user?.phone || "98XXXXXXXX"}",
+ "amount": 1000,
+ "reference": "DEP_TXN_001",
+ "mode": "direct_qr"
+ }
+)
+print(res.status_code, res.json())`
+ : `const res = await fetch("${baseUrl}/api/v1/payin/", {
+ method: "POST",
+ headers: {
+ "Authorization": "Bearer ${rawKey}",
+ "Content-Type": "application/json"
+ },
+ body: JSON.stringify({
+ receiver: "${user?.phone || "98XXXXXXXX"}",
+ amount: 1000,
+ reference: "DEP_TXN_001",
+ mode: "direct_qr"
+ })
+});
+console.log(await res.json());`;
+ copyText(snippet, "Deposit API Code");
+ }}
+ >
+ <Copy className="size-3" />
+ Copy Code
+ </button>
+ </div>
+ <pre className="p-3.5 rounded-md bg-slate-950 text-slate-100 text-[11px] font-mono overflow-x-auto">
+{docsLang === "curl" && `curl -X POST "${baseUrl}/api/v1/payin/" \
+ -H "Authorization: Bearer ${rawKey}" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "receiver": "${user?.phone || "98XXXXXXXX"}",
+ "amount": 1000,
+ "reference": "DEP_TXN_001",
+ "mode": "direct_qr"
+ }'`}
+{docsLang === "python" && `import requests
+
+res = requests.post(
+ "${baseUrl}/api/v1/payin/",
+ headers={"Authorization": "Bearer ${rawKey}", "Content-Type": "application/json"},
+ json={
+ "receiver": "${user?.phone || "98XXXXXXXX"}",
+ "amount": 1000,
+ "reference": "DEP_TXN_001",
+ "mode": "direct_qr"
+ }
+)
+print(res.status_code, res.json())`}
+{docsLang === "node" && `const res = await fetch("${baseUrl}/api/v1/payin/", {
+ method: "POST",
+ headers: {
+ "Authorization": "Bearer ${rawKey}",
+ "Content-Type": "application/json"
+ },
+ body: JSON.stringify({
+ receiver: "${user?.phone || "98XXXXXXXX"}",
+ amount: 1000,
+ reference: "DEP_TXN_001",
+ mode: "direct_qr"
+ })
+});
+console.log(await res.json());`}
+ </pre>
+ </div>
+
+ <div className="space-y-1">
+ <span className="text-[11px] font-semibold text-slate-700">Successful Response (201 Created):</span>
+ <pre className="p-3 rounded-md bg-slate-900 text-indigo-300 text-[11px] font-mono overflow-x-auto">
+{`{
+ "success": true,
+ "message": "Payin checkout ready",
+ "order_id": "MS-PB-a1b2c3d4e5f6",
+ "transaction_id": "MS-PB-a1b2c3d4e5f6",
+ "status": "PENDING",
+ "checkout_url": "${baseUrl}/api/deposit/paybridge/qr/?order=MS-PB-a1b2c3d4e5f6",
+ "payment_url": "${baseUrl}/api/deposit/paybridge/qr/?order=MS-PB-a1b2c3d4e5f6",
+ "amount": 1000,
+ "currency": "NPR",
+ "reference": "DEP_TXN_001"
+}`}
+ </pre>
+ </div>
+ </div>
+ )}
+
+ {/* 3. WITHDRAW API */}
+ {(docsSubTab === "all" || docsSubTab === "withdraw") && (
+ <div className="rounded-lg border border-amber-200/90 bg-amber-50/20 p-5 space-y-4">
+ <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 pb-3">
+ <div className="flex flex-wrap items-center gap-2">
+ <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-600 text-white font-mono">
+ POST
+ </span>
+ <span className="font-mono text-sm font-bold text-slate-900">
+ /api/v1/banktransfer/
+ </span>
+ <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-800 bg-amber-50">
+ Core API 3: Instant Bank Withdrawal
+ </Badge>
+ </div>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-7 text-xs gap-1.5 bg-white cursor-pointer"
+ onClick={() => copyText(`${baseUrl}/api/v1/banktransfer/`, "Withdraw API URL")}
+ >
+ <Copy className="size-3" />
+ Copy URL
+ </Button>
+ </div>
+
+ <p className="text-xs text-slate-600 leading-relaxed">
+ Transfers / withdraws funds from the merchant MySewa wallet directly to a pre-verified destination bank account. Debits the merchant wallet in real-time upon confirmed bank payout. Replaying the same reference returns the original result idempotently without double-debiting.
+ </p>
+
+ <div className="space-y-1">
+ <h5 className="text-xs font-semibold text-slate-700">Headers:</h5>
+ <div className="flex flex-wrap gap-2 text-xs">
+ <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700">
+ <strong>Authorization:</strong> Bearer {showApiKey ? rawKey : "YOUR_API_KEY"}
+ </span>
+ <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700">
+ <strong>Content-Type:</strong> application/json
+ </span>
+ <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700">
+ <strong>Idempotency-Key:</strong> YOUR_REFERENCE
+ </span>
+ </div>
+ </div>
+
+ <div className="space-y-1.5">
+ <h5 className="text-xs font-semibold text-slate-700">Request Parameters:</h5>
+ <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+ <table className="w-full text-left text-xs">
+ <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+ <tr>
+ <th className="py-2 px-3 font-semibold">Field</th>
+ <th className="py-2 px-2 font-semibold">Required</th>
+ <th className="py-2 px-2 font-semibold">Type</th>
+ <th className="py-2 px-3 font-semibold">Description</th>
+ </tr>
+ </thead>
+ <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">bank_code</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">Same HimalPay bank code previously verified.</td>
+ </tr>
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">bank_account_number</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">Destination bank account number previously verified.</td>
+ </tr>
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">account_holder_name</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">Account holder name previously verified.</td>
+ </tr>
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">amount</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">number</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">NPR amount to payout (must not exceed wallet balance).</td>
+ </tr>
+ <tr>
+ <td className="py-2 px-3 font-bold text-slate-900">reference</td>
+ <td className="py-2 px-2"><span className="text-rose-600 font-sans font-bold text-[10px]">Required</span></td>
+ <td className="py-2 px-2 text-slate-500">string</td>
+ <td className="py-2 px-3 text-slate-700 font-sans">Unique client reference (1–64 chars: letters, digits, ._-).</td>
+ </tr>
+ </tbody>
+ </table>
+ </div>
+ </div>
+
+ <div className="space-y-1.5">
+ <div className="flex items-center justify-between">
+ <h5 className="text-xs font-semibold text-slate-700">Code Example ({docsLang}):</h5>
+ <button
+ type="button"
+ className="text-[11px] text-amber-700 hover:text-amber-800 font-medium flex items-center gap-1 cursor-pointer"
+ onClick={() => {
+ const snippet =
+ docsLang === "curl"
+ ? `curl -X POST "${baseUrl}/api/v1/banktransfer/" \
+ -H "Authorization: Bearer ${rawKey}" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "bank_code": "NABILNPKA",
+ "bank_account_number": "1234567890123",
+ "account_holder_name": "Ram Bahadur",
+ "amount": 1000,
+ "reference": "WTH_TXN_001"
+ }'`
+ : docsLang === "python"
+ ? `import requests
+
+res = requests.post(
+ "${baseUrl}/api/v1/banktransfer/",
+ headers={"Authorization": "Bearer ${rawKey}", "Content-Type": "application/json"},
+ json={
+ "bank_code": "NABILNPKA",
+ "bank_account_number": "1234567890123",
+ "account_holder_name": "Ram Bahadur",
+ "amount": 1000,
+ "reference": "WTH_TXN_001"
+ }
+)
+print(res.status_code, res.json())`
+ : `const res = await fetch("${baseUrl}/api/v1/banktransfer/", {
+ method: "POST",
+ headers: {
+ "Authorization": "Bearer ${rawKey}",
+ "Content-Type": "application/json"
+ },
+ body: JSON.stringify({
+ bank_code: "NABILNPKA",
+ bank_account_number: "1234567890123",
+ account_holder_name: "Ram Bahadur",
+ amount: 1000,
+ reference: "WTH_TXN_001"
+ })
+});
+console.log(await res.json());`;
+ copyText(snippet, "Withdraw API Code");
+ }}
+ >
+ <Copy className="size-3" />
+ Copy Code
+ </button>
+ </div>
+ <pre className="p-3.5 rounded-md bg-slate-950 text-slate-100 text-[11px] font-mono overflow-x-auto">
+{docsLang === "curl" && `curl -X POST "${baseUrl}/api/v1/banktransfer/" \
+ -H "Authorization: Bearer ${rawKey}" \
+ -H "Content-Type: application/json" \
+ -d '{
+ "bank_code": "NABILNPKA",
+ "bank_account_number": "1234567890123",
+ "account_holder_name": "Ram Bahadur",
+ "amount": 1000,
+ "reference": "WTH_TXN_001"
+ }'`}
+{docsLang === "python" && `import requests
+
+res = requests.post(
+ "${baseUrl}/api/v1/banktransfer/",
+ headers={"Authorization": "Bearer ${rawKey}", "Content-Type": "application/json"},
+ json={
+ "bank_code": "NABILNPKA",
+ "bank_account_number": "1234567890123",
+ "account_holder_name": "Ram Bahadur",
+ "amount": 1000,
+ "reference": "WTH_TXN_001"
+ }
+)
+print(res.status_code, res.json())`}
+{docsLang === "node" && `const res = await fetch("${baseUrl}/api/v1/banktransfer/", {
+ method: "POST",
+ headers: {
+ "Authorization": "Bearer ${rawKey}",
+ "Content-Type": "application/json"
+ },
+ body: JSON.stringify({
+ bank_code: "NABILNPKA",
+ bank_account_number: "1234567890123",
+ account_holder_name: "Ram Bahadur",
+ amount: 1000,
+ reference: "WTH_TXN_001"
+ })
+});
+console.log(await res.json());`}
+ </pre>
+ </div>
+
+ <div className="space-y-1">
+ <span className="text-[11px] font-semibold text-slate-700">Successful Response (201 Created):</span>
+ <pre className="p-3 rounded-md bg-slate-900 text-amber-300 text-[11px] font-mono overflow-x-auto">
+{`{
+ "success": true,
+ "message": "Bank transfer successful",
+ "transaction_id": "MYSEWA_BT_A1B2C3D4E5F678",
+ "provider_reference": "HP123456",
+ "reference": "WTH_TXN_001",
+ "amount": 1000,
+ "status": "SUCCESS",
+ "data": {
+ "bank_code": "NABILNPKA",
+ "bank_name": "Nabil Bank Limited",
+ "account_number": "*********0123",
+ "account_holder_name": "Ram Bahadur",
+ "method": "API Bank Transfer"
+ }
+}`}
+ </pre>
+ </div>
+ </div>
+ )}
+
+ {/* 4. SUPPORTING ENDPOINTS */}
+ {(docsSubTab === "all" || docsSubTab === "supporting") && (
+ <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-5 space-y-4">
+ <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+ <Layers className="size-4 text-slate-600" />
+ <h4 className="text-sm font-bold text-slate-900">Supporting Endpoints (Bank List & Status)</h4>
+ </div>
+
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+ {/* Bank List API */}
+ <div className="p-4 rounded-md border border-slate-200 bg-white space-y-2">
+ <div className="flex items-center gap-2">
+ <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white font-mono">GET</span>
+ <span className="font-mono text-xs font-bold text-slate-900">/api/v1/banklist/</span>
+ </div>
+ <p className="text-[11px] text-slate-600 leading-relaxed">
+ Returns the list of active banks supported for verification and withdrawals with their <code className="font-mono">bank_code</code>.
+ </p>
+ <pre className="p-2.5 rounded bg-slate-950 text-blue-300 text-[10px] font-mono overflow-x-auto">
+{`curl -X GET "${baseUrl}/api/v1/banklist/" \
+ -H "Authorization: Bearer ${rawKey}"`}
+ </pre>
+ </div>
+
+ {/* Payin Status API */}
+ <div className="p-4 rounded-md border border-slate-200 bg-white space-y-2">
+ <div className="flex items-center gap-2">
+ <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white font-mono">GET</span>
+ <span className="font-mono text-xs font-bold text-slate-900">/api/v1/payin/status/</span>
+ </div>
+ <p className="text-[11px] text-slate-600 leading-relaxed">
+ Polls the real-time status of a customer deposit by reference (<code className="font-mono">?reference=DEP_TXN_001</code>).
+ </p>
+ <pre className="p-2.5 rounded bg-slate-950 text-indigo-300 text-[10px] font-mono overflow-x-auto">
+{`curl -X GET "${baseUrl}/api/v1/payin/status/?reference=DEP_TXN_001" \
+ -H "Authorization: Bearer ${rawKey}"`}
+ </pre>
+ </div>
+ </div>
+ </div>
+ )}
+ </div>
+ </div>
+ )}
+
 
  {/* ─────────────────────────────────────────────────────────────
  TAB 7: TRANSACTION LEDGER
