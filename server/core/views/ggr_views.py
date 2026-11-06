@@ -335,7 +335,9 @@ def admin_shareholder_dashboard(request):
     api_withdraw_revenue = ShareholderRevenueLog.objects.filter(source=ShareholderRevenueLog.SOURCE_API_WITHDRAW).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
 
     # Current user's shareholder wallet (if user is shareholder)
-    shareholder_wallet = ShareholderWallet.objects.filter(shareholder=user).first()
+    shareholder_wallet = None
+    if user.role == User.ROLE_SHAREHOLDER or user.is_superuser:
+        shareholder_wallet = ensure_shareholder_wallet(user)
     my_balance = str(shareholder_wallet.balance) if shareholder_wallet else '0.00'
     my_total_earned = str(shareholder_wallet.total_earned) if shareholder_wallet else '0.00'
     my_total_withdrawn = str(shareholder_wallet.total_withdrawn) if shareholder_wallet else '0.00'
@@ -508,11 +510,12 @@ def admin_shareholder_dashboard(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffUser])
+@permission_classes([IsAuthenticated, IsStaffOrShareholder])
 def admin_shareholder_withdraw(request):
     """
     Shareholder withdraws their balance.
-    Body: {"amount": 5000, "payout_method": "bank", "account_name": "Ravi", "account_number": "123", "bank_name": "Nabil"}
+    Body: {"amount": 5000, "payout_account_id": 1}
+    or: {"amount": 5000, "payout_method": "bank", "account_name": "Ravi", "account_number": "123", "bank_name": "Nabil", "save_account": true}
     """
     user = request.user
     if user.role != User.ROLE_SHAREHOLDER and not user.is_superuser:
@@ -527,6 +530,9 @@ def admin_shareholder_withdraw(request):
     account_name = request.data.get('account_name', '').strip()
     account_number = request.data.get('account_number', '').strip()
     bank_name = request.data.get('bank_name', '').strip()
+    branch = request.data.get('branch', '').strip()
+    save_account = bool(request.data.get('save_account', False))
+    account_label = request.data.get('account_label', '').strip()
 
     if payout_account_id:
         pa = ShareholderPayoutAccount.objects.filter(pk=payout_account_id, shareholder=user).first()
@@ -541,6 +547,21 @@ def admin_shareholder_withdraw(request):
             {'error': 'Validation error', 'message': 'Account name and account number are required, or choose a saved payout account.'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    else:
+        # If shareholder chose to save custom account for future withdrawals
+        if save_account:
+            has_accounts = ShareholderPayoutAccount.objects.filter(shareholder=user).exists()
+            pa = ShareholderPayoutAccount.objects.create(
+                shareholder=user,
+                method=payout_method if payout_method in ('bank', 'esewa', 'khalti') else 'bank',
+                label=account_label or (f"{bank_name or payout_method.upper()} - {account_name}"[:100]),
+                account_name=account_name,
+                account_number=account_number,
+                bank_name=bank_name,
+                branch=branch,
+                is_default=not has_accounts,
+            )
+            payout_account_id = pa.id
 
     try:
         amount = Decimal(str(raw_amount))
@@ -559,11 +580,13 @@ def admin_shareholder_withdraw(request):
             bank_name=bank_name,
             payout_account_id=payout_account_id,
         )
+        wallet = ensure_shareholder_wallet(user)
         return Response({
             'success': True,
             'message': f'Withdrawal of NPR {amount} processed successfully.',
             'withdrawal_id': withdrawal.id,
-            'remaining_balance': str(user.shareholder_wallet.balance),
+            'remaining_balance': str(wallet.balance),
+            'payout_account_id': payout_account_id,
         })
     except (ValueError, PermissionError) as exc:
         return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -638,7 +661,7 @@ def admin_settle_monthly_ggr(request):
 
 
 @api_view(['GET', 'POST'])
-@permission_classes([IsAuthenticated, IsStaffUser])
+@permission_classes([IsAuthenticated, IsStaffOrShareholder])
 def admin_shareholder_payout_accounts(request):
     """
     List or create payout accounts for the authenticated shareholder.
@@ -718,8 +741,8 @@ def admin_shareholder_payout_accounts(request):
     }, status=status.HTTP_201_CREATED)
 
 
-@api_view(['PUT', 'DELETE'])
-@permission_classes([IsAuthenticated, IsStaffUser])
+@api_view(['PUT', 'PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated, IsStaffOrShareholder])
 def admin_shareholder_payout_account_detail(request, pk):
     user = request.user
     pa = ShareholderPayoutAccount.objects.filter(pk=pk).first()
@@ -730,7 +753,7 @@ def admin_shareholder_payout_account_detail(request, pk):
         pa.delete()
         return Response({'success': True, 'message': 'Payout account deleted successfully.'})
 
-    # PUT
+    # PUT or PATCH
     for field in ('method', 'label', 'account_name', 'account_number', 'bank_name', 'branch'):
         if field in request.data:
             setattr(pa, field, str(request.data[field]).strip())
@@ -742,11 +765,24 @@ def admin_shareholder_payout_account_detail(request, pk):
         pa.is_default = is_def
 
     pa.save()
-    return Response({'success': True, 'message': 'Payout account updated successfully.'})
+    return Response({
+        'success': True,
+        'message': 'Payout account updated successfully.',
+        'payout_account': {
+            'id': pa.id,
+            'method': pa.method,
+            'label': pa.label,
+            'account_name': pa.account_name,
+            'account_number': pa.account_number,
+            'bank_name': pa.bank_name,
+            'branch': pa.branch,
+            'is_default': pa.is_default,
+        }
+    })
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffUser])
+@permission_classes([IsAuthenticated, IsStaffOrShareholder])
 def admin_sync_historical_revenue(request):
     """
     Backfill / sync platform fees from all historical deposits and withdrawals to shareholders.

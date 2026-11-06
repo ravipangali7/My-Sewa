@@ -19,11 +19,34 @@ import {
   AlertCircle,
   Trash2,
   Check,
+  CheckCircle2,
   Star,
   Plus,
   KeyRound,
   Gamepad2,
 } from "lucide-react";
+
+const NEPAL_BANKS = [
+  "Nabil Bank",
+  "Global IME Bank",
+  "NIC Asia Bank",
+  "Nepal Investment Mega Bank (NIMB)",
+  "Sanima Bank",
+  "Everest Bank",
+  "Siddhartha Bank",
+  "Prabhu Bank",
+  "Himalayan Bank",
+  "Standard Chartered Bank Nepal",
+  "Rastriya Banijya Bank",
+  "Nepal Bank Limited",
+  "Agricultural Development Bank",
+  "Kumari Bank",
+  "Laxmi Sunrise Bank",
+  "Prime Commercial Bank",
+  "Citizens Bank International",
+  "Machhapuchchhre Bank",
+  "NMB Bank",
+];
 import { AdminShell } from "@/components/layout/AdminShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,6 +98,8 @@ function ShareholderAdminScreen() {
 
   // Saved Payout Accounts State
   const [selectedPayoutAccountId, setSelectedPayoutAccountId] = useState<string>("manual");
+  const [saveAccountForFuture, setSaveAccountForFuture] = useState(true);
+  const [customAccountLabel, setCustomAccountLabel] = useState("");
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [newAccountMethod, setNewAccountMethod] = useState<"bank" | "esewa" | "khalti">("bank");
   const [newAccountLabel, setNewAccountLabel] = useState("");
@@ -95,6 +120,40 @@ function ShareholderAdminScreen() {
     queryFn: () => apiClient.getShareholderDashboard(),
   });
 
+  const defaultPayoutAccount = useMemo(() => {
+    const list = data?.payout_accounts || [];
+    return list.find((a) => a.is_default) || (list.length > 0 ? list[0] : null);
+  }, [data?.payout_accounts]);
+
+  const openWithdrawModal = (presetAccountId?: string) => {
+    const accounts = data?.payout_accounts || [];
+    const targetId =
+      presetAccountId ||
+      (defaultPayoutAccount
+        ? String(defaultPayoutAccount.id)
+        : accounts.length > 0
+        ? String(accounts[0].id)
+        : "manual");
+    setSelectedPayoutAccountId(targetId);
+    if (targetId !== "manual") {
+      const acc = accounts.find((a) => String(a.id) === targetId);
+      if (acc) {
+        setPayoutMethod(acc.method);
+        setAccountName(acc.account_name);
+        setAccountNumber(acc.account_number);
+        setBankName(acc.bank_name || "");
+      }
+    }
+    setWithdrawModalOpen(true);
+  };
+
+  const handlePercentageWithdraw = (pct: number) => {
+    const balance = Number(data?.my_wallet?.balance || 0);
+    if (balance <= 0) return;
+    const amt = Math.floor((balance * pct) / 100);
+    setWithdrawAmount(String(amt));
+  };
+
   const [txnServiceFilter, setTxnServiceFilter] = useState<"all" | "payin" | "payout" | "ggr">("all");
 
   const filteredApiTxns = useMemo(() => {
@@ -113,6 +172,8 @@ function ShareholderAdminScreen() {
         account_name: isSaved ? undefined : accountName,
         account_number: isSaved ? undefined : accountNumber,
         bank_name: !isSaved && payoutMethod === "bank" ? bankName : undefined,
+        save_account: !isSaved ? saveAccountForFuture : undefined,
+        account_label: !isSaved && saveAccountForFuture ? customAccountLabel : undefined,
       });
     },
     onSuccess: (res) => {
@@ -122,11 +183,22 @@ function ShareholderAdminScreen() {
       setAccountName("");
       setAccountNumber("");
       setBankName("");
-      setSelectedPayoutAccountId("manual");
+      setCustomAccountLabel("");
       queryClient.invalidateQueries({ queryKey: ["shareholder-dashboard"] });
     },
     onError: (err: any) => {
       toast.error(err?.message || "Withdrawal failed.");
+    },
+  });
+
+  const setDefaultAccountMutation = useMutation({
+    mutationFn: (id: number) => apiClient.setDefaultShareholderPayoutAccount(id),
+    onSuccess: (res) => {
+      toast.success(res.message || "Default payout account updated.");
+      queryClient.invalidateQueries({ queryKey: ["shareholder-dashboard"] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to update default account.");
     },
   });
 
@@ -306,11 +378,11 @@ function ShareholderAdminScreen() {
               {data?.is_shareholder && (
                 <Button
                   size="sm"
-                  onClick={() => setWithdrawModalOpen(true)}
+                  onClick={() => openWithdrawModal()}
                   className="h-8 rounded-sm text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-2xs"
                 >
                   <Landmark className="h-3 w-3 mr-1.5" />
-                  Withdraw
+                  Withdraw Anytime
                 </Button>
               )}
             </div>
@@ -403,15 +475,51 @@ function ShareholderAdminScreen() {
                   <span>•</span>
                   <span>Equity: <strong className="text-emerald-700 font-mono">{data?.my_wallet?.share_percent}%</strong></span>
                 </div>
+
+                {defaultPayoutAccount ? (
+                  <div className="text-xs text-slate-600 pt-1 flex items-center gap-1.5 font-medium">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                    <span>
+                      Primary Payout:{" "}
+                      <strong className="text-slate-900">
+                        {defaultPayoutAccount.bank_name || defaultPayoutAccount.method.toUpperCase()}
+                      </strong>{" "}
+                      <span className="font-mono text-slate-700">({defaultPayoutAccount.account_number})</span> — {defaultPayoutAccount.account_name}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="text-xs text-amber-700 pt-1 flex items-center gap-1.5 font-medium">
+                    <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                    <span>No payout account linked yet.</span>
+                    <button
+                      type="button"
+                      onClick={() => setAddAccountModalOpen(true)}
+                      className="underline font-bold hover:text-amber-900 ml-1"
+                    >
+                      Add Account Now
+                    </button>
+                  </div>
+                )}
               </div>
 
-              <Button
-                onClick={() => setWithdrawModalOpen(true)}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-5 h-9 rounded-sm shadow-2xs text-xs self-start md:self-auto"
-              >
-                <Landmark className="h-3.5 w-3.5 mr-1.5" />
-                Request Withdrawal
-              </Button>
+              <div className="flex items-center gap-2 self-start md:self-auto">
+                <Button
+                  onClick={() => openWithdrawModal()}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-5 h-9 rounded-sm shadow-2xs text-xs"
+                >
+                  <Landmark className="h-3.5 w-3.5 mr-1.5" />
+                  Withdraw Anytime
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAddAccountModalOpen(true)}
+                  className="h-9 rounded-sm text-xs border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Add Account
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -813,29 +921,42 @@ function ShareholderAdminScreen() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-1">
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => {
-                          setSelectedPayoutAccountId(String(acc.id));
-                          setWithdrawModalOpen(true);
-                        }}
+                        onClick={() => openWithdrawModal(String(acc.id))}
                         className="h-7 text-xs rounded-sm text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 px-2 font-semibold"
                       >
                         <Landmark className="h-3 w-3 mr-1" />
                         Withdraw Here
                       </Button>
 
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => deleteAccountMutation.mutate(acc.id)}
-                        disabled={deleteAccountMutation.isPending}
-                        className="h-7 text-xs rounded-sm text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        {!acc.is_default && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setDefaultAccountMutation.mutate(acc.id)}
+                            disabled={setDefaultAccountMutation.isPending}
+                            className="h-7 text-[11px] rounded-sm text-slate-600 hover:text-amber-800 hover:bg-amber-50 px-2"
+                            title="Set as Default Payout Destination"
+                          >
+                            <Star className="h-3 w-3 mr-1 text-amber-500" />
+                            Default
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => deleteAccountMutation.mutate(acc.id)}
+                          disabled={deleteAccountMutation.isPending}
+                          className="h-7 text-xs rounded-sm text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2"
+                          title="Delete Account"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -971,10 +1092,10 @@ function ShareholderAdminScreen() {
 
         {/* MODAL: WITHDRAW */}
         <Dialog open={withdrawModalOpen} onOpenChange={setWithdrawModalOpen}>
-          <DialogContent className="sm:max-w-md bg-white border-slate-200 shadow-xl rounded-md">
+          <DialogContent className="sm:max-w-lg bg-white border-slate-200 shadow-xl rounded-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
-                <Landmark className="h-4 w-4 text-emerald-600" />
+              <DialogTitle className="flex items-center gap-2 text-slate-900 font-bold text-base">
+                <Landmark className="h-5 w-5 text-emerald-600" />
                 Withdraw Equity Dividends
               </DialogTitle>
               <DialogDescription className="text-xs text-slate-500">
@@ -982,125 +1103,261 @@ function ShareholderAdminScreen() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-3.5 py-1">
-              <div className="p-3 bg-slate-50 rounded-sm flex items-center justify-between border border-slate-200">
+            <div className="space-y-4 py-1">
+              {/* Available balance card with quick percent buttons */}
+              <div className="p-3.5 bg-gradient-to-r from-emerald-50/60 to-slate-50 rounded-md border border-emerald-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Available</div>
-                  <div className="text-base font-bold text-emerald-700 font-mono tabular-nums">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Available Withdrawable Balance
+                  </div>
+                  <div className="text-xl font-bold text-emerald-700 font-mono tabular-nums">
                     {formatNPR(Number(data?.my_wallet?.balance || 0))}
                   </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleMaxWithdraw}
-                  className="text-xs h-7 rounded-sm border-slate-200 bg-white hover:bg-slate-50"
-                >
-                  Max
-                </Button>
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="with-amount" className="text-xs font-semibold text-slate-700">Amount (NPR)</Label>
-                <Input
-                  id="with-amount"
-                  type="number"
-                  placeholder="e.g. 5000"
-                  value={withdrawAmount}
-                  onChange={(e) => setWithdrawAmount(e.target.value)}
-                  className="font-mono text-xs rounded-sm h-8 border-slate-200"
-                />
-              </div>
-
-              {data?.payout_accounts && data.payout_accounts.length > 0 && (
-                <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-slate-700">Destination Account</Label>
-                  <Select
-                    value={selectedPayoutAccountId}
-                    onValueChange={(val) => {
-                      setSelectedPayoutAccountId(val);
-                      if (val !== "manual") {
-                        const acc = data.payout_accounts?.find((a) => String(a.id) === val);
-                        if (acc) {
-                          setPayoutMethod(acc.method);
-                          setAccountName(acc.account_name);
-                          setAccountNumber(acc.account_number);
-                          setBankName(acc.bank_name || "");
-                        }
-                      }
-                    }}
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePercentageWithdraw(25)}
+                    className="text-[11px] h-7 px-2 rounded-xs border-slate-200 bg-white hover:bg-emerald-50 hover:text-emerald-700"
                   >
-                    <SelectTrigger className="text-xs h-8 rounded-sm border-slate-200">
-                      <SelectValue placeholder="Choose account" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-sm border-slate-200 bg-white">
-                      {data.payout_accounts.map((acc) => (
-                        <SelectItem key={acc.id} value={String(acc.id)} className="text-xs">
-                          {acc.is_default ? "★ " : ""}{acc.method.toUpperCase()} - {acc.account_name} ({acc.account_number})
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="manual" className="text-xs">+ Enter Custom Account</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    25%
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePercentageWithdraw(50)}
+                    className="text-[11px] h-7 px-2 rounded-xs border-slate-200 bg-white hover:bg-emerald-50 hover:text-emerald-700"
+                  >
+                    50%
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePercentageWithdraw(75)}
+                    className="text-[11px] h-7 px-2 rounded-xs border-slate-200 bg-white hover:bg-emerald-50 hover:text-emerald-700"
+                  >
+                    75%
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleMaxWithdraw}
+                    className="text-[11px] h-7 px-2.5 rounded-xs border-emerald-300 bg-emerald-50 text-emerald-800 font-bold hover:bg-emerald-100"
+                  >
+                    Max
+                  </Button>
                 </div>
-              )}
+              </div>
 
-              {selectedPayoutAccountId === "manual" && (
-                <>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold text-slate-700">Method</Label>
-                    <Select value={payoutMethod} onValueChange={setPayoutMethod}>
-                      <SelectTrigger className="text-xs h-8 rounded-sm border-slate-200">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-sm border-slate-200 bg-white">
-                        <SelectItem value="bank" className="text-xs">Bank Transfer</SelectItem>
-                        <SelectItem value="esewa" className="text-xs">eSewa Wallet</SelectItem>
-                        <SelectItem value="khalti" className="text-xs">Khalti Wallet</SelectItem>
-                      </SelectContent>
-                    </Select>
+              {/* Amount input */}
+              <div className="space-y-1">
+                <Label htmlFor="with-amount" className="text-xs font-semibold text-slate-700">
+                  Withdrawal Amount (NPR) *
+                </Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400">
+                    NPR
+                  </span>
+                  <Input
+                    id="with-amount"
+                    type="number"
+                    min="1"
+                    placeholder="e.g. 5000"
+                    value={withdrawAmount}
+                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                    className="font-mono text-sm pl-12 rounded-sm h-9 border-slate-200 font-bold text-slate-900"
+                  />
+                </div>
+                {Number(withdrawAmount) > Number(data?.my_wallet?.balance || 0) && (
+                  <p className="text-[11px] text-rose-600 font-medium">
+                    Amount exceeds your available balance of {formatNPR(Number(data?.my_wallet?.balance || 0))}.
+                  </p>
+                )}
+              </div>
+
+              {/* Destination Payout Account Section */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    Destination Payout Account *
+                  </Label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddAccountModalOpen(true);
+                    }}
+                    className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Add New Saved Account
+                  </button>
+                </div>
+
+                {/* If saved accounts exist, show visual cards */}
+                {data?.payout_accounts && data.payout_accounts.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-0.5">
+                    {data.payout_accounts.map((acc) => {
+                      const isSelected = selectedPayoutAccountId === String(acc.id);
+                      return (
+                        <div
+                          key={acc.id}
+                          onClick={() => {
+                            setSelectedPayoutAccountId(String(acc.id));
+                            setPayoutMethod(acc.method);
+                            setAccountName(acc.account_name);
+                            setAccountNumber(acc.account_number);
+                            setBankName(acc.bank_name || "");
+                          }}
+                          className={`cursor-pointer p-2.5 rounded-md border text-left transition-all relative ${
+                            isSelected
+                              ? "border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-500 shadow-2xs"
+                              : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1.5 mb-1">
+                            <span
+                              className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded-xs ${
+                                acc.method === "bank"
+                                  ? "bg-blue-50 text-blue-800 border border-blue-200"
+                                  : acc.method === "esewa"
+                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                  : "bg-purple-50 text-purple-800 border border-purple-200"
+                              }`}
+                            >
+                              {acc.method === "bank" ? "Bank" : acc.method.toUpperCase()}
+                            </span>
+                            {acc.is_default && (
+                              <span className="flex items-center gap-0.5 text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.2 rounded-xs border border-amber-200">
+                                <Star className="h-2 w-2 fill-amber-500 text-amber-500" />
+                                Default
+                              </span>
+                            )}
+                          </div>
+                          <div className="font-bold text-xs text-slate-900 truncate">
+                            {acc.bank_name || acc.label || acc.account_name}
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-600 truncate mt-0.5">
+                            {acc.account_number}
+                          </div>
+                          <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                            {acc.account_name}
+                          </div>
+                          {isSelected && (
+                            <div className="absolute top-2 right-2 text-emerald-600">
+                              <CheckCircle2 className="h-4 w-4" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    <div
+                      onClick={() => setSelectedPayoutAccountId("manual")}
+                      className={`cursor-pointer p-2.5 rounded-md border text-left transition-all flex flex-col justify-center items-center gap-1 ${
+                        selectedPayoutAccountId === "manual"
+                          ? "border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-500"
+                          : "border-dashed border-slate-300 bg-slate-50/50 hover:bg-slate-100 hover:border-slate-400"
+                      }`}
+                    >
+                      <Plus className="h-4 w-4 text-slate-600" />
+                      <span className="text-xs font-semibold text-slate-700">+ Custom Account</span>
+                      <span className="text-[10px] text-slate-400">Enter details manually</span>
+                    </div>
                   </div>
+                )}
 
-                  {payoutMethod === "bank" && (
+                {/* If manual custom account chosen OR no accounts saved */}
+                {(selectedPayoutAccountId === "manual" || !data?.payout_accounts || data.payout_accounts.length === 0) && (
+                  <div className="space-y-3 p-3 bg-slate-50/80 rounded-md border border-slate-200">
                     <div className="space-y-1">
-                      <Label htmlFor="bank-name" className="text-xs font-semibold text-slate-700">Bank Name</Label>
+                      <Label className="text-xs font-semibold text-slate-700">Account Type</Label>
+                      <Select value={payoutMethod} onValueChange={setPayoutMethod}>
+                        <SelectTrigger className="text-xs h-8 rounded-sm border-slate-200 bg-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-sm border-slate-200 bg-white">
+                          <SelectItem value="bank" className="text-xs">Bank Transfer</SelectItem>
+                          <SelectItem value="esewa" className="text-xs">eSewa Wallet</SelectItem>
+                          <SelectItem value="khalti" className="text-xs">Khalti Wallet</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {payoutMethod === "bank" && (
+                      <div className="space-y-1">
+                        <Label htmlFor="bank-name" className="text-xs font-semibold text-slate-700">Bank Name *</Label>
+                        <Input
+                          id="bank-name"
+                          list="nepal-banks-list"
+                          placeholder="e.g. Nabil Bank, Global IME"
+                          value={bankName}
+                          onChange={(e) => setBankName(e.target.value)}
+                          className="text-xs h-8 rounded-sm border-slate-200 bg-white"
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-1">
+                      <Label htmlFor="acc-name" className="text-xs font-semibold text-slate-700">Account Holder Name *</Label>
                       <Input
-                        id="bank-name"
-                        placeholder="e.g. Nabil Bank"
-                        value={bankName}
-                        onChange={(e) => setBankName(e.target.value)}
-                        className="text-xs h-8 rounded-sm border-slate-200"
+                        id="acc-name"
+                        placeholder="Registered official name"
+                        value={accountName}
+                        onChange={(e) => setAccountName(e.target.value)}
+                        className="text-xs h-8 rounded-sm border-slate-200 bg-white"
                       />
                     </div>
-                  )}
 
-                  <div className="space-y-1">
-                    <Label htmlFor="acc-name" className="text-xs font-semibold text-slate-700">Account Holder Name</Label>
-                    <Input
-                      id="acc-name"
-                      placeholder="Official account name"
-                      value={accountName}
-                      onChange={(e) => setAccountName(e.target.value)}
-                      className="text-xs h-8 rounded-sm border-slate-200"
-                    />
-                  </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="acc-num" className="text-xs font-semibold text-slate-700">
+                        {payoutMethod === "bank" ? "Account Number *" : "Registered Mobile / ID *"}
+                      </Label>
+                      <Input
+                        id="acc-num"
+                        placeholder={payoutMethod === "bank" ? "e.g. 0123456789" : "98XXXXXXXX"}
+                        value={accountNumber}
+                        onChange={(e) => setAccountNumber(e.target.value)}
+                        className="font-mono text-xs h-8 rounded-sm border-slate-200 bg-white"
+                      />
+                    </div>
 
-                  <div className="space-y-1">
-                    <Label htmlFor="acc-num" className="text-xs font-semibold text-slate-700">Account / Mobile Number</Label>
-                    <Input
-                      id="acc-num"
-                      placeholder="Account number or wallet phone"
-                      value={accountNumber}
-                      onChange={(e) => setAccountNumber(e.target.value)}
-                      className="font-mono text-xs h-8 rounded-sm border-slate-200"
-                    />
+                    {/* SAVE ACCOUNT CHECKBOX */}
+                    <div className="pt-1.5 border-t border-slate-200 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="save-account-future"
+                          checked={saveAccountForFuture}
+                          onChange={(e) => setSaveAccountForFuture(e.target.checked)}
+                          className="h-3.5 w-3.5 rounded-xs border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                        />
+                        <Label htmlFor="save-account-future" className="text-xs font-medium text-slate-700 cursor-pointer">
+                          Save this payout account for future 1-click withdrawals
+                        </Label>
+                      </div>
+
+                      {saveAccountForFuture && (
+                        <div className="pl-5.5">
+                          <Input
+                            placeholder="Account Label (e.g. Primary Nabil Account)"
+                            value={customAccountLabel}
+                            onChange={(e) => setCustomAccountLabel(e.target.value)}
+                            className="text-xs h-7 rounded-sm border-slate-200 bg-white"
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </>
-              )}
+                )}
+              </div>
             </div>
 
-            <DialogFooter className="gap-2 sm:gap-0 pt-2">
+            <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t border-slate-100">
               <Button variant="outline" size="sm" onClick={() => setWithdrawModalOpen(false)} className="rounded-sm text-xs h-8">
                 Cancel
               </Button>
@@ -1112,12 +1369,14 @@ function ShareholderAdminScreen() {
                   !withdrawAmount ||
                   Number(withdrawAmount) <= 0 ||
                   Number(withdrawAmount) > Number(data?.my_wallet?.balance || 0) ||
-                  !accountName ||
-                  !accountNumber
+                  (selectedPayoutAccountId === "manual" &&
+                    (!accountName.trim() || !accountNumber.trim() || (payoutMethod === "bank" && !bankName.trim())))
                 }
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-sm text-xs h-8"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-sm text-xs h-8 px-4"
               >
-                {withdrawMutation.isPending ? "Processing..." : "Confirm"}
+                {withdrawMutation.isPending
+                  ? "Processing..."
+                  : `Confirm Withdrawal (NPR ${withdrawAmount || "0"})`}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1244,11 +1503,17 @@ function ShareholderAdminScreen() {
                     <Label htmlFor="new-bank-name" className="text-xs font-semibold text-slate-700">Bank Name *</Label>
                     <Input
                       id="new-bank-name"
+                      list="nepal-banks-list"
                       placeholder="e.g. Nabil Bank, Global IME"
                       value={newBankName}
                       onChange={(e) => setNewBankName(e.target.value)}
                       className="text-xs h-8 rounded-sm border-slate-200"
                     />
+                    <datalist id="nepal-banks-list">
+                      {NEPAL_BANKS.map((b) => (
+                        <option key={b} value={b} />
+                      ))}
+                    </datalist>
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="new-bank-branch" className="text-xs font-semibold text-slate-700">Branch Name</Label>

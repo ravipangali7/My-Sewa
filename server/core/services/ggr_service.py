@@ -418,7 +418,7 @@ def execute_shareholder_withdrawal(
     if amount <= Decimal('0.00'):
         raise ValueError("Withdrawal amount must be positive.")
 
-    if shareholder.role != User.ROLE_SHAREHOLDER:
+    if shareholder.role != User.ROLE_SHAREHOLDER and not getattr(shareholder, 'is_superuser', False):
         raise PermissionError("Only shareholders can withdraw from service revenue.")
 
     payout_account = None
@@ -435,9 +435,10 @@ def execute_shareholder_withdrawal(
         payout_method = ShareholderWithdrawal.METHOD_BANK
 
     with transaction.atomic():
-        wallet = ShareholderWallet.objects.select_for_update().filter(shareholder=shareholder).first()
-        if not wallet or wallet.balance < amount:
-            avail = wallet.balance if wallet else Decimal('0.00')
+        wallet = ensure_shareholder_wallet(shareholder)
+        wallet = ShareholderWallet.objects.select_for_update().get(pk=wallet.pk)
+        if wallet.balance < amount:
+            avail = wallet.balance
             raise ValueError(f"Insufficient revenue balance. Available: NPR {avail}, requested: NPR {amount}")
 
         wallet.balance -= amount

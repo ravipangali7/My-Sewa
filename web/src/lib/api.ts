@@ -2294,8 +2294,11 @@ export const apiClient = {
     account_name?: string;
     account_number?: string;
     bank_name?: string;
+    branch?: string;
+    save_account?: boolean;
+    account_label?: string;
   }) =>
-    api<{ success: boolean; message: string; withdrawal_id: number; remaining_balance: string }>(
+    api<{ success: boolean; message: string; withdrawal_id: number; remaining_balance: string; payout_account_id?: number }>(
       "/api/admin/shareholders/withdraw/",
       { method: "POST", body: payload },
     ),
@@ -2313,6 +2316,11 @@ export const apiClient = {
     api<{ success: boolean; message: string; payout_account: import("./types").ShareholderPayoutAccountItem }>(
       "/api/admin/shareholders/payout-accounts/",
       { method: "POST", body: payload },
+    ),
+  setDefaultShareholderPayoutAccount: (id: number) =>
+    api<{ success: boolean; message: string; payout_account?: import("./types").ShareholderPayoutAccountItem }>(
+      `/api/admin/shareholders/payout-accounts/${id}/`,
+      { method: "PATCH", body: { is_default: true } },
     ),
   deleteShareholderPayoutAccount: (id: number) =>
     api<{ success: boolean; message: string }>(
