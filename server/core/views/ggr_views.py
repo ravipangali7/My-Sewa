@@ -365,7 +365,10 @@ def admin_shareholder_dashboard(request):
     for p in api_partners:
         p_payin_vol = ApiPayinLog.objects.filter(user=p, status='success').aggregate(t=Sum('amount'))['t'] or Decimal('0.00')
         p_payout_vol = ApiFundTransferLog.objects.filter(user=p, status='success').aggregate(t=Sum('amount'))['t'] or Decimal('0.00')
-        p_ggr_wallet = getattr(p, 'ggr_wallet', None)
+        try:
+            p_ggr_wallet = getattr(p, 'ggr_wallet', None)
+        except Exception:
+            p_ggr_wallet = None
         api_partners_data.append({
             'id': p.id,
             'phone': p.phone,
@@ -383,7 +386,7 @@ def admin_shareholder_dashboard(request):
             'is_api_user': bool(p.is_api_user),
             'payin_volume': str(p_payin_vol),
             'payout_volume': str(p_payout_vol),
-            'ggr_balance': str(p_ggr_wallet.balance) if p_ggr_wallet else '0.00',
+            'ggr_balance': str(getattr(p_ggr_wallet, 'coin_balance', getattr(p_ggr_wallet, 'balance', '0.00')) if p_ggr_wallet else '0.00'),
             'created_at': p.date_joined.isoformat(),
         })
 

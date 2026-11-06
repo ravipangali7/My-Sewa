@@ -4184,6 +4184,11 @@ class GgrWallet(models.Model):
     def __str__(self):
         return f"GGR Wallet ({self.user.phone}) - {self.coin_balance} Coins"
 
+    @property
+    def balance(self) -> Decimal:
+        """Alias for coin_balance."""
+        return self.coin_balance or Decimal('0.00')
+
     class Meta:
         verbose_name = 'GGR Wallet'
         verbose_name_plural = 'GGR Wallets'
