@@ -327,10 +327,13 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
 
  const paymentApiWithdrawMutation = useMutation({
  mutationFn: async () => {
- const targetBankCode = savedBank?.bank_code || withdrawBankCode;
- const targetBankName = savedBank?.bank_name || withdrawBankName;
- const targetAccNum = savedBank?.account_number || withdrawAccNumber;
- const targetAccName = savedBank?.account_name || withdrawAccName;
+ if (!savedBank) {
+ throw new Error("No verified payout account configured. Please link and verify a bank account first.");
+ }
+ const targetBankCode = savedBank.bank_code;
+ const targetBankName = savedBank.bank_name;
+ const targetAccNum = savedBank.account_number;
+ const targetAccName = savedBank.account_name;
 
  // Execute via Payment API Withdraw
  const res = await apiClient.paymentApiWithdraw({
@@ -360,9 +363,9 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  return res;
  },
  onSuccess: (res) => {
- const targetBankName = savedBank?.bank_name || withdrawBankName;
- const targetAccNum = savedBank?.account_number || withdrawAccNumber;
- const targetAccName = savedBank?.account_name || withdrawAccName;
+ const targetBankName = savedBank?.bank_name || "";
+ const targetAccNum = savedBank?.account_number || "";
+ const targetAccName = savedBank?.account_name || "";
  const isoTime = new Date().toISOString();
 
  // Generate Payout Verification QR Code
@@ -436,6 +439,10 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  const handleSaveSetupBankAccount = () => {
  if (!setupBankCode || !setupAccNumber || !setupAccName) {
  toast.error("Please provide Bank, Account Number, and Account Name.");
+ return;
+ }
+ if (!setupAccountVerified) {
+ toast.error("Please verify the bank account with HimalPay before saving.");
  return;
  }
  const newAccount: SavedPayoutBankAccount = {
@@ -771,43 +778,43 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  </div>
  </div>
 
- {/* KPI 2: Production Payin (Deposit) Rate */}
- <div className="rounded-md border border-slate-200 bg-white p-5 shadow-xs space-y-2 hover:border-blue-500/40 transition-colors">
- <div className="flex items-center justify-between">
- <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
- <CreditCard className="size-4 text-blue-600" />
- Deposit Rate
- </span>
- <span className="text-[10px] font-mono font-bold text-blue-700 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.5 rounded">
- FIXED
- </span>
- </div>
- <div className="text-2xl font-bold tracking-tight font-mono text-slate-900 ">
- {depFeePct}%
- </div>
- <p className="text-[11px] text-slate-500 ">
- Payin fee automatically deducted upon player credit
- </p>
- </div>
+        {/* KPI 2: Total Settled Deposits */}
+        <div className="rounded-md border border-slate-200 bg-white p-5 shadow-xs space-y-2 hover:border-blue-500/40 transition-colors">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <CreditCard className="size-4 text-blue-600" />
+              Total Deposits
+            </span>
+            <span className="text-[10px] font-mono font-bold text-blue-700 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.5 rounded">
+              FEE: {depFeePct}%
+            </span>
+          </div>
+          <div className="text-2xl font-bold tracking-tight font-mono text-slate-900 ">
+            {isLoading ? "..." : formatNPR(Number(data?.total_deposited || 0))}
+          </div>
+          <p className="text-[11px] text-slate-500 ">
+            Total settled deposits ({data?.total_deposits_count || 0} transactions)
+          </p>
+        </div>
 
- {/* KPI 3: Production Payout Rate */}
- <div className="rounded-md border border-slate-200 bg-white p-5 shadow-xs space-y-2 hover:border-indigo-500/40 transition-colors">
- <div className="flex items-center justify-between">
- <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
- <ArrowUpRight className="size-4 text-indigo-600" />
- Payout Rate
- </span>
- <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded">
- FIXED
- </span>
- </div>
- <div className="text-2xl font-bold tracking-tight font-mono text-slate-900 ">
- {wthFeePct}%
- </div>
- <p className="text-[11px] text-slate-500 ">
- Debited per player payout or bank settlement
- </p>
- </div>
+        {/* KPI 3: Total Bank Payouts */}
+        <div className="rounded-md border border-slate-200 bg-white p-5 shadow-xs space-y-2 hover:border-indigo-500/40 transition-colors">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <ArrowUpRight className="size-4 text-indigo-600" />
+              Total Payouts
+            </span>
+            <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded">
+              FEE: {wthFeePct}%
+            </span>
+          </div>
+          <div className="text-2xl font-bold tracking-tight font-mono text-slate-900 ">
+            {isLoading ? "..." : formatNPR(Number(data?.total_withdrawn || 0))}
+          </div>
+          <p className="text-[11px] text-slate-500 ">
+            Total bank payouts ({data?.total_payouts_count || 0} transactions)
+          </p>
+        </div>
 
  {/* KPI 4: Gateway Status & SLA */}
  <div className="rounded-md border border-slate-200 bg-white p-5 shadow-xs space-y-2 hover:border-purple-500/40 transition-colors">
@@ -962,7 +969,11 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  <td className="p-2.5">
  <span
  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
- t.txn_type === "buy"
+ t.txn_type === "deposit" || t.txn_type === "payin"
+                                ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-400"
+                                : t.txn_type === "withdraw" || t.txn_type === "payout"
+                                ? "bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-400"
+                                : t.txn_type === "buy"
  ? "bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-400"
  : t.txn_type === "player_win"
  ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-400"
@@ -976,10 +987,10 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  </td>
  <td
  className={`p-2.5 font-mono font-bold ${
- Number(t.amount) >= 0 ? "text-emerald-600" : "text-red-500"
+ t.txn_type === "withdraw" || t.txn_type === "transfer" || String(t.amount).startsWith("-") || Number(t.amount) < 0 ? "text-red-500" : "text-emerald-600"
  }`}
  >
- {Number(t.amount) >= 0 ? `+${t.amount}` : t.amount}
+ {t.txn_type === "withdraw" || t.txn_type === "transfer" || String(t.amount).startsWith("-") || Number(t.amount) < 0 ? (String(t.amount).startsWith("-") ? t.amount : `-${t.amount}`) : (String(t.amount).startsWith("+") ? t.amount : `+${t.amount}`)}
  </td>
  <td className="p-2.5 font-mono">{t.balance_after}</td>
  <td className="p-2.5 font-mono text-slate-500">{t.reference}</td>
@@ -2254,6 +2265,9 @@ console.log(await res.json());`}
  className="h-8 text-xs border border-slate-200 rounded-md px-2 bg-white text-slate-900 "
  >
  <option value="all">All Types</option>
+                      <option value="deposit">Deposits (Payin)</option>
+                      <option value="withdraw">Withdrawals (Payout)</option>
+                      <option value="transfer">API Transfers</option>
  <option value="buy">Coin Purchases</option>
  <option value="player_win">Player Wins</option>
  <option value="player_loss">Player Losses</option>
@@ -2284,7 +2298,11 @@ console.log(await res.json());`}
  <td className="p-2.5">
  <span
  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
- t.txn_type === "buy"
+ t.txn_type === "deposit" || t.txn_type === "payin"
+                                ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-400"
+                                : t.txn_type === "withdraw" || t.txn_type === "payout"
+                                ? "bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-400"
+                                : t.txn_type === "buy"
  ? "bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-400"
  : t.txn_type === "player_win"
  ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-400"
@@ -2298,10 +2316,10 @@ console.log(await res.json());`}
  </td>
  <td
  className={`p-2.5 font-mono font-bold ${
- Number(t.amount) >= 0 ? "text-emerald-600" : "text-red-500"
+ t.txn_type === "withdraw" || t.txn_type === "transfer" || String(t.amount).startsWith("-") || Number(t.amount) < 0 ? "text-red-500" : "text-emerald-600"
  }`}
  >
- {Number(t.amount) >= 0 ? `+${t.amount}` : t.amount}
+ {t.txn_type === "withdraw" || t.txn_type === "transfer" || String(t.amount).startsWith("-") || Number(t.amount) < 0 ? (String(t.amount).startsWith("-") ? t.amount : `-${t.amount}`) : (String(t.amount).startsWith("+") ? t.amount : `+${t.amount}`)}
  </td>
  <td className="p-2.5 font-mono">{t.balance_after}</td>
  <td className="p-2.5 font-mono text-slate-500">{t.reference}</td>
@@ -2769,64 +2787,54 @@ console.log(await res.json());`}
  <div className="space-y-1.5">
  <div className="flex items-center justify-between">
  <Label className="text-xs">Destination Bank Account</Label>
+ {savedBank && (
  <button
  type="button"
  onClick={() => {
  setWithdrawModalOpen(false);
  setBankSetupModalOpen(true);
  }}
- className="text-[11px] text-blue-600 hover:underline cursor-pointer"
+ className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold cursor-pointer"
  >
- Change Account
+ Change / Update Account
  </button>
+ )}
  </div>
 
  {savedBank ? (
- <div className="p-3 rounded-sm border border-slate-200 bg-white text-xs font-mono space-y-1">
+ <div className="p-3 rounded-md border border-slate-200 bg-white text-xs font-mono space-y-1">
  <div className="flex items-center justify-between">
- <span className="font-bold text-slate-900 ">{savedBank.bank_name}</span>
- <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
- <CheckCircle2 className="size-3" /> Verified
+ <span className="font-bold text-slate-900 text-sm">{savedBank.bank_name}</span>
+ <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1 font-sans">
+ <CheckCircle2 className="size-3" /> Verified Saved Account
  </span>
  </div>
- <p className="text-slate-500">Account: {savedBank.account_number}</p>
- <p className="text-slate-500">Name: {savedBank.account_name}</p>
+ <p className="text-slate-600">Account: <span className="font-semibold text-slate-900">{savedBank.account_number}</span></p>
+ <p className="text-slate-600">Holder: <span className="font-semibold text-slate-900">{savedBank.account_name}</span></p>
+ {savedBank.bank_code && (
+ <p className="text-slate-400 text-[10px]">Bank Code: {savedBank.bank_code}</p>
+ )}
  </div>
  ) : (
- <div className="space-y-2">
- <BankCombobox
- banks={nepaliBanks}
- value={withdrawBankCode}
- onChange={(b) => {
- setWithdrawBankCode(b.bank_code);
- setWithdrawBankName(b.bank_name);
- }}
- placeholder="Select Nepali Bank..."
- />
- <Input
- placeholder="Account Number"
- value={withdrawAccNumber}
- onChange={(e) => setWithdrawAccNumber(e.target.value)}
- className="text-xs font-mono h-8.5"
- />
- <div className="flex gap-2">
- <Input
- placeholder="Account Holder Name"
- value={withdrawAccName}
- onChange={(e) => setWithdrawAccName(e.target.value)}
- className="text-xs h-8.5 flex-1"
- />
- <Button
- type="button"
- size="sm"
- variant="outline"
- onClick={verifyWithdrawBankAccount}
- disabled={isVerifyingWithdrawBank}
- className="h-8.5 text-xs text-blue-600"
- >
- {isVerifyingWithdrawBank ? "..." : "Verify"}
- </Button>
+ <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-center space-y-3">
+ <Landmark className="size-8 mx-auto text-amber-600" />
+ <div className="space-y-1">
+ <p className="text-xs font-bold text-amber-900">No Verified Payout Account Linked</p>
+ <p className="text-[11px] text-amber-700">
+ You must link and verify your payout bank account with HimalPay before making a withdrawal.
+ </p>
  </div>
+ <Button
+ size="sm"
+ type="button"
+ onClick={() => {
+ setWithdrawModalOpen(false);
+ setBankSetupModalOpen(true);
+ }}
+ className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 cursor-pointer"
+ >
+ <Plus className="size-3.5 mr-1" /> Configure Payout Account
+ </Button>
  </div>
  )}
  </div>
@@ -2887,6 +2895,7 @@ console.log(await res.json());`}
  onClick={() => paymentApiWithdrawMutation.mutate()}
  disabled={
  paymentApiWithdrawMutation.isPending ||
+ !savedBank ||
  !withdrawAmount ||
  Number(withdrawAmount) <= 0 ||
  Number(calcWthTotal) > cashBalance
@@ -2918,13 +2927,14 @@ console.log(await res.json());`}
 
  <div className="space-y-4 py-2">
  <div className="space-y-1.5">
- <Label className="text-xs">Bank Name</Label>
+ <Label className="text-xs">Bank Name *</Label>
  <BankCombobox
  banks={nepaliBanks}
  value={setupBankCode}
- onChange={(b) => {
- setSetupBankCode(b.bank_code);
- setSetupBankName(b.bank_name);
+ onChange={(bankCode) => {
+ const selected = nepaliBanks.find((b) => b.bank_code === bankCode);
+ setSetupBankCode(bankCode);
+ setSetupBankName(selected?.bank_name || "");
  setSetupAccountVerified(false);
  }}
  placeholder="Search Nepali Commercial Bank..."
@@ -2932,7 +2942,7 @@ console.log(await res.json());`}
  </div>
 
  <div className="space-y-1.5">
- <Label htmlFor="setup-acc-num" className="text-xs">Account Number</Label>
+ <Label htmlFor="setup-acc-num" className="text-xs">Account Number *</Label>
  <Input
  id="setup-acc-num"
  value={setupAccNumber}
@@ -2947,7 +2957,7 @@ console.log(await res.json());`}
 
  <div className="space-y-1.5">
  <div className="flex items-center justify-between">
- <Label htmlFor="setup-acc-name" className="text-xs">Account Holder Name</Label>
+ <Label htmlFor="setup-acc-name" className="text-xs">Account Holder Name *</Label>
  {setupAccountVerified && (
  <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1 font-mono">
  <CheckCircle2 className="size-3" /> Verified with Clearing Network
@@ -2958,7 +2968,10 @@ console.log(await res.json());`}
  <Input
  id="setup-acc-name"
  value={setupAccName}
- onChange={(e) => setSetupAccName(e.target.value)}
+ onChange={(e) => {
+ setSetupAccName(e.target.value);
+ setSetupAccountVerified(false);
+ }}
  placeholder="Official name on bank account"
  className="text-xs h-8.5 flex-1"
  />
@@ -2996,7 +3009,7 @@ console.log(await res.json());`}
  </Button>
  <Button
  onClick={handleSaveSetupBankAccount}
- disabled={!setupBankCode || !setupAccNumber || !setupAccName}
+ disabled={!setupAccountVerified || !setupBankCode || !setupAccNumber || !setupAccName}
  className="bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
  >
  Save Payout Bank Account

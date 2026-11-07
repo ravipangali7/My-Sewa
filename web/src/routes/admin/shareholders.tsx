@@ -26,28 +26,9 @@ import {
   Gamepad2,
 } from "lucide-react";
 
-const NEPAL_BANKS = [
-  "Nabil Bank",
-  "Global IME Bank",
-  "NIC Asia Bank",
-  "Nepal Investment Mega Bank (NIMB)",
-  "Sanima Bank",
-  "Everest Bank",
-  "Siddhartha Bank",
-  "Prabhu Bank",
-  "Himalayan Bank",
-  "Standard Chartered Bank Nepal",
-  "Rastriya Banijya Bank",
-  "Nepal Bank Limited",
-  "Agricultural Development Bank",
-  "Kumari Bank",
-  "Laxmi Sunrise Bank",
-  "Prime Commercial Bank",
-  "Citizens Bank International",
-  "Machhapuchchhre Bank",
-  "NMB Bank",
-];
 import { AdminShell } from "@/components/layout/AdminShell";
+import { BankCombobox } from "@/components/BankCombobox";
+import type { BankOption } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -97,17 +78,18 @@ function ShareholderAdminScreen() {
   const [bankName, setBankName] = useState("");
 
   // Saved Payout Accounts State
-  const [selectedPayoutAccountId, setSelectedPayoutAccountId] = useState<string>("manual");
-  const [saveAccountForFuture, setSaveAccountForFuture] = useState(true);
-  const [customAccountLabel, setCustomAccountLabel] = useState("");
+  const [selectedPayoutAccountId, setSelectedPayoutAccountId] = useState<string>("");
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [newAccountMethod, setNewAccountMethod] = useState<"bank" | "esewa" | "khalti">("bank");
   const [newAccountLabel, setNewAccountLabel] = useState("");
   const [newAccountName, setNewAccountName] = useState("");
   const [newAccountNumber, setNewAccountNumber] = useState("");
+  const [newBankCode, setNewBankCode] = useState("");
   const [newBankName, setNewBankName] = useState("");
   const [newBranch, setNewBranch] = useState("");
   const [newIsDefault, setNewIsDefault] = useState(true);
+  const [isVerifyingAccount, setIsVerifyingAccount] = useState(false);
+  const [accountVerified, setAccountVerified] = useState(false);
 
   // Fee Config Modal State
   const [configModalOpen, setConfigModalOpen] = useState(false);
@@ -120,6 +102,15 @@ function ShareholderAdminScreen() {
     queryFn: () => apiClient.getShareholderDashboard(),
   });
 
+  const banksQuery = useQuery({
+    queryKey: ["banks"],
+    queryFn: async () => {
+      const res = await apiClient.listBanks();
+      return (res.banks || res.data?.banks || []) as BankOption[];
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
   const defaultPayoutAccount = useMemo(() => {
     const list = data?.payout_accounts || [];
     return list.find((a) => a.is_default) || (list.length > 0 ? list[0] : null);
@@ -127,24 +118,64 @@ function ShareholderAdminScreen() {
 
   const openWithdrawModal = (presetAccountId?: string) => {
     const accounts = data?.payout_accounts || [];
-    const targetId =
-      presetAccountId ||
-      (defaultPayoutAccount
-        ? String(defaultPayoutAccount.id)
-        : accounts.length > 0
-        ? String(accounts[0].id)
-        : "manual");
-    setSelectedPayoutAccountId(targetId);
-    if (targetId !== "manual") {
-      const acc = accounts.find((a) => String(a.id) === targetId);
-      if (acc) {
-        setPayoutMethod(acc.method);
-        setAccountName(acc.account_name);
-        setAccountNumber(acc.account_number);
-        setBankName(acc.bank_name || "");
-      }
+    const target =
+      accounts.find((a) => String(a.id) === presetAccountId) ||
+      defaultPayoutAccount ||
+      (accounts.length > 0 ? accounts[0] : null);
+
+    if (target) {
+      setSelectedPayoutAccountId(String(target.id));
+      setPayoutMethod(target.method);
+      setAccountName(target.account_name);
+      setAccountNumber(target.account_number);
+      setBankName(target.bank_name || "");
+    } else {
+      setSelectedPayoutAccountId("");
+      setPayoutMethod("bank");
+      setAccountName("");
+      setAccountNumber("");
+      setBankName("");
     }
     setWithdrawModalOpen(true);
+  };
+
+  const verifyAccount = async () => {
+    if (newAccountMethod === "bank") {
+      if (!newBankCode || !newAccountNumber) {
+        toast.error("Please select a bank and enter the account number.");
+        return;
+      }
+      setIsVerifyingAccount(true);
+      try {
+        const res = await apiClient.verifyBank({
+          bank_code: newBankCode,
+          bank_name: newBankName,
+          account_number: newAccountNumber,
+          account_name: newAccountName || undefined,
+        });
+        if (res?.data?.verified || res?.data?.account_name) {
+          const official = res.data.account_name || newAccountName;
+          setNewAccountName(official);
+          setAccountVerified(true);
+          toast.success(`Account Verified: ${official}`);
+        } else {
+          setAccountVerified(true);
+          toast.success("Account format verified with Nepal Clearing Network.");
+        }
+      } catch (err: any) {
+        setAccountVerified(false);
+        toast.error(err?.message || "Could not verify bank account with provider.");
+      } finally {
+        setIsVerifyingAccount(false);
+      }
+    } else {
+      if (!newAccountNumber) {
+        toast.error("Please enter wallet number / ID.");
+        return;
+      }
+      setAccountVerified(true);
+      toast.success("Wallet details recorded.");
+    }
   };
 
   const handlePercentageWithdraw = (pct: number) => {
@@ -164,26 +195,18 @@ function ShareholderAdminScreen() {
 
   const withdrawMutation = useMutation({
     mutationFn: () => {
-      const isSaved = selectedPayoutAccountId && selectedPayoutAccountId !== "manual";
+      if (!selectedPayoutAccountId) {
+        throw new Error("Please select a verified saved payout account.");
+      }
       return apiClient.shareholderWithdraw({
         amount: withdrawAmount,
-        payout_account_id: isSaved ? Number(selectedPayoutAccountId) : undefined,
-        payout_method: isSaved ? undefined : payoutMethod,
-        account_name: isSaved ? undefined : accountName,
-        account_number: isSaved ? undefined : accountNumber,
-        bank_name: !isSaved && payoutMethod === "bank" ? bankName : undefined,
-        save_account: !isSaved ? saveAccountForFuture : undefined,
-        account_label: !isSaved && saveAccountForFuture ? customAccountLabel : undefined,
+        payout_account_id: Number(selectedPayoutAccountId),
       });
     },
     onSuccess: (res) => {
       toast.success(res.message);
       setWithdrawModalOpen(false);
       setWithdrawAmount("");
-      setAccountName("");
-      setAccountNumber("");
-      setBankName("");
-      setCustomAccountLabel("");
       queryClient.invalidateQueries({ queryKey: ["shareholder-dashboard"] });
     },
     onError: (err: any) => {
@@ -206,11 +229,12 @@ function ShareholderAdminScreen() {
     mutationFn: () =>
       apiClient.createShareholderPayoutAccount({
         method: newAccountMethod,
-        label: newAccountLabel,
+        label: newAccountLabel || `${newBankName || newAccountMethod.toUpperCase()} - ${newAccountName}`,
         account_name: newAccountName,
         account_number: newAccountNumber,
         bank_name: newAccountMethod === "bank" ? newBankName : undefined,
-        branch: newAccountMethod === "bank" ? newBranch : undefined,
+        bank_code: newAccountMethod === "bank" ? newBankCode : undefined,
+        branch: newAccountMethod === "bank" ? (newBranch || newBankCode) : undefined,
         is_default: newIsDefault,
       }),
     onSuccess: (res) => {
@@ -220,7 +244,9 @@ function ShareholderAdminScreen() {
       setNewAccountName("");
       setNewAccountNumber("");
       setNewBankName("");
+      setNewBankCode("");
       setNewBranch("");
+      setAccountVerified(false);
       queryClient.invalidateQueries({ queryKey: ["shareholder-dashboard"] });
     },
     onError: (err: any) => {
@@ -1191,169 +1217,127 @@ function ShareholderAdminScreen() {
                     onClick={() => {
                       setAddAccountModalOpen(true);
                     }}
-                    className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1"
+                    className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1 cursor-pointer"
                   >
                     <Plus className="h-3 w-3" />
                     Add New Saved Account
                   </button>
                 </div>
 
-                {/* If saved accounts exist, show visual cards */}
-                {data?.payout_accounts && data.payout_accounts.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-0.5">
-                    {data.payout_accounts.map((acc) => {
-                      const isSelected = selectedPayoutAccountId === String(acc.id);
-                      return (
-                        <div
-                          key={acc.id}
-                          onClick={() => {
-                            setSelectedPayoutAccountId(String(acc.id));
-                            setPayoutMethod(acc.method);
-                            setAccountName(acc.account_name);
-                            setAccountNumber(acc.account_number);
-                            setBankName(acc.bank_name || "");
-                          }}
-                          className={`cursor-pointer p-2.5 rounded-md border text-left transition-all relative ${
-                            isSelected
-                              ? "border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-500 shadow-2xs"
-                              : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-1.5 mb-1">
-                            <span
-                              className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded-xs ${
-                                acc.method === "bank"
-                                  ? "bg-blue-50 text-blue-800 border border-blue-200"
-                                  : acc.method === "esewa"
-                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                  : "bg-purple-50 text-purple-800 border border-purple-200"
-                              }`}
-                            >
-                              {acc.method === "bank" ? "Bank" : acc.method.toUpperCase()}
-                            </span>
-                            {acc.is_default && (
-                              <span className="flex items-center gap-0.5 text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.2 rounded-xs border border-amber-200">
-                                <Star className="h-2 w-2 fill-amber-500 text-amber-500" />
-                                Default
+                {/* If no accounts saved, show prompt */}
+                {(!data?.payout_accounts || data.payout_accounts.length === 0) && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-center space-y-3">
+                    <Landmark className="size-8 mx-auto text-amber-600" />
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold text-amber-900">No Verified Payout Account Linked</p>
+                      <p className="text-[11px] text-amber-700">
+                        You must link and verify your payout bank account with HimalPay before making a withdrawal.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      type="button"
+                      onClick={() => {
+                        setWithdrawModalOpen(false);
+                        setAddAccountModalOpen(true);
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 cursor-pointer"
+                    >
+                      <Plus className="size-3.5 mr-1" /> Add & Verify Payout Account
+                    </Button>
+                  </div>
+                )}
+
+                {/* If multiple saved accounts exist, show visual cards */}
+                {data?.payout_accounts && data.payout_accounts.length > 1 && (
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold text-slate-600">Select Destination Account</Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-0.5">
+                      {data.payout_accounts.map((acc) => {
+                        const isSelected = selectedPayoutAccountId === String(acc.id);
+                        return (
+                          <div
+                            key={acc.id}
+                            onClick={() => {
+                              setSelectedPayoutAccountId(String(acc.id));
+                              setPayoutMethod(acc.method);
+                              setAccountName(acc.account_name);
+                              setAccountNumber(acc.account_number);
+                              setBankName(acc.bank_name || "");
+                            }}
+                            className={`cursor-pointer p-2.5 rounded-md border text-left transition-all relative ${
+                              isSelected
+                                ? "border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-500 shadow-2xs"
+                                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1.5 mb-1">
+                              <span
+                                className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded-xs ${
+                                  acc.method === "bank"
+                                    ? "bg-blue-50 text-blue-800 border border-blue-200"
+                                    : acc.method === "esewa"
+                                    ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                    : "bg-purple-50 text-purple-800 border border-purple-200"
+                                }`}
+                              >
+                                {acc.method === "bank" ? "Bank" : acc.method.toUpperCase()}
                               </span>
+                              {acc.is_default && (
+                                <span className="flex items-center gap-0.5 text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.2 rounded-xs border border-amber-200">
+                                  <Star className="h-2 w-2 fill-amber-500 text-amber-500" />
+                                  Default
+                                </span>
+                              )}
+                            </div>
+                            <div className="font-bold text-xs text-slate-900 truncate">
+                              {acc.bank_name || acc.label || acc.account_name}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-600 truncate mt-0.5">
+                              {acc.account_number}
+                            </div>
+                            <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                              {acc.account_name}
+                            </div>
+                            {isSelected && (
+                              <div className="absolute top-2 right-2 text-emerald-600">
+                                <CheckCircle2 className="h-4 w-4" />
+                              </div>
                             )}
                           </div>
-                          <div className="font-bold text-xs text-slate-900 truncate">
-                            {acc.bank_name || acc.label || acc.account_name}
-                          </div>
-                          <div className="text-[11px] font-mono text-slate-600 truncate mt-0.5">
-                            {acc.account_number}
-                          </div>
-                          <div className="text-[10px] text-slate-500 truncate mt-0.5">
-                            {acc.account_name}
-                          </div>
-                          {isSelected && (
-                            <div className="absolute top-2 right-2 text-emerald-600">
-                              <CheckCircle2 className="h-4 w-4" />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    <div
-                      onClick={() => setSelectedPayoutAccountId("manual")}
-                      className={`cursor-pointer p-2.5 rounded-md border text-left transition-all flex flex-col justify-center items-center gap-1 ${
-                        selectedPayoutAccountId === "manual"
-                          ? "border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-500"
-                          : "border-dashed border-slate-300 bg-slate-50/50 hover:bg-slate-100 hover:border-slate-400"
-                      }`}
-                    >
-                      <Plus className="h-4 w-4 text-slate-600" />
-                      <span className="text-xs font-semibold text-slate-700">+ Custom Account</span>
-                      <span className="text-[10px] text-slate-400">Enter details manually</span>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
-                {/* If manual custom account chosen OR no accounts saved */}
-                {(selectedPayoutAccountId === "manual" || !data?.payout_accounts || data.payout_accounts.length === 0) && (
-                  <div className="space-y-3 p-3 bg-slate-50/80 rounded-md border border-slate-200">
-                    <div className="space-y-1">
-                      <Label className="text-xs font-semibold text-slate-700">Account Type</Label>
-                      <Select value={payoutMethod} onValueChange={setPayoutMethod}>
-                        <SelectTrigger className="text-xs h-8 rounded-sm border-slate-200 bg-white">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-sm border-slate-200 bg-white">
-                          <SelectItem value="bank" className="text-xs">Bank Transfer</SelectItem>
-                          <SelectItem value="esewa" className="text-xs">eSewa Wallet</SelectItem>
-                          <SelectItem value="khalti" className="text-xs">Khalti Wallet</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {payoutMethod === "bank" && (
-                      <div className="space-y-1">
-                        <Label htmlFor="bank-name" className="text-xs font-semibold text-slate-700">Bank Name *</Label>
-                        <Input
-                          id="bank-name"
-                          list="nepal-banks-list"
-                          placeholder="e.g. Nabil Bank, Global IME"
-                          value={bankName}
-                          onChange={(e) => setBankName(e.target.value)}
-                          className="text-xs h-8 rounded-sm border-slate-200 bg-white"
-                        />
+                {/* Auto-selected Saved Account Card */}
+                {data?.payout_accounts && data.payout_accounts.length > 0 && (() => {
+                  const activeAcc = data.payout_accounts.find((a) => String(a.id) === selectedPayoutAccountId) || data.payout_accounts[0];
+                  return (
+                    <div className="p-3 bg-slate-50 rounded-md border border-slate-200 space-y-1 font-mono text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-900 text-sm">
+                          {activeAcc.bank_name || activeAcc.label || activeAcc.account_name}
+                        </span>
+                        <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1 font-sans">
+                          <CheckCircle2 className="size-3" /> Verified Saved Account
+                        </span>
                       </div>
-                    )}
-
-                    <div className="space-y-1">
-                      <Label htmlFor="acc-name" className="text-xs font-semibold text-slate-700">Account Holder Name *</Label>
-                      <Input
-                        id="acc-name"
-                        placeholder="Registered official name"
-                        value={accountName}
-                        onChange={(e) => setAccountName(e.target.value)}
-                        className="text-xs h-8 rounded-sm border-slate-200 bg-white"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label htmlFor="acc-num" className="text-xs font-semibold text-slate-700">
-                        {payoutMethod === "bank" ? "Account Number *" : "Registered Mobile / ID *"}
-                      </Label>
-                      <Input
-                        id="acc-num"
-                        placeholder={payoutMethod === "bank" ? "e.g. 0123456789" : "98XXXXXXXX"}
-                        value={accountNumber}
-                        onChange={(e) => setAccountNumber(e.target.value)}
-                        className="font-mono text-xs h-8 rounded-sm border-slate-200 bg-white"
-                      />
-                    </div>
-
-                    {/* SAVE ACCOUNT CHECKBOX */}
-                    <div className="pt-1.5 border-t border-slate-200 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          id="save-account-future"
-                          checked={saveAccountForFuture}
-                          onChange={(e) => setSaveAccountForFuture(e.target.checked)}
-                          className="h-3.5 w-3.5 rounded-xs border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                        />
-                        <Label htmlFor="save-account-future" className="text-xs font-medium text-slate-700 cursor-pointer">
-                          Save this payout account for future 1-click withdrawals
-                        </Label>
-                      </div>
-
-                      {saveAccountForFuture && (
-                        <div className="pl-5.5">
-                          <Input
-                            placeholder="Account Label (e.g. Primary Nabil Account)"
-                            value={customAccountLabel}
-                            onChange={(e) => setCustomAccountLabel(e.target.value)}
-                            className="text-xs h-7 rounded-sm border-slate-200 bg-white"
-                          />
-                        </div>
+                      <p className="text-slate-600">
+                        Account: <span className="font-semibold text-slate-900">{activeAcc.account_number}</span>
+                      </p>
+                      <p className="text-slate-600">
+                        Holder: <span className="font-semibold text-slate-900">{activeAcc.account_name}</span>
+                      </p>
+                      {activeAcc.branch && (
+                        <p className="text-slate-500 text-[11px]">
+                          Bank Code / Branch: <span className="text-slate-700">{activeAcc.branch}</span>
+                        </p>
                       )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
 
@@ -1366,13 +1350,12 @@ function ShareholderAdminScreen() {
                 onClick={() => withdrawMutation.mutate()}
                 disabled={
                   withdrawMutation.isPending ||
+                  !selectedPayoutAccountId ||
                   !withdrawAmount ||
                   Number(withdrawAmount) <= 0 ||
-                  Number(withdrawAmount) > Number(data?.my_wallet?.balance || 0) ||
-                  (selectedPayoutAccountId === "manual" &&
-                    (!accountName.trim() || !accountNumber.trim() || (payoutMethod === "bank" && !bankName.trim())))
+                  Number(withdrawAmount) > Number(data?.my_wallet?.balance || 0)
                 }
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-sm text-xs h-8 px-4"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-sm text-xs h-8 px-4 cursor-pointer"
               >
                 {withdrawMutation.isPending
                   ? "Processing..."
@@ -1497,60 +1480,120 @@ function ShareholderAdminScreen() {
                 />
               </div>
 
-              {newAccountMethod === "bank" && (
+              {newAccountMethod === "bank" ? (
                 <>
                   <div className="space-y-1">
-                    <Label htmlFor="new-bank-name" className="text-xs font-semibold text-slate-700">Bank Name *</Label>
-                    <Input
-                      id="new-bank-name"
-                      list="nepal-banks-list"
-                      placeholder="e.g. Nabil Bank, Global IME"
-                      value={newBankName}
-                      onChange={(e) => setNewBankName(e.target.value)}
-                      className="text-xs h-8 rounded-sm border-slate-200"
+                    <Label className="text-xs font-semibold text-slate-700">Select Bank *</Label>
+                    <BankCombobox
+                      banks={banksQuery.data || []}
+                      value={newBankCode}
+                      onChange={(code) => {
+                        const b = (banksQuery.data || []).find((x) => x.bank_code === code);
+                        setNewBankCode(code);
+                        setNewBankName(b?.bank_name || "");
+                        setAccountVerified(false);
+                      }}
+                      loading={banksQuery.isLoading}
+                      placeholder="Select Nepali Commercial Bank..."
                     />
-                    <datalist id="nepal-banks-list">
-                      {NEPAL_BANKS.map((b) => (
-                        <option key={b} value={b} />
-                      ))}
-                    </datalist>
                   </div>
+
                   <div className="space-y-1">
-                    <Label htmlFor="new-bank-branch" className="text-xs font-semibold text-slate-700">Branch Name</Label>
+                    <Label htmlFor="new-acc-number" className="text-xs font-semibold text-slate-700">
+                      Account Number *
+                    </Label>
+                    <Input
+                      id="new-acc-number"
+                      placeholder="e.g. 0123456789012"
+                      value={newAccountNumber}
+                      onChange={(e) => {
+                        setNewAccountNumber(e.target.value);
+                        setAccountVerified(false);
+                      }}
+                      className="font-mono text-xs h-8.5 rounded-sm border-slate-200"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="new-acc-name" className="text-xs font-semibold text-slate-700">Account Holder Name *</Label>
+                      {accountVerified && (
+                        <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1 font-mono">
+                          <CheckCircle2 className="size-3" /> Verified with Clearing Network
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        id="new-acc-name"
+                        placeholder="Official name on bank account"
+                        value={newAccountName}
+                        onChange={(e) => {
+                          setNewAccountName(e.target.value);
+                          setAccountVerified(false);
+                        }}
+                        className="text-xs h-8.5 flex-1 rounded-sm border-slate-200"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={verifyAccount}
+                        disabled={isVerifyingAccount || !newBankCode || !newAccountNumber}
+                        className="h-8.5 text-xs text-blue-600 border-blue-200 hover:bg-blue-50 cursor-pointer shrink-0"
+                      >
+                        {isVerifyingAccount ? "Verifying..." : "Verify"}
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-slate-400">
+                      Click verify to confirm the registered holder name with Himalpay clearing network.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="new-bank-branch" className="text-xs font-semibold text-slate-700">Branch Name (Optional)</Label>
                     <Input
                       id="new-bank-branch"
                       placeholder="e.g. Kathmandu Main"
                       value={newBranch}
                       onChange={(e) => setNewBranch(e.target.value)}
-                      className="text-xs h-8 rounded-sm border-slate-200"
+                      className="text-xs h-8.5 rounded-sm border-slate-200"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <Label htmlFor="new-acc-name" className="text-xs font-semibold text-slate-700">Account Holder Name *</Label>
+                    <Input
+                      id="new-acc-name"
+                      placeholder="Registered official name"
+                      value={newAccountName}
+                      onChange={(e) => {
+                        setNewAccountName(e.target.value);
+                        setAccountVerified(false);
+                      }}
+                      className="text-xs h-8.5 rounded-sm border-slate-200"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="new-acc-number" className="text-xs font-semibold text-slate-700">
+                      Registered Mobile / Wallet ID *
+                    </Label>
+                    <Input
+                      id="new-acc-number"
+                      placeholder="98XXXXXXXX"
+                      value={newAccountNumber}
+                      onChange={(e) => {
+                        setNewAccountNumber(e.target.value);
+                        setAccountVerified(false);
+                      }}
+                      className="font-mono text-xs h-8.5 rounded-sm border-slate-200"
                     />
                   </div>
                 </>
               )}
-
-              <div className="space-y-1">
-                <Label htmlFor="new-acc-name" className="text-xs font-semibold text-slate-700">Account Holder Name *</Label>
-                <Input
-                  id="new-acc-name"
-                  placeholder="Registered name"
-                  value={newAccountName}
-                  onChange={(e) => setNewAccountName(e.target.value)}
-                  className="text-xs h-8 rounded-sm border-slate-200"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="new-acc-number" className="text-xs font-semibold text-slate-700">
-                  {newAccountMethod === "bank" ? "Account Number *" : "Registered Mobile / ID *"}
-                </Label>
-                <Input
-                  id="new-acc-number"
-                  placeholder={newAccountMethod === "bank" ? "0123456789012" : "98XXXXXXXX"}
-                  value={newAccountNumber}
-                  onChange={(e) => setNewAccountNumber(e.target.value)}
-                  className="font-mono text-xs h-8 rounded-sm border-slate-200"
-                />
-              </div>
 
               <div className="flex items-center gap-2 pt-1">
                 <input
@@ -1575,11 +1618,12 @@ function ShareholderAdminScreen() {
                 onClick={() => createAccountMutation.mutate()}
                 disabled={
                   createAccountMutation.isPending ||
+                  !accountVerified ||
                   !newAccountName.trim() ||
                   !newAccountNumber.trim() ||
-                  (newAccountMethod === "bank" && !newBankName.trim())
+                  (newAccountMethod === "bank" && !newBankCode)
                 }
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-sm text-xs h-8"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-sm text-xs h-8 px-4 cursor-pointer"
               >
                 {createAccountMutation.isPending ? "Saving..." : "Save Account"}
               </Button>

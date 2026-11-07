@@ -2090,13 +2090,14 @@ export interface SupportChatMessage {
 
 
 export interface GgrTransactionItem {
-  id: number;
+  id: number | string;
   txn_type: string;
   type_label: string;
   amount: string;
   balance_after: string;
   reference: string;
   notes: string;
+  status?: string;
   created_at: string;
 }
 
@@ -2123,6 +2124,10 @@ export interface GgrDashboardData {
   };
   is_ggr_enabled: boolean;
   cash_balance: string;
+  total_deposited?: string;
+  total_deposits_count?: number;
+  total_withdrawn?: string;
+  total_payouts_count?: number;
   ggr_coin_balance: string;
   total_bought: string;
   total_won: string;
@@ -2181,6 +2186,7 @@ export interface ShareholderPayoutAccountItem {
   account_name: string;
   account_number: string;
   bank_name: string;
+  bank_code?: string;
   branch: string;
   is_default: boolean;
   created_at: string;

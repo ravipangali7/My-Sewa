@@ -17,9 +17,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from ..authentication import ApiKeyAuthentication, TokenAuthentication
+from django.db import transaction
 from ..models import (
     CustomUser,
     Wallet,
+    Deposit,
+    BankTransferTransaction,
     GgrWallet,
     GgrTransaction,
     MonthlyGgrSettlement,
@@ -85,7 +88,7 @@ def _require_ggr_access(user):
 def user_ggr_dashboard(request):
     """
     Dashboard for API user:
-    Returns Cash balance, GGR coin balance, stats, and recent GGR transactions.
+    Returns Cash balance, deposit and payout stats, and unified recent merchant transactions.
     """
     check = _require_api_access(request.user)
     if check:
@@ -96,9 +99,52 @@ def user_ggr_dashboard(request):
     fee_config = get_service_fee_config()
     is_ggr_enabled = bool(getattr(user, 'is_ggr_user', False) or getattr(user, 'is_ggr', False))
 
+    # Reconcile any past approved API deposits initiated by this merchant where merchant wallet was not synced
+    try:
+        uncredited_api_deposits = Deposit.objects.filter(
+            initiated_by=user,
+            status=Deposit.STATUS_APPROVED,
+            source=Deposit.SOURCE_API,
+        )
+        for dep in uncredited_api_deposits:
+            payload = dep.provider_payload or {}
+            if not payload.get('merchant_wallet_synced') and dep.user != user:
+                with transaction.atomic():
+                    w = Wallet.objects.select_for_update().get(pk=user_wallet.pk)
+                    fee_pct = user.get_api_deposit_percent() if hasattr(user, 'get_api_deposit_percent') else Decimal('0.00')
+                    fee_amt = round(dep.amount * (fee_pct / Decimal('100.00')), 2)
+                    net_credit = max(Decimal('0.00'), dep.amount - fee_amt)
+                    w.balance = (w.balance or Decimal('0.00')) + net_credit
+                    w.save(update_fields=['balance', 'updated_at'])
+                    dep.provider_payload = dict(payload)
+                    dep.provider_payload['merchant_wallet_synced'] = True
+                    dep.provider_payload['merchant_credited_amount'] = str(net_credit)
+                    dep.provider_payload['merchant_balance_after'] = str(w.balance)
+                    dep.save(update_fields=['provider_payload', 'updated_at'])
+                    user_wallet.refresh_from_db(fields=['balance'])
+    except Exception as exc:
+        logger.warning('Failed to reconcile API deposits for user %s: %s', user.pk, exc)
+
+    # Deposit statistics (approved deposits for this merchant)
+    approved_deposits = Deposit.objects.filter(
+        Q(user=user) | Q(initiated_by=user),
+        status=Deposit.STATUS_APPROVED,
+    )
+    total_deposited = approved_deposits.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_deposits_count = approved_deposits.count()
+
+    # Withdrawal / Payout statistics (successful bank transfers for this merchant)
+    successful_payouts = BankTransferTransaction.objects.filter(
+        user=user,
+        status='success',
+    )
+    total_withdrawn = successful_payouts.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_payouts_count = successful_payouts.count()
+
+    # GGR Coins / Settlements
     if is_ggr_enabled:
         ggr_wallet = ensure_ggr_wallet(user)
-        txns = GgrTransaction.objects.filter(wallet=ggr_wallet).order_by('-created_at')[:50]
+        ggr_txns = GgrTransaction.objects.filter(wallet=ggr_wallet).order_by('-created_at')[:50]
         settlements = MonthlyGgrSettlement.objects.filter(user=user).order_by('-created_at')[:12]
 
         net_profit_estimate = (ggr_wallet.total_won or Decimal('0.00')) - (ggr_wallet.total_lost or Decimal('0.00'))
@@ -111,7 +157,7 @@ def user_ggr_dashboard(request):
         total_won = str(ggr_wallet.total_won)
         total_lost = str(ggr_wallet.total_lost)
     else:
-        txns = []
+        ggr_txns = []
         settlements = []
         net_profit_estimate = Decimal('0.00')
         estimated_monthly_fee = Decimal('0.00')
@@ -119,6 +165,94 @@ def user_ggr_dashboard(request):
         total_bought = '0.00'
         total_won = '0.00'
         total_lost = '0.00'
+
+    # Unified Production Transaction Ledger (Deposits, Payouts, API Transfers, GGR)
+    all_txns = []
+
+    # 1. Deposits (App & Payin API)
+    merchant_deposits = Deposit.objects.filter(
+        Q(user=user) | Q(initiated_by=user)
+    ).select_related('user').order_by('-created_at')[:50]
+    for d in merchant_deposits:
+        type_lbl = 'API Payin Deposit' if d.source == Deposit.SOURCE_API else 'Wallet Deposit'
+        payer_phone = getattr(d.user, 'phone', '') if (d.user and d.user != user) else ''
+        notes = (
+            f"Payin received from {payer_phone}" if payer_phone
+            else (d.note or f"Deposit via {d.bank_name or d.provider}")
+        )
+        bal_after = str(d.balance_after) if d.balance_after is not None else (
+            str((d.provider_payload or {}).get('merchant_balance_after', ''))
+        )
+        all_txns.append({
+            'id': f"dep-{d.id}",
+            'txn_type': 'deposit',
+            'type_label': type_lbl,
+            'amount': str(d.amount),
+            'balance_after': bal_after,
+            'reference': d.client_reference or d.purchase_order_identifier or f"DEP-{d.id}",
+            'notes': notes,
+            'status': d.status,
+            'created_at_dt': d.created_at,
+            'created_at': d.created_at.isoformat(),
+        })
+
+    # 2. Bank Transfers / Payouts
+    merchant_payouts = BankTransferTransaction.objects.filter(
+        user=user
+    ).order_by('-created_at')[:50]
+    for w in merchant_payouts:
+        all_txns.append({
+            'id': f"wth-{w.id}",
+            'txn_type': 'withdraw',
+            'type_label': 'Bank Payout (Withdraw)',
+            'amount': str(w.amount),
+            'balance_after': str(w.balance_after or ''),
+            'reference': w.client_reference or w.merchant_txn_id or f"WTH-{w.id}",
+            'notes': f"Payout to {w.destination_bank_name or 'Bank'} ({w.destination_acc_no})",
+            'status': w.status,
+            'created_at_dt': w.created_at,
+            'created_at': w.created_at.isoformat(),
+        })
+
+    # 3. API Fund Transfers
+    fund_transfers = ApiFundTransferLog.objects.filter(
+        user=user
+    ).order_by('-created_at')[:50]
+    for f in fund_transfers:
+        all_txns.append({
+            'id': f"trans-{f.id}",
+            'txn_type': 'transfer',
+            'type_label': 'API Fund Transfer',
+            'amount': str(f.amount) if f.amount is not None else '0.00',
+            'balance_after': '',
+            'reference': f.reference or f.transaction_id or f"TXN-{f.id}",
+            'notes': f"Transfer to {f.receiver}",
+            'status': f.status,
+            'created_at_dt': f.created_at,
+            'created_at': f.created_at.isoformat(),
+        })
+
+    # 4. GGR Transactions (if enabled)
+    for g in ggr_txns:
+        all_txns.append({
+            'id': f"ggr-{g.id}",
+            'txn_type': g.txn_type,
+            'type_label': g.get_txn_type_display(),
+            'amount': str(g.amount),
+            'balance_after': str(g.balance_after),
+            'reference': g.reference,
+            'notes': g.notes,
+            'status': 'success',
+            'created_at_dt': g.created_at,
+            'created_at': g.created_at.isoformat(),
+        })
+
+    # Sort all transactions chronologically descending
+    all_txns.sort(key=lambda x: x['created_at_dt'], reverse=True)
+    recent_transactions = [
+        {k: v for k, v in item.items() if k != 'created_at_dt'}
+        for item in all_txns[:50]
+    ]
 
     return Response({
         'user': {
@@ -131,6 +265,10 @@ def user_ggr_dashboard(request):
         },
         'is_ggr_enabled': is_ggr_enabled,
         'cash_balance': str(user_wallet.balance),
+        'total_deposited': str(total_deposited),
+        'total_deposits_count': total_deposits_count,
+        'total_withdrawn': str(total_withdrawn),
+        'total_payouts_count': total_payouts_count,
         'ggr_coin_balance': coin_balance,
         'total_bought': total_bought,
         'total_won': total_won,
@@ -142,19 +280,7 @@ def user_ggr_dashboard(request):
             'payment_api_deposit_percent': str(user.get_api_deposit_percent()) if hasattr(user, 'get_api_deposit_percent') else str(fee_config.payment_api_deposit_percent),
             'payment_api_withdraw_percent': str(user.get_api_withdraw_percent()) if hasattr(user, 'get_api_withdraw_percent') else str(fee_config.payment_api_withdraw_percent),
         },
-        'recent_transactions': [
-            {
-                'id': t.id,
-                'txn_type': t.txn_type,
-                'type_label': t.get_txn_type_display(),
-                'amount': str(t.amount),
-                'balance_after': str(t.balance_after),
-                'reference': t.reference,
-                'notes': t.notes,
-                'created_at': t.created_at.isoformat(),
-            }
-            for t in txns
-        ],
+        'recent_transactions': recent_transactions,
         'monthly_settlements': [
             {
                 'id': s.id,
@@ -500,6 +626,7 @@ def admin_shareholder_dashboard(request):
                 'account_name': pa.account_name,
                 'account_number': pa.account_number,
                 'bank_name': pa.bank_name,
+                'bank_code': pa.branch or '',
                 'branch': pa.branch,
                 'is_default': pa.is_default,
                 'created_at': pa.created_at.isoformat(),
@@ -682,6 +809,7 @@ def admin_shareholder_payout_accounts(request):
                 'account_name': pa.account_name,
                 'account_number': pa.account_number,
                 'bank_name': pa.bank_name,
+                'bank_code': pa.branch or '',
                 'branch': pa.branch,
                 'is_default': pa.is_default,
                 'created_at': pa.created_at.isoformat(),
@@ -696,7 +824,8 @@ def admin_shareholder_payout_accounts(request):
     account_name = request.data.get('account_name', '').strip()
     account_number = request.data.get('account_number', '').strip()
     bank_name = request.data.get('bank_name', '').strip()
-    branch = request.data.get('branch', '').strip()
+    bank_code = request.data.get('bank_code', '').strip()
+    branch = bank_code or request.data.get('branch', '').strip()
     is_default = bool(request.data.get('is_default', False))
 
     if not account_name or not account_number:
@@ -734,6 +863,7 @@ def admin_shareholder_payout_accounts(request):
             'account_name': pa.account_name,
             'account_number': pa.account_number,
             'bank_name': pa.bank_name,
+            'bank_code': pa.branch or '',
             'branch': pa.branch,
             'is_default': pa.is_default,
             'created_at': pa.created_at.isoformat(),

@@ -201,9 +201,7 @@ def execute_api_payin(request) -> Response:
     _ensure_api_fund_transfer()
     partner = request.user
     raw = request.data if isinstance(request.data, dict) else {}
-    receiver_raw = str(
-        raw.get('receiver') or raw.get('phone') or raw.get('mobile') or ''
-    ).strip()
+    raw_receiver = str(raw.get('receiver') or '').strip()
     reference = str(
         raw.get('reference')
         or request.headers.get('Idempotency-Key')
@@ -232,8 +230,14 @@ def execute_api_payin(request) -> Response:
         customer_override['name'] = name_override
     if email_override:
         customer_override['email'] = email_override
+    if not phone_override and (raw.get('phone') or raw.get('mobile')):
+        phone_override = str(raw.get('phone') or raw.get('mobile') or '').strip()
+
     if phone_override:
         customer_override['phone'] = phone_override
+
+    # Receiver wallet defaults to the authenticated merchant partner
+    receiver_raw = raw_receiver or getattr(partner, 'phone', '')
 
     # Default Direct-QR on MySewa's own page. Opt in to PayBridge's hosted
     # checkout only with mode=hosted.

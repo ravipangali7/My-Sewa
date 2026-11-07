@@ -2310,6 +2310,7 @@ export const apiClient = {
     account_name: string;
     account_number: string;
     bank_name?: string;
+    bank_code?: string;
     branch?: string;
     is_default?: boolean;
   }) =>

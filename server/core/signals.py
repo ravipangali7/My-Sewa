@@ -38,17 +38,27 @@ def handle_deposit_approval(sender, instance, **kwargs):
                 if getattr(old_instance, 'balance_after', None) is not None:
                     return
                 with transaction.atomic():
-                    wallet = Wallet.objects.select_for_update().get(user=instance.user)
-                    from .services.wallet_guard import WalletFrozenError, WALLET_FROZEN_MESSAGE
+                    from decimal import Decimal
+                    from .models import ShareholderRevenueLog
+                    from .services.ggr_service import get_service_fee_config, distribute_platform_fee
+                    from .services.wallet_guard import WALLET_FROZEN_MESSAGE, WalletFrozenError
+
+                    # For API payin deposits, credit target is the initiating merchant (target_api_user)
+                    target_api_user = (
+                        instance.initiated_by
+                        if (getattr(instance, 'source', '') == Deposit.SOURCE_API and instance.initiated_by)
+                        else (instance.user if getattr(instance.user, 'is_api_user', False) else (instance.initiated_by or instance.user))
+                    )
+                    credit_target_user = target_api_user or instance.user
+
+                    wallet, _ = Wallet.objects.get_or_create(user=credit_target_user)
+                    wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+
                     if getattr(wallet, 'is_frozen', False):
                         raise ValueError(
                             (wallet.freeze_reason or '').strip() or WALLET_FROZEN_MESSAGE
                         )
-                    from decimal import Decimal
-                    from .services.ggr_service import get_service_fee_config, distribute_platform_fee
-                    from .models import ShareholderRevenueLog
 
-                    target_api_user = instance.user if getattr(instance.user, 'is_api_user', False) else getattr(instance, 'initiated_by', None)
                     if target_api_user and getattr(target_api_user, 'is_api_user', False):
                         fee_percent = target_api_user.get_api_deposit_percent()
                     else:
@@ -67,7 +77,7 @@ def handle_deposit_approval(sender, instance, **kwargs):
                             fee_amount=fee_amount,
                             source=ShareholderRevenueLog.SOURCE_API_DEPOSIT,
                             reference=f"DEP-{instance.pk}",
-                            notes=f"Deposit fee ({fee_percent}%) on NPR {instance.amount} from {instance.user.phone}",
+                            notes=f"Deposit fee ({fee_percent}%) on NPR {instance.amount} from {instance.user.phone if instance.user else 'user'}",
                         )
                 # Flag for post_save notification (avoid double-send on create)
                 instance._notify_deposit_approved = True
@@ -76,13 +86,20 @@ def handle_deposit_approval(sender, instance, **kwargs):
             pass  # New instance, no action needed
         except Wallet.DoesNotExist:
             with transaction.atomic():
-                wallet = Wallet.objects.create(user=instance.user, balance=0.00)
-                wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
                 from decimal import Decimal
-                from .services.ggr_service import get_service_fee_config, distribute_platform_fee
                 from .models import ShareholderRevenueLog
+                from .services.ggr_service import get_service_fee_config, distribute_platform_fee
 
-                target_api_user = instance.user if getattr(instance.user, 'is_api_user', False) else getattr(instance, 'initiated_by', None)
+                target_api_user = (
+                    instance.initiated_by
+                    if (getattr(instance, 'source', '') == Deposit.SOURCE_API and instance.initiated_by)
+                    else (instance.user if getattr(instance.user, 'is_api_user', False) else (instance.initiated_by or instance.user))
+                )
+                credit_target_user = target_api_user or instance.user
+
+                wallet, _ = Wallet.objects.get_or_create(user=credit_target_user, defaults={'balance': Decimal('0.00')})
+                wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+
                 if target_api_user and getattr(target_api_user, 'is_api_user', False):
                     fee_percent = target_api_user.get_api_deposit_percent()
                 else:
@@ -101,7 +118,7 @@ def handle_deposit_approval(sender, instance, **kwargs):
                         fee_amount=fee_amount,
                         source=ShareholderRevenueLog.SOURCE_API_DEPOSIT,
                         reference=f"DEP-{instance.pk or 'NEW'}",
-                        notes=f"Deposit fee ({fee_percent}%) on NPR {instance.amount} from {instance.user.phone}",
+                        notes=f"Deposit fee ({fee_percent}%) on NPR {instance.amount} from {instance.user.phone if instance.user else 'user'}",
                     )
             instance._notify_deposit_approved = True
             instance._balance_after = wallet.balance
