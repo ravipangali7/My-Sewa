@@ -54,7 +54,7 @@ User = get_user_model()
 
 
 def _require_api_access(user):
-    if not getattr(user, 'is_api_user', False):
+    if not (getattr(user, 'is_api_user', False) or getattr(user, 'is_superuser', False)):
         return Response(
             {
                 'error': 'API access required',
@@ -657,7 +657,8 @@ def admin_shareholder_withdraw(request):
     account_name = request.data.get('account_name', '').strip()
     account_number = request.data.get('account_number', '').strip()
     bank_name = request.data.get('bank_name', '').strip()
-    branch = request.data.get('branch', '').strip()
+    bank_code = request.data.get('bank_code', '').strip()
+    branch = bank_code or request.data.get('branch', '').strip()
     save_account = bool(request.data.get('save_account', False))
     account_label = request.data.get('account_label', '').strip()
 
@@ -669,6 +670,7 @@ def admin_shareholder_withdraw(request):
         account_name = pa.account_name
         account_number = pa.account_number
         bank_name = pa.bank_name
+        bank_code = pa.branch or bank_code
     elif not account_name or not account_number:
         return Response(
             {'error': 'Validation error', 'message': 'Account name and account number are required, or choose a saved payout account.'},
@@ -705,6 +707,7 @@ def admin_shareholder_withdraw(request):
             account_name=account_name,
             account_number=account_number,
             bank_name=bank_name,
+            bank_code=bank_code,
             payout_account_id=payout_account_id,
         )
         wallet = ensure_shareholder_wallet(user)

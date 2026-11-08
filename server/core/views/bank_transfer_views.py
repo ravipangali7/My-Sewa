@@ -286,8 +286,8 @@ def _resolve_destination_bank(himalpay: HimalPayAPI, code: str, bank_name: str =
     """
     code_u = (code or '').strip().upper()
     name_u = (bank_name or '').strip().upper()
-    if not code_u:
-        return code_u
+    if not code_u and not name_u:
+        return ''
 
     banks = []
     try:
@@ -301,23 +301,24 @@ def _resolve_destination_bank(himalpay: HimalPayAPI, code: str, bank_name: str =
         banks = _fallback_bank_rows()
 
     if banks:
-        for b in banks:
-            if b['bank_code'] == code_u:
-                return b['bank_code']
+        if code_u:
+            for b in banks:
+                if b['bank_code'] == code_u:
+                    return b['bank_code']
 
-        # Short code prefix: CTZN → CTZNNPKA
-        if len(code_u) >= 3 and len(code_u) < 8:
-            prefix_hits = [
-                b for b in banks
-                if b['bank_code'].startswith(code_u)
-            ]
-            if len(prefix_hits) == 1:
-                logger.info(
-                    'Resolved bank code %s → %s via prefix match',
-                    code_u,
-                    prefix_hits[0]['bank_code'],
-                )
-                return prefix_hits[0]['bank_code']
+            # Short code prefix: CTZN → CTZNNPKA
+            if len(code_u) >= 3 and len(code_u) < 8:
+                prefix_hits = [
+                    b for b in banks
+                    if b['bank_code'].startswith(code_u)
+                ]
+                if len(prefix_hits) == 1:
+                    logger.info(
+                        'Resolved bank code %s → %s via prefix match',
+                        code_u,
+                        prefix_hits[0]['bank_code'],
+                    )
+                    return prefix_hits[0]['bank_code']
 
         if name_u:
             name_hits = [
@@ -325,14 +326,16 @@ def _resolve_destination_bank(himalpay: HimalPayAPI, code: str, bank_name: str =
                 if name_u in b['bank_name'].upper()
                 or b['bank_name'].upper() in name_u
             ]
-            if len(name_hits) == 1:
+            if name_hits:
+                exact_hits = [b for b in name_hits if b['bank_name'].upper() == name_u]
+                hit = exact_hits[0] if exact_hits else name_hits[0]
                 logger.info(
                     'Resolved bank code %s → %s via name %r',
-                    code_u,
-                    name_hits[0]['bank_code'],
+                    code_u or '<empty>',
+                    hit['bank_code'],
                     bank_name,
                 )
-                return name_hits[0]['bank_code']
+                return hit['bank_code']
 
     mapped = LEGACY_BANK_CODE_MAP.get(code_u)
     if mapped:

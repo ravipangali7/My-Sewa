@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
+import uuid
 from ..models import (
     Wallet,
     GgrWallet,
@@ -20,6 +21,8 @@ from ..models import (
     ShareholderWallet,
     ShareholderRevenueLog,
     ShareholderWithdrawal,
+    ShareholderPayoutAccount,
+    BankTransferTransaction,
     ApiPayinLog,
     ApiFundTransferLog,
 )
@@ -348,15 +351,16 @@ def process_payment_api_withdraw(
     payout_details: dict = None,
 ) -> dict:
     """
-    Payment API: End-player withdrawal (Payout).
+    Payment API: End-player / Merchant withdrawal (Payout).
+    - Checks balance and executes HimalPay BANK_TRANSFER when bank details are provided.
     - Platform takes Payment API withdraw fee % (credited to Shareholders).
-    - Total (amount + fee) debited from api_user.wallet.balance.
+    - Total (amount + fee) debited from api_user.wallet.balance ONLY when transfer succeeds.
     """
     amount = Decimal(str(amount))
     if amount <= Decimal('0.00'):
         raise ValueError("Withdrawal amount must be positive.")
 
-    if not getattr(api_user, 'is_api_user', False):
+    if not (getattr(api_user, 'is_api_user', False) or getattr(api_user, 'is_superuser', False)):
         raise PermissionError("Only API users can process Payment API withdrawals.")
 
     if hasattr(api_user, 'get_api_withdraw_percent'):
@@ -367,11 +371,98 @@ def process_payment_api_withdraw(
     fee_amount = round(amount * (fee_percent / Decimal('100.00')), 2)
     total_debit = amount + fee_amount
 
+    # Parse payout_details
+    if isinstance(payout_details, str):
+        try:
+            import json
+            payout_details = json.loads(payout_details)
+        except Exception:
+            payout_details = {}
+    elif not isinstance(payout_details, dict):
+        payout_details = {}
+
+    bank_code = str(payout_details.get('bank_code') or payout_details.get('destination_bank') or '').strip()
+    bank_name = str(payout_details.get('bank_name') or payout_details.get('destination_bank_name') or '').strip()
+    account_number = str(payout_details.get('account_number') or payout_details.get('destination_acc_no') or payout_details.get('bank_account_number') or '').strip()
+    account_name = str(payout_details.get('account_name') or payout_details.get('destination_acc_name') or payout_details.get('account_holder_name') or '').strip()
+
+    # Pre-check merchant wallet balance
+    user_wallet = Wallet.objects.get(user=api_user)
+    if user_wallet.balance < total_debit:
+        raise ValueError(f"Insufficient funds in balance. Available: NPR {user_wallet.balance}, required: NPR {total_debit}")
+
+    resolved_bank = ''
+    verified_name = account_name or 'Account Holder'
+    merchant_txn_id = reference or f"MYSEWA_BT_{uuid.uuid4().hex[:14].upper()}"
+    provider_response = {}
+    txn_status = 'success'
+
+    # If bank details are provided, execute real bank transfer via HimalPay!
+    if account_number and (bank_code or bank_name):
+        from .himalpay import HimalPayAPI, HimalPayError
+        from ..views.bank_transfer_views import _resolve_destination_bank
+
+        himalpay = HimalPayAPI()
+        resolved_bank = _resolve_destination_bank(himalpay, bank_code or bank_name, bank_name)
+        if not resolved_bank:
+            raise ValueError(f"Destination bank '{bank_name or bank_code}' is not supported by payment provider.")
+
+        bt_merchant_txn_id = f"MYSEWA_BT_{uuid.uuid4().hex[:14].upper()}"
+        while BankTransferTransaction.objects.filter(merchant_txn_id=bt_merchant_txn_id).exists():
+            bt_merchant_txn_id = f"MYSEWA_BT_{uuid.uuid4().hex[:14].upper()}"
+        verify_merchant_txn_id = f"MYSEWA_VF_{uuid.uuid4().hex[:14].upper()}"
+
+        # 1. Run account verification if available
+        try:
+            verify_result = himalpay.verify_bank_account(
+                bank_code=resolved_bank,
+                account_name=account_name or '',
+                account_number=account_number,
+                merchant_txn_id=verify_merchant_txn_id,
+                is_mobile='n',
+            )
+            if himalpay.is_verification_success(verify_result):
+                matched_name = himalpay.extract_verified_account_name(verify_result, fallback='')
+                if matched_name:
+                    verified_name = matched_name
+            elif not himalpay.bypass_api:
+                failure = himalpay.extract_failure_details(verify_result)
+                err_msg = failure.get('message') or failure.get('provider_message') or "Bank account verification failed. Please check account details."
+                raise ValueError(err_msg)
+        except HimalPayError as exc:
+            if not himalpay.bypass_api:
+                raise ValueError(f"Bank verification provider error: {exc.message}")
+
+        # 2. Call HimalPay BANK_TRANSFER
+        try:
+            response = himalpay.bank_transfer(
+                amount_rupees=amount,
+                merchant_transaction_id=bt_merchant_txn_id,
+                destination_bank=resolved_bank,
+                destination_acc_no=account_number,
+                destination_acc_name=verified_name,
+                is_destination_mobile='n',
+                transaction_remarks=f"Merchant Payout: {reference or bt_merchant_txn_id}"[:255],
+            )
+        except HimalPayError as exc:
+            raise ValueError(f"Bank transfer failed with payment provider: {exc.message}")
+
+        provider_response = response if isinstance(response, dict) else {}
+        txn_status = himalpay.normalize_status(response)
+        if txn_status == 'failed':
+            failure = himalpay.extract_failure_details(response)
+            err_msg = failure.get('message') or failure.get('provider_message') or "Bank transfer failed with payment provider."
+            raise ValueError(err_msg)
+
+        merchant_txn_id = bt_merchant_txn_id
+
+    # 3. Only when provider succeeded -> atomically debit user's wallet!
     with transaction.atomic():
         user_wallet = Wallet.objects.select_for_update().get(user=api_user)
         if user_wallet.balance < total_debit:
             raise ValueError(f"Insufficient funds in balance. Available: {user_wallet.balance}, required: {total_debit}")
 
+        balance_before = user_wallet.balance
         user_wallet.balance -= total_debit
         user_wallet.save(update_fields=['balance', 'updated_at'])
 
@@ -379,18 +470,51 @@ def process_payment_api_withdraw(
         distribute_platform_fee(
             fee_amount=fee_amount,
             source=ShareholderRevenueLog.SOURCE_API_WITHDRAW,
-            reference=reference or f"WTH-{timezone.now().strftime('%Y%m%d%H%M%S')}",
+            reference=reference or merchant_txn_id,
             notes=f"Payment API withdraw fee ({fee_percent}%) on {amount} NPR for player {player_id}",
         )
+
+        if resolved_bank and account_number:
+            from .himalpay import HimalPayAPI
+            himalpay = HimalPayAPI()
+            BankTransferTransaction.objects.create(
+                user=api_user,
+                amount=amount,
+                destination_bank=resolved_bank,
+                destination_bank_name=bank_name or resolved_bank,
+                destination_acc_no=account_number,
+                destination_acc_name=verified_name,
+                is_destination_mobile=False,
+                transaction_remarks=f"Payment API Payout: {reference or merchant_txn_id}"[:255],
+                status='success' if txn_status == 'success' else 'pending',
+                merchant_txn_id=merchant_txn_id,
+                provider_txn_id=himalpay.extract_transaction_id(provider_response) or (provider_response.get('data') or {}).get('provider_txn_id'),
+                reference_id=himalpay.extract_reference_id(provider_response) or provider_response.get('reference_id'),
+                charge=fee_amount,
+                total_debited=total_debit,
+                platform_charge=fee_amount,
+                balance_before=balance_before,
+                balance_after=user_wallet.balance,
+                verified=True,
+                source=BankTransferTransaction.SOURCE_API,
+                client_reference=reference or merchant_txn_id,
+                provider_response=provider_response,
+            )
 
         # Log in ApiFundTransferLog
         ApiFundTransferLog.objects.create(
             user=api_user,
-            reference=reference,
-            receiver=player_id or 'Player',
+            reference=reference or merchant_txn_id,
+            receiver=player_id or verified_name or 'Bank Transfer',
             amount=amount,
             status=ApiFundTransferLog.STATUS_SUCCESS,
         )
+
+    provider_txn = ''
+    if provider_response:
+        from .himalpay import HimalPayAPI
+        himalpay = HimalPayAPI()
+        provider_txn = himalpay.extract_transaction_id(provider_response) or (provider_response.get('data') or {}).get('provider_txn_id') or ''
 
     return {
         'gross_payout': str(amount),
@@ -398,6 +522,9 @@ def process_payment_api_withdraw(
         'fee_percent': str(fee_percent),
         'total_debited': str(total_debit),
         'new_balance': str(user_wallet.balance),
+        'transaction_id': merchant_txn_id,
+        'provider_reference': provider_txn,
+        'status': 'SUCCESS' if txn_status == 'success' else 'PENDING',
     }
 
 
@@ -408,11 +535,13 @@ def execute_shareholder_withdrawal(
     account_name: str = '',
     account_number: str = '',
     bank_name: str = '',
+    bank_code: str = '',
     payout_account_id: int | None = None,
 ) -> ShareholderWithdrawal:
     """
     Shareholder withdraws accumulated platform service revenue to Bank / eSewa / Khalti.
     Can use a saved ShareholderPayoutAccount or explicit account fields.
+    When payout_method is 'bank', executes instant transfer via HimalPay before cutting balance.
     """
     amount = Decimal(str(amount))
     if amount <= Decimal('0.00'):
@@ -423,19 +552,89 @@ def execute_shareholder_withdrawal(
 
     payout_account = None
     if payout_account_id:
-        from ..models import ShareholderPayoutAccount
         payout_account = ShareholderPayoutAccount.objects.filter(pk=payout_account_id, shareholder=shareholder).first()
         if payout_account:
             payout_method = payout_account.method
             account_name = payout_account.account_name
             account_number = payout_account.account_number
             bank_name = payout_account.bank_name or bank_name
+            bank_code = bank_code or getattr(payout_account, 'branch', '') or ''
 
     if not payout_method:
         payout_method = ShareholderWithdrawal.METHOD_BANK
 
+    # Pre-check revenue balance before calling provider
+    wallet = ensure_shareholder_wallet(shareholder)
+    wallet = ShareholderWallet.objects.get(pk=wallet.pk)
+    if wallet.balance < amount:
+        avail = wallet.balance
+        raise ValueError(f"Insufficient revenue balance. Available: NPR {avail}, requested: NPR {amount}")
+
+    resolved_bank = ''
+    verified_name = account_name or 'Shareholder'
+    merchant_txn_id = ''
+    provider_response = {}
+    txn_status = 'success'
+
+    # If payout method is bank transfer, execute real transfer via HimalPay!
+    if payout_method in (ShareholderWithdrawal.METHOD_BANK, 'bank'):
+        from .himalpay import HimalPayAPI, HimalPayError
+        from ..views.bank_transfer_views import _resolve_destination_bank
+
+        himalpay = HimalPayAPI()
+        resolved_bank = _resolve_destination_bank(himalpay, bank_code or bank_name, bank_name)
+        if not resolved_bank:
+            raise ValueError(f"Destination bank '{bank_name or bank_code}' is not supported by payment provider.")
+
+        merchant_txn_id = f"MYSEWA_SH_{uuid.uuid4().hex[:14].upper()}"
+        while BankTransferTransaction.objects.filter(merchant_txn_id=merchant_txn_id).exists():
+            merchant_txn_id = f"MYSEWA_SH_{uuid.uuid4().hex[:14].upper()}"
+        verify_merchant_txn_id = f"MYSEWA_VF_{uuid.uuid4().hex[:14].upper()}"
+
+        # 1. Run account verification if available
+        try:
+            verify_result = himalpay.verify_bank_account(
+                bank_code=resolved_bank,
+                account_name=account_name or '',
+                account_number=account_number,
+                merchant_txn_id=verify_merchant_txn_id,
+                is_mobile='n',
+            )
+            if himalpay.is_verification_success(verify_result):
+                matched_name = himalpay.extract_verified_account_name(verify_result, fallback='')
+                if matched_name:
+                    verified_name = matched_name
+            elif not himalpay.bypass_api:
+                failure = himalpay.extract_failure_details(verify_result)
+                err_msg = failure.get('message') or failure.get('provider_message') or "Bank account verification failed. Please check account details."
+                raise ValueError(err_msg)
+        except HimalPayError as exc:
+            if not himalpay.bypass_api:
+                raise ValueError(f"Bank verification provider error: {exc.message}")
+
+        # 2. Call HimalPay BANK_TRANSFER
+        try:
+            response = himalpay.bank_transfer(
+                amount_rupees=amount,
+                merchant_transaction_id=merchant_txn_id,
+                destination_bank=resolved_bank,
+                destination_acc_no=account_number,
+                destination_acc_name=verified_name,
+                is_destination_mobile='n',
+                transaction_remarks=f"Shareholder Payout: {shareholder.phone}"[:255],
+            )
+        except HimalPayError as exc:
+            raise ValueError(f"Bank transfer failed with payment provider: {exc.message}")
+
+        provider_response = response if isinstance(response, dict) else {}
+        txn_status = himalpay.normalize_status(response)
+        if txn_status == 'failed':
+            failure = himalpay.extract_failure_details(response)
+            err_msg = failure.get('message') or failure.get('provider_message') or "Bank transfer failed with payment provider."
+            raise ValueError(err_msg)
+
+    # 3. Provider accepted / processed -> debit shareholder wallet atomically
     with transaction.atomic():
-        wallet = ensure_shareholder_wallet(shareholder)
         wallet = ShareholderWallet.objects.select_for_update().get(pk=wallet.pk)
         if wallet.balance < amount:
             avail = wallet.balance
@@ -450,11 +649,36 @@ def execute_shareholder_withdrawal(
             payout_account=payout_account,
             amount=amount,
             payout_method=payout_method,
-            account_name=account_name,
+            account_name=verified_name,
             account_number=account_number,
-            bank_name=bank_name,
+            bank_name=bank_name or resolved_bank,
             status=ShareholderWithdrawal.STATUS_COMPLETED,
         )
+
+        if resolved_bank and merchant_txn_id:
+            from .himalpay import HimalPayAPI
+            himalpay = HimalPayAPI()
+            BankTransferTransaction.objects.create(
+                user=shareholder,
+                amount=amount,
+                destination_bank=resolved_bank,
+                destination_bank_name=bank_name or resolved_bank,
+                destination_acc_no=account_number,
+                destination_acc_name=verified_name,
+                is_destination_mobile=False,
+                transaction_remarks=f"Shareholder Profit Payout (WTH-{withdrawal.id})",
+                status='success' if txn_status == 'success' else 'pending',
+                merchant_txn_id=merchant_txn_id,
+                provider_txn_id=himalpay.extract_transaction_id(provider_response) or (provider_response.get('data') or {}).get('provider_txn_id'),
+                reference_id=himalpay.extract_reference_id(provider_response) or provider_response.get('reference_id'),
+                charge=Decimal('0.00'),
+                cashback=Decimal('0.00'),
+                total_debited=amount,
+                verified=True,
+                source=BankTransferTransaction.SOURCE_APP,
+                client_reference=f"SH-WTH-{withdrawal.id}",
+                provider_response=provider_response,
+            )
 
     return withdrawal
 
@@ -473,6 +697,10 @@ def record_shareholder_transaction_fee(txn) -> list[ShareholderRevenueLog]:
 
     ref = f"BT-{txn.pk}"
     if ShareholderRevenueLog.objects.filter(reference=ref).exists():
+        return []
+    if getattr(txn, 'client_reference', None) and ShareholderRevenueLog.objects.filter(reference=txn.client_reference).exists():
+        return []
+    if getattr(txn, 'merchant_txn_id', None) and ShareholderRevenueLog.objects.filter(reference=txn.merchant_txn_id).exists():
         return []
 
     config = get_service_fee_config()

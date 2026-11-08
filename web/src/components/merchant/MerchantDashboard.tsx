@@ -348,17 +348,6 @@ export function MerchantDashboard({ initialTab = "overview" }: MerchantDashboard
  },
  });
 
- // Also trigger bank transfer clearing
- try {
- await apiClient.createTransfer({
- bank_code: targetBankCode,
- bank_name: targetBankName,
- account_number: targetAccNum,
- account_name: targetAccName,
- amount: withdrawAmount,
- remarks: `Payout ${withdrawRef}`,
- });
- } catch {}
 
  return res;
  },
