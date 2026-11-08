@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   Bell,
   Building2,
+  Globe,
   CreditCard,
   ArrowLeftRight,
   Database,
@@ -41,7 +42,7 @@ import {
   normalizePaymentAccounts,
   paymentAccountsToBankDetails,
 } from "@/lib/payment-accounts";
-import type { AppConfig, AppSettings, PaymentAccount, PaymentMethod } from "@/lib/types";
+import type { AppConfig, AppSettings, PaymentAccount, PaymentMethod, LandingPageConfig, LandingPageFaq } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** Must match server `PASSWORD_MASK` — never treat as a real secret value. */
@@ -96,6 +97,66 @@ export const Route = createFileRoute("/admin/settings")({
 });
 
 const DEFAULT_CONFIG: AppConfig = {
+  landing_page: {
+    hero_badge: "NRB Licensed PSP • NCHL-IPS Integrated",
+    hero_title: "Nepal’s Premier Sovereign Digital Wallet & Payment Super-App",
+    hero_subtitle: "Instant mobile top-up (NTC & Ncell), NEA electricity, Khanepani water, fiber internet, instant 24/7 bank transfer via NCHL-IPS rails, and global inward remittance — zero hidden fees.",
+    hero_cta_primary_text: "Download MySewa App",
+    hero_cta_primary_url: "#download-app",
+    hero_cta_secondary_text: "Explore Services",
+    hero_cta_secondary_url: "#services",
+    announcement_enabled: true,
+    announcement_text: "⚡ 2% Instant Cashback on NTC & Ncell Mobile Recharges this month! ⚡",
+    announcement_link: "#services",
+    stat_1_value: "4.8M+",
+    stat_1_label: "Active Verified Citizens",
+    stat_1_sub: "+22.4% YoY · 77 Districts",
+    stat_2_value: "रू 182B+",
+    stat_2_label: "Annual Settlement Vol",
+    stat_2_sub: "NCHL Interoperable Rails",
+    stat_3_value: "99.98%",
+    stat_3_label: "Payment Rail Uptime",
+    stat_3_sub: "Tier 4 Sovereign Data Center",
+    stat_4_value: "< 1.2s",
+    stat_4_label: "Avg Transaction Finality",
+    stat_4_sub: "Sub-Second IPS Pipeline",
+    app_title: "Carry Nepal's Digital Economy in Your Pocket",
+    app_subtitle: "Download the official MySewa app on Android or iOS. Experience instant biometric authentication, NepalPay dynamic QR payments, and real-time transaction receipts.",
+    play_store_url: "https://play.google.com/store/apps/details?id=com.mysewa.wallet",
+    app_store_url: "https://apps.apple.com/app/mysewa-nepal/id123456789",
+    direct_apk_url: "",
+    support_hours: "24/7 Toll-Free & Helpdesk",
+    toll_free_number: "1660-01-MYSEWA",
+    office_location: "Nagpokhari, Ward 1, Kathmandu, Bagmati Province, Nepal",
+    social_facebook: "https://facebook.com/mysewanepal",
+    social_whatsapp: "https://wa.me/9779800000000",
+    social_telegram: "https://t.me/mysewa_official",
+    social_twitter: "https://twitter.com/mysewanepal",
+    show_testimonials: true,
+    show_faqs: true,
+    faqs: [
+      {
+        question: "How do I complete biometric KYC verification in MySewa?",
+        answer: "You can complete your KYC in under 90 seconds by scanning your Nepali Citizenship (Nagarikta), National Identity Card (NID), or Passport along with a live selfie verification directly in the MySewa app."
+      },
+      {
+        question: "Are bank transfers via NCHL-IPS available on public holidays and weekends?",
+        answer: "Yes. All bank transfers on MySewa operate on NCHL-IPS 24/7 real-time settlement rails and are credited instantly, including Saturdays, public holidays, and midnight."
+      },
+      {
+        question: "What are the charges for mobile top-up and utility bills?",
+        answer: "Mobile recharge on NTC, Ncell, and Smart Cell has 0% service charge and comes with up to 2% instant cashback. NEA electricity and Khanepani water bill payments have zero service fees."
+      },
+      {
+        question: "Can I receive international remittances directly into my wallet?",
+        answer: "Yes, MySewa partners with leading international money transfer operators across the GCC, USA, UK, Japan, Australia, Malaysia, and Korea for direct inward wallet deposits."
+      },
+      {
+        question: "How does MySewa protect my funds and personal data?",
+        answer: "MySewa is regulated under the Nepal Rastra Bank Payment Systems Department, with bank-grade 256-bit encryption, biometric device binding, and real-time AI fraud detection."
+      }
+    ],
+  },
   site: {
     site_name: "MySewa",
     tagline: "Digital wallet & bill payments",
@@ -205,6 +266,7 @@ const DEFAULT_CONFIG: AppConfig = {
 
 const SECTIONS = [
   { id: "site", label: "General", icon: Building2 },
+  { id: "landing", label: "Landing page", icon: Globe },
   { id: "payment", label: "Payments", icon: CreditCard },
   { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
   { id: "remittance", label: "Remittance agent", icon: ArrowDownToLine },
@@ -321,6 +383,10 @@ function SettingsPage() {
       remittance: {
         ...DEFAULT_CONFIG.remittance!,
         ...(remote?.remittance ?? {}),
+      },
+      landing_page: {
+        ...DEFAULT_CONFIG.landing_page!,
+        ...(remote?.landing_page ?? {}),
       },
     });
     setSmtpPasswordTouched(false);
@@ -525,6 +591,20 @@ function SettingsPage() {
       payload.password = smtp.smtp_password;
     }
     saveConfigSection("smtp", payload);
+  };
+
+  const saveLandingPage = () => {
+    saveConfigSection("landing_page", config.landing_page ?? DEFAULT_CONFIG.landing_page!);
+  };
+
+  const updateLanding = (patch: Partial<LandingPageConfig>) => {
+    setConfig((prev) => ({
+      ...prev,
+      landing_page: {
+        ...(prev.landing_page ?? DEFAULT_CONFIG.landing_page!),
+        ...patch,
+      },
+    }));
   };
 
   const saveGeneral = () => {
@@ -914,6 +994,378 @@ function SettingsPage() {
                   </p>
                 </div>
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="landing">
+            <div className="space-y-4">
+              {/* Hero Banner Section */}
+              <SettingsPanel
+                title="Home Hero & Headline"
+                description="Headline, regulatory badge, tagline, and primary/secondary call-to-action buttons."
+                onSave={saveLandingPage}
+                saving={saving}
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <Field
+                      id="hero_badge"
+                      label="Regulatory & Trust Badge (Pill above headline)"
+                      value={config.landing_page?.hero_badge ?? ""}
+                      onChange={(v) => updateLanding({ hero_badge: v })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Field
+                      id="hero_title"
+                      label="Main Hero Headline"
+                      value={config.landing_page?.hero_title ?? ""}
+                      onChange={(v) => updateLanding({ hero_title: v })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2 space-y-1.5">
+                    <Label htmlFor="hero_subtitle">Hero Subtitle / Description</Label>
+                    <Textarea
+                      id="hero_subtitle"
+                      rows={3}
+                      value={config.landing_page?.hero_subtitle ?? ""}
+                      onChange={(e) => updateLanding({ hero_subtitle: e.target.value })}
+                    />
+                  </div>
+                  <Field
+                    id="hero_cta_primary_text"
+                    label="Primary CTA Button Text"
+                    value={config.landing_page?.hero_cta_primary_text ?? ""}
+                    onChange={(v) => updateLanding({ hero_cta_primary_text: v })}
+                  />
+                  <Field
+                    id="hero_cta_primary_url"
+                    label="Primary CTA Link Target"
+                    value={config.landing_page?.hero_cta_primary_url ?? ""}
+                    onChange={(v) => updateLanding({ hero_cta_primary_url: v })}
+                  />
+                  <Field
+                    id="hero_cta_secondary_text"
+                    label="Secondary CTA Button Text"
+                    value={config.landing_page?.hero_cta_secondary_text ?? ""}
+                    onChange={(v) => updateLanding({ hero_cta_secondary_text: v })}
+                  />
+                  <Field
+                    id="hero_cta_secondary_url"
+                    label="Secondary CTA Link Target"
+                    value={config.landing_page?.hero_cta_secondary_url ?? ""}
+                    onChange={(v) => updateLanding({ hero_cta_secondary_url: v })}
+                  />
+                </div>
+              </SettingsPanel>
+
+              {/* Announcement Notice Bar */}
+              <SettingsPanel
+                title="Top Announcement / Notice Bar"
+                description="Highlights offers, promo campaigns, or system announcements at the top of the homepage."
+                onSave={saveLandingPage}
+                saving={saving}
+              >
+                <div className="space-y-4">
+                  <ToggleRow
+                    label="Enable announcement banner"
+                    description="Show a prominent promo/notification strip at the very top of the website."
+                    checked={Boolean(config.landing_page?.announcement_enabled)}
+                    onCheckedChange={(checked) => updateLanding({ announcement_enabled: checked })}
+                  />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <Field
+                        id="announcement_text"
+                        label="Announcement Text"
+                        value={config.landing_page?.announcement_text ?? ""}
+                        onChange={(v) => updateLanding({ announcement_text: v })}
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Field
+                        id="announcement_link"
+                        label="Announcement Click URL (Optional)"
+                        value={config.landing_page?.announcement_link ?? ""}
+                        onChange={(v) => updateLanding({ announcement_link: v })}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </SettingsPanel>
+
+              {/* Key Platform Metrics (4 Stats) */}
+              <SettingsPanel
+                title="Live Platform Telemetry & Trust Bar"
+                description="4 key metrics displayed prominently below the hero section."
+                onSave={saveLandingPage}
+                saving={saving}
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-muted/20 p-4 space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Metric 1 (Users / Network)</p>
+                    <Field
+                      id="stat_1_value"
+                      label="Value"
+                      value={config.landing_page?.stat_1_value ?? ""}
+                      onChange={(v) => updateLanding({ stat_1_value: v })}
+                    />
+                    <Field
+                      id="stat_1_label"
+                      label="Label"
+                      value={config.landing_page?.stat_1_label ?? ""}
+                      onChange={(v) => updateLanding({ stat_1_label: v })}
+                    />
+                    <Field
+                      id="stat_1_sub"
+                      label="Subtext / Trend"
+                      value={config.landing_page?.stat_1_sub ?? ""}
+                      onChange={(v) => updateLanding({ stat_1_sub: v })}
+                    />
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-muted/20 p-4 space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Metric 2 (Annual Volume)</p>
+                    <Field
+                      id="stat_2_value"
+                      label="Value"
+                      value={config.landing_page?.stat_2_value ?? ""}
+                      onChange={(v) => updateLanding({ stat_2_value: v })}
+                    />
+                    <Field
+                      id="stat_2_label"
+                      label="Label"
+                      value={config.landing_page?.stat_2_label ?? ""}
+                      onChange={(v) => updateLanding({ stat_2_label: v })}
+                    />
+                    <Field
+                      id="stat_2_sub"
+                      label="Subtext / Trend"
+                      value={config.landing_page?.stat_2_sub ?? ""}
+                      onChange={(v) => updateLanding({ stat_2_sub: v })}
+                    />
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-muted/20 p-4 space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Metric 3 (Rail Uptime)</p>
+                    <Field
+                      id="stat_3_value"
+                      label="Value"
+                      value={config.landing_page?.stat_3_value ?? ""}
+                      onChange={(v) => updateLanding({ stat_3_value: v })}
+                    />
+                    <Field
+                      id="stat_3_label"
+                      label="Label"
+                      value={config.landing_page?.stat_3_label ?? ""}
+                      onChange={(v) => updateLanding({ stat_3_label: v })}
+                    />
+                    <Field
+                      id="stat_3_sub"
+                      label="Subtext / Trend"
+                      value={config.landing_page?.stat_3_sub ?? ""}
+                      onChange={(v) => updateLanding({ stat_3_sub: v })}
+                    />
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-muted/20 p-4 space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Metric 4 (Finality / Speed)</p>
+                    <Field
+                      id="stat_4_value"
+                      label="Value"
+                      value={config.landing_page?.stat_4_value ?? ""}
+                      onChange={(v) => updateLanding({ stat_4_value: v })}
+                    />
+                    <Field
+                      id="stat_4_label"
+                      label="Label"
+                      value={config.landing_page?.stat_4_label ?? ""}
+                      onChange={(v) => updateLanding({ stat_4_label: v })}
+                    />
+                    <Field
+                      id="stat_4_sub"
+                      label="Subtext / Trend"
+                      value={config.landing_page?.stat_4_sub ?? ""}
+                      onChange={(v) => updateLanding({ stat_4_sub: v })}
+                    />
+                  </div>
+                </div>
+              </SettingsPanel>
+
+              {/* Mobile App Download Promo */}
+              <SettingsPanel
+                title="Mobile App Download & Store Links"
+                description="Links for Google Play Store, Apple App Store, and custom APK download."
+                onSave={saveLandingPage}
+                saving={saving}
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <Field
+                      id="app_title"
+                      label="Section Headline"
+                      value={config.landing_page?.app_title ?? ""}
+                      onChange={(v) => updateLanding({ app_title: v })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2 space-y-1.5">
+                    <Label htmlFor="app_subtitle">Section Description</Label>
+                    <Textarea
+                      id="app_subtitle"
+                      rows={2}
+                      value={config.landing_page?.app_subtitle ?? ""}
+                      onChange={(e) => updateLanding({ app_subtitle: e.target.value })}
+                    />
+                  </div>
+                  <Field
+                    id="play_store_url"
+                    label="Google Play Store URL"
+                    value={config.landing_page?.play_store_url ?? ""}
+                    onChange={(v) => updateLanding({ play_store_url: v })}
+                  />
+                  <Field
+                    id="app_store_url"
+                    label="Apple App Store URL"
+                    value={config.landing_page?.app_store_url ?? ""}
+                    onChange={(v) => updateLanding({ app_store_url: v })}
+                  />
+                  <div className="sm:col-span-2">
+                    <Field
+                      id="direct_apk_url"
+                      label="Direct APK Download URL (Leave empty to use the APK uploaded under App Update tab)"
+                      value={config.landing_page?.direct_apk_url ?? ""}
+                      onChange={(v) => updateLanding({ direct_apk_url: v })}
+                    />
+                  </div>
+                </div>
+              </SettingsPanel>
+
+              {/* Contact, Support & Social Links */}
+              <SettingsPanel
+                title="Contact Info, Office & Social Channels"
+                description="Kathmandu HQ address, toll-free customer desk, WhatsApp and social links."
+                onSave={saveLandingPage}
+                saving={saving}
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    id="toll_free_number"
+                    label="Toll-Free Helpline / Hotlines"
+                    value={config.landing_page?.toll_free_number ?? ""}
+                    onChange={(v) => updateLanding({ toll_free_number: v })}
+                  />
+                  <Field
+                    id="support_hours"
+                    label="Operating Hours"
+                    value={config.landing_page?.support_hours ?? ""}
+                    onChange={(v) => updateLanding({ support_hours: v })}
+                  />
+                  <div className="sm:col-span-2">
+                    <Field
+                      id="office_location"
+                      label="Physical Office Location"
+                      value={config.landing_page?.office_location ?? ""}
+                      onChange={(v) => updateLanding({ office_location: v })}
+                    />
+                  </div>
+                  <Field
+                    id="social_whatsapp"
+                    label="WhatsApp Chat Link (wa.me/...)"
+                    value={config.landing_page?.social_whatsapp ?? ""}
+                    onChange={(v) => updateLanding({ social_whatsapp: v })}
+                  />
+                  <Field
+                    id="social_facebook"
+                    label="Facebook Page URL"
+                    value={config.landing_page?.social_facebook ?? ""}
+                    onChange={(v) => updateLanding({ social_facebook: v })}
+                  />
+                  <Field
+                    id="social_telegram"
+                    label="Telegram Channel URL"
+                    value={config.landing_page?.social_telegram ?? ""}
+                    onChange={(v) => updateLanding({ social_telegram: v })}
+                  />
+                  <Field
+                    id="social_twitter"
+                    label="Twitter / X Profile URL"
+                    value={config.landing_page?.social_twitter ?? ""}
+                    onChange={(v) => updateLanding({ social_twitter: v })}
+                  />
+                </div>
+              </SettingsPanel>
+
+              {/* Frequently Asked Questions (FAQs) */}
+              <SettingsPanel
+                title="Frequently Asked Questions (FAQ)"
+                description="Manage questions and answers displayed in the interactive FAQ accordion on the home page."
+                onSave={saveLandingPage}
+                saving={saving}
+              >
+                <div className="space-y-4">
+                  {(config.landing_page?.faqs ?? []).map((faq, index) => (
+                    <div
+                      key={index}
+                      className="rounded-lg border border-slate-200 bg-muted/20 p-4 space-y-3 relative"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-primary">Question #{index + 1}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 h-7 px-2"
+                          onClick={() => {
+                            const updated = [...(config.landing_page?.faqs ?? [])];
+                            updated.splice(index, 1);
+                            updateLanding({ faqs: updated });
+                          }}
+                        >
+                          <Trash2 className="size-3.5 mr-1" />
+                          Remove
+                        </Button>
+                      </div>
+                      <Input
+                        placeholder="Enter Question..."
+                        value={faq.question}
+                        onChange={(e) => {
+                          const updated = [...(config.landing_page?.faqs ?? [])];
+                          updated[index] = { ...updated[index], question: e.target.value };
+                          updateLanding({ faqs: updated });
+                        }}
+                      />
+                      <Textarea
+                        rows={2}
+                        placeholder="Enter Answer..."
+                        value={faq.answer}
+                        onChange={(e) => {
+                          const updated = [...(config.landing_page?.faqs ?? [])];
+                          updated[index] = { ...updated[index], answer: e.target.value };
+                          updateLanding({ faqs: updated });
+                        }}
+                      />
+                    </div>
+                  ))}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full gap-1.5"
+                    onClick={() => {
+                      const currentFaqs = config.landing_page?.faqs ?? [];
+                      updateLanding({
+                        faqs: [
+                          ...currentFaqs,
+                          { question: "New FAQ Question", answer: "Answer description..." },
+                        ],
+                      });
+                    }}
+                  >
+                    <Plus className="size-3.5" />
+                    Add FAQ Question
+                  </Button>
+                </div>
+              </SettingsPanel>
             </div>
           </TabsContent>
 

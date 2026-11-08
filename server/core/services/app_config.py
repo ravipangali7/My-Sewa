@@ -401,6 +401,7 @@ def public_config(config: Optional[Dict] = None) -> Dict[str, Any]:
     payment['himalpay_checkout_enabled'] = checkout_enabled_for_public()
     return {
         'site': cfg.get('site') or {},
+        'landing_page': cfg.get('landing_page') or {},
         'payment': payment,
         'transactions': cfg.get('transactions') or {},
         'notifications': {

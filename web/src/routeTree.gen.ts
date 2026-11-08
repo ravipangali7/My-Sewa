@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminApiUsersRouteImport } from './routes/admin/api-users'
@@ -105,6 +106,11 @@ const IndexRoute = IndexRouteImport.update({
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
   id: '/forgot-password',
   path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RegisterRoute = RegisterRouteImport.update({
@@ -542,6 +548,7 @@ const AdminWalletsWalletIdTransactionsRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/commission-charge': typeof AdminCommissionChargeRoute
@@ -631,6 +638,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/commission-charge': typeof AdminCommissionChargeRoute
@@ -721,6 +729,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/admin/api-users': typeof AdminApiUsersRoute
   '/admin/commission-charge': typeof AdminCommissionChargeRoute
@@ -812,6 +821,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/forgot-password'
+    | '/login'
     | '/register'
     | '/admin/api-users'
     | '/admin/commission-charge'
@@ -901,6 +911,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/forgot-password'
+    | '/login'
     | '/register'
     | '/admin/api-users'
     | '/admin/commission-charge'
@@ -990,6 +1001,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/forgot-password'
+    | '/login'
     | '/register'
     | '/admin/api-users'
     | '/admin/commission-charge'
@@ -1080,6 +1092,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
+  LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   AdminApiUsersRoute: typeof AdminApiUsersRoute
   AdminCommissionChargeRoute: typeof AdminCommissionChargeRoute
@@ -1181,6 +1194,13 @@ declare module '@tanstack/react-router' {
       path: '/forgot-password'
       fullPath: '/forgot-password'
       preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/register': {
@@ -1784,6 +1804,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
+  LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   AdminApiUsersRoute: AdminApiUsersRoute,
   AdminCommissionChargeRoute: AdminCommissionChargeRoute,

@@ -1363,6 +1363,70 @@ class WalletTransfer(models.Model):
         ]
 
 
+def default_landing_page_config():
+    """Default configuration for MySewa single page landing website."""
+    return {
+        'hero_badge': 'NRB Licensed PSP • NCHL-IPS Integrated',
+        'hero_title': "Nepal’s Premier Sovereign Digital Wallet & Payment Super-App",
+        'hero_subtitle': 'Instant mobile top-up (NTC & Ncell), NEA electricity, Khanepani water, fiber internet, instant 24/7 bank transfer via NCHL-IPS rails, and global inward remittance — zero hidden fees.',
+        'hero_cta_primary_text': 'Download MySewa App',
+        'hero_cta_primary_url': '#download-app',
+        'hero_cta_secondary_text': 'Explore Services',
+        'hero_cta_secondary_url': '#services',
+        'announcement_enabled': True,
+        'announcement_text': '⚡ 2% Instant Cashback on NTC & Ncell Mobile Recharges this month! ⚡',
+        'announcement_link': '#services',
+        'stat_1_value': '4.8M+',
+        'stat_1_label': 'Active Verified Citizens',
+        'stat_1_sub': '+22.4% YoY · 77 Districts',
+        'stat_2_value': 'रू 182B+',
+        'stat_2_label': 'Annual Settlement Vol',
+        'stat_2_sub': 'NCHL Interoperable Rails',
+        'stat_3_value': '99.98%',
+        'stat_3_label': 'Payment Rail Uptime',
+        'stat_3_sub': 'Tier 4 Sovereign Data Center',
+        'stat_4_value': '< 1.2s',
+        'stat_4_label': 'Avg Transaction Finality',
+        'stat_4_sub': 'Sub-Second IPS Pipeline',
+        'app_title': "Carry Nepal's Digital Economy in Your Pocket",
+        'app_subtitle': 'Download the official MySewa app on Android or iOS. Experience instant biometric authentication, NepalPay dynamic QR payments, and real-time transaction receipts.',
+        'play_store_url': 'https://play.google.com/store/apps/details?id=com.mysewa.wallet',
+        'app_store_url': 'https://apps.apple.com/app/mysewa-nepal/id123456789',
+        'direct_apk_url': '',
+        'support_hours': '24/7 Toll-Free & Helpdesk',
+        'toll_free_number': '1660-01-MYSEWA',
+        'office_location': 'Nagpokhari, Ward 1, Kathmandu, Bagmati Province, Nepal',
+        'social_facebook': 'https://facebook.com/mysewanepal',
+        'social_whatsapp': 'https://wa.me/9779800000000',
+        'social_telegram': 'https://t.me/mysewa_official',
+        'social_twitter': 'https://twitter.com/mysewanepal',
+        'show_testimonials': True,
+        'show_faqs': True,
+        'faqs': [
+            {
+                'question': 'How do I complete biometric KYC verification in MySewa?',
+                'answer': 'You can complete your KYC in under 90 seconds by scanning your Nepali Citizenship (Nagarikta), National Identity Card (NID), or Passport along with a live selfie verification directly in the MySewa app.'
+            },
+            {
+                'question': 'Are bank transfers via NCHL-IPS available on public holidays and weekends?',
+                'answer': 'Yes. All bank transfers on MySewa operate on NCHL-IPS 24/7 real-time settlement rails and are credited instantly, including Saturdays, public holidays, and midnight.'
+            },
+            {
+                'question': 'What are the charges for mobile top-up and utility bills?',
+                'answer': 'Mobile recharge on NTC, Ncell, and Smart Cell has 0% service charge and comes with up to 2% instant cashback. NEA electricity and Khanepani water bill payments have zero service fees.'
+            },
+            {
+                'question': 'Can I receive international remittances directly into my wallet?',
+                'answer': 'Yes, MySewa partners with leading international money transfer operators across the GCC, USA, UK, Japan, Australia, Malaysia, and Korea for direct inward wallet deposits.'
+            },
+            {
+                'question': 'How does MySewa protect my funds and personal data?',
+                'answer': 'MySewa is regulated under the Nepal Rastra Bank Payment Systems Department, with bank-grade 256-bit encryption, biometric device binding, and real-time AI fraud detection.'
+            }
+        ]
+    }
+
+
 def default_app_config():
     """Default application-wide settings used by the Settings singleton."""
     return {
@@ -1375,6 +1439,7 @@ def default_app_config():
             'currency': 'NPR',
             'timezone': 'Asia/Kathmandu',
         },
+        'landing_page': default_landing_page_config(),
         'payment': {
             'deposits_enabled': True,
             'topups_enabled': True,

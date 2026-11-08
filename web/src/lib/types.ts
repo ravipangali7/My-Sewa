@@ -426,8 +426,54 @@ export interface RemittanceAgentConfig {
   payout_payment_bank_branch: string;
 }
 
+export interface LandingPageFaq {
+  question: string;
+  answer: string;
+}
+
+export interface LandingPageConfig {
+  hero_badge?: string;
+  hero_title?: string;
+  hero_subtitle?: string;
+  hero_cta_primary_text?: string;
+  hero_cta_primary_url?: string;
+  hero_cta_secondary_text?: string;
+  hero_cta_secondary_url?: string;
+  announcement_enabled?: boolean;
+  announcement_text?: string;
+  announcement_link?: string;
+  stat_1_value?: string;
+  stat_1_label?: string;
+  stat_1_sub?: string;
+  stat_2_value?: string;
+  stat_2_label?: string;
+  stat_2_sub?: string;
+  stat_3_value?: string;
+  stat_3_label?: string;
+  stat_3_sub?: string;
+  stat_4_value?: string;
+  stat_4_label?: string;
+  stat_4_sub?: string;
+  app_title?: string;
+  app_subtitle?: string;
+  play_store_url?: string;
+  app_store_url?: string;
+  direct_apk_url?: string;
+  support_hours?: string;
+  toll_free_number?: string;
+  office_location?: string;
+  social_facebook?: string;
+  social_whatsapp?: string;
+  social_telegram?: string;
+  social_twitter?: string;
+  show_testimonials?: boolean;
+  show_faqs?: boolean;
+  faqs?: LandingPageFaq[];
+}
+
 export interface AppConfig {
   site: SiteConfig;
+  landing_page?: LandingPageConfig;
   payment: PaymentConfig;
   transactions: TransactionsConfig;
   commission?: CommissionConfig;
