@@ -16,8 +16,9 @@ import {
   Lock,
   ArrowRight,
   Sparkles,
+  MinusCircle,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { BackButton } from "@/components/BackButton";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +38,17 @@ import { apiClient, ApiError } from "@/lib/api";
 import { adminLiveQueryOptions } from "@/lib/refresh";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
+import { canWalletAdjust } from "@/lib/account-status";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { UserFeesForm } from "@/components/admin/UserFeesForm";
 import { UserTransactionPinForm } from "@/components/admin/UserTransactionPinForm";
 import { ServiceCommissionRulesForm } from "@/components/admin/ServiceCommissionRulesForm";
@@ -97,6 +109,31 @@ function UserDetailPage() {
 
   const u = userQuery.data;
   const isSelf = currentUser?.id === id;
+
+  const [deductModalOpen, setDeductModalOpen] = useState(false);
+  const [deductAmount, setDeductAmount] = useState("");
+  const [deductReason, setDeductReason] = useState("");
+
+  const allowDeduct = Boolean((currentUser?.is_superuser || currentUser?.is_staff) && canWalletAdjust(currentUser));
+
+  const deductMutation = useMutation({
+    mutationFn: () =>
+      apiClient.deductShareholderEarnings({
+        shareholder_id: id,
+        amount: deductAmount,
+        reason: deductReason.trim(),
+      }),
+    onSuccess: (res) => {
+      toast.success(res.message || "Deducted shareholder earnings successfully.");
+      setDeductModalOpen(false);
+      setDeductAmount("");
+      setDeductReason("");
+      queryClient.invalidateQueries({ queryKey: ["admin", "users", id] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to deduct shareholder earnings.");
+    },
+  });
   const t = useT();
   const { logoUrl } = useSiteBranding();
   const qr = useMySewaPaymentQr(u);
@@ -303,6 +340,30 @@ function UserDetailPage() {
                         {u.share_percent ?? "0.00"}% Equity Pool
                       </span>
                     </DetailRow>
+                    <DetailRow label="Share Income Balance">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                          {formatNPR(u.shareholder_wallet_balance ?? "0.00")}
+                        </span>
+                        {allowDeduct && (
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="outline"
+                            onClick={() => setDeductModalOpen(true)}
+                            className="h-6 text-[11px] px-2 border-rose-200 text-rose-600 hover:text-rose-700 hover:bg-rose-50 font-medium"
+                          >
+                            <MinusCircle className="size-3 mr-1" />
+                            Deduct Earnings
+                          </Button>
+                        )}
+                      </div>
+                    </DetailRow>
+                    <DetailRow label="Total Earned Dividends">
+                      <span className="font-mono text-slate-600 dark:text-slate-400">
+                        {formatNPR(u.shareholder_total_earned ?? "0.00")}
+                      </span>
+                    </DetailRow>
                     <DetailRow label="Dividend Access">
                       <Button asChild size="xs" variant="outline" className="text-xs">
                         <Link to="/admin/shareholders">
@@ -440,6 +501,134 @@ function UserDetailPage() {
             <ServiceCommissionRulesForm userId={u.id} enabled={u.role === "dealer"} />
           </div>
         </div>
+      )}
+
+      {/* DEDUCT SHAREHOLDER EARNINGS DIALOG */}
+      {isShareholder && (
+        <Dialog open={deductModalOpen} onOpenChange={setDeductModalOpen}>
+          <DialogContent className="sm:max-w-md bg-white p-5 rounded-md shadow-lg border border-slate-200">
+            <DialogHeader className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-rose-50 text-rose-700 rounded-md border border-rose-200">
+                  <MinusCircle className="size-4" />
+                </div>
+                <DialogTitle className="text-sm font-bold text-slate-900">
+                  Deduct Shareholder Share Income
+                </DialogTitle>
+              </div>
+              <DialogDescription className="text-xs text-slate-500">
+                Debit accumulated share income / platform fee earnings from {fullName}'s balance.
+              </DialogDescription>
+            </DialogHeader>
+
+            {u && (
+              <div className="space-y-4 pt-1">
+                {/* Summary Info Box */}
+                <div className="p-3 rounded-md bg-slate-50 border border-slate-200/90 space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 font-medium">Partner:</span>
+                    <span className="font-semibold text-slate-900">{fullName}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 font-medium">Phone / Account:</span>
+                    <span className="font-mono text-slate-700 font-semibold">{u.phone}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 font-medium">Equity Share:</span>
+                    <span className="font-bold text-amber-700 font-mono">{u.share_percent ?? "0"}%</span>
+                  </div>
+                  <div className="border-t border-slate-200 pt-1.5 flex justify-between items-center">
+                    <span className="text-slate-600 font-bold">Current Available Earnings:</span>
+                    <span className="font-bold text-emerald-700 font-mono text-sm">
+                      {formatNPR(u.shareholder_wallet_balance ?? "0.00")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Total Lifetime Earned:</span>
+                    <span className="font-mono text-slate-600">{formatNPR(u.shareholder_total_earned ?? "0.00")}</span>
+                  </div>
+                </div>
+
+                {/* Amount Input */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="sh-deduct-amount" className="text-xs font-semibold text-slate-800 flex items-center justify-between">
+                    <span>Deduction Amount (NPR) *</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Max: {formatNPR(u.shareholder_wallet_balance ?? "0.00")}</span>
+                  </Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
+                      Rs.
+                    </span>
+                    <Input
+                      id="sh-deduct-amount"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max={u.shareholder_wallet_balance ?? undefined}
+                      placeholder="0.00"
+                      value={deductAmount}
+                      onChange={(e) => setDeductAmount(e.target.value)}
+                      className="pl-9 font-mono text-xs h-9 rounded-sm border-slate-200"
+                    />
+                  </div>
+                  {/* Balance Preview */}
+                  {Number(deductAmount) > 0 && (
+                    <div className="text-[11px] flex justify-between items-center px-1 font-mono">
+                      <span className="text-slate-500">Remaining Balance:</span>
+                      <span className={`font-bold ${Number(deductAmount) > Number(u.shareholder_wallet_balance || 0) ? "text-rose-600" : "text-slate-700"}`}>
+                        {Number(deductAmount) > Number(u.shareholder_wallet_balance || 0)
+                          ? "Insufficient Balance!"
+                          : formatNPR(Math.max(0, Number(u.shareholder_wallet_balance || 0) - Number(deductAmount)))}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Reason Input */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="sh-deduct-reason" className="text-xs font-semibold text-slate-800">
+                    Reason for Deduction *
+                  </Label>
+                  <Input
+                    id="sh-deduct-reason"
+                    placeholder="e.g. Reconciliation adjustment, clawback, fee correction"
+                    value={deductReason}
+                    onChange={(e) => setDeductReason(e.target.value)}
+                    className="text-xs h-9 rounded-sm border-slate-200"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Required for the audit trail and emailed to the shareholder.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="gap-2 sm:gap-0 pt-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeductModalOpen(false)}
+                className="rounded-sm text-xs h-8 border-slate-200"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => deductMutation.mutate()}
+                disabled={
+                  deductMutation.isPending ||
+                  !deductAmount ||
+                  Number(deductAmount) <= 0 ||
+                  Number(deductAmount) > Number(u?.shareholder_wallet_balance || 0) ||
+                  !deductReason.trim()
+                }
+                className="bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-sm text-xs h-8 px-4"
+              >
+                {deductMutation.isPending ? "Deducting..." : "Confirm Deduction"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </AdminShell>
   );

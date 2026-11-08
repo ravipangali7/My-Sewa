@@ -24,6 +24,7 @@ import {
   Plus,
   KeyRound,
   Gamepad2,
+  MinusCircle,
 } from "lucide-react";
 
 import { AdminShell } from "@/components/layout/AdminShell";
@@ -60,6 +61,8 @@ import { apiClient } from "@/lib/api";
 import { formatNPR, formatDateTime } from "@/lib/format";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import { canWalletAdjust } from "@/lib/account-status";
+import type { ShareholderItem } from "@/lib/types";
 
 export const Route = createFileRoute("/admin/shareholders")({
   component: ShareholderAdminScreen,
@@ -96,6 +99,14 @@ function ShareholderAdminScreen() {
   const [ggrPercent, setGgrPercent] = useState("10.00");
   const [depPercent, setDepPercent] = useState("2.50");
   const [wthPercent, setWthPercent] = useState("3.00");
+
+  // Deduct Shareholder Earnings State
+  const [deductModalOpen, setDeductModalOpen] = useState(false);
+  const [selectedShareholder, setSelectedShareholder] = useState<ShareholderItem | null>(null);
+  const [deductAmount, setDeductAmount] = useState("");
+  const [deductReason, setDeductReason] = useState("");
+
+  const allowDeduct = Boolean((user?.is_superuser || user?.is_staff) && canWalletAdjust(user));
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["shareholder-dashboard"],
@@ -213,6 +224,29 @@ function ShareholderAdminScreen() {
       toast.error(err?.message || "Withdrawal failed.");
     },
   });
+
+  const deductMutation = useMutation({
+    mutationFn: (payload: { shareholder_id: number; amount: string; reason: string }) =>
+      apiClient.deductShareholderEarnings(payload),
+    onSuccess: (res) => {
+      toast.success(res.message || "Deducted shareholder earnings successfully.");
+      setDeductModalOpen(false);
+      setSelectedShareholder(null);
+      setDeductAmount("");
+      setDeductReason("");
+      queryClient.invalidateQueries({ queryKey: ["shareholder-dashboard"] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to deduct shareholder earnings.");
+    },
+  });
+
+  const openDeductModal = (s: ShareholderItem) => {
+    setSelectedShareholder(s);
+    setDeductAmount("");
+    setDeductReason("");
+    setDeductModalOpen(true);
+  };
 
   const setDefaultAccountMutation = useMutation({
     mutationFn: (id: number) => apiClient.setDefaultShareholderPayoutAccount(id),
@@ -846,11 +880,25 @@ function ShareholderAdminScreen() {
                       <TableCell className="font-mono text-slate-600">{formatNPR(Number(s.total_earned))}</TableCell>
                       <TableCell className="font-mono text-slate-400">{formatNPR(Number(s.total_withdrawn))}</TableCell>
                       <TableCell className="text-right">
-                        <Button asChild size="sm" variant="outline" className="h-7 px-2.5 text-[11px] rounded-sm border-slate-200 hover:bg-slate-50">
-                          <Link to="/admin/users/$userId" params={{ userId: String(s.id) }}>
-                            View
-                          </Link>
-                        </Button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {allowDeduct && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openDeductModal(s)}
+                              className="h-7 px-2 text-[11px] rounded-sm border-rose-200 text-rose-600 hover:text-rose-700 hover:bg-rose-50 font-medium"
+                              title="Deduct Shareholder Earnings"
+                            >
+                              <MinusCircle className="size-3 mr-1" />
+                              Deduct
+                            </Button>
+                          )}
+                          <Button asChild size="sm" variant="outline" className="h-7 px-2.5 text-[11px] rounded-sm border-slate-200 hover:bg-slate-50">
+                            <Link to="/admin/users/$userId" params={{ userId: String(s.id) }}>
+                              View
+                            </Link>
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -1026,7 +1074,9 @@ function ShareholderAdminScreen() {
                       <TableCell>
                         <span
                           className={`px-1.5 py-0.2 rounded-xs text-[10px] font-bold border ${
-                            log.source === "ggr"
+                            log.source === "admin_deduction"
+                              ? "bg-rose-50 text-rose-800 border-rose-200"
+                              : log.source === "ggr"
                               ? "bg-amber-50 text-amber-800 border-amber-200"
                               : log.source === "api_deposit"
                                 ? "bg-blue-50 text-blue-800 border-blue-200"
@@ -1036,8 +1086,16 @@ function ShareholderAdminScreen() {
                           {log.source_label}
                         </span>
                       </TableCell>
-                      <TableCell className="font-mono font-bold text-emerald-700">
-                        +{formatNPR(Number(log.amount))}
+                      <TableCell
+                        className={`font-mono font-bold ${
+                          Number(log.amount) < 0 || log.source === "admin_deduction"
+                            ? "text-rose-700"
+                            : "text-emerald-700"
+                        }`}
+                      >
+                        {Number(log.amount) < 0 || log.source === "admin_deduction"
+                          ? `−${formatNPR(Math.abs(Number(log.amount)))}`
+                          : `+${formatNPR(Number(log.amount))}`}
                       </TableCell>
                       <TableCell className="font-mono text-slate-500">{log.reference}</TableCell>
                       <TableCell className="text-slate-500 max-w-xs truncate">{log.notes}</TableCell>
@@ -1626,6 +1684,141 @@ function ShareholderAdminScreen() {
                 className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-sm text-xs h-8 px-4 cursor-pointer"
               >
                 {createAccountMutation.isPending ? "Saving..." : "Save Account"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* DEDUCT SHAREHOLDER EARNINGS MODAL */}
+        <Dialog open={deductModalOpen} onOpenChange={setDeductModalOpen}>
+          <DialogContent className="sm:max-w-md bg-white p-5 rounded-md shadow-lg border border-slate-200">
+            <DialogHeader className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-rose-50 text-rose-700 rounded-md border border-rose-200">
+                  <MinusCircle className="size-4" />
+                </div>
+                <DialogTitle className="text-sm font-bold text-slate-900">
+                  Deduct Shareholder Share Income
+                </DialogTitle>
+              </div>
+              <DialogDescription className="text-xs text-slate-500">
+                Debit accumulated share income / platform fee earnings from this partner's balance.
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedShareholder && (
+              <div className="space-y-4 pt-1">
+                {/* Shareholder Info Box */}
+                <div className="p-3 rounded-md bg-slate-50 border border-slate-200/90 space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 font-medium">Shareholder:</span>
+                    <span className="font-semibold text-slate-900">
+                      {[selectedShareholder.first_name, selectedShareholder.last_name].filter(Boolean).join(" ") || "Shareholder Partner"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 font-medium">Phone / Account:</span>
+                    <span className="font-mono text-slate-700 font-semibold">{selectedShareholder.phone}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 font-medium">Equity Share:</span>
+                    <span className="font-bold text-amber-700 font-mono">{selectedShareholder.share_percent}%</span>
+                  </div>
+                  <div className="border-t border-slate-200 pt-1.5 flex justify-between items-center">
+                    <span className="text-slate-600 font-bold">Current Withdrawable Balance:</span>
+                    <span className="font-bold text-emerald-700 font-mono text-sm">
+                      {formatNPR(Number(selectedShareholder.balance))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Total Lifetime Earned:</span>
+                    <span className="font-mono text-slate-600">{formatNPR(Number(selectedShareholder.total_earned))}</span>
+                  </div>
+                </div>
+
+                {/* Amount Input */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="deduct-amount" className="text-xs font-semibold text-slate-800 flex items-center justify-between">
+                    <span>Deduction Amount (NPR) *</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Max: {formatNPR(Number(selectedShareholder.balance))}</span>
+                  </Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
+                      Rs.
+                    </span>
+                    <Input
+                      id="deduct-amount"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max={selectedShareholder.balance}
+                      placeholder="0.00"
+                      value={deductAmount}
+                      onChange={(e) => setDeductAmount(e.target.value)}
+                      className="pl-9 font-mono text-xs h-9 rounded-sm border-slate-200"
+                    />
+                  </div>
+                  {/* Balance Preview */}
+                  {Number(deductAmount) > 0 && (
+                    <div className="text-[11px] flex justify-between items-center px-1 font-mono">
+                      <span className="text-slate-500">Remaining Balance:</span>
+                      <span className={`font-bold ${Number(deductAmount) > Number(selectedShareholder.balance) ? "text-rose-600" : "text-slate-700"}`}>
+                        {Number(deductAmount) > Number(selectedShareholder.balance)
+                          ? "Insufficient Balance!"
+                          : formatNPR(Math.max(0, Number(selectedShareholder.balance) - Number(deductAmount)))}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Reason Input */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="deduct-reason" className="text-xs font-semibold text-slate-800">
+                    Reason for Deduction *
+                  </Label>
+                  <Input
+                    id="deduct-reason"
+                    placeholder="e.g. Reconciliation adjustment, overpaid profit cut, clawback"
+                    value={deductReason}
+                    onChange={(e) => setDeductReason(e.target.value)}
+                    className="text-xs h-9 rounded-sm border-slate-200"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Required for the audit trail and emailed to the shareholder.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="gap-2 sm:gap-0 pt-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeductModalOpen(false)}
+                className="rounded-sm text-xs h-8 border-slate-200"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (!selectedShareholder) return;
+                  deductMutation.mutate({
+                    shareholder_id: selectedShareholder.id,
+                    amount: deductAmount,
+                    reason: deductReason.trim(),
+                  });
+                }}
+                disabled={
+                  deductMutation.isPending ||
+                  !selectedShareholder ||
+                  !deductAmount ||
+                  Number(deductAmount) <= 0 ||
+                  Number(deductAmount) > Number(selectedShareholder?.balance || 0) ||
+                  !deductReason.trim()
+                }
+                className="bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-sm text-xs h-8 px-4"
+              >
+                {deductMutation.isPending ? "Deducting..." : "Confirm Deduction"}
               </Button>
             </DialogFooter>
           </DialogContent>

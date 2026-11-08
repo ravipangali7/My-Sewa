@@ -22,6 +22,7 @@ from .services.ggr_service import (
     process_payment_api_deposit,
     process_payment_api_withdraw,
     execute_shareholder_withdrawal,
+    deduct_shareholder_earnings,
     sync_historical_revenue_to_shareholders,
 )
 
@@ -330,3 +331,87 @@ class GgrAndShareholderTests(TestCase):
 
         sh_after = ShareholderWallet.objects.get(shareholder=self.shareholder).balance
         self.assertGreater(sh_after, sh_before)
+
+    def test_admin_can_deduct_shareholder_earnings_service(self):
+        # Setup initial wallet balance
+        sh_wallet, _ = ShareholderWallet.objects.get_or_create(shareholder=self.shareholder)
+        sh_wallet.balance = Decimal('10000.00')
+        sh_wallet.total_earned = Decimal('10000.00')
+        sh_wallet.save()
+
+        # Deduct earnings
+        wallet, log = deduct_shareholder_earnings(
+            shareholder=self.shareholder,
+            amount=Decimal('2500.00'),
+            reason="Commission reconciliation",
+        )
+
+        sh_wallet.refresh_from_db()
+        self.assertEqual(sh_wallet.balance, Decimal('7500.00'))
+        self.assertEqual(sh_wallet.total_earned, Decimal('7500.00'))
+        self.assertEqual(log.amount, Decimal('-2500.00'))
+        self.assertEqual(log.source, ShareholderRevenueLog.SOURCE_ADMIN_DEDUCTION)
+        self.assertIn("Commission reconciliation", log.notes)
+
+        # Attempt to deduct more than available balance
+        with self.assertRaises(ValueError):
+            deduct_shareholder_earnings(
+                shareholder=self.shareholder,
+                amount=Decimal('8000.00'),
+                reason="Excess deduction",
+            )
+
+        # Attempt to deduct non-positive amount
+        with self.assertRaises(ValueError):
+            deduct_shareholder_earnings(
+                shareholder=self.shareholder,
+                amount=Decimal('0.00'),
+                reason="Zero deduction",
+            )
+
+        # Attempt to deduct without reason
+        with self.assertRaises(ValueError):
+            deduct_shareholder_earnings(
+                shareholder=self.shareholder,
+                amount=Decimal('100.00'),
+                reason="",
+            )
+
+    def test_admin_deduct_shareholder_earnings_api_endpoint(self):
+        # Setup initial wallet balance
+        sh_wallet, _ = ShareholderWallet.objects.get_or_create(shareholder=self.shareholder)
+        sh_wallet.balance = Decimal('5000.00')
+        sh_wallet.total_earned = Decimal('5000.00')
+        sh_wallet.save()
+
+        # Create Super Admin
+        admin = User.objects.create_superuser(
+            phone='9899999999',
+            email='admin@example.com',
+            password='Password123!',
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=admin)
+
+        # Call deduction endpoint
+        res = client.post('/api/admin/shareholders/deduct/', {
+            'shareholder_id': self.shareholder.id,
+            'amount': '1500.00',
+            'reason': 'Overpayment clawback',
+        })
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data['success'])
+        self.assertEqual(res.data['remaining_balance'], '3500.00')
+
+        sh_wallet.refresh_from_db()
+        self.assertEqual(sh_wallet.balance, Decimal('3500.00'))
+
+        # Non-staff user should be rejected (403)
+        client.force_authenticate(user=self.regular_user)
+        res = client.post('/api/admin/shareholders/deduct/', {
+            'shareholder_id': self.shareholder.id,
+            'amount': '500.00',
+            'reason': 'Unauthorized deduction',
+        })
+        self.assertEqual(res.status_code, 403)

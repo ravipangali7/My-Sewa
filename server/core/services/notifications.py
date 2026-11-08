@@ -1877,6 +1877,68 @@ def notify_wallet_adjustment(
     )
 
 
+def notify_shareholder_earnings_deduction(
+    shareholder,
+    amount,
+    balance_before,
+    balance_after,
+    reason: str = '',
+    ref: str = '',
+) -> None:
+    """
+    Email (+ push) when an admin deducts shareholder share income earnings.
+    """
+    cfg = _notif_cfg()
+    site_name = _site_name()
+
+    amt_val = Decimal(str(amount))
+    before_val = Decimal(str(balance_before)) if balance_before is not None else None
+    after_val = Decimal(str(balance_after)) if balance_after is not None else None
+
+    title = f'{site_name}: Share Earnings Deducted'
+    short = (
+        f'NPR {_fmt_amount(amt_val)} was deducted from your shareholder share income earnings. '
+        + (f'New earnings balance: NPR {_fmt_amount(after_val)}.' if after_val is not None else '')
+    )
+    rows: List[Row] = [
+        ('Type', 'Shareholder Earnings Deduction'),
+        ('Deducted amount', f'−{_fmt_amount(amt_val)}'),
+        ('Previous balance', _fmt_amount(before_val) if before_val is not None else '-'),
+        ('New balance', _fmt_amount(after_val) if after_val is not None else '-'),
+        ('Reason', reason or 'Admin adjustment'),
+        ('Reference', ref or '-'),
+        ('Date', _format_when()),
+        ('Status', 'Deducted'),
+    ]
+
+    if cfg.get('email_on_wallet_adjustment', True) and _user_email(shareholder):
+        _send_txn_email(
+            recipients=[shareholder.email],
+            subject=f'[{site_name}] Shareholder Earnings Deducted',
+            text_intro='An administrator deducted an amount from your shareholder dividend / share income earnings.',
+            title='Earnings Deduction',
+            subtitle='Shareholder share income earnings adjustment.',
+            amount_display=f'−{_fmt_amount(amt_val)}',
+            status='debit',
+            status_label='Deducted',
+            rows=rows,
+            greeting=f'Hi {getattr(shareholder, "first_name", "") or "Shareholder"},',
+            copy_admin=False,
+        )
+
+    _push(
+        shareholder,
+        title,
+        short,
+        event='shareholder_deduction',
+        extra={
+            'old_balance': str(before_val) if before_val is not None else '',
+            'new_balance': str(after_val) if after_val is not None else '',
+            'deduction_amount': str(amt_val),
+        },
+    )
+
+
 def _split_when(value=None) -> Tuple[str, str]:
     dt = value or timezone.now()
     if timezone.is_aware(dt):

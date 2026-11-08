@@ -157,6 +157,9 @@ export interface UserProfile {
   tds_rate?: string | null;
   sub_agent_commission_rate?: string | null;
   super_admin_rate?: string | null;
+  shareholder_wallet_balance?: string;
+  shareholder_total_earned?: string;
+  shareholder_total_withdrawn?: string;
   share_percent?: string | number | null;
   /** Whether a transaction PIN is set (never the raw PIN). */
   has_transaction_pin?: boolean;
@@ -2291,6 +2294,7 @@ export interface ShareholderDashboardData {
     ggr_revenue: string;
     api_deposit_revenue: string;
     api_withdraw_revenue: string;
+    admin_deduction_total?: string;
     api_partners_count?: number;
   };
   service_fee_config: {

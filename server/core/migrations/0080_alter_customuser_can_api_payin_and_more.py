@@ -3,6 +3,28 @@
 from django.db import migrations, models
 
 
+def set_mysql_defaults(apps, schema_editor):
+    if schema_editor.connection.vendor == 'mysql':
+        schema_editor.execute("""
+            ALTER TABLE core_customuser
+                ALTER COLUMN can_api_payout SET DEFAULT 1,
+                ALTER COLUMN can_api_payin SET DEFAULT 0,
+                ALTER COLUMN pan_no SET DEFAULT '',
+                ALTER COLUMN company_registration_no SET DEFAULT '';
+        """)
+
+
+def drop_mysql_defaults(apps, schema_editor):
+    if schema_editor.connection.vendor == 'mysql':
+        schema_editor.execute("""
+            ALTER TABLE core_customuser
+                ALTER COLUMN can_api_payout DROP DEFAULT,
+                ALTER COLUMN can_api_payin DROP DEFAULT,
+                ALTER COLUMN pan_no DROP DEFAULT,
+                ALTER COLUMN company_registration_no DROP DEFAULT;
+        """)
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,22 +32,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql="""
-            ALTER TABLE core_customuser
-                ALTER COLUMN can_api_payout SET DEFAULT 1,
-                ALTER COLUMN can_api_payin SET DEFAULT 0,
-                ALTER COLUMN pan_no SET DEFAULT '',
-                ALTER COLUMN company_registration_no SET DEFAULT '';
-            """,
-            reverse_sql="""
-            ALTER TABLE core_customuser
-                ALTER COLUMN can_api_payout DROP DEFAULT,
-                ALTER COLUMN can_api_payin DROP DEFAULT,
-                ALTER COLUMN pan_no DROP DEFAULT,
-                ALTER COLUMN company_registration_no DROP DEFAULT;
-            """,
-        ),
+        migrations.RunPython(set_mysql_defaults, drop_mysql_defaults),
         migrations.AlterField(
             model_name='customuser',
             name='can_api_payin',

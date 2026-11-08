@@ -332,6 +332,9 @@ class AdminUserSerializer(serializers.ModelSerializer):
     tds_rate = serializers.SerializerMethodField()
     sub_agent_commission_rate = serializers.SerializerMethodField()
     super_admin_rate = serializers.SerializerMethodField()
+    shareholder_wallet_balance = serializers.SerializerMethodField()
+    shareholder_total_earned = serializers.SerializerMethodField()
+    shareholder_total_withdrawn = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -347,6 +350,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
             'wallet_id', 'wallet_balance', 'wallet_frozen', 'wallet_status',
             'has_transaction_pin', 'is_api_user', 'is_ggr_user', 'is_ggr', 'share_percent',
             'commission_rate', 'tds_rate', 'sub_agent_commission_rate', 'super_admin_rate',
+            'shareholder_wallet_balance', 'shareholder_total_earned', 'shareholder_total_withdrawn',
         )
         read_only_fields = (
             'id', 'kyc_status', 'citizenship_number',
@@ -418,6 +422,18 @@ class AdminUserSerializer(serializers.ModelSerializer):
         if config is None:
             return None
         return str(getattr(config, 'super_admin_rate', 0) or 0)
+
+    def get_shareholder_wallet_balance(self, obj):
+        sw = getattr(obj, 'shareholder_wallet', None)
+        return str(sw.balance) if sw else '0.00'
+
+    def get_shareholder_total_earned(self, obj):
+        sw = getattr(obj, 'shareholder_wallet', None)
+        return str(sw.total_earned) if sw else '0.00'
+
+    def get_shareholder_total_withdrawn(self, obj):
+        sw = getattr(obj, 'shareholder_wallet', None)
+        return str(sw.total_withdrawn) if sw else '0.00'
 
 
 class AdminUserWriteSerializer(serializers.ModelSerializer):

@@ -575,6 +575,7 @@ urlpatterns = [
     # Shareholder and Platform Revenue endpoints
     path('api/admin/shareholders/dashboard/', ggr_views.admin_shareholder_dashboard, name='admin_shareholder_dashboard'),
     path('api/admin/shareholders/withdraw/', ggr_views.admin_shareholder_withdraw, name='admin_shareholder_withdraw'),
+    path('api/admin/shareholders/deduct/', ggr_views.admin_deduct_shareholder_earnings, name='admin_deduct_shareholder_earnings'),
     path('api/admin/shareholders/payout-accounts/', ggr_views.admin_shareholder_payout_accounts, name='admin_shareholder_payout_accounts'),
     path('api/admin/shareholders/payout-accounts/<int:pk>/', ggr_views.admin_shareholder_payout_account_detail, name='admin_shareholder_payout_account_detail'),
     path('api/admin/shareholders/sync-historical-revenue/', ggr_views.admin_sync_historical_revenue, name='admin_sync_historical_revenue'),

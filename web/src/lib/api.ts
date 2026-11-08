@@ -2302,6 +2302,25 @@ export const apiClient = {
       "/api/admin/shareholders/withdraw/",
       { method: "POST", body: payload },
     ),
+  deductShareholderEarnings: (payload: {
+    shareholder_id?: number;
+    phone?: string;
+    amount: number | string;
+    reason: string;
+  }) =>
+    api<{
+      success: boolean;
+      message: string;
+      shareholder_id: number;
+      shareholder_phone: string;
+      amount: string;
+      remaining_balance: string;
+      total_earned: string;
+      log_id: number;
+    }>("/api/admin/shareholders/deduct/", {
+      method: "POST",
+      body: payload,
+    }),
   getShareholderPayoutAccounts: () =>
     api<{ payout_accounts: import("./types").ShareholderPayoutAccountItem[] }>("/api/admin/shareholders/payout-accounts/"),
   createShareholderPayoutAccount: (payload: {

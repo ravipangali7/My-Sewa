@@ -4095,10 +4095,12 @@ class ShareholderRevenueLog(models.Model):
     SOURCE_GGR = 'ggr_monthly_fee'
     SOURCE_API_DEPOSIT = 'payment_api_deposit_fee'
     SOURCE_API_WITHDRAW = 'payment_api_withdraw_fee'
+    SOURCE_ADMIN_DEDUCTION = 'admin_deduction'
     SOURCE_CHOICES = [
         (SOURCE_GGR, 'Monthly GGR Profit Cut'),
         (SOURCE_API_DEPOSIT, 'Payment API Deposit Fee'),
         (SOURCE_API_WITHDRAW, 'Payment API Withdraw Fee'),
+        (SOURCE_ADMIN_DEDUCTION, 'Admin Deduction'),
     ]
 
     shareholder = models.ForeignKey(

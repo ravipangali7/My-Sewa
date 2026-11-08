@@ -683,6 +683,81 @@ def execute_shareholder_withdrawal(
     return withdrawal
 
 
+def deduct_shareholder_earnings(
+    shareholder,
+    amount: Decimal,
+    reason: str,
+    admin_user=None,
+    reference: str = "",
+) -> tuple[ShareholderWallet, ShareholderRevenueLog]:
+    """
+    Admin deducts accumulated platform share income earnings from a shareholder's ShareholderWallet.
+    Atomically decreases ShareholderWallet.balance and ShareholderWallet.total_earned,
+    and creates a ShareholderRevenueLog with negative amount and source='admin_deduction'.
+    """
+    try:
+        amount = Decimal(str(amount)).quantize(Decimal('0.01'))
+    except Exception:
+        raise ValueError("Invalid deduction amount.")
+
+    if amount <= Decimal('0.00'):
+        raise ValueError("Deduction amount must be greater than zero.")
+
+    reason = (reason or '').strip()
+    if not reason:
+        raise ValueError("A reason is required for deducting shareholder earnings.")
+
+    if getattr(shareholder, 'role', None) != User.ROLE_SHAREHOLDER and not hasattr(shareholder, 'shareholder_wallet'):
+        raise ValueError(f"User {getattr(shareholder, 'phone', shareholder)} is not a shareholder.")
+
+    with transaction.atomic():
+        wallet = ensure_shareholder_wallet(shareholder)
+        wallet = ShareholderWallet.objects.select_for_update().get(pk=wallet.pk)
+
+        if wallet.balance < amount:
+            raise ValueError(
+                f"Insufficient shareholder earnings balance. Available balance: NPR {wallet.balance}, requested deduction: NPR {amount}."
+            )
+
+        balance_before = wallet.balance
+        wallet.balance -= amount
+        wallet.total_earned = max(Decimal('0.00'), (wallet.total_earned or Decimal('0.00')) - amount)
+        wallet.save(update_fields=['balance', 'total_earned', 'updated_at'])
+
+        if not reference:
+            reference = f"SH-DEDUCT-{shareholder.pk}-{int(timezone.now().timestamp())}"
+
+        notes_parts = [f"Deduction reason: {reason}"]
+        if admin_user:
+            admin_name = getattr(admin_user, 'phone', None) or getattr(admin_user, 'first_name', None) or str(admin_user)
+            notes_parts.append(f"Deducted by admin {admin_name}")
+        notes_text = " | ".join(notes_parts)
+
+        log = ShareholderRevenueLog.objects.create(
+            shareholder=shareholder,
+            amount=-amount,
+            source=ShareholderRevenueLog.SOURCE_ADMIN_DEDUCTION,
+            reference=reference,
+            notes=notes_text,
+        )
+
+    # Send notifications (email and push) to shareholder
+    try:
+        from .notifications import notify_shareholder_earnings_deduction
+        notify_shareholder_earnings_deduction(
+            shareholder=shareholder,
+            amount=amount,
+            balance_before=balance_before,
+            balance_after=wallet.balance,
+            reason=reason,
+            ref=reference,
+        )
+    except Exception:
+        logger.exception("Failed to send notification for shareholder earnings deduction")
+
+    return wallet, log
+
+
 def record_shareholder_transaction_fee(txn) -> list[ShareholderRevenueLog]:
     """
     Called when an outbound transaction succeeds (e.g. BankTransferTransaction).

@@ -44,6 +44,7 @@ from ..services.ggr_service import (
     process_payment_api_deposit,
     process_payment_api_withdraw,
     execute_shareholder_withdrawal,
+    deduct_shareholder_earnings,
     sync_historical_revenue_to_shareholders,
 )
 from .admin_views import IsStaffOrShareholder, IsStaffUser
@@ -459,6 +460,7 @@ def admin_shareholder_dashboard(request):
     ggr_revenue = ShareholderRevenueLog.objects.filter(source=ShareholderRevenueLog.SOURCE_GGR).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     api_deposit_revenue = ShareholderRevenueLog.objects.filter(source=ShareholderRevenueLog.SOURCE_API_DEPOSIT).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     api_withdraw_revenue = ShareholderRevenueLog.objects.filter(source=ShareholderRevenueLog.SOURCE_API_WITHDRAW).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    admin_deduction_total = abs(ShareholderRevenueLog.objects.filter(source=ShareholderRevenueLog.SOURCE_ADMIN_DEDUCTION).aggregate(total=Sum('amount'))['total'] or Decimal('0.00'))
 
     # Current user's shareholder wallet (if user is shareholder)
     shareholder_wallet = None
@@ -579,6 +581,7 @@ def admin_shareholder_dashboard(request):
             'ggr_revenue': str(ggr_revenue),
             'api_deposit_revenue': str(api_deposit_revenue),
             'api_withdraw_revenue': str(api_withdraw_revenue),
+            'admin_deduction_total': str(admin_deduction_total),
             'api_partners_count': api_partners.count(),
         },
         'developer_api_partners': api_partners_data,
@@ -719,6 +722,89 @@ def admin_shareholder_withdraw(request):
             'payout_account_id': payout_account_id,
         })
     except (ValueError, PermissionError) as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_deduct_shareholder_earnings(request):
+    """
+    Super Admin or Staff with wallet adjustment permissions deducts accumulated
+    share income earnings from a shareholder's ShareholderWallet.
+    Body:
+    {
+        "shareholder_id": 12, // or "phone": "98XXXXXXXX"
+        "amount": "500.00",
+        "reason": "Adjustment for overpaid commission"
+    }
+    """
+    from ..services.app_config import require_user_feature
+    blocked = require_user_feature(request.user, 'wallet_adjustment')
+    if blocked:
+        return blocked
+
+    shareholder_id = request.data.get('shareholder_id')
+    phone = (request.data.get('phone') or '').strip()
+    raw_amount = request.data.get('amount')
+    reason = (request.data.get('reason') or '').strip()
+
+    if not reason:
+        return Response(
+            {'error': 'Reason is required to explain the earnings deduction.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        amount = Decimal(str(raw_amount)).quantize(Decimal('0.01'))
+        if amount <= Decimal('0.00'):
+            raise ValueError()
+    except (InvalidOperation, ValueError, TypeError):
+        return Response(
+            {'error': 'Amount must be a positive number.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    shareholder = None
+    if shareholder_id:
+        try:
+            shareholder = User.objects.filter(pk=int(shareholder_id)).first()
+        except (ValueError, TypeError):
+            return Response({'error': 'Invalid shareholder_id.'}, status=status.HTTP_400_BAD_REQUEST)
+    elif phone:
+        shareholder = User.objects.filter(phone=phone).first()
+    else:
+        return Response(
+            {'error': 'shareholder_id or phone is required.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not shareholder:
+        return Response({'error': 'Shareholder account not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if shareholder.role != User.ROLE_SHAREHOLDER and not hasattr(shareholder, 'shareholder_wallet'):
+        return Response(
+            {'error': f'User {shareholder.phone} does not have the Shareholder role.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        wallet, log = deduct_shareholder_earnings(
+            shareholder=shareholder,
+            amount=amount,
+            reason=reason,
+            admin_user=request.user,
+        )
+        return Response({
+            'success': True,
+            'message': f'Successfully deducted NPR {amount} from {shareholder.phone} share income earnings.',
+            'shareholder_id': shareholder.id,
+            'shareholder_phone': shareholder.phone,
+            'amount': str(amount),
+            'remaining_balance': str(wallet.balance),
+            'total_earned': str(wallet.total_earned),
+            'log_id': log.id,
+        })
+    except ValueError as exc:
         return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
 
