@@ -2504,6 +2504,26 @@ console.log(await res.json());`}
  <Copy className="size-3" />
  </button>
  </div>
+
+ {dynamicQrUrl ? (
+ <Button
+ type="button"
+ variant="outline"
+ size="sm"
+ className="h-8 gap-1.5 text-xs rounded-full font-medium"
+ onClick={() => {
+ const a = document.createElement("a");
+ a.href = dynamicQrUrl;
+ a.download = `mysewa-qr-${depositRef || "deposit"}.png`;
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ }}
+ >
+ <Download className="size-3.5 text-emerald-600" />
+ Download QR Image
+ </Button>
+ ) : null}
  </div>
 
  {/* Fee Breakdown */}

@@ -1430,6 +1430,40 @@ h1 {
   background: #fff;
   padding: 8px;
 }
+.qr-download-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 6px 0 10px;
+}
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: #f4f4f5;
+  color: #18181b;
+  border: 1px solid #d4d4d8;
+  border-radius: 9999px;
+  padding: 8px 18px;
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.btn-download:hover {
+  background: #e4e4e7;
+  border-color: #a1a1aa;
+  color: #09090b;
+}
+.btn-download:active {
+  transform: scale(0.98);
+}
+.btn-download svg {
+  flex-shrink: 0;
+  color: #059669;
+}
 .qr.placeholder {
   width: min(100%, 320px);
   min-height: 240px;
@@ -2044,8 +2078,40 @@ def api_payin_qr_page_response(
         title = 'भुक्तानी गर्न स्क्यान गर्नुहोस्'
         remaining = QR_COUNTDOWN_SECONDS if seconds_left is None else int(seconds_left)
         if show_qr:
+            safe_order = escape(order_id or reference or 'mysewa')
             qr_block = (
-                f'<div class="qr"><img src="{escape(safe_src)}" alt="Payment QR"/></div>'
+                f'<div class="qr"><img src="{escape(safe_src)}" alt="Payment QR" id="payment-qr-img"/></div>'
+                '<div class="qr-download-wrap">'
+                '<button type="button" class="btn-download" id="download-qr-btn" onclick="downloadQrImage()">'
+                '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+                '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>'
+                '<polyline points="7 10 12 15 17 10"/>'
+                '<line x1="12" y1="15" x2="12" y2="3"/>'
+                '</svg>'
+                '<span>QR डाउनलोड गर्नुहोस् (Download QR)</span>'
+                '</button>'
+                '</div>'
+                '<script>(function(){'
+                f'var filename = "mysewa-qr-{safe_order}.png";'
+                'window.downloadQrImage = function() {'
+                'var img = document.getElementById("payment-qr-img") || document.querySelector(".qr img");'
+                'if (!img || !img.src) return;'
+                'var src = img.src;'
+                'if (src.indexOf("data:") === 0) {'
+                'var a = document.createElement("a");'
+                'a.href = src; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);'
+                'return;'
+                '}'
+                'fetch(src, { mode: "cors" }).then(function(r){ return r.blob(); }).then(function(b){'
+                'var u = URL.createObjectURL(b); var a = document.createElement("a");'
+                'a.href = u; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);'
+                'setTimeout(function(){ URL.revokeObjectURL(u); }, 1500);'
+                '}).catch(function(){'
+                'var a = document.createElement("a"); a.href = src; a.target = "_blank"; a.download = filename;'
+                'document.body.appendChild(a); a.click(); document.body.removeChild(a);'
+                '});'
+                '};'
+                '})();</script>'
             )
             action = ''
         else:

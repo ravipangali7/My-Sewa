@@ -32,6 +32,7 @@ In addition to the 3 core APIs, MySewa provides supporting endpoints:
 3. [The 3 Core APIs & Endpoints](#the-3-core-apis--endpoints)
    - [Bank Verify API](#bank-verify-api) (`POST /api/v1/verifiedbank/`)
    - [Deposit API (Payin / Wallet Load)](#deposit-api-payin--wallet-load) (`POST /api/v1/payin/`)
+   - [MySewa Internal QR Deposit Integration Guide](#mysewa-internal-qr-deposit-integration-guide-fonepay-direct-qr) (Fonepay Direct-QR)
    - [Withdraw API (Bank Transfer / Payout)](#withdraw-api-bank-transfer--payout) (`POST /api/v1/banktransfer/`)
    - [Bank List API](#bank-list-api) (`GET /api/v1/banklist/`)
    - [Deposit Status API](#deposit-status-api) (`GET /api/v1/payin/status/`)
@@ -403,6 +404,102 @@ console.log(response.status, data);
 - Default mode=direct_qr returns a MySewa /api/deposit/paybridge/qr/ URL and qr_image. Optional mode=hosted returns PayBridge checkout. HimalPay is never used.
 - customer_* fields only affect PayBridge checkout display; receiver still receives the wallet credit.
 - Configure a Webhook URL on the API user (Admin → API Users). After verified payment.succeeded, MySewa POSTs status, amount, reference, and order/transaction ids to that URL once (idempotent).
+
+## MySewa Internal QR Deposit Integration Guide (Fonepay Direct-QR)
+
+Instead of redirecting your customers to PayBridge direct hosted checkout (`checkout.paybridgenp.com`) with external method-picker screens, MySewa provides an **Internal Direct-QR Payment Page** (`https://mysewaserver.sewabyapar.com/api/deposit/paybridge/qr/?order={order_id}`) along with a dynamic QR payload (`qr_image`).
+
+### Why Use MySewa Internal QR?
+
+1. **Brand Consistency & Seamless UX**: The checkout interface runs entirely on MySewa's trusted domain (`mysewaserver.sewabyapar.com`), keeping your players and users inside your platform ecosystem without confusing third-party redirects.
+2. **Instant Dynamic Fonepay QR**: The QR code is displayed immediately upon opening the page — no need to click through extra "Pay with Fonepay" payment method screens.
+3. **Universal Nepal Banking Compatibility**: Compatible with **all** Nepalese mobile banking apps (Fonepay, eSewa, Khalti, Global Smart Plus, Nabil SmartBank, NIC Asia MoBank, Prabhu, Sanima, Himalayan Bank, and all commercial/development banks).
+4. **Built-in "Download QR Image" Feature**: The internal QR page includes a dedicated **"QR डाउनलोड गर्नुहोस् (Download QR)"** button right below the QR code. Mobile users can download the QR image directly into their photo gallery with one tap, switch to their mobile banking app, and scan the QR from their photos to pay instantly.
+5. **Real-Time Live Polling & Auto-Redirect**: The internal QR page automatically polls the backend every few seconds. Once payment is completed and verified, it presents an instant success confirmation and automatically redirects the customer back to your configured `return_url`.
+6. **Built-in Countdown Timer**: Features an intuitive Devanagari & English countdown timer (2 minutes) to ensure high completion rates.
+
+---
+
+### How to Integrate MySewa Internal QR
+
+#### 1. Create Deposit via Payin API (`POST /api/v1/payin/`)
+Call the Payin API endpoint using `mode: "direct_qr"` (default mode):
+
+```bash
+curl -X POST "https://mysewaserver.sewabyapar.com/api/v1/payin/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "receiver": "98XXXXXXXX",
+    "amount": 1000,
+    "reference": "DEP-20261109-001",
+    "mode": "direct_qr",
+    "return_url": "https://yourgame.example/deposit/complete"
+  }'
+```
+
+#### 2. Payin API Response Payload
+The API returns both the internal QR page URL (`checkout_url` / `payment_url`) and the Base64 QR code image (`qr_image`):
+
+```json
+{
+  "success": true,
+  "message": "Payin checkout ready",
+  "transaction_id": "MS-PB-9d4ef9284fd04440ba34fde7eaf4f4ff",
+  "deposit_id": 12345,
+  "order_id": "MS-PB-9d4ef9284fd04440ba34fde7eaf4f4ff",
+  "reference": "DEP-20261109-001",
+  "receiver": "98XXXXXXXX",
+  "amount": 1000,
+  "currency": "NPR",
+  "status": "PENDING",
+  "provider": "paybridgenp",
+  "mode": "direct_qr",
+  "checkout_url": "https://mysewaserver.sewabyapar.com/api/deposit/paybridge/qr/?order=MS-PB-9d4ef9284fd04440ba34fde7eaf4f4ff",
+  "payment_url": "https://mysewaserver.sewabyapar.com/api/deposit/paybridge/qr/?order=MS-PB-9d4ef9284fd04440ba34fde7eaf4f4ff",
+  "qr_image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+  "session_id": "cs_direct_qr_12345",
+  "expires_at": "2026-11-09T11:45:00+05:45",
+  "failure_reason": "",
+  "verification_status": "unverified"
+}
+```
+
+---
+
+### Implementation Approaches
+
+#### Option A: Direct Redirect to MySewa Internal QR Page (Recommended)
+Open `checkout_url` / `payment_url` in a new browser tab, iframe, or mobile WebView.
+
+- URL format: `https://mysewaserver.sewabyapar.com/api/deposit/paybridge/qr/?order=MS-PB-...`
+- The user completes payment using the live QR code or taps **QR डाउनलोड गर्नुहोस् (Download QR)**.
+- Once completed, the page automatically redirects the customer to your `return_url`.
+
+#### Option B: Native In-App Embedding with Download QR Image Button
+If you want to keep users entirely inside your native mobile or web interface:
+
+1. Render `qr_image` (Base64 data URL) in your app's UI.
+2. Provide a **Download QR Image** button so mobile users can save the QR code to their device gallery.
+
+**JavaScript Example for Native Download Button:**
+```javascript
+function downloadPaymentQr(qrBase64DataUrl, orderId) {
+  const link = document.createElement('a');
+  link.href = qrBase64DataUrl;
+  link.download = `mysewa-qr-${orderId || 'deposit'}.png`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+```
+
+#### Option C: Status Verification & Webhooks
+1. **Server-to-Server Webhook**: Once the user scans and pays, MySewa's backend verifies the payment and immediately triggers a signed webhook to your registered developer webhook URL (`Admin → API Users → Webhook URL`).
+2. **Polling API**: You can also poll the status at any time:
+   ```bash
+   GET https://mysewaserver.sewabyapar.com/api/v1/payin/status/?reference=DEP-20261109-001
+   ```
 
 ## Withdraw API (Bank Transfer / Payout)
 
