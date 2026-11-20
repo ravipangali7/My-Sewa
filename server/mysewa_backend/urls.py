@@ -18,8 +18,14 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf.urls.static import static
 from django.conf import settings
+from django.http import HttpResponse
+
+def google_verification(request):
+    return HttpResponse("google-site-verification: google27ef5f306c66452a.html", content_type="text/html")
+
 
 urlpatterns = [
+    path('google27ef5f306c66452a.html', google_verification),
     path('database/', admin.site.urls),
     path('', include('core.urls')),
 ]
