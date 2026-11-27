@@ -620,9 +620,9 @@ def documentation_payload(request=None) -> dict:
         'query': [],
         'request_body': {
             'receiver': {
-                'required': True,
+                'required': False,
                 'type': 'string',
-                'description': 'MySewa phone of the wallet to credit. Aliases: phone, mobile.',
+                'description': 'MySewa phone of the wallet to credit (defaults to authenticated API partner if omitted or not found). Aliases: phone, mobile.',
                 'example': '98XXXXXXXX',
             },
             'amount': {

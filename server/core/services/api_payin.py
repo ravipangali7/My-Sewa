@@ -423,7 +423,24 @@ def execute_api_payin(request) -> Response:
     if bounds_err:
         return fail('Invalid amount', bounds_err, 'invalid_amount', status.HTTP_400_BAD_REQUEST)
 
-    recipient = lookup_active_user(receiver_raw)
+    # Resolve recipient wallet user:
+    # 1. If explicit receiver provided, attempt lookup.
+    # 2. If not found or not provided, fallback to authenticated merchant partner
+    #    (handles case where merchant phone was changed or formatted differently).
+    recipient = None
+    if raw_receiver:
+        recipient = lookup_active_user(raw_receiver)
+        if recipient is None and getattr(partner, 'is_api_user', False):
+            logger.warning(
+                'API payin receiver "%s" not found on MySewa; defaulting to authenticated partner %s (phone=%s)',
+                raw_receiver,
+                partner.pk,
+                getattr(partner, 'phone', ''),
+            )
+            recipient = partner
+    else:
+        recipient = partner
+
     if recipient is None:
         return fail(
             'Receiver not found',

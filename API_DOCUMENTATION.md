@@ -278,7 +278,7 @@ Starts a PayBridgeNP wallet-load for an existing MySewa user (receiver phone). T
 
 | Field | Required | Type | Description |
 | --- | --- | --- | --- |
-| `receiver` | yes | string | MySewa phone of the wallet to credit. Aliases: phone, mobile. |
+| `receiver` | no | string | MySewa phone of the wallet to credit. Defaults to authenticated merchant partner wallet if omitted or not found. Aliases: phone, mobile. |
 | `amount` | yes | number | NPR amount to load. Subject to deposit min/max in Settings. |
 | `reference` | yes | string | Unique client reference (1–64 chars: letters, digits, ._-). Used for idempotency. |
 | `mode` | no | string | Payment presentation. Default "direct_qr" opens MySewa's QR page with the Fonepay image. Pass "hosted" for PayBridge's method picker. |

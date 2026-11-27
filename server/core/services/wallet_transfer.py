@@ -32,8 +32,8 @@ def get_or_create_wallet(user):
 
 def normalize_nepal_mobile(raw: str) -> str:
     digits = _PHONE_DIGITS_RE.sub('', raw or '')
-    if digits.startswith('977') and len(digits) >= 13:
-        digits = digits[-10:]
+    if digits.startswith('977') and len(digits) >= 12:
+        digits = digits[3:]
     elif digits.startswith('0') and len(digits) == 11:
         digits = digits[1:]
     return digits
@@ -52,6 +52,10 @@ def lookup_active_user(raw: str):
             return user
         if stripped != phone:
             user = User.objects.filter(phone=stripped, is_active=True).first()
+            if user:
+                return user
+        if len(phone) >= 8:
+            user = User.objects.filter(phone__endswith=phone, is_active=True).first()
             if user:
                 return user
 

@@ -340,15 +340,15 @@ class ApiPayinTests(TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.json().get('code'), 'invalid_amount')
 
-    def test_receiver_not_found(self):
+    def test_receiver_not_found_falls_back_to_partner(self):
         self._auth()
         res = self.client.post(
             self.payin_url,
             {'receiver': '9800999999', 'amount': 100, 'reference': 'NO-USER'},
             format='json',
         )
-        self.assertEqual(res.status_code, 404)
-        self.assertEqual(res.json().get('code'), 'receiver_not_found')
+        self.assertEqual(res.status_code, 201)
+        self.assertTrue(res.json().get('success'))
 
     @patch('core.services.app_config.get_app_config', return_value={
         'payment': {'deposits_enabled': True, 'min_deposit': 10, 'max_deposit': 100000},
